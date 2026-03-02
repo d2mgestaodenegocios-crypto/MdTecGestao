@@ -405,16 +405,15 @@ function LoginScreen({ onLogin, onSignUp }) {
   const iSt = { padding: "11px 14px", borderRadius: 10, fontSize: 14, border: "2px solid #e5e7eb", outline: "none", fontFamily: "inherit", color: "#111", background: "#fff", transition: "border .15s", width: "100%" };
 
   return (
-    <div style={{ minHeight: "100dvh", background: "linear-gradient(135deg,#0f172a 0%,#1e1b4b 50%,#0f172a 100%)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-      {/* Logo */}
-      <div style={{ width: "100%", maxWidth: 400 }}>
+    <div style={{ minHeight: "100dvh", width: "100%", background: "linear-gradient(135deg,#0f172a 0%,#1e1b4b 50%,#0f172a 100%)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px 16px" }}>
+      <div style={{ width: "100%", maxWidth: 420 }}>
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <div style={{ width: 64, height: 64, borderRadius: 18, background: "linear-gradient(135deg,#6366f1,#8b5cf6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32, color: "#fff", fontWeight: 900, boxShadow: "0 8px 32px rgba(99,102,241,.5)", margin: "0 auto 16px" }}>M</div>
           <h1 style={{ fontSize: 26, fontWeight: 900, color: "#f8fafc", letterSpacing: "-.02em" }}>MdTec Gestão</h1>
           <p style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Sistema de gerenciamento de tarefas</p>
         </div>
 
-        <div style={{ background: "#fff", borderRadius: 20, padding: 32, boxShadow: "0 32px 80px rgba(0,0,0,.4)" }}>
+        <div style={{ background: "#fff", borderRadius: 20, padding: "28px 24px", boxShadow: "0 32px 80px rgba(0,0,0,.4)" }}>
           {/* Tabs */}
           <div style={{ display: "flex", gap: 4, marginBottom: 24, background: "#f1f5f9", borderRadius: 10, padding: 4 }}>
             {[["login","Entrar"],["signup","Criar conta"]].map(([m,l]) => (
@@ -1811,7 +1810,7 @@ function App(){
   const curPage     =NAV_GROUPS.flatMap(g=>g.items).find(i=>i.id===page);
 
   return(
-    <div className="shell">
+    <div className="shell" style={{minHeight:"100dvh",width:"100%"}}>
       {}
       <aside className={`sidebar${sideCol?" slim":""}`}>
         <div className="sb-logo" style={{padding:sideCol?"14px 12px":"20px 16px",borderBottom:"1px solid rgba(255,255,255,.06)"}}>

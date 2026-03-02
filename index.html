@@ -175,13 +175,15 @@ const RINTS=[
   {value:"yearly",label:"Anual"}
 ];
 const NAV_GROUPS=[
-  {label:"Visualizações",items:[{id:"dashboard",icon:"✦",label:"Dashboard"},{id:"kanban",icon:"⊞",label:"Kanban"},{id:"lista",icon:"☰",label:"Lista"},{id:"calendario",icon:"📅",label:"Calendário"},{id:"tabela",icon:"▦",label:"Tabela"}]},
+  {label:"Visualizações",items:[{id:"dashboard",icon:"✦",label:"Dashboard"},{id:"kanban",icon:"⊞",label:"Kanban"},{id:"lista",icon:"☰",label:"Lista"},{id:"calendario",icon:"📅",label:"Calendário"},{id:"tabela",icon:"▦",label:"Tabela"},{id:"arquivadas",icon:"📦",label:"Arquivadas"}]},
   {label:"Cadastros",items:[{id:"modelos",icon:"◧",label:"Modelos"},{id:"empresas",icon:"⬡",label:"Empresas"},{id:"setores",icon:"◫",label:"Setores"},{id:"colaboradores",icon:"◉",label:"Colaboradores"},{id:"marcadores",icon:"◈",label:"Marcadores"},{id:"recorrencias",icon:"↻",label:"Recorrências"}]},
+  {label:"Sistema",items:[{id:"configuracoes",icon:"⚙",label:"Configurações"}]},
 ];
 
 /* -- Seed Data -- */
 const SEED={
   version:6,
+  archiveDays:30,
   companies:[
     {id:"co1",name:"MdTec Solutions",color:"#6366f1",logo:"MT",tributacao:"Lucro Presumido",cnpj:"12.345.678/0001-90"},
     {id:"co2",name:"TechStart Ltda",color:"#14b8a6",logo:"TS",tributacao:"Simples Nacional",cnpj:"98.765.432/0001-10"},
@@ -353,13 +355,14 @@ function useSharedData() {
     return () => sb.removeChannel(channel);
   }, [load]);
 
-  const setData = useCallback(async (updater) => {
+  const setData = useCallback((updater) => {
     setRaw(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
-      // Salva no Supabase de forma assíncrona
-      sb.from("app_data").upsert({ id: 1, payload: next }).then(({ error }) => {
-        if (error) console.error("Erro ao salvar:", error);
-      });
+      // Save to Supabase async (fire-and-forget)
+      setTimeout(() => {
+        sb.from("app_data").upsert({ id: 1, payload: next })
+          .then(({ error }) => { if(error) console.error("Supabase save error:", error); });
+      }, 0);
       return next;
     });
   }, []);
@@ -453,6 +456,159 @@ function LoginScreen({ onLogin, onSignUp }) {
     </div>
   );
 }
+
+/* Modal de confirmacao de exclusao */
+function ConfirmDelete({open,onClose,onConfirm,title,word="EXCLUIR"}){
+  const [typed,setTyped]=useState("");
+  useEffect(()=>{if(open)setTyped("");},[open]);
+  if(!open)return null;
+  const ok=typed.trim().toUpperCase()===word.toUpperCase();
+  return(
+    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.65)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}>
+      <div style={{background:"#fff",borderRadius:18,width:"100%",maxWidth:430,boxShadow:"0 32px 80px rgba(0,0,0,.3)",animation:"popIn .2s ease",overflow:"hidden"}}>
+        <div style={{background:"#fef2f2",padding:"18px 22px 14px",borderBottom:"1px solid #fecaca",display:"flex",alignItems:"center",gap:12}}>
+          <div style={{width:42,height:42,borderRadius:10,background:"#ef4444",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>🗑</div>
+          <div>
+            <div style={{fontSize:15,fontWeight:900,color:"#991b1b"}}>Confirmar exclusão</div>
+            <div style={{fontSize:12,color:"#dc2626",marginTop:2}}>{title}</div>
+          </div>
+        </div>
+        <div style={{padding:"20px 22px"}}>
+          <p style={{fontSize:13,color:"#374151",marginBottom:14,lineHeight:1.6}}>
+            Esta ação <strong>não pode ser desfeita</strong>.<br/>
+            Digite <strong style={{color:"#ef4444",letterSpacing:2}}>{word}</strong> abaixo para confirmar:
+          </p>
+          <input autoFocus value={typed} onChange={e=>setTyped(e.target.value)} onKeyDown={e=>e.key==="Enter"&&ok&&onConfirm()}
+            placeholder={word}
+            style={{width:"100%",padding:"10px 14px",borderRadius:9,fontSize:14,fontWeight:700,letterSpacing:2,border:"2px solid "+(ok?"#22c55e":"#e5e7eb"),outline:"none",fontFamily:"inherit",textTransform:"uppercase",color:"#0f172a",transition:"border .15s",background:ok?"#f0fdf4":"#fff"}}
+          />
+          <div style={{display:"flex",gap:10,marginTop:16,justifyContent:"flex-end"}}>
+            <button onClick={onClose} style={{padding:"8px 18px",borderRadius:9,border:"2px solid #e5e7eb",background:"#fff",color:"#374151",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Cancelar</button>
+            <button onClick={onConfirm} disabled={!ok} style={{padding:"8px 18px",borderRadius:9,border:"none",background:ok?"#ef4444":"#fca5a5",color:"#fff",fontSize:13,fontWeight:700,cursor:ok?"pointer":"not-allowed",fontFamily:"inherit",transition:"all .15s"}}>
+              {ok?"Sim, excluir":"Digite para confirmar"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function useConfirmDelete(){
+  const [st,setSt]=useState({open:false,title:"",onConfirm:null});
+  const ask=useCallback((title,onConfirm)=>setSt({open:true,title,onConfirm}),[]);
+  const close=useCallback(()=>setSt(s=>({...s,open:false})),[]);
+  const confirm=useCallback(()=>{if(st.onConfirm)st.onConfirm();close();},[st,close]);
+  return{ask,modal:<ConfirmDelete open={st.open} onClose={close} onConfirm={confirm} title={st.title}/>};
+}
+
+
+function ArchivedPage({data,setData,toast}){
+  const archived=(data.archivedTasks||[]);
+  const {ask:askDel,modal:delModal}=useConfirmDelete();
+
+  const restore=(task)=>{
+    setData(d=>({
+      ...d,
+      tasks:[...d.tasks,{...task,status:"todo",archivedAt:null}],
+      archivedTasks:(d.archivedTasks||[]).filter(t=>t.id!==task.id)
+    }));
+    toast("↩ Tarefa restaurada!","ok");
+  };
+
+  const delArchived=(id)=>{
+    const t=archived.find(x=>x.id===id);
+    askDel(`Tarefa: "${t?.title||""}"`,()=>{
+      setData(d=>({...d,archivedTasks:(d.archivedTasks||[]).filter(t=>t.id!==id)}));
+      toast("Tarefa excluída permanentemente.","warn");
+    });
+  };
+
+  return(
+    <div>
+      <PH title="Arquivadas" icon="📦" badge={archived.length}/>
+      {archived.length===0?(
+        <div style={{textAlign:"center",padding:"60px 20px",color:"#94a3b8"}}>
+          <div style={{fontSize:48,marginBottom:12}}>📦</div>
+          <div style={{fontSize:16,fontWeight:700,marginBottom:6}}>Nenhuma tarefa arquivada</div>
+          <div style={{fontSize:13}}>Tarefas concluídas há mais de {data.archiveDays||30} dias aparecerão aqui automaticamente.</div>
+        </div>
+      ):(
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {archived.map(t=>{
+            const co=data.companies.find(c=>c.id===t.company);
+            const asg=data.collaborators.filter(c=>t.assignees?.includes(c.id));
+            return(
+              <div key={t.id} style={{background:"#fff",borderRadius:12,padding:"12px 16px",border:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:12,opacity:0.85}}>
+                <div style={{width:8,height:8,borderRadius:"50%",background:"#94a3b8",flexShrink:0}}/>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:700,color:"#64748b",textDecoration:"line-through",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</div>
+                  <div style={{display:"flex",gap:8,marginTop:3,flexWrap:"wrap"}}>
+                    {co&&<span style={{fontSize:11,color:co.color,fontWeight:700}}>{co.logo}</span>}
+                    {t.archivedAt&&<span style={{fontSize:11,color:"#94a3b8"}}>Arquivado em {fmtDate(t.archivedAt)}</span>}
+                    {asg.slice(0,3).map((u,i)=><Av key={u.id} initials={u.initials} color={u.color} size={18} title={u.name}/>)}
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:6,flexShrink:0}}>
+                  <Btn onClick={()=>restore(t)} v="success" sz="sm">↩ Restaurar</Btn>
+                  <Btn onClick={()=>delArchived(t.id)} v="danger" sz="sm">🗑</Btn>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {delModal}
+    </div>
+  );
+}
+
+
+function ConfigPage({data,setData,toast}){
+  const [days,setDays]=useState(data.archiveDays||30);
+  const save=()=>{
+    setData(d=>({...d,archiveDays:Number(days)}));
+    toast("✅ Configurações salvas!","ok");
+  };
+  const archived=(data.archivedTasks||[]).length;
+  const iSt={padding:"9px 12px",borderRadius:9,fontSize:14,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",color:"#111",background:"#fff",width:"100%"};
+
+  return(
+    <div style={{maxWidth:560}}>
+      <PH title="Configurações" icon="⚙"/>
+
+      <div style={{background:"#fff",borderRadius:16,padding:24,border:"1px solid #f1f5f9",marginBottom:16,boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
+        <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:4}}>📦 Arquivamento automático</h3>
+        <p style={{fontSize:13,color:"#64748b",marginBottom:18,lineHeight:1.5}}>
+          Tarefas com status <strong>Concluído</strong> serão arquivadas automaticamente após o número de dias definido abaixo. Elas ficam visíveis na página <strong>Arquivadas</strong> e podem ser restauradas a qualquer momento.
+        </p>
+        <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+          <div style={{flex:"0 0 180px"}}>
+            <label style={{fontSize:12,fontWeight:700,color:"#374151",display:"block",marginBottom:5}}>Arquivar após (dias)</label>
+            <input type="number" min={1} max={365} value={days} onChange={e=>setDays(e.target.value)} style={iSt}/>
+          </div>
+          <div style={{paddingTop:22}}>
+            <Btn onClick={save}>Salvar configuração</Btn>
+          </div>
+        </div>
+        <div style={{marginTop:16,padding:"10px 14px",borderRadius:9,background:"#f8fafc",border:"1px solid #f1f5f9",fontSize:12,color:"#64748b"}}>
+          Configuração atual: tarefas concluídas há mais de <strong>{data.archiveDays||30} dias</strong> são arquivadas.
+          {archived>0&&<span style={{marginLeft:8,color:"#6366f1",fontWeight:700}}>{archived} tarefa{archived!==1?"s":""} arquivada{archived!==1?"s":""}.</span>}
+        </div>
+      </div>
+
+      <div style={{background:"#fff",borderRadius:16,padding:24,border:"1px solid #f1f5f9",boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
+        <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:4}}>ℹ️ Sobre o sistema</h3>
+        <p style={{fontSize:13,color:"#64748b",lineHeight:1.6}}>
+          <strong>MdTec Gestão</strong> — Sistema de gerenciamento de tarefas.<br/>
+          Dados sincronizados em tempo real via Supabase.<br/>
+          Versão 6.0 — Multiusuário com login.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function useLocks(){
   const [locks,setLocksState]=useState(()=>{
     try{return JSON.parse(localStorage.getItem(LOCK_KEY)||"{}");}catch{return {};}
@@ -782,12 +938,17 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,lockInfo,onForce}){
         </div>
       </Fld>
 
-      <div style={{display:"flex",gap:10,justifyContent:"flex-end",paddingTop:10,borderTop:"1px solid #f3f4f6",flexWrap:"wrap"}}>
-        <Btn onClick={onClose} v="ghost">Cancelar</Btn>
-        {blocked
-          ?<span style={{fontSize:12,color:"#94a3b8",alignSelf:"center"}}>Aguardando liberação da edição...</span>
-          :<Btn onClick={()=>f.title.trim()&&onSave(f)} disabled={!f.title.trim()}>{task?"💾 Salvar Alterações":"✦ Criar Tarefa"}</Btn>
-        }
+      <div style={{display:"flex",gap:10,justifyContent:"space-between",paddingTop:10,borderTop:"1px solid #f3f4f6",flexWrap:"wrap",alignItems:"center"}}>
+        <div>
+          {task&&onDelete&&<Btn onClick={()=>onDelete(f.id)} v="danger" disabled={blocked}>🗑 Excluir Tarefa</Btn>}
+        </div>
+        <div style={{display:"flex",gap:10}}>
+          <Btn onClick={onClose} v="ghost">Cancelar</Btn>
+          {blocked
+            ?<span style={{fontSize:12,color:"#94a3b8",alignSelf:"center"}}>Aguardando liberação da edição...</span>
+            :<Btn onClick={()=>f.title.trim()&&onSave(f)} disabled={!f.title.trim()}>{task?"💾 Salvar Alterações":"✦ Criar Tarefa"}</Btn>
+          }
+        </div>
       </div>
     </div>
   );
@@ -984,13 +1145,13 @@ function ListView({data,onEdit,onDelete,onComplete}){
 
 /* ===========================================
    CALENDAR VIEW */
-function CalView({data,onEdit}){
+function CalView({data,onEdit,collaborators,companies,labels}){
   const now=new Date();
   const [m,sm]=useState(now.getMonth());
   const [y,sy]=useState(now.getFullYear());
   const wD=["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
   const dim=new Date(y,m+1,0).getDate(),fd=new Date(y,m,1).getDay();
-  const tbd=useMemo(()=>{const mp={};data.tasks.forEach(t=>{if(!t.dueDate)return;const d=new Date(t.dueDate+"T12:00:00");if(d.getMonth()===m&&d.getFullYear()===y){const day=d.getDate();mp[day]=[...(mp[day]||[]),t];}});return mp;},[data.tasks,m,y]);
+  const tbd=useMemo(()=>{const mp={};data.tasks.filter(t=>t.status!=="archived").forEach(t=>{if(!t.dueDate)return;const d=new Date(t.dueDate+"T12:00:00");if(d.getMonth()===m&&d.getFullYear()===y){const day=d.getDate();mp[day]=[...(mp[day]||[]),t];}});return mp;},[data.tasks,m,y]);
   const cells=[];for(let i=0;i<fd;i++)cells.push(null);for(let i=1;i<=dim;i++)cells.push(i);
   const prev=()=>{if(m===0){sm(11);sy(y-1);}else sm(m-1);};
   const next=()=>{if(m===11){sm(0);sy(y+1);}else sm(m+1);};
@@ -1012,7 +1173,23 @@ function CalView({data,onEdit}){
           return(
             <div key={day} style={{minHeight:78,padding:5,borderRadius:9,background:isT?"#eef2ff":"#fafafa",border:`1.5px solid ${isT?"#6366f1":"#f1f5f9"}`}}>
               <div style={{fontSize:11,fontWeight:800,width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:"50%",background:isT?"#6366f1":"transparent",color:isT?"#fff":"#374151",marginBottom:3}}>{day}</div>
-              {tasks.slice(0,2).map(t=>{const st=STS.find(s=>s.id===t.status);return<div key={t.id} onClick={()=>onEdit(t)} title={t.title} style={{fontSize:9,fontWeight:700,padding:"2px 4px",borderRadius:4,marginBottom:2,background:st.c+"20",color:st.c,cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t.title}</div>;})}
+              {tasks.slice(0,3).map(t=>{
+                const st=STS.find(s=>s.id===t.status)||STS[0];
+                const co=data.companies.find(x=>x.id===t.company);
+                const asg=data.collaborators.filter(x=>t.assignees.includes(x.id)).slice(0,2);
+                const lbs=data.labels.filter(x=>t.labels.includes(x.id)).slice(0,2);
+                return(
+                  <div key={t.id} onClick={()=>onEdit(t)} style={{marginBottom:3,borderRadius:6,border:"1.5px solid "+st.c+"33",background:"#fff",cursor:"pointer",overflow:"hidden"}}>
+                    <div style={{background:st.c,height:2}}/>
+                    <div style={{padding:"2px 4px"}}>
+                      <div style={{fontSize:9,fontWeight:800,color:"#0f172a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</div>
+                      {co&&<div style={{fontSize:8,color:co.color,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{co.logo||co.name.slice(0,2)} {co.name}</div>}
+                      {asg.length>0&&<div style={{display:"flex",gap:2,marginTop:1}}>{asg.map(u=><span key={u.id} style={{fontSize:7,fontWeight:700,padding:"1px 4px",borderRadius:4,background:u.color+"22",color:u.color}}>{u.initials||u.name.slice(0,2)}</span>)}</div>}
+                      {lbs.length>0&&<div style={{display:"flex",gap:2,marginTop:1,flexWrap:"wrap"}}>{lbs.map(l=><span key={l.id} style={{fontSize:7,fontWeight:700,padding:"1px 4px",borderRadius:4,background:l.color+"22",color:l.color}}>{l.name}</span>)}</div>}
+                    </div>
+                  </div>
+                );
+              })}
               {tasks.length>2&&<div style={{fontSize:9,color:"#94a3b8"}}>+{tasks.length-2}</div>}
             </div>
           );
@@ -1097,7 +1274,8 @@ function CompaniesPage({ data, setData }) {
     else setData(d=>({...d,companies:[...d.companies,{id:uid(),...form,logo}]}));
     setOpen(false);
   };
-  const del=(id)=>setData(d=>({...d,companies:d.companies.filter(c=>c.id!==id)}));
+  const {ask:askDel,modal:delModal}=useConfirmDelete();
+  const del=(id)=>{const item=data.companies.find(x=>x.id===id);askDel(`Empresa: "${item?.name||""}"`,()=>setData(d=>({...d,companies:d.companies.filter(c=>c.id!==id)})));};
 
   return (
     <div>
@@ -1153,6 +1331,7 @@ function CompaniesPage({ data, setData }) {
           </div>
         </div>
       </Modal>
+      {delModal}
     </div>
   );
 }
@@ -1170,7 +1349,8 @@ function SectorsPage({ data, setData }) {
     else setData(d=>({...d,sectors:[...d.sectors,{id:uid(),...form}]}));
     setOpen(false);
   };
-  const del=(id)=>setData(d=>({...d,sectors:d.sectors.filter(s=>s.id!==id)}));
+  const {ask:askDel,modal:delModal}=useConfirmDelete();
+  const del=(id)=>{const item=data.sectors.find(x=>x.id===id);askDel(`Setor: "${item?.name||""}"`,()=>setData(d=>({...d,sectors:d.sectors.filter(s=>s.id!==id)})));};
 
   return (
     <div>
@@ -1218,6 +1398,7 @@ function SectorsPage({ data, setData }) {
           </div>
         </div>
       </Modal>
+      {delModal}
     </div>
   );
 }
@@ -1236,7 +1417,8 @@ function CollaboratorsPage({ data, setData }) {
     else setData(d=>({...d,collaborators:[...d.collaborators,{id:uid(),...form,initials}]}));
     setOpen(false);
   };
-  const del=(id)=>setData(d=>({...d,collaborators:d.collaborators.filter(u=>u.id!==id)}));
+  const {ask:askDel,modal:delModal}=useConfirmDelete();
+  const del=(id)=>{const item=data.collaborators.find(x=>x.id===id);askDel(`Colaborador: "${item?.name||""}"`,()=>setData(d=>({...d,collaborators:d.collaborators.filter(u=>u.id!==id)})));};
   const filteredSectors=(c)=>data.sectors.filter(s=>!c||s.company===c);
 
   return (
@@ -1297,6 +1479,7 @@ function CollaboratorsPage({ data, setData }) {
           </div>
         </div>
       </Modal>
+      {delModal}
     </div>
   );
 }
@@ -1310,11 +1493,12 @@ function LabelsPage({ data, setData }) {
   const openEdit=(l)=>{setEditing(l);setForm({name:l.name,color:l.color});setOpen(true);};
   const save=()=>{
     if(!form.name.trim())return;
-    if(editing) setData(d=>({...d,labels:d.ls.map(l=>l.id===editing.id?{...l,...form}:l)}));
-    else setData(d=>({...d,labels:[...d.ls,{id:uid(),...form}]}));
+    if(editing) setData(d=>({...d,labels:d.labels.map(l=>l.id===editing.id?{...l,...form}:l)}));
+    else setData(d=>({...d,labels:[...d.labels,{id:uid(),...form}]}));
     setOpen(false);
   };
-  const del=(id)=>setData(d=>({...d,labels:d.ls.filter(l=>l.id!==id)}));
+  const {ask:askDel,modal:delModal}=useConfirmDelete();
+  const del=(id)=>{const item=data.labels.find(x=>x.id===id);askDel(`Marcador: "${item?.name||""}"`,()=>setData(d=>({...d,labels:d.labels.filter(l=>l.id!==id)})));};
 
   return (
     <div>
@@ -1349,6 +1533,7 @@ function LabelsPage({ data, setData }) {
           </div>
         </div>
       </Modal>
+      {delModal}
     </div>
   );
 }
@@ -1366,7 +1551,8 @@ function RecurrencesPage({ data, setData }) {
     else setData(d=>({...d,recurrences:[...d.recurrences,{id:uid(),...form}]}));
     setOpen(false);
   };
-  const del=(id)=>setData(d=>({...d,recurrences:d.recurrences.filter(r=>r.id!==id)}));
+  const {ask:askDel,modal:delModal}=useConfirmDelete();
+  const del=(id)=>{const item=data.recurrences.find(x=>x.id===id);askDel(`Recorrência: "${item?.name||""}"`,()=>setData(d=>({...d,recurrences:d.recurrences.filter(r=>r.id!==id)})));};
 
   const describeRec=(r)=>{
     if(r.interval==="custom_days" && r.days?.length>0)
@@ -1416,6 +1602,7 @@ function RecurrencesPage({ data, setData }) {
           </div>
         </div>
       </Modal>
+      {delModal}
     </div>
   );
 }
@@ -1434,7 +1621,8 @@ function TemplatesPage({ data, setData, onUseTemplate }) {
     else setData(d=>({...d,taskTemplates:[...d.taskTemplates,{id:uid(),...form}]}));
     setOpen(false);
   };
-  const del=(id)=>setData(d=>({...d,taskTemplates:d.taskTemplates.filter(t=>t.id!==id)}));
+  const {ask:askDel,modal:delModal}=useConfirmDelete();
+  const del=(id)=>{const item=data.taskTemplates.find(x=>x.id===id);askDel(`Modelo: "${item?.name||""}"`,()=>setData(d=>({...d,taskTemplates:d.taskTemplates.filter(t=>t.id!==id)})));};
   const addCk=()=>{if(!ckInput.trim())return;setForm(f=>({...f,checklist:[...f.checklist,ckInput.trim()]}));setCkInput("");};
   const toggleL=(id)=>setForm(f=>({...f,labels:f.labels.includes(id)?f.labels.filter(x=>x!==id):[...f.labels,id]}));
 
@@ -1502,6 +1690,7 @@ function TemplatesPage({ data, setData, onUseTemplate }) {
           </div>
         </div>
       </Modal>
+      {delModal}
     </div>
   );
 }
@@ -1518,11 +1707,18 @@ function Dashboard({ data }) {
   const [coFilter, setCoFilter] = useState("");
   // mNames alias removed - using MS constant
 
+  const [viewMode, setViewMode] = useState("month"); // month | year
+
   const filteredTasks = useMemo(()=>data.tasks.filter(t=>{
-    if(!t.dueDate) return false;
-    const d = new Date(t.dueDate+"T12:00:00");
-    return d.getMonth()===fMonth && d.getFullYear()===fYear && (!coFilter||t.company===coFilter);
-  }),[data.tasks,fMonth,fYear,coFilter]);
+    if(!coFilter || t.company===coFilter || !coFilter) {
+      const dateStr = t.createdAt || t.dueDate;
+      if(!dateStr) return viewMode==="year";
+      const d = new Date(dateStr+"T12:00:00");
+      if(viewMode==="year") return d.getFullYear()===fYear && (!coFilter||t.company===coFilter);
+      return d.getMonth()===fMonth && d.getFullYear()===fYear && (!coFilter||t.company===coFilter);
+    }
+    return false;
+  }),[data.tasks,fMonth,fYear,coFilter,viewMode]);
 
   const allTasks = coFilter ? data.tasks.filter(t=>t.company===coFilter) : data.tasks;
 
@@ -1568,18 +1764,25 @@ function Dashboard({ data }) {
       {/* Filtros de período */}
       <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:24,padding:"14px 18px",background:"#fff",borderRadius:14,border:"1px solid #f1f5f9",boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
         <span style={{fontSize:13,fontWeight:700,color:"#64748b"}}>📊 Período:</span>
-        <select value={fMonth} onChange={e=>setFMonth(Number(e.target.value))} style={{padding:"6px 10px",borderRadius:8,fontSize:13,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",background:"#fff"}}>
-          {MS.map((m,i)=><option key={i} value={i}>{m}</option>)}
-        </select>
+        <div style={{display:"flex",gap:4,background:"#f1f5f9",borderRadius:8,padding:3}}>
+          {[["month","Mensal"],["year","Anual"]].map(([v,l])=>(
+            <button key={v} onClick={()=>setViewMode(v)} style={{padding:"5px 12px",borderRadius:6,border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:700,background:viewMode===v?"#fff":"transparent",color:viewMode===v?"#6366f1":"#64748b",transition:"all .15s"}}>{l}</button>
+          ))}
+        </div>
+        {viewMode==="month" && (
+          <select value={fMonth} onChange={e=>setFMonth(Number(e.target.value))} style={{padding:"6px 10px",borderRadius:8,fontSize:13,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",background:"#fff"}}>
+            {MS.map((m,i)=><option key={i} value={i}>{m}</option>)}
+          </select>
+        )}
         <select value={fYear} onChange={e=>setFYear(Number(e.target.value))} style={{padding:"6px 10px",borderRadius:8,fontSize:13,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",background:"#fff"}}>
-          {[2025,2026,2027].map(y=><option key={y} value={y}>{y}</option>)}
+          {[2024,2025,2026,2027,2028].map(y=><option key={y} value={y}>{y}</option>)}
         </select>
         <select value={coFilter} onChange={e=>setCoFilter(e.target.value)} style={{padding:"6px 10px",borderRadius:8,fontSize:13,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",background:"#fff"}}>
           <option value="">Todas as empresas</option>
           {data.companies.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         <span style={{fontSize:12,color:"#94a3b8",marginLeft:"auto"}}>
-          Exibindo {MS[fMonth]} / {fYear} - {filteredTasks.length} tarefa{filteredTasks.length!==1?"s":""}
+          Exibindo {viewMode==="year"?fYear:`${MS[fMonth]} / ${fYear}`} - {filteredTasks.length} tarefa{filteredTasks.length!==1?"s":""}
         </span>
       </div>
 
@@ -1715,6 +1918,7 @@ function App(){
   const [data,setData,synced] = useSharedData();
   const {acquire,forceAcquire,release,getLock} = useLocks();
   const {list:toasts,add:toast} = useToast();
+  const {ask:askDelete, modal:deleteModal} = useConfirmDelete();
   const [page,setPage]      = useState("dashboard");
   const [taskModal,setTM]   = useState({open:false,task:null,defStatus:"todo",lockInfo:null});
   const [sideCol,setSideCol]= useState(false);
@@ -1767,7 +1971,8 @@ function App(){
 
   const saveTask=(updated)=>{
     const isNew=!data.tasks.find(t=>t.id===updated.id);
-    setData(d=>{const ex=d.tasks.find(t=>t.id===updated.id);return{...d,tasks:ex?d.tasks.map(t=>t.id===updated.id?updated:t):[...d.tasks,updated]};});
+    const withDate={...updated,completedAt:updated.status==="done"&&!updated.completedAt?todayStr():updated.completedAt};
+    setData(d=>{const ex=d.tasks.find(t=>t.id===updated.id);return{...d,tasks:ex?d.tasks.map(t=>t.id===updated.id?withDate:t):[...d.tasks,withDate]};});
     if(taskModal.task) release(taskModal.task.id);
     setTM(m=>({...m,open:false}));
     toast(isNew?"✦ Tarefa criada!":"💾 Tarefa atualizada!","ok");
@@ -1776,10 +1981,31 @@ function App(){
   const deleteTask=(id)=>{
     const lk=getLock(id);
     if(lk){toast(`🔒 Não pode excluir: ${lk.user} está editando.`,"err");return;}
-    if(!confirm("Excluir esta tarefa?"))return;
-    setData(d=>({...d,tasks:d.tasks.filter(t=>t.id!==id)}));
-    toast("Tarefa excluída.","warn");
+    const t=data.tasks.find(x=>x.id===id);
+    askDelete(`Tarefa: "${t?.title||""}"`, ()=>{
+      setData(d=>({...d,tasks:d.tasks.filter(t=>t.id!==id)}));
+      toast("Tarefa excluída.","warn");
+    });
   };
+
+  // Auto-archive completed tasks older than archiveDays
+  useEffect(()=>{
+    const days=data.archiveDays||30;
+    const cutoff=new Date();
+    cutoff.setDate(cutoff.getDate()-days);
+    const toArchive=data.tasks.filter(t=>{
+      if(t.status!=="done")return false;
+      const d=new Date((t.completedAt||t.dueDate||t.createdAt||"2000-01-01")+"T12:00:00");
+      return d<cutoff;
+    });
+    if(toArchive.length>0){
+      setData(d=>({
+        ...d,
+        tasks:d.tasks.filter(t=>!toArchive.find(a=>a.id===t.id)),
+        archivedTasks:[...(d.archivedTasks||[]),...toArchive.map(t=>({...t,archivedAt:todayStr()}))]
+      }));
+    }
+  },[data.tasks,data.archiveDays]);
 
   const quickComplete=(task)=>{
     const lk=getLock(task.id);
@@ -1787,6 +2013,7 @@ function App(){
     const newStatus=task.status==="done"?"todo":"done";
     setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{
       ...t,status:newStatus,
+      completedAt:newStatus==="done"?todayStr():null,
       checklist:newStatus==="done"?t.checklist.map(c=>({...c,done:true})):t.checklist,
     }:t)}));
     toast(newStatus==="done"?"✅ Tarefa concluída!":"↩ Tarefa reaberta.","ok");
@@ -1803,7 +2030,7 @@ function App(){
 
   const exportData=()=>{const b=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});const u=URL.createObjectURL(b);const a=document.createElement("a");a.href=u;a.download=`mdtec-backup-${todayStr()}.json`;a.click();URL.revokeObjectURL(u);toast("Backup exportado!","ok");};
   const importData=()=>{const i=document.createElement("input");i.type="file";i.accept=".json";i.onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{try{const p=JSON.parse(ev.target.result);if(p.tasks&&p.companies){setData(p);toast("Dados importados!","ok");}else toast("Arquivo inválido.","err");}catch{toast("Erro ao importar.","err");}};r.readAsText(f);};i.click();};
-  const resetData=()=>{if(confirm("Restaurar dados iniciais? Tudo será perdido.")){setData(SEED);toast("Dados restaurados.","warn");}};
+  const resetData=()=>{ askDelete("Todos os dados serão apagados e substituídos pelos dados iniciais!", ()=>{setData(SEED);toast("Dados restaurados.","warn");}); };
 
   const overdueCount=data.tasks.filter(t=>isLate(t)).length;
   const doingCount  =data.tasks.filter(t=>t.status==="doing").length;
@@ -1898,7 +2125,7 @@ function App(){
         {page==="dashboard"     && <Dashboard data={data}/>}
         {page==="kanban"        && <KanbanView data={data} onEdit={openEdit} onDelete={deleteTask} onAdd={openNew} onComplete={quickComplete}/>}
         {page==="lista"         && <ListView data={data} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete}/>}
-        {page==="calendario"    && <CalView data={data} onEdit={openEdit}/>}
+        {page==="calendario"    && <CalView data={data} onEdit={openEdit} collaborators={data.collaborators} companies={data.companies} labels={data.labels}/>}
         {page==="tabela"        && <GridView data={data} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete}/>}
         {page==="modelos"       && <TemplatesPage data={data} setData={setData} onUseTemplate={useTemplate}/>}
         {page==="empresas"      && <CompaniesPage data={data} setData={setData}/>}
@@ -1906,6 +2133,8 @@ function App(){
         {page==="colaboradores" && <CollaboratorsPage data={data} setData={setData}/>}
         {page==="marcadores"    && <LabelsPage data={data} setData={setData}/>}
         {page==="recorrencias"  && <RecurrencesPage data={data} setData={setData}/>}
+        {page==="arquivadas"    && <ArchivedPage data={data} setData={setData} toast={toast}/>}
+        {page==="configuracoes" && <ConfigPage data={data} setData={setData} toast={toast}/>}
       </main>
 
       {}
@@ -1927,6 +2156,7 @@ function App(){
         )}
       </Modal>
 
+      {deleteModal}
       <Toasts list={toasts}/>
     </div>
   );

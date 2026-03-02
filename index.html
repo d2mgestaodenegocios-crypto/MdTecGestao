@@ -18,7 +18,7 @@ body{font-family:'Plus Jakarta Sans',system-ui,sans-serif;background:#f1f5f9;col
 input,textarea,select,button{font-family:inherit}
 button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 
-/* ── ANIMATIONS ── */
+/* -- ANIMATIONS -- */
 @keyframes popIn{from{opacity:0;transform:scale(.92) translateY(14px)}to{opacity:1;transform:scale(1) translateY(0)}}
 @keyframes slideUp{from{opacity:0;transform:translateY(100%)}to{opacity:1;transform:translateY(0)}}
 @keyframes fadeIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
@@ -27,7 +27,7 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 @keyframes toastIn{from{opacity:0;transform:translateY(20px) scale(.94)}to{opacity:1;transform:translateY(0) scale(1)}}
 @keyframes lockPulse{0%,100%{box-shadow:0 0 0 0 rgba(139,92,246,.4)}70%{box-shadow:0 0 0 8px rgba(139,92,246,0)}}
 
-/* ── LAYOUT ── */
+/* -- LAYOUT -- */
 .shell{display:flex;width:100%;min-height:100dvh}
 .sidebar{
   width:228px;background:#0f172a;display:flex;flex-direction:column;
@@ -38,11 +38,11 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 .sidebar.slim{width:62px}
 .main-content{flex:1;padding:26px 28px;overflow-x:hidden;min-width:0;animation:fadeIn .28s ease}
 
-/* ── GRID HELPERS ── */
+/* -- GRID HELPERS -- */
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
 
-/* ── RESPONSIVE ── */
+/* -- RESPONSIVE -- */
 @media(max-width:768px){
   /* Mobile: bottom nav bar */
   .shell{flex-direction:column}
@@ -136,9 +136,9 @@ const {useState,useMemo,useEffect,useRef,useCallback}=React;
 
 
 
-/* ═══════════════════════════════════════════
+/* ===========================================
    CONSTANTS & CONFIG
-═══════════════════════════════════════════ */
+=========================================== */
 const DATA_KEY="mdtec_v6_data";
 const LOCK_KEY="mdtec_v6_locks";
 const USER_KEY="mdtec_v6_user";
@@ -147,7 +147,7 @@ const SESSION_ID=Math.random().toString(36).slice(2,10); // unique per tab
 
 const uid=()=>`${Date.now().toString(36)}${Math.random().toString(36).slice(2,6)}`;
 const todayStr=()=>new Date().toISOString().slice(0,10);
-const fmtDate=d=>d?new Date(d+"T12:00:00").toLocaleDateString("pt-BR"):"—";
+const fmtDate=d=>d?new Date(d+"T12:00:00").toLocaleDateString("pt-BR"):"-";
 const isLate=t=>t.dueDate&&new Date(t.dueDate+"T23:59:59")<new Date()&&t.status!=="done";
 
 const PALETTE=["#6366f1","#8b5cf6","#0ea5e9","#14b8a6","#22c55e","#84cc16","#f59e0b","#f97316","#f43f5e","#ec4899"];
@@ -180,7 +180,7 @@ const NAV_GROUPS=[
   {label:"Cadastros",items:[{id:"modelos",icon:"◧",label:"Modelos"},{id:"empresas",icon:"⬡",label:"Empresas"},{id:"setores",icon:"◫",label:"Setores"},{id:"colaboradores",icon:"◉",label:"Colaboradores"},{id:"marcadores",icon:"◈",label:"Marcadores"},{id:"recorrencias",icon:"↻",label:"Recorrências"}]},
 ];
 
-/* ── Seed Data ── */
+/* -- Seed Data -- */
 const SEED={
   version:6,
   companies:[
@@ -232,9 +232,9 @@ const SEED={
   ],
 };
 
-/* ═══════════════════════════════════════════
-   USERNAME — persisted per browser
-═══════════════════════════════════════════ */
+/* ===========================================
+   USERNAME - persisted per browser
+=========================================== */
 function getUsername(){
   let n=localStorage.getItem(USER_KEY);
   if(!n){n="Usuário "+Math.floor(Math.random()*900+100);localStorage.setItem(USER_KEY,n);}
@@ -242,29 +242,29 @@ function getUsername(){
 }
 const MY_NAME=getUsername();
 
-/* ═══════════════════════════════════════════
+/* ===========================================
    SHARED DATA HOOK
    - Persists to localStorage
    - Syncs via BroadcastChannel (same browser, different tabs)
    - Also syncs via storage event (cross-browser on same page served from same origin)
-═══════════════════════════════════════════ */
+=========================================== */
 
 
 
-/* ═══════════════════════════════════════════
+/* ===========================================
    SUPABASE CONFIG
    ⚠️  Substitua pelos seus valores do Supabase
-═══════════════════════════════════════════ */
+=========================================== */
 const SUPABASE_URL = "https://mcnwrwjzxyhvdcvusurd.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1jbndyd2p6eHlodmRjdnVzdXJkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI0NTE3MDMsImV4cCI6MjA4ODAyNzcwM30.934IFBKMu3inYavz7-9bnQszOUg5DegUPKPKJJOHTNo";
 
-/* ── Cliente Supabase (via CDN) ── */
+/* -- Cliente Supabase (via CDN) -- */
 const { createClient } = supabase;
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-/* ═══════════════════════════════════════════
+/* ===========================================
    AUTH HOOK
-═══════════════════════════════════════════ */
+=========================================== */
 function useAuth() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -300,11 +300,11 @@ function useAuth() {
   return { user, loading, signIn, signUp, signOut };
 }
 
-/* ═══════════════════════════════════════════
+/* ===========================================
    SUPABASE DATA HOOK
-   Substitui useSharedData — agora tudo vai
+   Substitui useSharedData - agora tudo vai
    para o banco de dados online em tempo real
-═══════════════════════════════════════════ */
+=========================================== */
 function useSharedData() {
   const [data, setRaw] = useState(SEED);
   const [synced, setSynced] = useState(false);
@@ -324,7 +324,7 @@ function useSharedData() {
         p.tasks = (p.tasks || []).map(t => ({ sector: "", recurrence: null, dependencies: [], ...t }));
         setRaw(p);
       } else {
-        // Primeira vez — salva o seed
+        // Primeira vez - salva o seed
         await sb.from("app_data").upsert({ id: 1, payload: SEED });
         setRaw(SEED);
       }
@@ -373,9 +373,9 @@ function useSharedData() {
   return [data, setData, synced];
 }
 
-/* ═══════════════════════════════════════════
+/* ===========================================
    TELA DE LOGIN
-═══════════════════════════════════════════ */
+=========================================== */
 function LoginScreen({ onLogin, onSignUp }) {
   const [mode, setMode] = useState("login"); // "login" | "signup"
   const [email, setEmail] = useState("");
@@ -449,7 +449,7 @@ function LoginScreen({ onLogin, onSignUp }) {
             {success && <div style={{ padding: "10px 14px", borderRadius: 9, background: "#f0fdf4", border: "1px solid #bbf7d0", fontSize: 13, color: "#16a34a", fontWeight: 600 }}>{success}</div>}
 
             <button onClick={handle} disabled={loading} style={{ padding: "12px", borderRadius: 10, border: "none", background: loading ? "#a5b4fc" : "linear-gradient(135deg,#6366f1,#8b5cf6)", color: "#fff", fontSize: 14, fontWeight: 800, cursor: loading ? "not-allowed" : "pointer", fontFamily: "inherit", boxShadow: "0 4px 14px rgba(99,102,241,.4)", transition: "all .15s" }}>
-              {loading ? "⏳ Aguarde..." : mode === "login" ? "Entrar →" : "Criar minha conta →"}
+              {loading ? "⏳ Aguarde..." : mode === "login" ? "Entrar ->" : "Criar minha conta ->"}
             </button>
           </div>
         </div>
@@ -463,7 +463,7 @@ function LoginScreen({ onLogin, onSignUp }) {
 }
 
 
-═══════════════════════════════════════════ */
+=========================================== */
 function useLocks(){
   const [locks,setLocksState]=useState(()=>{
     try{return JSON.parse(localStorage.getItem(LOCK_KEY)||"{}");}catch{return {};}
@@ -548,9 +548,9 @@ function useLocks(){
   return{acquire,forceAcquire,release,getLock};
 }
 
-/* ═══════════════════════════════════════════
+/* ===========================================
    TOAST HOOK
-═══════════════════════════════════════════ */
+=========================================== */
 function useToast(){
   const [list,setList]=useState([]);
   const add=useCallback((msg,type="ok",ms=3800)=>{
@@ -561,9 +561,9 @@ function useToast(){
   return{list,add};
 }
 
-/* ═══════════════════════════════════════════
+/* ===========================================
    TOAST COMPONENT
-═══════════════════════════════════════════ */
+=========================================== */
 function Toasts({list}){
   const T={
     ok:{bg:"#f0fdf4",c:"#16a34a",bd:"#bbf7d0",ic:"✅"},
@@ -582,9 +582,9 @@ function Toasts({list}){
   );
 }
 
-/* ═══════════════════════════════════════════
+/* ===========================================
    BASE COMPONENTS
-═══════════════════════════════════════════ */
+=========================================== */
 function Av({initials,color,size=28,title:tip}){
   return<div title={tip} style={{width:size,height:size,borderRadius:"50%",background:color+"22",border:`2px solid ${color}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:size*.33,fontWeight:700,color,flexShrink:0}}>{initials}</div>;
 }
@@ -673,10 +673,10 @@ function PH({title,icon,badge,action}){
 function SBadge({status}){const s=STS.find(x=>x.id===status)||STS[0];return<span style={{fontSize:11,fontWeight:700,padding:"3px 9px",borderRadius:20,background:s.bg,color:s.c,whiteSpace:"nowrap"}}>{s.l}</span>;}
 function PBadge({priority}){const p=PRI[priority]||PRI.media;return<span style={{fontSize:11,fontWeight:700,padding:"3px 9px",borderRadius:20,background:p.bg,color:p.t,whiteSpace:"nowrap"}}><span style={{display:"inline-block",width:5,height:5,borderRadius:"50%",background:p.d,marginRight:4,verticalAlign:"middle"}}/>{p.l}</span>;}
 
-/* ═══════════════════════════════════════════
-   LOCK BANNER — shown inside modal when another
+/* ===========================================
+   LOCK BANNER - shown inside modal when another
    user is currently editing the same task
-═══════════════════════════════════════════ */
+=========================================== */
 function LockBanner({holder,onForce}){
   return(
     <div style={{padding:"14px 16px",borderRadius:14,background:"#f5f3ff",border:"2px solid #c4b5fd",marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap",animation:"shake .4s ease, lockPulse 2s ease infinite"}}>
@@ -692,11 +692,11 @@ function LockBanner({holder,onForce}){
   );
 }
 
-/* ═══════════════════════════════════════════
+/* ===========================================
    QUICK COMPLETE BUTTON
    Circular check button shown on cards/rows
    to mark done/undone with 1 click outside modal
-═══════════════════════════════════════════ */
+=========================================== */
 function QCBtn({isDone,onClick,size=26,absolute=true}){
   const [hov,sh]=useState(false);
   return(
@@ -720,9 +720,9 @@ function QCBtn({isDone,onClick,size=26,absolute=true}){
   );
 }
 
-/* ═══════════════════════════════════════════
+/* ===========================================
    TASK FORM
-═══════════════════════════════════════════ */
+=========================================== */
 function TaskForm({data,task,defStatus="todo",onSave,onClose,lockInfo,onForce}){
   const blank={id:uid(),title:"",description:"",status:defStatus,priority:"media",company:"",sector:"",assignees:[],labels:[],dueDate:"",checklist:[],dependencies:[],recurrence:"",createdAt:todayStr()};
   const [f,sf]=useState(task?{...task}:blank);
@@ -810,9 +810,9 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,lockInfo,onForce}){
   );
 }
 
-/* ═══════════════════════════════════════════
+/* ===========================================
    FILTERS
-═══════════════════════════════════════════ */
+=========================================== */
 function applyFilters(tasks,f){
   return tasks.filter(t=>{
     if(f.search&&!t.title.toLowerCase().includes(f.search.toLowerCase()))return false;
@@ -850,9 +850,9 @@ function FBar({data,filters,setF,showMonth=true}){
   );
 }
 
-/* ═══════════════════════════════════════════
-   TASK CARD  — with ✓ Quick Complete button
-═══════════════════════════════════════════ */
+/* ===========================================
+   TASK CARD  - with ✓ Quick Complete button
+=========================================== */
 function TCard({task,data,onEdit,onDelete,onComplete}){
   const assignees=data.collaborators.filter(c=>task.assignees.includes(c.id));
   const labels=data.labels.filter(l=>task.labels.includes(l.id));
@@ -877,7 +877,7 @@ function TCard({task,data,onEdit,onDelete,onComplete}){
       onMouseLeave={e=>{e.currentTarget.style.boxShadow=done?"0 1px 3px rgba(0,0,0,.05),0 0 0 1.5px #bbf7d0":"0 1px 3px rgba(0,0,0,.07),0 0 0 1px rgba(0,0,0,.05)";e.currentTarget.style.transform="none";}}
       onClick={()=>onEdit(task)}
     >
-      {/* ── QUICK COMPLETE — 1 click, top right, outside card content ── */}
+      {/* -- QUICK COMPLETE - 1 click, top right, outside card content -- */}
       <QCBtn isDone={done} onClick={()=>onComplete(task)} size={26} absolute={true}/>
 
       {labels.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8,paddingRight:36}}>{labels.map(l=><Chip key={l.id} label={l.name} color={l.color}/>)}</div>}
@@ -920,9 +920,9 @@ function TCard({task,data,onEdit,onDelete,onComplete}){
   );
 }
 
-/* ═══════════════════════════════════════════
+/* ===========================================
    KANBAN VIEW
-═══════════════════════════════════════════ */
+=========================================== */
 function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
   return(
     <div className="kanban-wrap" style={{display:"flex",gap:14,overflowX:"auto",paddingBottom:20,alignItems:"flex-start"}}>
@@ -949,9 +949,9 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
   );
 }
 
-/* ═══════════════════════════════════════════
+/* ===========================================
    LIST VIEW
-═══════════════════════════════════════════ */
+=========================================== */
 function ListView({data,onEdit,onDelete,onComplete}){
   const [fl,sfl]=useState({});
   const tasks=applyFilters(data.tasks,fl);
@@ -985,8 +985,8 @@ function ListView({data,onEdit,onDelete,onComplete}){
                 </div>
                 <SBadge status={t.status}/>
                 <PBadge priority={t.priority}/>
-                <div>{co?<span style={{fontSize:11,color:co.color,fontWeight:700}}>{co.logo} {co.name}</span>:"—"}</div>
-                <div>{sec?<span style={{fontSize:11,padding:"2px 7px",borderRadius:20,background:sec.color+"18",color:sec.color,fontWeight:700}}>{sec.name}</span>:"—"}</div>
+                <div>{co?<span style={{fontSize:11,color:co.color,fontWeight:700}}>{co.logo} {co.name}</span>:"-"}</div>
+                <div>{sec?<span style={{fontSize:11,padding:"2px 7px",borderRadius:20,background:sec.color+"18",color:sec.color,fontWeight:700}}>{sec.name}</span>:"-"}</div>
                 <div style={{display:"flex"}}>{asg.slice(0,3).map((u,idx)=><div key={u.id} style={{marginLeft:idx>0?-7:0}}><Av initials={u.initials} color={u.color} size={22} title={u.name}/></div>)}</div>
                 <span style={{fontSize:12,color:over?"#ef4444":"#64748b",fontWeight:over?700:400}}>{fmtDate(t.dueDate)}</span>
                 <div style={{display:"flex",gap:3}} onClick={e=>e.stopPropagation()}>
@@ -1003,9 +1003,9 @@ function ListView({data,onEdit,onDelete,onComplete}){
   );
 }
 
-/* ═══════════════════════════════════════════
+/* ===========================================
    CALENDAR VIEW
-═══════════════════════════════════════════ */
+=========================================== */
 function CalView({data,onEdit}){
   const now=new Date();
   const [m,sm]=useState(now.getMonth());
@@ -1044,9 +1044,9 @@ function CalView({data,onEdit}){
   );
 }
 
-/* ═══════════════════════════════════════════
+/* ===========================================
    TABLE / GRID VIEW
-═══════════════════════════════════════════ */
+=========================================== */
 function GridView({data,onEdit,onDelete,onComplete}){
   const [sort,ss]=useState({k:"createdAt",dir:"desc"});
   const [fl,sfl]=useState({});
@@ -1086,11 +1086,11 @@ function GridView({data,onEdit,onDelete,onComplete}){
                 <div><div style={{fontSize:13,fontWeight:700,color:done?"#94a3b8":"#0f172a",textDecoration:done?"line-through":"none"}}>{t.title}</div></div>
                 <SBadge status={t.status}/>
                 <PBadge priority={t.priority}/>
-                <div>{co?<span style={{fontSize:11,color:co.color,fontWeight:700}}>{co.logo} {co.name}</span>:"—"}</div>
-                <div>{sec?<span style={{fontSize:11,padding:"2px 7px",borderRadius:20,background:sec.color+"18",color:sec.color,fontWeight:700}}>{sec.name}</span>:"—"}</div>
+                <div>{co?<span style={{fontSize:11,color:co.color,fontWeight:700}}>{co.logo} {co.name}</span>:"-"}</div>
+                <div>{sec?<span style={{fontSize:11,padding:"2px 7px",borderRadius:20,background:sec.color+"18",color:sec.color,fontWeight:700}}>{sec.name}</span>:"-"}</div>
                 <div style={{display:"flex"}}>{asg.slice(0,3).map((u,idx)=><div key={u.id} style={{marginLeft:idx>0?-7:0}}><Av initials={u.initials} color={u.color} size={21} title={u.name}/></div>)}</div>
                 <span style={{fontSize:12,color:over?"#ef4444":"#64748b",fontWeight:over?700:400}}>{fmtDate(t.dueDate)}</span>
-                <div>{ckt>0?<div><div style={{height:4,borderRadius:2,background:"#f1f5f9",overflow:"hidden",marginBottom:2}}><div style={{width:`${(ckd/ckt)*100}%`,height:"100%",background:ckd===ckt?"#22c55e":"#6366f1"}}/></div><span style={{fontSize:10,color:"#94a3b8"}}>{ckd}/{ckt}</span></div>:"—"}</div>
+                <div>{ckt>0?<div><div style={{height:4,borderRadius:2,background:"#f1f5f9",overflow:"hidden",marginBottom:2}}><div style={{width:`${(ckd/ckt)*100}%`,height:"100%",background:ckd===ckt?"#22c55e":"#6366f1"}}/></div><span style={{fontSize:10,color:"#94a3b8"}}>{ckd}/{ckt}</span></div>:"-"}</div>
                 <div style={{display:"flex",gap:3,alignItems:"center"}} onClick={e=>e.stopPropagation()}>
                   <QCBtn isDone={done} onClick={()=>onComplete(t)} size={22} absolute={false}/>
                   <Btn onClick={()=>onDelete(t.id)} v="danger" sz="sm">×</Btn>
@@ -1106,7 +1106,7 @@ function GridView({data,onEdit,onDelete,onComplete}){
 }
 
 
-// ─── EMPRESAS ───────────────────────────────────────────────────
+// --- EMPRESAS ---------------------------------------------------
 function CompaniesPage({ data, setData }) {
   const [open,setOpen]=useState(false);
   const [editing,setEditing]=useState(null);
@@ -1136,7 +1136,7 @@ function CompaniesPage({ data, setData }) {
                 <div style={{width:52,height:52,borderRadius:14,background:c.color+"18",border:`2px solid ${c.color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,fontWeight:900,color:c.color}}>{c.logo}</div>
                 <div>
                   <div style={{fontWeight:900,fontSize:15,color:"#0f172a"}}>{c.name}</div>
-                  <div style={{fontSize:11,color:"#94a3b8",marginTop:2}}>CNPJ: {c.cnpj||"—"}</div>
+                  <div style={{fontSize:11,color:"#94a3b8",marginTop:2}}>CNPJ: {c.cnpj||"-"}</div>
                 </div>
               </div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
@@ -1148,7 +1148,7 @@ function CompaniesPage({ data, setData }) {
                 ))}
               </div>
               <div style={{marginBottom:14}}>
-                <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:20,background:c.color+"18",color:c.color}}>📋 {c.tributacao||"—"}</span>
+                <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:20,background:c.color+"18",color:c.color}}>📋 {c.tributacao||"-"}</span>
               </div>
               <div style={{display:"flex",marginBottom:14}}>
                 {collabs.slice(0,6).map((u,i)=><div key={u.id} style={{marginLeft:i>0?-8:0}}><Av initials={u.initials} color={u.color} size={28} title={u.name}/></div>)}
@@ -1180,7 +1180,7 @@ function CompaniesPage({ data, setData }) {
   );
 }
 
-// ─── SETORES ────────────────────────────────────────────────────
+// --- SETORES ----------------------------------------------------
 function SectorsPage({ data, setData }) {
   const [open,setOpen]=useState(false);
   const [editing,setEditing]=useState(null);
@@ -1245,7 +1245,7 @@ function SectorsPage({ data, setData }) {
   );
 }
 
-// ─── COLABORADORES ──────────────────────────────────────────────
+// --- COLABORADORES ----------------------------------------------
 function CollaboratorsPage({ data, setData }) {
   const [open,setOpen]=useState(false);
   const [editing,setEditing]=useState(null);
@@ -1324,7 +1324,7 @@ function CollaboratorsPage({ data, setData }) {
   );
 }
 
-// ─── MARCADORES ─────────────────────────────────────────────────
+// --- MARCADORES -------------------------------------------------
 function LabelsPage({ data, setData }) {
   const [open,setOpen]=useState(false);
   const [editing,setEditing]=useState(null);
@@ -1376,7 +1376,7 @@ function LabelsPage({ data, setData }) {
   );
 }
 
-// ─── RECORRÊNCIAS ────────────────────────────────────────────────
+// --- RECORRÊNCIAS ------------------------------------------------
 function RecurrencesPage({ data, setData }) {
   const [open,setOpen]=useState(false);
   const [editing,setEditing]=useState(null);
@@ -1443,7 +1443,7 @@ function RecurrencesPage({ data, setData }) {
   );
 }
 
-// ─── MODELOS ─────────────────────────────────────────────────────
+// --- MODELOS -----------------------------------------------------
 function TemplatesPage({ data, setData, onUseTemplate }) {
   const [open,setOpen]=useState(false);
   const [editing,setEditing]=useState(null);
@@ -1529,9 +1529,9 @@ function TemplatesPage({ data, setData, onUseTemplate }) {
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════
+// ===================================================================
 //  PART 6: Dashboard com filtros mensais + gráficos por empresa/colaborador
-// ═══════════════════════════════════════════════════════════════════
+// ===================================================================
 
 function Dashboard({ data }) {
   const thisMonth = new Date().getMonth();
@@ -1539,7 +1539,7 @@ function Dashboard({ data }) {
   const [fMonth, setFMonth] = useState(thisMonth);
   const [fYear,  setFYear]  = useState(thisYear);
   const [coFilter, setCoFilter] = useState("");
-  // mNames alias removed — using MS constant
+  // mNames alias removed - using MS constant
 
   const filteredTasks = useMemo(()=>data.tasks.filter(t=>{
     if(!t.dueDate) return false;
@@ -1602,7 +1602,7 @@ function Dashboard({ data }) {
           {data.companies.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         <span style={{fontSize:12,color:"#94a3b8",marginLeft:"auto"}}>
-          Exibindo {MS[fMonth]} / {fYear} — {filteredTasks.length} tarefa{filteredTasks.length!==1?"s":""}
+          Exibindo {MS[fMonth]} / {fYear} - {filteredTasks.length} tarefa{filteredTasks.length!==1?"s":""}
         </span>
       </div>
 
@@ -1625,7 +1625,7 @@ function Dashboard({ data }) {
 
       {/* Status bar */}
       <div style={{background:"#fff",borderRadius:14,padding:20,border:"1px solid #f1f5f9",boxShadow:"0 1px 4px rgba(0,0,0,.05)",marginBottom:24}}>
-        <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:16}}>Status das Tarefas — {MS[fMonth]}/{fYear}</h3>
+        <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:16}}>Status das Tarefas - {MS[fMonth]}/{fYear}</h3>
         {STS.map(s=>{
           const cnt=stats.byStatus[s.id]||0;
           const pct=stats.total?Math.round((cnt/stats.total)*100):0;
@@ -1645,7 +1645,7 @@ function Dashboard({ data }) {
 
       {/* Por empresa */}
       <div style={{background:"#fff",borderRadius:14,padding:20,border:"1px solid #f1f5f9",boxShadow:"0 1px 4px rgba(0,0,0,.05)",marginBottom:24}}>
-        <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:18}}>📊 Tarefas por Empresa — {MS[fMonth]}/{fYear}</h3>
+        <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:18}}>📊 Tarefas por Empresa - {MS[fMonth]}/{fYear}</h3>
         {byCompany.length===0&&<p style={{color:"#94a3b8",fontSize:13}}>Nenhuma tarefa no período.</p>}
         {byCompany.map(c=>(
           <div key={c.id} style={{marginBottom:16,paddingBottom:16,borderBottom:"1px solid #f8fafc"}}>
@@ -1673,7 +1673,7 @@ function Dashboard({ data }) {
       {/* Por colaborador */}
       {byCollaborator.length>0&&(
         <div style={{background:"#fff",borderRadius:14,padding:20,border:"1px solid #f1f5f9",boxShadow:"0 1px 4px rgba(0,0,0,.05)",marginBottom:24}}>
-          <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:18}}>👥 Tarefas por Colaborador — {MS[fMonth]}/{fYear}</h3>
+          <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:18}}>👥 Tarefas por Colaborador - {MS[fMonth]}/{fYear}</h3>
           <div className="dash-collabs" style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12}}>
             {byCollaborator.map(u=>(
               <div key={u.id} style={{background:"#f8fafc",borderRadius:12,padding:"14px 16px",border:"1px solid #f1f5f9"}}>
@@ -1710,7 +1710,7 @@ function Dashboard({ data }) {
       {/* Por setor */}
       {bySector.length>0&&(
         <div style={{background:"#fff",borderRadius:14,padding:20,border:"1px solid #f1f5f9",boxShadow:"0 1px 4444rgba(0,0,0,.05)"}}>
-          <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:16}}>◫ Tarefas por Setor — {MS[fMonth]}/{fYear}</h3>
+          <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:16}}>◫ Tarefas por Setor - {MS[fMonth]}/{fYear}</h3>
           <div style={{display:"flex",flexWrap:"wrap",gap:10}}>
             {bySector.map(s=>(
               <div key={s.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:10,background:s.color+"0d",border:`1.5px solid ${s.c}33`}}>
@@ -1730,9 +1730,9 @@ function Dashboard({ data }) {
 
 
 
-/* ═══════════════════════════════════════════
+/* ===========================================
    APP ROOT
-═══════════════════════════════════════════ */
+=========================================== */
 
 function App(){
   const {user,loading:authLoading,signIn,signUp,signOut} = useAuth();
@@ -1753,7 +1753,7 @@ function App(){
     </div>
   );
 
-  // Não logado → tela de login
+  // Não logado -> tela de login
   if(!user) return <LoginScreen onLogin={signIn} onSignUp={signUp}/>;
 
   // Dados ainda sincronizando
@@ -1835,7 +1835,7 @@ function App(){
 
   return(
     <div className="shell">
-      {/* ── SIDEBAR ── */}
+      {/* -- SIDEBAR -- */}
       <aside className={`sidebar${sideCol?" slim":""}`}>
         <div className="sb-logo" style={{padding:sideCol?"14px 12px":"20px 16px",borderBottom:"1px solid rgba(255,255,255,.06)"}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
@@ -1901,7 +1901,7 @@ function App(){
         </div>
       </aside>
 
-      {/* ── MAIN ── */}
+      {/* -- MAIN -- */}
       <main className="main-content">
         <div className="topbar" style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:28,gap:12}}>
           <div>
@@ -1932,7 +1932,7 @@ function App(){
         {page==="recorrencias"  && <RecurrencesPage data={data} setData={setData}/>}
       </main>
 
-      {/* ── TASK MODAL ── */}
+      {/* -- TASK MODAL -- */}
       <Modal open={taskModal.open} onClose={closeTask}
         title={taskModal.task&&data.tasks.find(t=>t.id===taskModal.task?.id)?"✎ Editar Tarefa":"✦ Nova Tarefa"}
         width={650}

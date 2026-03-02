@@ -308,20 +308,29 @@ function useSharedData() {
   // Carrega dados do Supabase
   const load = useCallback(async () => {
     try {
-      const { data: row } = await sb
+      const { data: row, error } = await sb
         .from("app_data")
         .select("payload")
         .eq("id", 1)
-        .single();
+        .maybeSingle();
+
+      if (error) {
+        console.error("Supabase load error:", error);
+        setRaw(SEED);
+        setSynced(true);
+        return;
+      }
 
       if (row?.payload) {
         const p = row.payload;
         if (!p.sectors) p.sectors = SEED.sectors;
+        if (!p.archiveDays) p.archiveDays = 30;
         p.tasks = (p.tasks || []).map(t => ({ sector: "", recurrence: null, dependencies: [], ...t }));
         setRaw(p);
       } else {
-        // Primeira vez - salva o seed
-        await sb.from("app_data").upsert({ id: 1, payload: SEED });
+        // First time - save seed data
+        const { error: upsertErr } = await sb.from("app_data").upsert({ id: 1, payload: SEED });
+        if (upsertErr) console.error("Seed upsert error:", upsertErr);
         setRaw(SEED);
       }
       setSynced(true);

@@ -1999,21 +1999,23 @@ function App(){
 
   // Auto-archive completed tasks older than archiveDays
   useEffect(()=>{
-    const days=data.archiveDays||30;
-    const cutoff=new Date();
-    cutoff.setDate(cutoff.getDate()-days);
-    const toArchive=data.tasks.filter(t=>{
-      if(t.status!=="done")return false;
-      const d=new Date((t.completedAt||t.dueDate||t.createdAt||"2000-01-01")+"T12:00:00");
-      return d<cutoff;
-    });
-    if(toArchive.length>0){
-      setData(d=>({
-        ...d,
-        tasks:d.tasks.filter(t=>!toArchive.find(a=>a.id===t.id)),
-        archivedTasks:[...(d.archivedTasks||[]),...toArchive.map(t=>({...t,archivedAt:todayStr()}))]
-      }));
-    }
+    const timer = setTimeout(()=>{
+      const days=data.archiveDays||30;
+      const cutoff=new Date();
+      cutoff.setDate(cutoff.getDate()-days);
+      const toArchive=data.tasks.filter(t=>{
+        if(t.status!=="done")return false;
+        const d=new Date((t.completedAt||t.dueDate||t.createdAt||"2000-01-01")+"T12:00:00");
+        return d<cutoff;
+      });
+      if(toArchive.length>0){
+        setData(d=>({
+          ...d,
+          tasks:d.tasks.map(t=>toArchive.find(a=>a.id===t.id)?{...t,status:"archived",archivedAt:todayStr()}:t)
+        }));
+      }
+    }, 500);
+    return ()=>clearTimeout(timer);
   },[data.tasks,data.archiveDays]);
 
   const quickComplete=(task)=>{

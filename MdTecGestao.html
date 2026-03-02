@@ -1,0 +1,1962 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+<title>MdTec Gestão</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%236366f1'/><text y='.88em' x='50%' text-anchor='middle' font-size='65' font-weight='900' fill='white'>M</text></svg>"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;-webkit-text-size-adjust:100%;touch-action:manipulation}
+body{font-family:'Plus Jakarta Sans',system-ui,sans-serif;background:#f1f5f9;color:#0f172a;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+#root{display:flex;min-height:100dvh}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:4px}
+::-webkit-scrollbar-track{background:transparent}
+input,textarea,select,button{font-family:inherit}
+button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+
+/* ── ANIMATIONS ── */
+@keyframes popIn{from{opacity:0;transform:scale(.92) translateY(14px)}to{opacity:1;transform:scale(1) translateY(0)}}
+@keyframes slideUp{from{opacity:0;transform:translateY(100%)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+@keyframes toastIn{from{opacity:0;transform:translateY(20px) scale(.94)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes lockPulse{0%,100%{box-shadow:0 0 0 0 rgba(139,92,246,.4)}70%{box-shadow:0 0 0 8px rgba(139,92,246,0)}}
+
+/* ── LAYOUT ── */
+.shell{display:flex;width:100%;min-height:100dvh}
+.sidebar{
+  width:228px;background:#0f172a;display:flex;flex-direction:column;
+  height:100vh;position:sticky;top:0;flex-shrink:0;
+  transition:width .22s cubic-bezier(.4,0,.2,1);overflow:hidden;
+  box-shadow:4px 0 20px rgba(0,0,0,.18);z-index:60
+}
+.sidebar.slim{width:62px}
+.main-content{flex:1;padding:26px 28px;overflow-x:hidden;min-width:0;animation:fadeIn .28s ease}
+
+/* ── GRID HELPERS ── */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+
+/* ── RESPONSIVE ── */
+@media(max-width:768px){
+  /* Mobile: bottom nav bar */
+  .shell{flex-direction:column}
+  .sidebar{
+    position:fixed!important;bottom:0!important;left:0!important;right:0!important;
+    top:auto!important;width:100%!important;height:auto!important;
+    flex-direction:row!important;
+    border-top:1px solid rgba(255,255,255,.08)!important;
+    box-shadow:0 -4px 24px rgba(0,0,0,.2)!important
+  }
+  .sidebar.slim{width:100%!important}
+  .sb-logo,.sb-stats,.sb-bottom{display:none!important}
+  .sb-nav{
+    flex-direction:row!important;overflow-x:auto!important;overflow-y:hidden!important;
+    padding:5px 8px!important;gap:2px!important;width:100%!important;
+    -ms-overflow-style:none;scrollbar-width:none
+  }
+  .sb-nav::-webkit-scrollbar{display:none}
+  .sb-section-lbl{display:none!important}
+  .nav-btn{
+    flex-direction:column!important;gap:1px!important;
+    padding:6px 10px!important;font-size:9px!important;
+    min-width:52px!important;border-radius:10px!important;
+    white-space:nowrap!important
+  }
+  .nav-btn .nb-icon{font-size:17px!important;width:auto!important}
+  .nav-btn .nb-dot{display:none!important}
+  .main-content{padding:14px 14px 80px!important}
+
+  /* Modal slides up from bottom */
+  .modal-backdrop{align-items:flex-end!important;padding:0!important}
+  .modal-box{
+    border-radius:20px 20px 0 0!important;max-height:93dvh!important;
+    width:100%!important;max-width:100%!important;
+    animation:slideUp .28s cubic-bezier(.4,0,.2,1)!important
+  }
+
+  /* Tables scroll horizontally */
+  .scroll-x{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .tbl-head,.tbl-row,.list-head,.list-row{min-width:660px}
+
+  /* Filters */
+  .fbar{gap:5px!important}
+  .fbar select,.fbar input{font-size:11px!important;padding:5px 7px!important}
+
+  /* Task form */
+  .g2{grid-template-columns:1fr!important}
+  .g3{grid-template-columns:1fr 1fr!important}
+
+  /* Dashboard */
+  .dash-kpis{grid-template-columns:repeat(3,1fr)!important}
+  .dash-collabs{grid-template-columns:repeat(2,1fr)!important}
+
+  /* CRUD grids */
+  .g-companies{grid-template-columns:1fr!important}
+  .g-sectors{grid-template-columns:repeat(2,1fr)!important}
+  .g-collabs{grid-template-columns:repeat(2,1fr)!important}
+  .g-labels{grid-template-columns:repeat(2,1fr)!important}
+  .g-recs{grid-template-columns:repeat(2,1fr)!important}
+  .g-templates{grid-template-columns:1fr!important}
+
+  /* Page header */
+  .page-hdr{flex-direction:column!important;align-items:flex-start!important;gap:10px!important}
+
+  /* Topbar */
+  .topbar{flex-direction:column!important;align-items:flex-start!important;gap:10px!important;margin-bottom:16px!important}
+  .topbar h1{font-size:20px!important}
+
+  /* Kanban */
+  .kanban-wrap{gap:10px!important}
+  .kanban-col{width:250px!important}
+}
+@media(max-width:420px){
+  .dash-kpis{grid-template-columns:repeat(2,1fr)!important}
+  .dash-collabs{grid-template-columns:1fr!important}
+  .g3{grid-template-columns:1fr!important}
+  .g-sectors,.g-collabs,.g-labels,.g-recs{grid-template-columns:1fr!important}
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script type="text/babel" data-presets="react">
+const {useState,useMemo,useEffect,useRef,useCallback}=React;
+
+
+
+
+
+/* ═══════════════════════════════════════════
+   CONSTANTS & CONFIG
+═══════════════════════════════════════════ */
+const DATA_KEY="mdtec_v6_data";
+const LOCK_KEY="mdtec_v6_locks";
+const USER_KEY="mdtec_v6_user";
+const LOCK_TTL=22000; // lock expires after 22s without heartbeat
+const SESSION_ID=Math.random().toString(36).slice(2,10); // unique per tab
+
+const uid=()=>`${Date.now().toString(36)}${Math.random().toString(36).slice(2,6)}`;
+const todayStr=()=>new Date().toISOString().slice(0,10);
+const fmtDate=d=>d?new Date(d+"T12:00:00").toLocaleDateString("pt-BR"):"—";
+const isLate=t=>t.dueDate&&new Date(t.dueDate+"T23:59:59")<new Date()&&t.status!=="done";
+
+const PALETTE=["#6366f1","#8b5cf6","#0ea5e9","#14b8a6","#22c55e","#84cc16","#f59e0b","#f97316","#f43f5e","#ec4899"];
+const TRIBS=["Simples Nacional","Lucro Presumido","Lucro Real","MEI","Lucro Arbitrado","Imune/Isento"];
+const WDAYS=[{id:0,s:"Dom",l:"Domingo"},{id:1,s:"Seg",l:"Segunda"},{id:2,s:"Ter",l:"Terça"},{id:3,s:"Qua",l:"Quarta"},{id:4,s:"Qui",l:"Quinta"},{id:5,s:"Sex",l:"Sexta"},{id:6,s:"Sáb",l:"Sábado"}];
+const MN=["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+const MS=["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+const STS=[
+  {id:"backlog",l:"Backlog",c:"#64748b",bg:"#f8fafc"},
+  {id:"todo",l:"A Fazer",c:"#6366f1",bg:"#eef2ff"},
+  {id:"doing",l:"Em Andamento",c:"#f59e0b",bg:"#fffbeb"},
+  {id:"review",l:"Em Revisão",c:"#8b5cf6",bg:"#f5f3ff"},
+  {id:"done",l:"Concluído",c:"#22c55e",bg:"#f0fdf4"}
+];
+const PRI={
+  alta:{l:"Alta",bg:"#fef2f2",t:"#ef4444",d:"#ef4444"},
+  media:{l:"Média",bg:"#fffbeb",t:"#f59e0b",d:"#f59e0b"},
+  baixa:{l:"Baixa",bg:"#f0fdf4",t:"#22c55e",d:"#22c55e"}
+};
+const RINTS=[
+  {value:"custom_days",label:"Dias específicos da semana"},
+  {value:"daily",label:"Diária"},
+  {value:"weekly",label:"Semanal"},
+  {value:"biweekly",label:"Quinzenal"},
+  {value:"monthly",label:"Mensal"},
+  {value:"yearly",label:"Anual"}
+];
+const NAV_GROUPS=[
+  {label:"Visualizações",items:[{id:"dashboard",icon:"✦",label:"Dashboard"},{id:"kanban",icon:"⊞",label:"Kanban"},{id:"lista",icon:"☰",label:"Lista"},{id:"calendario",icon:"📅",label:"Calendário"},{id:"tabela",icon:"▦",label:"Tabela"}]},
+  {label:"Cadastros",items:[{id:"modelos",icon:"◧",label:"Modelos"},{id:"empresas",icon:"⬡",label:"Empresas"},{id:"setores",icon:"◫",label:"Setores"},{id:"colaboradores",icon:"◉",label:"Colaboradores"},{id:"marcadores",icon:"◈",label:"Marcadores"},{id:"recorrencias",icon:"↻",label:"Recorrências"}]},
+];
+
+/* ── Seed Data ── */
+const SEED={
+  version:6,
+  companies:[
+    {id:"co1",name:"MdTec Solutions",color:"#6366f1",logo:"MT",tributacao:"Lucro Presumido",cnpj:"12.345.678/0001-90"},
+    {id:"co2",name:"TechStart Ltda",color:"#14b8a6",logo:"TS",tributacao:"Simples Nacional",cnpj:"98.765.432/0001-10"},
+    {id:"co3",name:"CreativeHub",color:"#f43f5e",logo:"CH",tributacao:"MEI",cnpj:"11.222.333/0001-44"},
+  ],
+  sectors:[
+    {id:"sec1",name:"Desenvolvimento",color:"#6366f1",company:"co1"},
+    {id:"sec2",name:"Design",color:"#ec4899",company:"co1"},
+    {id:"sec3",name:"QA / Testes",color:"#f59e0b",company:"co2"},
+    {id:"sec4",name:"Infraestrutura",color:"#14b8a6",company:"co2"},
+    {id:"sec5",name:"Marketing",color:"#f97316",company:"co3"},
+  ],
+  collaborators:[
+    {id:"u1",name:"Ana Lima",role:"Dev Frontend",company:"co1",sector:"sec1",color:"#8b5cf6",initials:"AL",email:"ana@mdtec.com"},
+    {id:"u2",name:"Bruno Silva",role:"UI Designer",company:"co1",sector:"sec2",color:"#0ea5e9",initials:"BS",email:"bruno@mdtec.com"},
+    {id:"u3",name:"Carla Mota",role:"QA Engineer",company:"co2",sector:"sec3",color:"#f43f5e",initials:"CM",email:"carla@techstart.com"},
+    {id:"u4",name:"Diego Reis",role:"Backend Dev",company:"co2",sector:"sec4",color:"#14b8a6",initials:"DR",email:"diego@techstart.com"},
+    {id:"u5",name:"Eva Torres",role:"Product Manager",company:"co3",sector:"sec5",color:"#f59e0b",initials:"ET",email:"eva@creativehub.com"},
+  ],
+  labels:[
+    {id:"lb1",name:"Bug",color:"#ef4444"},{id:"lb2",name:"Feature",color:"#22c55e"},
+    {id:"lb3",name:"Urgente",color:"#f59e0b"},{id:"lb4",name:"Melhoria",color:"#6366f1"},
+    {id:"lb5",name:"Design",color:"#ec4899"},{id:"lb6",name:"Docs",color:"#14b8a6"},
+  ],
+  recurrences:[
+    {id:"rc1",name:"Diária",interval:"daily",days:[]},
+    {id:"rc2",name:"Seg e Qua",interval:"custom_days",days:[1,3]},
+    {id:"rc3",name:"Ter e Qui",interval:"custom_days",days:[2,4]},
+    {id:"rc4",name:"Toda Segunda",interval:"custom_days",days:[1]},
+    {id:"rc5",name:"Quinzenal",interval:"biweekly",days:[]},
+    {id:"rc6",name:"Mensal",interval:"monthly",days:[]},
+  ],
+  taskTemplates:[
+    {id:"tp1",name:"Onboarding",description:"Processo padrão de integração de novos membros",labels:["lb2"],checklist:["Criar conta","Configurar perfil","Treinamento inicial","Apresentar ao time"],recurrence:"rc6"},
+    {id:"tp2",name:"Bug Fix",description:"Template para correção e validação de bugs",labels:["lb1","lb3"],checklist:["Reproduzir o bug","Identificar causa raiz","Implementar correção","Testar fix","Deploy"],recurrence:""},
+    {id:"tp3",name:"New Feature",description:"Desenvolvimento de nova funcionalidade",labels:["lb2","lb4"],checklist:["Refinamento","Design aprovado","Implementação","Code review","QA","Deploy"],recurrence:""},
+    {id:"tp4",name:"Daily Report",description:"Relatório diário de atividades da equipe",labels:["lb6"],checklist:["Coletar dados","Rascunho","Revisão","Envio"],recurrence:"rc1"},
+  ],
+  tasks:[
+    {id:"t1",title:"Implementar tela de login",description:"Criar fluxo completo com OAuth e 2FA.",status:"doing",priority:"alta",company:"co1",sector:"sec1",assignees:["u1","u2"],labels:["lb2","lb3"],dueDate:"2026-03-10",checklist:[{id:"c1",text:"Layout responsivo",done:true},{id:"c2",text:"Integração OAuth",done:true},{id:"c3",text:"2FA SMS",done:false},{id:"c4",text:"Testes E2E",done:false}],dependencies:[],recurrence:null,createdAt:"2026-02-01"},
+    {id:"t2",title:"Design do Dashboard",description:"Protótipo hi-fi no Figma.",status:"review",priority:"media",company:"co1",sector:"sec2",assignees:["u2"],labels:["lb5","lb2"],dueDate:"2026-03-05",checklist:[{id:"c5",text:"Wireframe",done:true},{id:"c6",text:"Mockup",done:true},{id:"c7",text:"Aprovação",done:false}],dependencies:["t1"],recurrence:null,createdAt:"2026-02-03"},
+    {id:"t3",title:"Corrigir bug no relatório",description:"Valores incorretos na exportação CSV.",status:"done",priority:"alta",company:"co2",sector:"sec3",assignees:["u3"],labels:["lb1","lb3"],dueDate:"2026-02-28",checklist:[{id:"c8",text:"Reproduzir",done:true},{id:"c9",text:"Corrigir",done:true},{id:"c10",text:"Deploy",done:true}],dependencies:[],recurrence:null,createdAt:"2026-02-10"},
+    {id:"t4",title:"API de notificações",description:"Webhook e push notifications.",status:"todo",priority:"media",company:"co2",sector:"sec4",assignees:["u4"],labels:["lb2","lb4"],dueDate:"2026-03-20",checklist:[{id:"c11",text:"Definir endpoints",done:false},{id:"c12",text:"Implementar",done:false}],dependencies:["t1"],recurrence:"rc2",createdAt:"2026-02-12"},
+    {id:"t5",title:"Onboarding novos usuários",description:"Fluxo guiado de primeiro acesso.",status:"backlog",priority:"baixa",company:"co3",sector:"sec5",assignees:["u5"],labels:["lb2","lb6"],dueDate:"2026-04-01",checklist:[{id:"c13",text:"Mapeamento do fluxo",done:false},{id:"c14",text:"Copys",done:false},{id:"c15",text:"Implementação",done:false}],dependencies:["t2","t4"],recurrence:null,createdAt:"2026-02-15"},
+    {id:"t6",title:"Relatório semanal automático",description:"Envio toda segunda-feira às 8h.",status:"todo",priority:"baixa",company:"co1",sector:"sec1",assignees:["u1","u4"],labels:["lb4"],dueDate:"2026-03-07",checklist:[{id:"c16",text:"Template de email",done:false},{id:"c17",text:"Agendamento cron",done:false}],dependencies:[],recurrence:"rc4",createdAt:"2026-02-18"},
+    {id:"t7",title:"Atualizar documentação APIs",description:"Documentar todas as APIs novas do Q1.",status:"todo",priority:"media",company:"co1",sector:"sec1",assignees:["u1"],labels:["lb6"],dueDate:"2026-03-15",checklist:[{id:"c18",text:"Listar endpoints",done:false},{id:"c19",text:"Escrever docs",done:false},{id:"c20",text:"Publicar",done:false}],dependencies:[],recurrence:null,createdAt:"2026-02-20"},
+  ],
+};
+
+/* ═══════════════════════════════════════════
+   USERNAME — persisted per browser
+═══════════════════════════════════════════ */
+function getUsername(){
+  let n=localStorage.getItem(USER_KEY);
+  if(!n){n="Usuário "+Math.floor(Math.random()*900+100);localStorage.setItem(USER_KEY,n);}
+  return n;
+}
+const MY_NAME=getUsername();
+
+/* ═══════════════════════════════════════════
+   SHARED DATA HOOK
+   - Persists to localStorage
+   - Syncs via BroadcastChannel (same browser, different tabs)
+   - Also syncs via storage event (cross-browser on same page served from same origin)
+═══════════════════════════════════════════ */
+
+
+
+/* ═══════════════════════════════════════════
+   SUPABASE CONFIG
+   ⚠️  Substitua pelos seus valores do Supabase
+═══════════════════════════════════════════ */
+const SUPABASE_URL = "COLE_SUA_URL_AQUI";
+const SUPABASE_KEY = "COLE_SUA_CHAVE_AQUI";
+
+/* ── Cliente Supabase (via CDN) ── */
+const { createClient } = supabase;
+const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+/* ═══════════════════════════════════════════
+   AUTH HOOK
+═══════════════════════════════════════════ */
+function useAuth() {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Sessão atual
+    sb.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setLoading(false);
+    });
+    // Escuta mudanças de sessão
+    const { data: { subscription } } = sb.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const signIn = async (email, password) => {
+    const { error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+  };
+
+  const signUp = async (email, password, name) => {
+    const { error } = await sb.auth.signUp({
+      email, password,
+      options: { data: { name } }
+    });
+    if (error) throw error;
+  };
+
+  const signOut = () => sb.auth.signOut();
+
+  return { user, loading, signIn, signUp, signOut };
+}
+
+/* ═══════════════════════════════════════════
+   SUPABASE DATA HOOK
+   Substitui useSharedData — agora tudo vai
+   para o banco de dados online em tempo real
+═══════════════════════════════════════════ */
+function useSharedData() {
+  const [data, setRaw] = useState(SEED);
+  const [synced, setSynced] = useState(false);
+
+  // Carrega dados do Supabase
+  const load = useCallback(async () => {
+    try {
+      const { data: row } = await sb
+        .from("app_data")
+        .select("payload")
+        .eq("id", 1)
+        .single();
+
+      if (row?.payload) {
+        const p = row.payload;
+        if (!p.sectors) p.sectors = SEED.sectors;
+        p.tasks = (p.tasks || []).map(t => ({ sector: "", recurrence: null, dependencies: [], ...t }));
+        setRaw(p);
+      } else {
+        // Primeira vez — salva o seed
+        await sb.from("app_data").upsert({ id: 1, payload: SEED });
+        setRaw(SEED);
+      }
+      setSynced(true);
+    } catch (e) {
+      console.error("Erro ao carregar dados:", e);
+      setSynced(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+
+    // Escuta mudanças em tempo real (Realtime)
+    const channel = sb
+      .channel("app_data_changes")
+      .on("postgres_changes", {
+        event: "UPDATE",
+        schema: "public",
+        table: "app_data",
+        filter: "id=eq.1"
+      }, (payload) => {
+        if (payload.new?.payload) {
+          const p = payload.new.payload;
+          if (!p.sectors) p.sectors = SEED.sectors;
+          p.tasks = (p.tasks || []).map(t => ({ sector: "", recurrence: null, dependencies: [], ...t }));
+          setRaw(p);
+        }
+      })
+      .subscribe();
+
+    return () => sb.removeChannel(channel);
+  }, [load]);
+
+  const setData = useCallback(async (updater) => {
+    setRaw(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      // Salva no Supabase de forma assíncrona
+      sb.from("app_data").upsert({ id: 1, payload: next }).then(({ error }) => {
+        if (error) console.error("Erro ao salvar:", error);
+      });
+      return next;
+    });
+  }, []);
+
+  return [data, setData, synced];
+}
+
+/* ═══════════════════════════════════════════
+   TELA DE LOGIN
+═══════════════════════════════════════════ */
+function LoginScreen({ onLogin, onSignUp }) {
+  const [mode, setMode] = useState("login"); // "login" | "signup"
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const handle = async () => {
+    setError(""); setSuccess("");
+    if (!email || !password) { setError("Preencha email e senha."); return; }
+    if (mode === "signup" && !name) { setError("Preencha seu nome."); return; }
+    setLoading(true);
+    try {
+      if (mode === "login") {
+        await onLogin(email, password);
+      } else {
+        await onSignUp(email, password, name);
+        setSuccess("✅ Conta criada! Verifique seu email para confirmar.");
+        setMode("login");
+      }
+    } catch (e) {
+      const msgs = {
+        "Invalid login credentials": "Email ou senha incorretos.",
+        "Email not confirmed": "Confirme seu email antes de entrar.",
+        "User already registered": "Este email já está cadastrado.",
+      };
+      setError(msgs[e.message] || e.message);
+    }
+    setLoading(false);
+  };
+
+  const iSt = { padding: "11px 14px", borderRadius: 10, fontSize: 14, border: "2px solid #e5e7eb", outline: "none", fontFamily: "inherit", color: "#111", background: "#fff", transition: "border .15s", width: "100%" };
+
+  return (
+    <div style={{ minHeight: "100dvh", background: "linear-gradient(135deg,#0f172a 0%,#1e1b4b 50%,#0f172a 100%)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      {/* Logo */}
+      <div style={{ width: "100%", maxWidth: 400 }}>
+        <div style={{ textAlign: "center", marginBottom: 32 }}>
+          <div style={{ width: 64, height: 64, borderRadius: 18, background: "linear-gradient(135deg,#6366f1,#8b5cf6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32, color: "#fff", fontWeight: 900, boxShadow: "0 8px 32px rgba(99,102,241,.5)", margin: "0 auto 16px" }}>M</div>
+          <h1 style={{ fontSize: 26, fontWeight: 900, color: "#f8fafc", letterSpacing: "-.02em" }}>MdTec Gestão</h1>
+          <p style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Sistema de gerenciamento de tarefas</p>
+        </div>
+
+        <div style={{ background: "#fff", borderRadius: 20, padding: 32, boxShadow: "0 32px 80px rgba(0,0,0,.4)" }}>
+          {/* Tabs */}
+          <div style={{ display: "flex", gap: 4, marginBottom: 24, background: "#f1f5f9", borderRadius: 10, padding: 4 }}>
+            {[["login","Entrar"],["signup","Criar conta"]].map(([m,l]) => (
+              <button key={m} onClick={() => { setMode(m); setError(""); setSuccess(""); }} style={{ flex: 1, padding: "8px", borderRadius: 7, border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 700, background: mode === m ? "#fff" : "transparent", color: mode === m ? "#6366f1" : "#64748b", transition: "all .15s", boxShadow: mode === m ? "0 1px 4px rgba(0,0,0,.1)" : "none" }}>{l}</button>
+            ))}
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {mode === "signup" && (
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginBottom: 5 }}>Seu nome</label>
+                <input value={name} onChange={e => setName(e.target.value)} placeholder="Ex: Ana Lima" style={iSt} onFocus={e => e.target.style.borderColor = "#6366f1"} onBlur={e => e.target.style.borderColor = "#e5e7eb"} />
+              </div>
+            )}
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginBottom: 5 }}>Email</label>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="seu@email.com" style={iSt} onFocus={e => e.target.style.borderColor = "#6366f1"} onBlur={e => e.target.style.borderColor = "#e5e7eb"} onKeyDown={e => e.key === "Enter" && handle()} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginBottom: 5 }}>Senha</label>
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Mínimo 6 caracteres" style={iSt} onFocus={e => e.target.style.borderColor = "#6366f1"} onBlur={e => e.target.style.borderColor = "#e5e7eb"} onKeyDown={e => e.key === "Enter" && handle()} />
+            </div>
+
+            {error && <div style={{ padding: "10px 14px", borderRadius: 9, background: "#fef2f2", border: "1px solid #fecaca", fontSize: 13, color: "#dc2626", fontWeight: 600 }}>⚠️ {error}</div>}
+            {success && <div style={{ padding: "10px 14px", borderRadius: 9, background: "#f0fdf4", border: "1px solid #bbf7d0", fontSize: 13, color: "#16a34a", fontWeight: 600 }}>{success}</div>}
+
+            <button onClick={handle} disabled={loading} style={{ padding: "12px", borderRadius: 10, border: "none", background: loading ? "#a5b4fc" : "linear-gradient(135deg,#6366f1,#8b5cf6)", color: "#fff", fontSize: 14, fontWeight: 800, cursor: loading ? "not-allowed" : "pointer", fontFamily: "inherit", boxShadow: "0 4px 14px rgba(99,102,241,.4)", transition: "all .15s" }}>
+              {loading ? "⏳ Aguarde..." : mode === "login" ? "Entrar →" : "Criar minha conta →"}
+            </button>
+          </div>
+        </div>
+
+        <p style={{ textAlign: "center", fontSize: 11, color: "#334155", marginTop: 16 }}>
+          🔒 Seus dados ficam protegidos no Supabase
+        </p>
+      </div>
+    </div>
+  );
+}
+
+
+═══════════════════════════════════════════ */
+function useLocks(){
+  const [locks,setLocksState]=useState(()=>{
+    try{return JSON.parse(localStorage.getItem(LOCK_KEY)||"{}");}catch{return {};}
+  });
+  const bcRef=useRef(null);
+
+  const pruneExpired=useCallback(raw=>{
+    const now=Date.now(),out={};
+    Object.entries(raw).forEach(([k,v])=>{if(now-v.ts<LOCK_TTL)out[k]=v;});
+    return out;
+  },[]);
+
+  const persist=useCallback(l=>{
+    localStorage.setItem(LOCK_KEY,JSON.stringify(l));
+    setLocksState(l);
+    bcRef.current?.postMessage({t:"locks",l});
+  },[]);
+
+  useEffect(()=>{
+    try{
+      bcRef.current=new BroadcastChannel("mdtec_locks_v6");
+      bcRef.current.onmessage=e=>{if(e.data?.t==="locks")setLocksState(e.data.l);};
+    }catch(e){}
+
+    // Heartbeat: keep own locks alive, prune stale ones
+    const iv=setInterval(()=>{
+      try{
+        const raw=pruneExpired(JSON.parse(localStorage.getItem(LOCK_KEY)||"{}"));
+        Object.entries(raw).forEach(([k,v])=>{if(v.sid===SESSION_ID)raw[k]={...v,ts:Date.now()};});
+        persist(raw);
+      }catch(e){}
+    },8000);
+
+    // Release own locks on tab close
+    const onUnload=()=>{
+      try{
+        const raw=pruneExpired(JSON.parse(localStorage.getItem(LOCK_KEY)||"{}"));
+        const cleaned={};
+        Object.entries(raw).forEach(([k,v])=>{if(v.sid!==SESSION_ID)cleaned[k]=v;});
+        localStorage.setItem(LOCK_KEY,JSON.stringify(cleaned));
+        bcRef.current?.postMessage({t:"locks",l:cleaned});
+      }catch(e){}
+    };
+    window.addEventListener("beforeunload",onUnload);
+    return()=>{clearInterval(iv);bcRef.current?.close();window.removeEventListener("beforeunload",onUnload);};
+  },[persist,pruneExpired]);
+
+  // Try to acquire a lock. Returns {ok:true} or {ok:false, holder:"Name"}
+  const acquire=useCallback(taskId=>{
+    try{
+      const raw=pruneExpired(JSON.parse(localStorage.getItem(LOCK_KEY)||"{}"));
+      const ex=raw[taskId];
+      if(ex&&ex.sid!==SESSION_ID&&Date.now()-ex.ts<LOCK_TTL)return{ok:false,holder:ex.user};
+      persist({...raw,[taskId]:{sid:SESSION_ID,user:MY_NAME,ts:Date.now()}});
+      return{ok:true};
+    }catch{return{ok:true};}
+  },[persist,pruneExpired]);
+
+  // Force-acquire (override another user's lock)
+  const forceAcquire=useCallback(taskId=>{
+    try{
+      const raw=pruneExpired(JSON.parse(localStorage.getItem(LOCK_KEY)||"{}"));
+      persist({...raw,[taskId]:{sid:SESSION_ID,user:MY_NAME,ts:Date.now()}});
+    }catch(e){}
+  },[persist,pruneExpired]);
+
+  // Release own lock on a task
+  const release=useCallback(taskId=>{
+    try{
+      const raw=pruneExpired(JSON.parse(localStorage.getItem(LOCK_KEY)||"{}"));
+      if(raw[taskId]?.sid===SESSION_ID){delete raw[taskId];persist(raw);}
+    }catch(e){}
+  },[persist,pruneExpired]);
+
+  // Get lock info if ANOTHER user holds it, else null
+  const getLock=useCallback(taskId=>{
+    const l=locks[taskId];
+    if(!l||l.sid===SESSION_ID||Date.now()-l.ts>=LOCK_TTL)return null;
+    return l;
+  },[locks]);
+
+  return{acquire,forceAcquire,release,getLock};
+}
+
+/* ═══════════════════════════════════════════
+   TOAST HOOK
+═══════════════════════════════════════════ */
+function useToast(){
+  const [list,setList]=useState([]);
+  const add=useCallback((msg,type="ok",ms=3800)=>{
+    const id=uid();
+    setList(p=>[...p.slice(-4),{id,msg,type}]);
+    setTimeout(()=>setList(p=>p.filter(t=>t.id!==id)),ms);
+  },[]);
+  return{list,add};
+}
+
+/* ═══════════════════════════════════════════
+   TOAST COMPONENT
+═══════════════════════════════════════════ */
+function Toasts({list}){
+  const T={
+    ok:{bg:"#f0fdf4",c:"#16a34a",bd:"#bbf7d0",ic:"✅"},
+    warn:{bg:"#fffbeb",c:"#d97706",bd:"#fde68a",ic:"⚠️"},
+    err:{bg:"#fef2f2",c:"#dc2626",bd:"#fecaca",ic:"❌"},
+    lock:{bg:"#f5f3ff",c:"#7c3aed",bd:"#ddd6fe",ic:"🔒"},
+  };
+  return(
+    <div style={{position:"fixed",bottom:80,right:16,zIndex:3000,display:"flex",flexDirection:"column",gap:8,pointerEvents:"none"}}>
+      {list.map(t=>{const s=T[t.type]||T.ok;return(
+        <div key={t.id} style={{padding:"10px 15px",borderRadius:12,fontSize:13,fontWeight:600,background:s.bg,color:s.c,border:`1.5px solid ${s.bd}`,boxShadow:"0 8px 24px rgba(0,0,0,.12)",animation:"toastIn .25s ease",display:"flex",alignItems:"center",gap:8,maxWidth:320,pointerEvents:"auto"}}>
+          <span style={{fontSize:16}}>{s.ic}</span>{t.msg}
+        </div>
+      );})}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   BASE COMPONENTS
+═══════════════════════════════════════════ */
+function Av({initials,color,size=28,title:tip}){
+  return<div title={tip} style={{width:size,height:size,borderRadius:"50%",background:color+"22",border:`2px solid ${color}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:size*.33,fontWeight:700,color,flexShrink:0}}>{initials}</div>;
+}
+
+function Chip({label,color}){
+  return<span style={{display:"inline-flex",alignItems:"center",padding:"2px 8px",fontSize:11,borderRadius:20,fontWeight:600,background:color+"1a",color,border:`1px solid ${color}44`}}>{label}</span>;
+}
+
+function Btn({children,onClick,v="primary",sz="md",col,disabled,block,xs={}}){
+  const C={
+    primary:{bg:col||"#6366f1",fg:"#fff",bd:"transparent"},
+    ghost:{bg:"transparent",fg:"#6b7280",bd:"#e5e7eb"},
+    danger:{bg:"#fef2f2",fg:"#ef4444",bd:"#fecaca"},
+    success:{bg:"#f0fdf4",fg:"#22c55e",bd:"#bbf7d0"},
+  }[v]||{bg:"#f3f4f6",fg:"#374151",bd:"#e5e7eb"};
+  const P={sm:"4px 10px",md:"7px 14px",lg:"10px 20px"}[sz];
+  const FS={sm:11,md:13,lg:14}[sz];
+  return(
+    <button disabled={disabled} onClick={onClick} style={{padding:P,fontSize:FS,fontWeight:700,background:C.bg,color:C.fg,border:`1.5px solid ${C.bd}`,borderRadius:9,cursor:disabled?"not-allowed":"pointer",opacity:disabled?.5:1,display:"inline-flex",alignItems:"center",justifyContent:"center",gap:5,fontFamily:"inherit",transition:"filter .12s,transform .1s",width:block?"100%":"auto",...xs}}
+      onMouseEnter={e=>{if(!disabled){e.currentTarget.style.filter="brightness(.9)";e.currentTarget.style.transform="translateY(-1px)";}}}
+      onMouseLeave={e=>{e.currentTarget.style.filter="";e.currentTarget.style.transform="";}}
+      onMouseDown={e=>{if(!disabled)e.currentTarget.style.transform="scale(.97)";}}
+      onMouseUp={e=>{e.currentTarget.style.transform="";}}
+    >{children}</button>
+  );
+}
+
+function Fld({label,hint,children}){
+  return<div style={{display:"flex",flexDirection:"column",gap:5}}>{label&&<label style={{fontSize:12,fontWeight:700,color:"#374151"}}>{label}{hint&&<span style={{fontSize:11,fontWeight:400,color:"#94a3b8",marginLeft:4}}>{hint}</span>}</label>}{children}</div>;
+}
+
+const iSt=(focused)=>({padding:"8px 12px",borderRadius:9,fontSize:13,border:`2px solid ${focused?"#6366f1":"#e5e7eb"}`,outline:"none",fontFamily:"inherit",color:"#111",background:"#fff",transition:"border .15s",width:"100%"});
+
+function Inp({label,value,onChange,placeholder,type="text",hint,disabled}){
+  const [f,sf]=useState(false);
+  return<Fld label={label} hint={hint}><input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} disabled={disabled} onFocus={()=>sf(true)} onBlur={()=>sf(false)} style={{...iSt(f),opacity:disabled?.6:1}}/></Fld>;
+}
+
+function Txt({label,value,onChange,placeholder,rows=3,disabled}){
+  const [f,sf]=useState(false);
+  return<Fld label={label}><textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} rows={rows} disabled={disabled} onFocus={()=>sf(true)} onBlur={()=>sf(false)} style={{...iSt(f),resize:"vertical",opacity:disabled?.6:1}}/></Fld>;
+}
+
+function Sel({label,value,onChange,options,placeholder,disabled}){
+  return<Fld label={label}><select value={value} onChange={e=>onChange(e.target.value)} disabled={disabled} style={{...iSt(false),color:value?"#111":"#9ca3af",opacity:disabled?.6:1}}>{placeholder&&<option value="">{placeholder}</option>}{options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}</select></Fld>;
+}
+
+function CPick({value,onChange}){
+  return<Fld label="Cor"><div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{PALETTE.map(c=><button key={c} onClick={()=>onChange(c)} style={{width:28,height:28,borderRadius:"50%",background:c,border:"none",cursor:"pointer",outline:value===c?"3px solid "+c:"3px solid transparent",outlineOffset:2,transition:"all .12s,transform .1s"}} onMouseEnter={e=>e.currentTarget.style.transform="scale(1.15)"} onMouseLeave={e=>e.currentTarget.style.transform=""}/>)}</div></Fld>;
+}
+
+function WDSel({value=[],onChange}){
+  return<div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{WDAYS.map(d=>{const s=value.includes(d.id);return<button key={d.id} onClick={()=>onChange(s?value.filter(x=>x!==d.id):[...value,d.id])} style={{padding:"5px 11px",borderRadius:8,border:`2px solid ${s?"#6366f1":"#e5e7eb"}`,background:s?"#eef2ff":"#f9fafb",color:s?"#6366f1":"#6b7280",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit",transition:"all .12s"}}>{d.s}</button>;})}</div>;
+}
+
+function Modal({open,onClose,title,children,width=630}){
+  if(!open)return null;
+  return(
+    <div className="modal-backdrop" onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(3px)"}}>
+      <div className="modal-box" style={{background:"#fff",borderRadius:18,width:"100%",maxWidth:width,maxHeight:"92dvh",overflow:"auto",boxShadow:"0 32px 80px rgba(0,0,0,.22)",animation:"popIn .22s cubic-bezier(.34,1.56,.64,1)"}}>
+        <div style={{padding:"15px 20px",borderBottom:"1px solid #f3f4f6",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,background:"#fff",zIndex:1,borderRadius:"18px 18px 0 0"}}>
+          <h3 style={{fontSize:15,fontWeight:800,color:"#0f172a"}}>{title}</h3>
+          <button onClick={onClose} style={{background:"#f1f5f9",border:"none",borderRadius:"50%",width:30,height:30,fontSize:18,cursor:"pointer",color:"#64748b",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>×</button>
+        </div>
+        <div style={{padding:"18px 20px"}}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function PH({title,icon,badge,action}){
+  return(
+    <div className="page-hdr" style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:22}}>
+      <div style={{display:"flex",alignItems:"center",gap:10}}>
+        <div style={{width:40,height:40,borderRadius:11,background:"linear-gradient(135deg,#6366f1,#8b5cf6)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:"#fff",boxShadow:"0 4px 12px rgba(99,102,241,.3)",flexShrink:0}}>{icon}</div>
+        <div>
+          <h2 style={{fontSize:20,fontWeight:900,color:"#0f172a",lineHeight:1.2}}>{title}</h2>
+          {badge!=null&&<span style={{fontSize:11,color:"#94a3b8",fontWeight:600}}>{badge} registro{badge!==1?"s":""}</span>}
+        </div>
+      </div>
+      {action}
+    </div>
+  );
+}
+
+function SBadge({status}){const s=STS.find(x=>x.id===status)||STS[0];return<span style={{fontSize:11,fontWeight:700,padding:"3px 9px",borderRadius:20,background:s.bg,color:s.c,whiteSpace:"nowrap"}}>{s.l}</span>;}
+function PBadge({priority}){const p=PRI[priority]||PRI.media;return<span style={{fontSize:11,fontWeight:700,padding:"3px 9px",borderRadius:20,background:p.bg,color:p.t,whiteSpace:"nowrap"}}><span style={{display:"inline-block",width:5,height:5,borderRadius:"50%",background:p.d,marginRight:4,verticalAlign:"middle"}}/>{p.l}</span>;}
+
+/* ═══════════════════════════════════════════
+   LOCK BANNER — shown inside modal when another
+   user is currently editing the same task
+═══════════════════════════════════════════ */
+function LockBanner({holder,onForce}){
+  return(
+    <div style={{padding:"14px 16px",borderRadius:14,background:"#f5f3ff",border:"2px solid #c4b5fd",marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap",animation:"shake .4s ease, lockPulse 2s ease infinite"}}>
+      <div style={{display:"flex",alignItems:"center",gap:12}}>
+        <div style={{width:42,height:42,borderRadius:11,background:"#8b5cf6",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>🔒</div>
+        <div>
+          <div style={{fontSize:13,fontWeight:800,color:"#5b21b6",marginBottom:2}}>Sendo editado por <span style={{color:"#7c3aed"}}>{holder}</span></div>
+          <div style={{fontSize:11,color:"#7c3aed",lineHeight:1.4}}>Você pode visualizar, mas não editar.<br/>Aguarde ou assuma o controle da edição.</div>
+        </div>
+      </div>
+      <Btn onClick={onForce} sz="sm" v="ghost" xs={{borderColor:"#8b5cf6",color:"#7c3aed",background:"#ede9fe"}}>⚡ Assumir edição</Btn>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   QUICK COMPLETE BUTTON
+   Circular check button shown on cards/rows
+   to mark done/undone with 1 click outside modal
+═══════════════════════════════════════════ */
+function QCBtn({isDone,onClick,size=26,absolute=true}){
+  const [hov,sh]=useState(false);
+  return(
+    <button
+      title={isDone?"Reabrir tarefa":"✓ Concluir com 1 clique"}
+      onClick={e=>{e.stopPropagation();onClick();}}
+      onMouseEnter={()=>sh(true)}
+      onMouseLeave={()=>sh(false)}
+      style={{
+        width:size,height:size,borderRadius:"50%",flexShrink:0,
+        border:`2px solid ${isDone?"#22c55e":hov?"#22c55e":"#d1d5db"}`,
+        background:isDone?"#22c55e":hov?"#f0fdf4":"#fff",
+        display:"flex",alignItems:"center",justifyContent:"center",
+        cursor:"pointer",fontSize:size*.44,
+        color:isDone?"#fff":hov?"#22c55e":"#9ca3af",
+        transition:"all .18s",
+        boxShadow:isDone?"0 2px 8px rgba(34,197,94,.4)":"none",
+        ...(absolute?{position:"absolute",top:10,right:10,zIndex:2}:{position:"relative"}),
+      }}
+    >✓</button>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   TASK FORM
+═══════════════════════════════════════════ */
+function TaskForm({data,task,defStatus="todo",onSave,onClose,lockInfo,onForce}){
+  const blank={id:uid(),title:"",description:"",status:defStatus,priority:"media",company:"",sector:"",assignees:[],labels:[],dueDate:"",checklist:[],dependencies:[],recurrence:"",createdAt:todayStr()};
+  const [f,sf]=useState(task?{...task}:blank);
+  const [ckTxt,sCk]=useState("");
+  const set=(k,v)=>sf(p=>({...p,[k]:v}));
+  const tog=(k,id)=>set(k,f[k].includes(id)?f[k].filter(x=>x!==id):[...f[k],id]);
+  const fC=data.collaborators.filter(c=>(!f.company||c.company===f.company)&&(!f.sector||c.sector===f.sector));
+  const fS=data.sectors.filter(s=>!f.company||s.company===f.company);
+  const addCk=()=>{if(!ckTxt.trim())return;set("checklist",[...f.checklist,{id:uid(),text:ckTxt.trim(),done:false}]);sCk("");};
+  const blocked=!!lockInfo;
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:15}}>
+      {lockInfo&&<LockBanner holder={lockInfo.user} onForce={onForce}/>}
+
+      <Inp label="Título *" value={f.title} onChange={v=>set("title",v)} placeholder="Título da tarefa" disabled={blocked}/>
+      <Txt label="Descrição" value={f.description} onChange={v=>set("description",v)} placeholder="Detalhes da tarefa..." disabled={blocked}/>
+
+      <div className="g3">
+        <Sel label="Status" value={f.status} onChange={v=>set("status",v)} options={STS.map(s=>({value:s.id,label:s.l}))} disabled={blocked}/>
+        <Sel label="Prioridade" value={f.priority} onChange={v=>set("priority",v)} options={Object.entries(PRI).map(([k,v])=>({value:k,label:v.l}))} disabled={blocked}/>
+        <Inp label="Data Limite" value={f.dueDate} onChange={v=>set("dueDate",v)} type="date" disabled={blocked}/>
+      </div>
+
+      <div className="g2">
+        <Sel label="Empresa" value={f.company} onChange={v=>{set("company",v);set("sector","");set("assignees",[]);}} placeholder="Selecionar..." options={data.companies.map(c=>({value:c.id,label:c.name}))} disabled={blocked}/>
+        <Sel label="Setor" value={f.sector} onChange={v=>{set("sector",v);set("assignees",[]);}} placeholder="Selecionar..." options={fS.map(s=>({value:s.id,label:s.name}))} disabled={blocked}/>
+      </div>
+
+      <Sel label="Recorrência" value={f.recurrence||""} onChange={v=>set("recurrence",v)} placeholder="Sem recorrência" options={data.recurrences.map(r=>({value:r.id,label:r.name}))} disabled={blocked}/>
+
+      <Fld label="Responsáveis">
+        {fC.length===0?<p style={{fontSize:12,color:"#94a3b8"}}>Selecione empresa/setor primeiro.</p>:
+          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            {fC.map(u=>{const sel=f.assignees.includes(u.id);return(
+              <button key={u.id} onClick={()=>!blocked&&tog("assignees",u.id)} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px 4px 5px",borderRadius:20,border:`2px solid ${sel?u.color:"#e5e7eb"}`,background:sel?u.color+"18":"#f9fafb",color:sel?u.color:"#6b7280",cursor:blocked?"not-allowed":"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit",transition:"all .12s",opacity:blocked?.7:1}}>
+                <Av initials={u.initials} color={u.color} size={22}/>{u.name}
+              </button>
+            );})}
+          </div>}
+      </Fld>
+
+      <Fld label="Marcadores">
+        <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+          {data.labels.map(l=>{const sel=f.labels.includes(l.id);return(
+            <button key={l.id} onClick={()=>!blocked&&tog("labels",l.id)} style={{padding:"3px 11px",borderRadius:20,cursor:blocked?"not-allowed":"pointer",fontSize:12,fontWeight:700,border:`2px solid ${sel?l.color:"#e5e7eb"}`,background:sel?l.color+"18":"#f9fafb",color:sel?l.color:"#6b7280",fontFamily:"inherit",transition:"all .12s",opacity:blocked?.7:1}}>{l.name}</button>
+          );})}
+        </div>
+      </Fld>
+
+      <Fld label="Dependências">
+        <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+          {data.tasks.filter(t=>t.id!==f.id).map(t=>{const sel=f.dependencies.includes(t.id);const st=STS.find(s=>s.id===t.status);return(
+            <button key={t.id} onClick={()=>!blocked&&tog("dependencies",t.id)} style={{padding:"3px 10px",borderRadius:8,cursor:blocked?"not-allowed":"pointer",fontSize:12,fontWeight:600,border:`2px solid ${sel?"#6366f1":"#e5e7eb"}`,background:sel?"#eef2ff":"#f9fafb",color:sel?"#6366f1":"#6b7280",fontFamily:"inherit",transition:"all .12s",display:"flex",alignItems:"center",gap:5,opacity:blocked?.7:1}}>
+              <span style={{width:6,height:6,borderRadius:"50%",background:st?.c,flexShrink:0}}/>{t.title}
+            </button>
+          );})}
+        </div>
+      </Fld>
+
+      <Fld label="Checklist">
+        <div style={{display:"flex",gap:8,marginBottom:8}}>
+          <input value={ckTxt} onChange={e=>sCk(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!blocked&&addCk()} disabled={blocked} placeholder="Novo item (Enter para adicionar)..." style={{flex:1,padding:"7px 12px",borderRadius:9,fontSize:13,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",opacity:blocked?.6:1}}/>
+          <Btn onClick={addCk} sz="sm" disabled={blocked}>+ Add</Btn>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:4}}>
+          {f.checklist.map(c=>(
+            <div key={c.id} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 10px",borderRadius:8,background:c.done?"#f0fdf4":"#f9fafb",border:"1px solid #f3f4f6"}}>
+              <input type="checkbox" checked={c.done} disabled={blocked} onChange={()=>!blocked&&set("checklist",f.checklist.map(x=>x.id===c.id?{...x,done:!x.done}:x))} style={{accentColor:"#22c55e",width:15,height:15,flexShrink:0,cursor:blocked?"not-allowed":"pointer"}}/>
+              <span style={{flex:1,fontSize:13,color:c.done?"#9ca3af":"#374151",textDecoration:c.done?"line-through":"none"}}>{c.text}</span>
+              {!blocked&&<button onClick={()=>set("checklist",f.checklist.filter(x=>x.id!==c.id))} style={{background:"none",border:"none",cursor:"pointer",color:"#cbd5e1",fontSize:16,lineHeight:1,padding:"0 2px"}}>×</button>}
+            </div>
+          ))}
+        </div>
+      </Fld>
+
+      <div style={{display:"flex",gap:10,justifyContent:"flex-end",paddingTop:10,borderTop:"1px solid #f3f4f6",flexWrap:"wrap"}}>
+        <Btn onClick={onClose} v="ghost">Cancelar</Btn>
+        {blocked
+          ?<span style={{fontSize:12,color:"#94a3b8",alignSelf:"center"}}>Aguardando liberação da edição...</span>
+          :<Btn onClick={()=>f.title.trim()&&onSave(f)} disabled={!f.title.trim()}>{task?"💾 Salvar Alterações":"✦ Criar Tarefa"}</Btn>
+        }
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   FILTERS
+═══════════════════════════════════════════ */
+function applyFilters(tasks,f){
+  return tasks.filter(t=>{
+    if(f.search&&!t.title.toLowerCase().includes(f.search.toLowerCase()))return false;
+    if(f.status&&t.status!==f.status)return false;
+    if(f.priority&&t.priority!==f.priority)return false;
+    if(f.company&&t.company!==f.company)return false;
+    if(f.sector&&t.sector!==f.sector)return false;
+    if(f.label&&!t.labels.includes(f.label))return false;
+    if(f.assignee&&!t.assignees.includes(f.assignee))return false;
+    if(f.month!=null&&f.month!==""&&t.dueDate){const d=new Date(t.dueDate+"T12:00:00");if(d.getMonth()!==+f.month)return false;}
+    if(f.year&&t.dueDate){const d=new Date(t.dueDate+"T12:00:00");if(d.getFullYear()!==+f.year)return false;}
+    return true;
+  });
+}
+
+function FBar({data,filters,setF,showMonth=true}){
+  const ss={padding:"6px 9px",borderRadius:8,fontSize:12,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",background:"#fff"};
+  const sf=(k,v)=>setF(p=>({...p,[k]:v}));
+  const any=Object.values(filters).some(x=>x!=null&&x!=="");
+  return(
+    <div className="fbar" style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:16,padding:"10px 12px",background:"#f8fafc",borderRadius:12,border:"1px solid #f1f5f9",alignItems:"center"}}>
+      <input value={filters.search||""} onChange={e=>sf("search",e.target.value)} placeholder="🔍 Buscar..." style={{...ss,minWidth:140,flex:"1 1 130px"}}/>
+      <select style={ss} value={filters.status||""} onChange={e=>sf("status",e.target.value)}><option value="">Status</option>{STS.map(s=><option key={s.id} value={s.id}>{s.l}</option>)}</select>
+      <select style={ss} value={filters.priority||""} onChange={e=>sf("priority",e.target.value)}><option value="">Prioridade</option>{Object.entries(PRI).map(([k,v])=><option key={k} value={k}>{v.l}</option>)}</select>
+      <select style={ss} value={filters.company||""} onChange={e=>sf("company",e.target.value)}><option value="">Empresa</option>{data.companies.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>
+      <select style={ss} value={filters.sector||""} onChange={e=>sf("sector",e.target.value)}><option value="">Setor</option>{data.sectors.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select>
+      <select style={ss} value={filters.label||""} onChange={e=>sf("label",e.target.value)}><option value="">Marcador</option>{data.labels.map(l=><option key={l.id} value={l.id}>{l.name}</option>)}</select>
+      <select style={ss} value={filters.assignee||""} onChange={e=>sf("assignee",e.target.value)}><option value="">Responsável</option>{data.collaborators.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select>
+      {showMonth&&<>
+        <select style={ss} value={filters.month!=null?filters.month:""} onChange={e=>sf("month",e.target.value!==""?+e.target.value:"")}><option value="">Mês</option>{MS.map((m,i)=><option key={i} value={i}>{m}</option>)}</select>
+        <select style={ss} value={filters.year||""} onChange={e=>sf("year",e.target.value?+e.target.value:"")}><option value="">Ano</option>{[2025,2026,2027].map(y=><option key={y} value={y}>{y}</option>)}</select>
+      </>}
+      {any&&<Btn onClick={()=>setF({})} v="ghost" sz="sm">× Limpar</Btn>}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   TASK CARD  — with ✓ Quick Complete button
+═══════════════════════════════════════════ */
+function TCard({task,data,onEdit,onDelete,onComplete}){
+  const assignees=data.collaborators.filter(c=>task.assignees.includes(c.id));
+  const labels=data.labels.filter(l=>task.labels.includes(l.id));
+  const rec=task.recurrence?data.recurrences.find(r=>r.id===task.recurrence):null;
+  const sector=task.sector?data.sectors.find(s=>s.id===task.sector):null;
+  const company=data.companies.find(c=>c.id===task.company);
+  const ckDone=task.checklist.filter(c=>c.done).length;
+  const ckTot=task.checklist.length;
+  const prog=ckTot>0?Math.round((ckDone/ckTot)*100):null;
+  const over=isLate(task);
+  const done=task.status==="done";
+  const p=PRI[task.priority]||PRI.media;
+
+  return(
+    <div
+      style={{background:done?"#f8fffe":"#fff",borderRadius:13,padding:14,
+        boxShadow:done?"0 1px 3px rgba(0,0,0,.05),0 0 0 1.5px #bbf7d0":"0 1px 3px rgba(0,0,0,.07),0 0 0 1px rgba(0,0,0,.05)",
+        cursor:"pointer",transition:"box-shadow .15s,transform .15s",position:"relative",
+        borderLeft:`3px solid ${done?"#22c55e":over?"#ef4444":"transparent"}`,
+      }}
+      onMouseEnter={e=>{e.currentTarget.style.boxShadow="0 8px 24px rgba(0,0,0,.1),0 0 0 1.5px rgba(99,102,241,.45)";e.currentTarget.style.transform="translateY(-2px)";}}
+      onMouseLeave={e=>{e.currentTarget.style.boxShadow=done?"0 1px 3px rgba(0,0,0,.05),0 0 0 1.5px #bbf7d0":"0 1px 3px rgba(0,0,0,.07),0 0 0 1px rgba(0,0,0,.05)";e.currentTarget.style.transform="none";}}
+      onClick={()=>onEdit(task)}
+    >
+      {/* ── QUICK COMPLETE — 1 click, top right, outside card content ── */}
+      <QCBtn isDone={done} onClick={()=>onComplete(task)} size={26} absolute={true}/>
+
+      {labels.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8,paddingRight:36}}>{labels.map(l=><Chip key={l.id} label={l.name} color={l.color}/>)}</div>}
+
+      <div style={{fontSize:13,fontWeight:800,color:done?"#94a3b8":"#0f172a",marginBottom:6,lineHeight:1.4,paddingRight:36,textDecoration:done?"line-through":"none"}}>
+        {task.title}
+      </div>
+
+      {task.description&&<p style={{fontSize:12,color:"#94a3b8",marginBottom:10,lineHeight:1.5}}>{task.description.length>70?task.description.slice(0,70)+"…":task.description}</p>}
+
+      <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:10}}>
+        <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:700,background:p.bg,color:p.t}}><span style={{display:"inline-block",width:5,height:5,borderRadius:"50%",background:p.d,marginRight:4,verticalAlign:"middle"}}/>{p.l}</span>
+        {company&&<span style={{fontSize:11,padding:"2px 7px",borderRadius:20,background:company.color+"18",color:company.color,fontWeight:700}}>{company.logo}</span>}
+        {sector&&<span style={{fontSize:11,padding:"2px 7px",borderRadius:20,background:sector.color+"18",color:sector.color,fontWeight:600}}>{sector.name}</span>}
+        {task.dueDate&&<span style={{fontSize:11,color:over?"#ef4444":"#94a3b8",fontWeight:over?800:400}}>📅 {fmtDate(task.dueDate)}</span>}
+        {rec&&<span style={{fontSize:11,color:"#14b8a6",fontWeight:700}}>↻ {rec.name}</span>}
+        {task.dependencies?.length>0&&<span style={{fontSize:11,color:"#f59e0b",fontWeight:700}}>⬡ {task.dependencies.length}</span>}
+      </div>
+
+      {prog!==null&&(
+        <div style={{marginBottom:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+            <span style={{fontSize:10,color:"#94a3b8"}}>Checklist</span>
+            <span style={{fontSize:10,fontWeight:700,color:"#64748b"}}>{ckDone}/{ckTot}</span>
+          </div>
+          <div style={{height:5,borderRadius:3,background:"#f1f5f9",overflow:"hidden"}}>
+            <div style={{width:`${prog}%`,height:"100%",background:prog===100?"#22c55e":"#6366f1",borderRadius:3,transition:"width .4s"}}/>
+          </div>
+        </div>
+      )}
+
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div style={{display:"flex"}}>
+          {assignees.slice(0,4).map((u,i)=><div key={u.id} style={{marginLeft:i>0?-8:0,zIndex:4-i}}><Av initials={u.initials} color={u.color} size={24} title={u.name}/></div>)}
+          {assignees.length>4&&<div style={{width:24,height:24,borderRadius:"50%",background:"#f1f5f9",fontSize:10,fontWeight:700,color:"#94a3b8",display:"flex",alignItems:"center",justifyContent:"center",marginLeft:-8}}>+{assignees.length-4}</div>}
+        </div>
+        <button onClick={e=>{e.stopPropagation();onDelete(task.id);}} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#e2e8f0",padding:"2px 4px",borderRadius:5,transition:"color .15s"}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#e2e8f0"}>🗑</button>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   KANBAN VIEW
+═══════════════════════════════════════════ */
+function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
+  return(
+    <div className="kanban-wrap" style={{display:"flex",gap:14,overflowX:"auto",paddingBottom:20,alignItems:"flex-start"}}>
+      {STS.map(st=>{
+        const tasks=data.tasks.filter(t=>t.status===st.id);
+        return(
+          <div key={st.id} className="kanban-col" style={{flexShrink:0,width:268}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 12px",borderRadius:10,background:st.bg,border:`1.5px solid ${st.c}33`,marginBottom:10}}>
+              <div style={{display:"flex",alignItems:"center",gap:7}}>
+                <span style={{width:9,height:9,borderRadius:"50%",background:st.c,display:"inline-block"}}/>
+                <span style={{fontSize:12,fontWeight:800,color:st.c}}>{st.l}</span>
+                <span style={{fontSize:11,fontWeight:800,color:st.c,background:st.c+"28",borderRadius:10,padding:"1px 7px"}}>{tasks.length}</span>
+              </div>
+              <button onClick={()=>onAdd(st.id)} style={{background:st.c+"20",border:"none",borderRadius:7,width:24,height:24,cursor:"pointer",color:st.c,fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {tasks.map(t=><TCard key={t.id} task={t} data={data} onEdit={onEdit} onDelete={onDelete} onComplete={onComplete}/>)}
+              {tasks.length===0&&<div style={{padding:18,textAlign:"center",fontSize:12,color:"#cbd5e1",border:"2px dashed #f1f5f9",borderRadius:10}}>Sem tarefas</div>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   LIST VIEW
+═══════════════════════════════════════════ */
+function ListView({data,onEdit,onDelete,onComplete}){
+  const [fl,sfl]=useState({});
+  const tasks=applyFilters(data.tasks,fl);
+  return(
+    <div>
+      <FBar data={data} filters={fl} setF={sfl}/>
+      <div className="scroll-x">
+        <div style={{borderRadius:14,border:"1px solid #f1f5f9",overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,.05)",background:"#fff"}}>
+          <div className="list-head" style={{display:"grid",gridTemplateColumns:"32px 2fr 100px 85px 105px 82px 82px 68px 56px",padding:"8px 14px",background:"#f8fafc",borderBottom:"2px solid #f1f5f9",gap:7,fontSize:10,fontWeight:800,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".05em"}}>
+            <div/><div>Tarefa</div><div>Status</div><div>Prior.</div><div>Empresa</div><div>Setor</div><div>Resp.</div><div>Venc.</div><div/>
+          </div>
+          {tasks.length===0&&<div style={{padding:"38px 20px",textAlign:"center",color:"#94a3b8",fontSize:14}}>Nenhuma tarefa encontrada.</div>}
+          {tasks.map((t,i)=>{
+            const co=data.companies.find(c=>c.id===t.company);
+            const sec=data.sectors.find(s=>s.id===t.sector);
+            const asg=data.collaborators.filter(c=>t.assignees.includes(c.id));
+            const over=isLate(t),done=t.status==="done";
+            return(
+              <div key={t.id} className="list-row" style={{display:"grid",gridTemplateColumns:"32px 2fr 100px 85px 105px 82px 82px 68px 56px",padding:"9px 14px",borderBottom:i<tasks.length-1?"1px solid #f8fafc":"none",alignItems:"center",gap:7,cursor:"pointer",transition:"background .1s",background:done?"#f8fffe":"transparent"}}
+                onMouseEnter={e=>e.currentTarget.style.background=done?"#f0fdf4":"#fafafa"}
+                onMouseLeave={e=>e.currentTarget.style.background=done?"#f8fffe":"transparent"}
+                onClick={()=>onEdit(t)}
+              >
+                {/* Quick complete in list */}
+                <div onClick={e=>e.stopPropagation()}>
+                  <QCBtn isDone={done} onClick={()=>onComplete(t)} size={24} absolute={false}/>
+                </div>
+                <div>
+                  <div style={{fontSize:13,fontWeight:700,color:done?"#94a3b8":"#0f172a",textDecoration:done?"line-through":"none"}}>{t.title}</div>
+                  <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:2}}>{data.labels.filter(l=>t.labels.includes(l.id)).map(l=><Chip key={l.id} label={l.name} color={l.color}/>)}</div>
+                </div>
+                <SBadge status={t.status}/>
+                <PBadge priority={t.priority}/>
+                <div>{co?<span style={{fontSize:11,color:co.color,fontWeight:700}}>{co.logo} {co.name}</span>:"—"}</div>
+                <div>{sec?<span style={{fontSize:11,padding:"2px 7px",borderRadius:20,background:sec.color+"18",color:sec.color,fontWeight:700}}>{sec.name}</span>:"—"}</div>
+                <div style={{display:"flex"}}>{asg.slice(0,3).map((u,idx)=><div key={u.id} style={{marginLeft:idx>0?-7:0}}><Av initials={u.initials} color={u.color} size={22} title={u.name}/></div>)}</div>
+                <span style={{fontSize:12,color:over?"#ef4444":"#64748b",fontWeight:over?700:400}}>{fmtDate(t.dueDate)}</span>
+                <div style={{display:"flex",gap:3}} onClick={e=>e.stopPropagation()}>
+                  <Btn onClick={()=>onEdit(t)} v="ghost" sz="sm">✎</Btn>
+                  <Btn onClick={()=>onDelete(t.id)} v="danger" sz="sm">×</Btn>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div style={{marginTop:7,fontSize:12,color:"#94a3b8"}}>{tasks.length} tarefa{tasks.length!==1?"s":""}</div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   CALENDAR VIEW
+═══════════════════════════════════════════ */
+function CalView({data,onEdit}){
+  const now=new Date();
+  const [m,sm]=useState(now.getMonth());
+  const [y,sy]=useState(now.getFullYear());
+  const wD=["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
+  const dim=new Date(y,m+1,0).getDate(),fd=new Date(y,m,1).getDay();
+  const tbd=useMemo(()=>{const mp={};data.tasks.forEach(t=>{if(!t.dueDate)return;const d=new Date(t.dueDate+"T12:00:00");if(d.getMonth()===m&&d.getFullYear()===y){const day=d.getDate();mp[day]=[...(mp[day]||[]),t];}});return mp;},[data.tasks,m,y]);
+  const cells=[];for(let i=0;i<fd;i++)cells.push(null);for(let i=1;i<=dim;i++)cells.push(i);
+  const prev=()=>{if(m===0){sm(11);sy(y-1);}else sm(m-1);};
+  const next=()=>{if(m===11){sm(0);sy(y+1);}else sm(m+1);};
+  return(
+    <div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18}}>
+        <button onClick={prev} style={{background:"#f1f5f9",border:"none",borderRadius:9,width:38,height:38,cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
+        <h3 style={{fontSize:17,fontWeight:800,color:"#0f172a"}}>{MN[m]} {y}</h3>
+        <button onClick={next} style={{background:"#f1f5f9",border:"none",borderRadius:9,width:38,height:38,cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3,marginBottom:4}}>
+        {wD.map(d=><div key={d} style={{textAlign:"center",fontSize:10,fontWeight:800,color:"#94a3b8",padding:"4px 0"}}>{d}</div>)}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3}}>
+        {cells.map((day,i)=>{
+          if(!day)return<div key={`e${i}`}/>;
+          const isT=day===now.getDate()&&m===now.getMonth()&&y===now.getFullYear();
+          const tasks=tbd[day]||[];
+          return(
+            <div key={day} style={{minHeight:78,padding:5,borderRadius:9,background:isT?"#eef2ff":"#fafafa",border:`1.5px solid ${isT?"#6366f1":"#f1f5f9"}`}}>
+              <div style={{fontSize:11,fontWeight:800,width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:"50%",background:isT?"#6366f1":"transparent",color:isT?"#fff":"#374151",marginBottom:3}}>{day}</div>
+              {tasks.slice(0,2).map(t=>{const st=STS.find(s=>s.id===t.status);return<div key={t.id} onClick={()=>onEdit(t)} title={t.title} style={{fontSize:9,fontWeight:700,padding:"2px 4px",borderRadius:4,marginBottom:2,background:st.c+"20",color:st.c,cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t.title}</div>;})}
+              {tasks.length>2&&<div style={{fontSize:9,color:"#94a3b8"}}>+{tasks.length-2}</div>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   TABLE / GRID VIEW
+═══════════════════════════════════════════ */
+function GridView({data,onEdit,onDelete,onComplete}){
+  const [sort,ss]=useState({k:"createdAt",dir:"desc"});
+  const [fl,sfl]=useState({});
+  const ts=k=>ss(s=>s.k===k?{k,dir:s.dir==="asc"?"desc":"asc"}:{k,dir:"asc"});
+  const filtered=applyFilters(data.tasks,fl);
+  const sorted=[...filtered].sort((a,b)=>{let va=a[sort.k]??"",vb=b[sort.k]??"";return sort.dir==="asc"?va<vb?-1:va>vb?1:0:va>vb?-1:va<vb?1:0;});
+  const SH=({f:fk,l})=><button onClick={()=>ts(fk)} style={{background:"none",border:"none",cursor:"pointer",fontSize:10,fontWeight:800,color:sort.k===fk?"#6366f1":"#94a3b8",textTransform:"uppercase",letterSpacing:".05em",fontFamily:"inherit",display:"flex",alignItems:"center",gap:2}}>{l} {sort.k===fk?(sort.dir==="asc"?"↑":"↓"):"↕"}</button>;
+  return(
+    <div>
+      <FBar data={data} filters={fl} setF={sfl}/>
+      <div className="scroll-x">
+        <div style={{borderRadius:14,border:"1px solid #f1f5f9",overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,.05)",background:"#fff"}}>
+          <div className="tbl-head" style={{display:"grid",gridTemplateColumns:"16px 2fr 100px 85px 105px 78px 92px 76px 62px 52px",padding:"8px 14px",background:"#f8fafc",borderBottom:"2px solid #f1f5f9",gap:7}}>
+            <div/><SH f="title" l="Tarefa"/><SH f="status" l="Status"/><SH f="priority" l="Prior."/>
+            <div style={{fontSize:10,fontWeight:800,color:"#94a3b8",textTransform:"uppercase"}}>Empresa</div>
+            <div style={{fontSize:10,fontWeight:800,color:"#94a3b8",textTransform:"uppercase"}}>Setor</div>
+            <div style={{fontSize:10,fontWeight:800,color:"#94a3b8",textTransform:"uppercase"}}>Resp.</div>
+            <SH f="dueDate" l="Venc."/>
+            <div style={{fontSize:10,fontWeight:800,color:"#94a3b8",textTransform:"uppercase"}}>Check</div>
+            <div/>
+          </div>
+          {sorted.length===0&&<div style={{padding:"38px 20px",textAlign:"center",color:"#94a3b8"}}>Nenhum resultado.</div>}
+          {sorted.map((t,i)=>{
+            const st=STS.find(s=>s.id===t.status);
+            const co=data.companies.find(c=>c.id===t.company);
+            const sec=data.sectors.find(s=>s.id===t.sector);
+            const asg=data.collaborators.filter(c=>t.assignees.includes(c.id));
+            const ckd=t.checklist.filter(c=>c.done).length,ckt=t.checklist.length;
+            const over=isLate(t),done=t.status==="done";
+            return(
+              <div key={t.id} className="tbl-row" style={{display:"grid",gridTemplateColumns:"16px 2fr 100px 85px 105px 78px 92px 76px 62px 52px",padding:"9px 14px",borderBottom:i<sorted.length-1?"1px solid #f8fafc":"none",alignItems:"center",gap:7,cursor:"pointer",transition:"background .1s",background:done?"#f8fffe":"transparent"}}
+                onMouseEnter={e=>e.currentTarget.style.background=done?"#f0fdf4":"#fafafa"}
+                onMouseLeave={e=>e.currentTarget.style.background=done?"#f8fffe":"transparent"}
+                onClick={()=>onEdit(t)}
+              >
+                <div style={{width:8,height:8,borderRadius:"50%",background:st.c}}/>
+                <div><div style={{fontSize:13,fontWeight:700,color:done?"#94a3b8":"#0f172a",textDecoration:done?"line-through":"none"}}>{t.title}</div></div>
+                <SBadge status={t.status}/>
+                <PBadge priority={t.priority}/>
+                <div>{co?<span style={{fontSize:11,color:co.color,fontWeight:700}}>{co.logo} {co.name}</span>:"—"}</div>
+                <div>{sec?<span style={{fontSize:11,padding:"2px 7px",borderRadius:20,background:sec.color+"18",color:sec.color,fontWeight:700}}>{sec.name}</span>:"—"}</div>
+                <div style={{display:"flex"}}>{asg.slice(0,3).map((u,idx)=><div key={u.id} style={{marginLeft:idx>0?-7:0}}><Av initials={u.initials} color={u.color} size={21} title={u.name}/></div>)}</div>
+                <span style={{fontSize:12,color:over?"#ef4444":"#64748b",fontWeight:over?700:400}}>{fmtDate(t.dueDate)}</span>
+                <div>{ckt>0?<div><div style={{height:4,borderRadius:2,background:"#f1f5f9",overflow:"hidden",marginBottom:2}}><div style={{width:`${(ckd/ckt)*100}%`,height:"100%",background:ckd===ckt?"#22c55e":"#6366f1"}}/></div><span style={{fontSize:10,color:"#94a3b8"}}>{ckd}/{ckt}</span></div>:"—"}</div>
+                <div style={{display:"flex",gap:3,alignItems:"center"}} onClick={e=>e.stopPropagation()}>
+                  <QCBtn isDone={done} onClick={()=>onComplete(t)} size={22} absolute={false}/>
+                  <Btn onClick={()=>onDelete(t.id)} v="danger" sz="sm">×</Btn>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div style={{marginTop:7,fontSize:12,color:"#94a3b8"}}>{sorted.length} tarefa{sorted.length!==1?"s":""}</div>
+    </div>
+  );
+}
+
+
+// ─── EMPRESAS ───────────────────────────────────────────────────
+function CompaniesPage({ data, setData }) {
+  const [open,setOpen]=useState(false);
+  const [editing,setEditing]=useState(null);
+  const [form,setForm]=useState({name:"",color:"#6366f1",logo:"",tributacao:"Simples Nacional",cnpj:""});
+  const openNew=()=>{setEditing(null);setForm({name:"",color:"#6366f1",logo:"",tributacao:"Simples Nacional",cnpj:""});setOpen(true);};
+  const openEdit=(c)=>{setEditing(c);setForm({name:c.name,color:c.color,logo:c.logo,tributacao:c.tributacao||"",cnpj:c.cnpj||""});setOpen(true);};
+  const save=()=>{
+    if(!form.name.trim())return;
+    const logo=form.logo||form.name.slice(0,2).toUpperCase();
+    if(editing) setData(d=>({...d,companies:d.companies.map(c=>c.id===editing.id?{...c,...form,logo}:c)}));
+    else setData(d=>({...d,companies:[...d.companies,{id:uid(),...form,logo}]}));
+    setOpen(false);
+  };
+  const del=(id)=>setData(d=>({...d,companies:d.companies.filter(c=>c.id!==id)}));
+
+  return (
+    <div>
+      <PH title="Empresas" icon="⬡" badge={data.companies.length} action={<Btn onClick={openNew}>+ Nova Empresa</Btn>}/>
+      <div className="g-companies" style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14}}>
+        {data.companies.map(c=>{
+          const collabs=data.collaborators.filter(u=>u.company===c.id);
+          const tasks=data.tasks.filter(t=>t.company===c.id);
+          const sectors=data.sectors.filter(s=>s.company===c.id);
+          return (
+            <div key={c.id} style={{background:"#fff",borderRadius:16,padding:20,border:"1px solid #f1f5f9",boxShadow:"0 2px 8px rgba(0,0,0,.06)"}}>
+              <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:16}}>
+                <div style={{width:52,height:52,borderRadius:14,background:c.color+"18",border:`2px solid ${c.color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,fontWeight:900,color:c.color}}>{c.logo}</div>
+                <div>
+                  <div style={{fontWeight:900,fontSize:15,color:"#0f172a"}}>{c.name}</div>
+                  <div style={{fontSize:11,color:"#94a3b8",marginTop:2}}>CNPJ: {c.cnpj||"—"}</div>
+                </div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+                {[{v:collabs.length,l:"Colab."},{v:tasks.length,l:"Tarefas"},{v:sectors.length,l:"Setores"}].map(({v,l})=>(
+                  <div key={l} style={{textAlign:"center",background:"#f8fafc",borderRadius:9,padding:"8px 4px"}}>
+                    <div style={{fontSize:18,fontWeight:900,color:c.color}}>{v}</div>
+                    <div style={{fontSize:10,color:"#94a3b8",fontWeight:600}}>{l}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{marginBottom:14}}>
+                <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:20,background:c.color+"18",color:c.color}}>📋 {c.tributacao||"—"}</span>
+              </div>
+              <div style={{display:"flex",marginBottom:14}}>
+                {collabs.slice(0,6).map((u,i)=><div key={u.id} style={{marginLeft:i>0?-8:0}}><Av initials={u.initials} color={u.color} size={28} title={u.name}/></div>)}
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <Btn onClick={()=>openEdit(c)} v="ghost" sz="sm" xs={{flex:1,justifyContent:"center"}}>✎ Editar</Btn>
+                <Btn onClick={()=>del(c.id)} v="danger" sz="sm">×</Btn>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <Modal open={open} onClose={()=>setOpen(false)} title={editing?"Editar Empresa":"Nova Empresa"} width={460}>
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Inp label="Nome *" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="Nome da empresa"/>
+            <Inp label="Sigla/Logo" value={form.logo} onChange={v=>setForm(f=>({...f,logo:v}))} placeholder="Ex: MT"/>
+          </div>
+          <Inp label="CNPJ" value={form.cnpj} onChange={v=>setForm(f=>({...f,cnpj:v}))} placeholder="00.000.000/0001-00"/>
+          <Sel label="Tipo de Tributação *" value={form.tributacao} onChange={v=>setForm(f=>({...f,tributacao:v}))} options={TRIBS.map(t=>({value:t,label:t}))}/>
+          <CPick value={form.color} onChange={v=>setForm(f=>({...f,color:v}))}/>
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+            <Btn onClick={()=>setOpen(false)} v="ghost">Cancelar</Btn>
+            <Btn onClick={save}>Salvar</Btn>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+// ─── SETORES ────────────────────────────────────────────────────
+function SectorsPage({ data, setData }) {
+  const [open,setOpen]=useState(false);
+  const [editing,setEditing]=useState(null);
+  const [form,setForm]=useState({name:"",color:"#14b8a6",company:""});
+  const openNew=()=>{setEditing(null);setForm({name:"",color:"#14b8a6",company:""});setOpen(true);};
+  const openEdit=(s)=>{setEditing(s);setForm({name:s.name,color:s.color,company:s.company});setOpen(true);};
+  const save=()=>{
+    if(!form.name.trim())return;
+    if(editing) setData(d=>({...d,sectors:d.sectors.map(s=>s.id===editing.id?{...s,...form}:s)}));
+    else setData(d=>({...d,sectors:[...d.sectors,{id:uid(),...form}]}));
+    setOpen(false);
+  };
+  const del=(id)=>setData(d=>({...d,sectors:d.sectors.filter(s=>s.id!==id)}));
+
+  return (
+    <div>
+      <PH title="Setores" icon="◫" badge={data.sectors.length} action={<Btn onClick={openNew}>+ Novo Setor</Btn>}/>
+      <div className="g-sectors" style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:12}}>
+        {data.sectors.map(s=>{
+          const co=data.companies.find(c=>c.id===s.company);
+          const collabs=data.collaborators.filter(u=>u.sector===s.id);
+          const tasks=data.tasks.filter(t=>t.sector===s.id);
+          return (
+            <div key={s.id} style={{background:"#fff",borderRadius:14,padding:18,border:"1px solid #f1f5f9",boxShadow:"0 1px 4px rgba(0,0,0,.06)"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+                <div style={{width:38,height:38,borderRadius:10,background:s.color+"18",border:`2px solid ${s.c}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:17}}>◫</div>
+                <div>
+                  <div style={{fontWeight:800,fontSize:14,color:"#0f172a"}}>{s.name}</div>
+                  {co&&<div style={{fontSize:11,color:co.color,fontWeight:700}}>{co.name}</div>}
+                </div>
+              </div>
+              <div style={{display:"flex",gap:8,marginBottom:14}}>
+                <div style={{flex:1,textAlign:"center",background:"#f8fafc",borderRadius:8,padding:"6px 4px"}}>
+                  <div style={{fontSize:16,fontWeight:800,color:s.color}}>{collabs.length}</div>
+                  <div style={{fontSize:10,color:"#94a3b8"}}>Colab.</div>
+                </div>
+                <div style={{flex:1,textAlign:"center",background:"#f8fafc",borderRadius:8,padding:"6px 4px"}}>
+                  <div style={{fontSize:16,fontWeight:800,color:s.color}}>{tasks.length}</div>
+                  <div style={{fontSize:10,color:"#94a3b8"}}>Tarefas</div>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <Btn onClick={()=>openEdit(s)} v="ghost" sz="sm" xs={{flex:1,justifyContent:"center"}}>✎ Editar</Btn>
+                <Btn onClick={()=>del(s.id)} v="danger" sz="sm">×</Btn>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <Modal open={open} onClose={()=>setOpen(false)} title={editing?"Editar Setor":"Novo Setor"} width={400}>
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <Inp label="Nome *" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="Ex: Desenvolvimento"/>
+          <Sel label="Empresa" value={form.company} onChange={v=>setForm(f=>({...f,company:v}))} placeholder="Selecionar..." options={data.companies.map(c=>({value:c.id,label:c.name}))}/>
+          <CPick value={form.color} onChange={v=>setForm(f=>({...f,color:v}))}/>
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+            <Btn onClick={()=>setOpen(false)} v="ghost">Cancelar</Btn>
+            <Btn onClick={save}>Salvar</Btn>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+// ─── COLABORADORES ──────────────────────────────────────────────
+function CollaboratorsPage({ data, setData }) {
+  const [open,setOpen]=useState(false);
+  const [editing,setEditing]=useState(null);
+  const [form,setForm]=useState({name:"",role:"",company:"",sector:"",color:"#8b5cf6",initials:"",email:""});
+  const openNew=()=>{setEditing(null);setForm({name:"",role:"",company:"",sector:"",color:"#8b5cf6",initials:"",email:""});setOpen(true);};
+  const openEdit=(u)=>{setEditing(u);setForm({name:u.name,role:u.role,company:u.company,sector:u.sector||"",color:u.color,initials:u.initials,email:u.email||""});setOpen(true);};
+  const save=()=>{
+    if(!form.name.trim())return;
+    const initials=form.initials||form.name.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2);
+    if(editing) setData(d=>({...d,collaborators:d.collaborators.map(u=>u.id===editing.id?{...u,...form,initials}:u)}));
+    else setData(d=>({...d,collaborators:[...d.collaborators,{id:uid(),...form,initials}]}));
+    setOpen(false);
+  };
+  const del=(id)=>setData(d=>({...d,collaborators:d.collaborators.filter(u=>u.id!==id)}));
+  const filteredSectors=(c)=>data.sectors.filter(s=>!c||s.company===c);
+
+  return (
+    <div>
+      <PH title="Colaboradores" icon="◉" badge={data.collaborators.length} action={<Btn onClick={openNew}>+ Novo Colaborador</Btn>}/>
+      <div className="g-collabs" style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:12}}>
+        {data.collaborators.map(u=>{
+          const co=data.companies.find(c=>c.id===u.company);
+          const sec=data.sectors.find(s=>s.id===u.sector);
+          const tasks=data.tasks.filter(t=>t.assignees.includes(u.id));
+          const doing=tasks.filter(t=>t.status==="doing").length;
+          return (
+            <div key={u.id} style={{background:"#fff",borderRadius:14,padding:18,border:"1px solid #f1f5f9",boxShadow:"0 1px 4px rgba(0,0,0,.06)",textAlign:"center"}}>
+              <div style={{display:"flex",justifyContent:"center",marginBottom:12}}>
+                <Av initials={u.initials} color={u.color} size={54}/>
+              </div>
+              <div style={{fontWeight:900,fontSize:14,color:"#0f172a",marginBottom:2}}>{u.name}</div>
+              <div style={{fontSize:12,color:"#94a3b8",marginBottom:8}}>{u.role}</div>
+              {u.email&&<div style={{fontSize:11,color:"#64748b",marginBottom:8,wordBreak:"break-all"}}>✉ {u.email}</div>}
+              <div style={{display:"flex",gap:5,justifyContent:"center",flexWrap:"wrap",marginBottom:12}}>
+                {co&&<Chip label={co.name} color={co.color}/>}
+                {sec&&<Chip label={sec.name} color={sec.color}/>}
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:12}}>
+                <div style={{background:"#f8fafc",borderRadius:8,padding:"6px"}}>
+                  <div style={{fontSize:16,fontWeight:800,color:"#6366f1"}}>{tasks.length}</div>
+                  <div style={{fontSize:10,color:"#94a3b8"}}>Tarefas</div>
+                </div>
+                <div style={{background:"#f8fafc",borderRadius:8,padding:"6px"}}>
+                  <div style={{fontSize:16,fontWeight:800,color:"#f59e0b"}}>{doing}</div>
+                  <div style={{fontSize:10,color:"#94a3b8"}}>Em andamento</div>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:8,justifyContent:"center"}}>
+                <Btn onClick={()=>openEdit(u)} v="ghost" sz="sm">✎ Editar</Btn>
+                <Btn onClick={()=>del(u.id)} v="danger" sz="sm">×</Btn>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <Modal open={open} onClose={()=>setOpen(false)} title={editing?"Editar Colaborador":"Novo Colaborador"} width={480}>
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Inp label="Nome *" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="Nome completo"/>
+            <Inp label="Cargo" value={form.role} onChange={v=>setForm(f=>({...f,role:v}))} placeholder="Ex: Dev Frontend"/>
+          </div>
+          <Inp label="E-mail" value={form.email} onChange={v=>setForm(f=>({...f,email:v}))} placeholder="email@empresa.com"/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Sel label="Empresa" value={form.company} onChange={v=>setForm(f=>({...f,company:v,sector:""}))} placeholder="Selecionar..." options={data.companies.map(c=>({value:c.id,label:c.name}))}/>
+            <Sel label="Setor" value={form.sector} onChange={v=>setForm(f=>({...f,sector:v}))} placeholder="Selecionar..." options={filteredSectors(form.company).map(s=>({value:s.id,label:s.name}))}/>
+          </div>
+          <Inp label="Iniciais (auto se vazio)" value={form.initials} onChange={v=>setForm(f=>({...f,initials:v}))} placeholder="Ex: AL"/>
+          <CPick value={form.color} onChange={v=>setForm(f=>({...f,color:v}))}/>
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+            <Btn onClick={()=>setOpen(false)} v="ghost">Cancelar</Btn>
+            <Btn onClick={save}>Salvar</Btn>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+// ─── MARCADORES ─────────────────────────────────────────────────
+function LabelsPage({ data, setData }) {
+  const [open,setOpen]=useState(false);
+  const [editing,setEditing]=useState(null);
+  const [form,setForm]=useState({name:"",color:"#22c55e"});
+  const openNew=()=>{setEditing(null);setForm({name:"",color:"#22c55e"});setOpen(true);};
+  const openEdit=(l)=>{setEditing(l);setForm({name:l.name,color:l.color});setOpen(true);};
+  const save=()=>{
+    if(!form.name.trim())return;
+    if(editing) setData(d=>({...d,labels:d.ls.map(l=>l.id===editing.id?{...l,...form}:l)}));
+    else setData(d=>({...d,labels:[...d.ls,{id:uid(),...form}]}));
+    setOpen(false);
+  };
+  const del=(id)=>setData(d=>({...d,labels:d.ls.filter(l=>l.id!==id)}));
+
+  return (
+    <div>
+      <PH title="Marcadores" icon="◈" badge={data.labels.length} action={<Btn onClick={openNew}>+ Novo Marcador</Btn>}/>
+      <div className="g-labels" style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10}}>
+        {data.labels.map(l=>{
+          const used=data.tasks.filter(t=>t.labels.includes(l.id)).length;
+          return (
+            <div key={l.id} style={{background:l.color+"0d",border:`2px solid ${l.color}33`,borderRadius:12,padding:"14px 16px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <span style={{width:12,height:12,borderRadius:"50%",background:l.color,display:"inline-block",flexShrink:0}}/>
+                <div>
+                  <div style={{fontWeight:800,fontSize:13,color:"#0f172a"}}>{l.name}</div>
+                  <div style={{fontSize:11,color:"#94a3b8"}}>{used} tarefa{used!==1?"s":""}</div>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:4}}>
+                <button onClick={()=>openEdit(l)} style={{background:l.color+"22",border:"none",borderRadius:6,width:26,height:26,cursor:"pointer",color:l.color,fontSize:12,display:"flex",alignItems:"center",justifyContent:"center"}}>✎</button>
+                <button onClick={()=>del(l.id)} style={{background:"#fef2f2",border:"none",borderRadius:6,width:26,height:26,cursor:"pointer",color:"#ef4444",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <Modal open={open} onClose={()=>setOpen(false)} title={editing?"Editar Marcador":"Novo Marcador"} width={380}>
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <Inp label="Nome *" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="Ex: Bug, Feature..."/>
+          <CPick value={form.color} onChange={v=>setForm(f=>({...f,color:v}))}/>
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+            <Btn onClick={()=>setOpen(false)} v="ghost">Cancelar</Btn>
+            <Btn onClick={save}>Salvar</Btn>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+// ─── RECORRÊNCIAS ────────────────────────────────────────────────
+function RecurrencesPage({ data, setData }) {
+  const [open,setOpen]=useState(false);
+  const [editing,setEditing]=useState(null);
+  const [form,setForm]=useState({name:"",interval:"custom_days",days:[]});
+  const openNew=()=>{setEditing(null);setForm({name:"",interval:"custom_days",days:[]});setOpen(true);};
+  const openEdit=(r)=>{setEditing(r);setForm({name:r.name,interval:r.interval,days:r.days||[]});setOpen(true);};
+  const save=()=>{
+    if(!form.name.trim())return;
+    if(editing) setData(d=>({...d,recurrences:d.recurrences.map(r=>r.id===editing.id?{...r,...form}:r)}));
+    else setData(d=>({...d,recurrences:[...d.recurrences,{id:uid(),...form}]}));
+    setOpen(false);
+  };
+  const del=(id)=>setData(d=>({...d,recurrences:d.recurrences.filter(r=>r.id!==id)}));
+
+  const describeRec=(r)=>{
+    if(r.interval==="custom_days" && r.days?.length>0)
+      return "Toda "+r.days.map(d=>WDAYS[d].s).join(", ");
+    return RINTS.find(x=>x.value===r.interval)?.label||r.interval;
+  };
+
+  return (
+    <div>
+      <PH title="Recorrências" icon="↻" badge={data.recurrences.length} action={<Btn onClick={openNew}>+ Nova Recorrência</Btn>}/>
+      <div className="g-recs" style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:12}}>
+        {data.recurrences.map(r=>{
+          const used=data.tasks.filter(t=>t.recurrence===r.id).length;
+          const desc=describeRec(r);
+          return (
+            <div key={r.id} style={{background:"#fff",border:"1px solid #f1f5f9",borderRadius:14,padding:18,boxShadow:"0 1px 4px rgba(0,0,0,.06)"}}>
+              <div style={{fontSize:26,marginBottom:8}}>↻</div>
+              <div style={{fontWeight:800,fontSize:14,color:"#0f172a",marginBottom:4}}>{r.name}</div>
+              <div style={{fontSize:12,color:"#64748b",marginBottom:4}}>{desc}</div>
+              {r.interval==="custom_days" && r.days?.length>0 && (
+                <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:10}}>
+                  {r.days.map(d=><span key={d} style={{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:6,background:"#eef2ff",color:"#6366f1"}}>{WDAYS[d].s}</span>)}
+                </div>
+              )}
+              <div style={{fontSize:11,color:"#94a3b8",marginBottom:14}}>{used} tarefa{used!==1?"s":""}</div>
+              <div style={{display:"flex",gap:8}}>
+                <Btn onClick={()=>openEdit(r)} v="ghost" sz="sm" xs={{flex:1,justifyContent:"center"}}>✎ Editar</Btn>
+                <Btn onClick={()=>del(r.id)} v="danger" sz="sm">×</Btn>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <Modal open={open} onClose={()=>setOpen(false)} title={editing?"Editar Recorrência":"Nova Recorrência"} width={440}>
+        <div style={{display:"flex",flexDirection:"column",gap:16}}>
+          <Inp label="Nome *" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="Ex: Toda Ter e Qui"/>
+          <Sel label="Tipo de Intervalo" value={form.interval} onChange={v=>setForm(f=>({...f,interval:v,days:[]}))} options={RINTS}/>
+          {form.interval==="custom_days" && (
+            <Fld label="Dias da semana *">
+              <WDSel value={form.days} onChange={v=>setForm(f=>({...f,days:v}))}/>
+              {form.days.length>0 && <div style={{fontSize:12,color:"#64748b",marginTop:4}}>Selecionado: {form.days.map(d=>WDAYS[d].l).join(", ")}</div>}
+            </Fld>
+          )}
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+            <Btn onClick={()=>setOpen(false)} v="ghost">Cancelar</Btn>
+            <Btn onClick={save}>Salvar</Btn>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+// ─── MODELOS ─────────────────────────────────────────────────────
+function TemplatesPage({ data, setData, onUseTemplate }) {
+  const [open,setOpen]=useState(false);
+  const [editing,setEditing]=useState(null);
+  const [form,setForm]=useState({name:"",description:"",labels:[],checklist:[],recurrence:""});
+  const [ckInput,setCkInput]=useState("");
+  const openNew=()=>{setEditing(null);setForm({name:"",description:"",labels:[],checklist:[],recurrence:""});setCkInput("");setOpen(true);};
+  const openEdit=(t)=>{setEditing(t);setForm({name:t.name,description:t.description,labels:[...t.labels],checklist:[...t.checklist],recurrence:t.recurrence||""});setCkInput("");setOpen(true);};
+  const save=()=>{
+    if(!form.name.trim())return;
+    if(editing) setData(d=>({...d,taskTemplates:d.taskTemplates.map(t=>t.id===editing.id?{...t,...form}:t)}));
+    else setData(d=>({...d,taskTemplates:[...d.taskTemplates,{id:uid(),...form}]}));
+    setOpen(false);
+  };
+  const del=(id)=>setData(d=>({...d,taskTemplates:d.taskTemplates.filter(t=>t.id!==id)}));
+  const addCk=()=>{if(!ckInput.trim())return;setForm(f=>({...f,checklist:[...f.checklist,ckInput.trim()]}));setCkInput("");};
+  const toggleL=(id)=>setForm(f=>({...f,labels:f.labels.includes(id)?f.labels.filter(x=>x!==id):[...f.labels,id]}));
+
+  return (
+    <div>
+      <PH title="Modelos de Tarefa" icon="◧" badge={data.taskTemplates.length} action={<Btn onClick={openNew}>+ Novo Modelo</Btn>}/>
+      <div className="g-templates" style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(290px,1fr))",gap:14}}>
+        {data.taskTemplates.map(t=>{
+          const labels=data.labels.filter(l=>t.labels.includes(l.id));
+          const rec=t.recurrence?data.recurrences.find(r=>r.id===t.recurrence):null;
+          return (
+            <div key={t.id} style={{background:"#fff",borderRadius:16,padding:20,border:"1px solid #f1f5f9",boxShadow:"0 2px 8px rgba(0,0,0,.06)"}}>
+              <div style={{display:"flex",gap:5,marginBottom:10,flexWrap:"wrap"}}>
+                {labels.map(l=><Chip key={l.id} label={l.name} color={l.color}/>)}
+                {rec&&<span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:20,background:"#f0fdf4",color:"#14b8a6"}}>↻ {rec.name}</span>}
+              </div>
+              <div style={{fontWeight:900,fontSize:15,color:"#0f172a",marginBottom:6}}>{t.name}</div>
+              <p style={{fontSize:12,color:"#94a3b8",marginBottom:14,lineHeight:1.5}}>{t.description}</p>
+              <div style={{marginBottom:14}}>
+                <div style={{fontSize:11,fontWeight:700,color:"#64748b",marginBottom:6}}>CHECKLIST ({t.checklist.length} itens)</div>
+                {t.checklist.slice(0,4).map((c,i)=>(
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:7,fontSize:12,color:"#6b7280",marginBottom:3}}>
+                    <span style={{width:5,height:5,borderRadius:"50%",background:"#cbd5e1",flexShrink:0}}/> {c}
+                  </div>
+                ))}
+                {t.checklist.length>4&&<div style={{fontSize:11,color:"#94a3b8"}}>+{t.checklist.length-4} itens</div>}
+              </div>
+              <div style={{display:"flex",gap:7}}>
+                <Btn onClick={()=>onUseTemplate(t)} sz="sm" xs={{flex:1,justifyContent:"center"}}>▶ Usar Modelo</Btn>
+                <Btn onClick={()=>openEdit(t)} v="ghost" sz="sm">✎</Btn>
+                <Btn onClick={()=>del(t.id)} v="danger" sz="sm">×</Btn>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <Modal open={open} onClose={()=>setOpen(false)} title={editing?"Editar Modelo":"Novo Modelo"} width={560}>
+        <div style={{display:"flex",flexDirection:"column",gap:16}}>
+          <Inp label="Nome *" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="Nome do modelo"/>
+          <Txt label="Descrição" value={form.description} onChange={v=>setForm(f=>({...f,description:v}))} placeholder="Descreva o modelo..."/>
+          <Sel label="Recorrência padrão" value={form.recurrence||""} onChange={v=>setForm(f=>({...f,recurrence:v}))} placeholder="Sem recorrência" options={data.recurrences.map(r=>({value:r.id,label:r.name}))}/>
+          <Fld label="Marcadores padrão">
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {data.labels.map(l=>{
+                const sel=form.labels.includes(l.id);
+                return <button key={l.id} onClick={()=>toggleL(l.id)} style={{padding:"3px 11px",borderRadius:20,cursor:"pointer",fontSize:12,fontWeight:700,border:`2px solid ${sel?l.color:"#e5e7eb"}`,background:sel?l.color+"18":"#f9fafb",color:sel?l.color:"#6b7280",fontFamily:"inherit",transition:"all .12s"}}>{l.name}</button>;
+              })}
+            </div>
+          </Fld>
+          <Fld label="Checklist padrão">
+            <div style={{display:"flex",gap:8,marginBottom:8}}>
+              <input value={ckInput} onChange={e=>setCkInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addCk()} placeholder="Adicionar item (Enter)..." style={{flex:1,padding:"7px 12px",borderRadius:9,fontSize:13,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit"}}/>
+              <Btn onClick={addCk} sz="sm">+</Btn>
+            </div>
+            {form.checklist.map((c,i)=>(
+              <div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",borderRadius:8,background:"#f9fafb",marginBottom:4}}>
+                <span style={{flex:1,fontSize:13}}>{c}</span>
+                <button onClick={()=>setForm(f=>({...f,checklist:f.checklist.filter((_,j)=>j!==i)}))} style={{background:"none",border:"none",cursor:"pointer",color:"#cbd5e1",fontSize:16}}>×</button>
+              </div>
+            ))}
+          </Fld>
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+            <Btn onClick={()=>setOpen(false)} v="ghost">Cancelar</Btn>
+            <Btn onClick={save}>Salvar Modelo</Btn>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  PART 6: Dashboard com filtros mensais + gráficos por empresa/colaborador
+// ═══════════════════════════════════════════════════════════════════
+
+function Dashboard({ data }) {
+  const thisMonth = new Date().getMonth();
+  const thisYear  = new Date().getFullYear();
+  const [fMonth, setFMonth] = useState(thisMonth);
+  const [fYear,  setFYear]  = useState(thisYear);
+  const [coFilter, setCoFilter] = useState("");
+  // mNames alias removed — using MS constant
+
+  const filteredTasks = useMemo(()=>data.tasks.filter(t=>{
+    if(!t.dueDate) return false;
+    const d = new Date(t.dueDate+"T12:00:00");
+    return d.getMonth()===fMonth && d.getFullYear()===fYear && (!coFilter||t.company===coFilter);
+  }),[data.tasks,fMonth,fYear,coFilter]);
+
+  const allTasks = coFilter ? data.tasks.filter(t=>t.company===coFilter) : data.tasks;
+
+  const stats = useMemo(()=>{
+    const t=filteredTasks;
+    const total=t.length;
+    const byStatus={};
+    STS.forEach(s=>{byStatus[s.id]=t.filter(x=>x.status===s.id).length;});
+    const overdue=t.filter(x=>isLate(x)).length;
+    const totalCk=t.reduce((a,x)=>a+x.checklist.length,0);
+    const doneCk=t.reduce((a,x)=>a+x.checklist.filter(c=>c.done).length,0);
+    return {total,byStatus,overdue,totalCk,doneCk};
+  },[filteredTasks]);
+
+  // Por empresa
+  const byCompany = useMemo(()=>data.companies.map(c=>{
+    const tasks=filteredTasks.filter(t=>t.company===c.id);
+    const done=tasks.filter(t=>t.status==="done").length;
+    const doing=tasks.filter(t=>t.status==="doing").length;
+    const overdue=tasks.filter(t=>isLate(t)).length;
+    return {...c,total:tasks.length,done,doing,overdue};
+  }),[filteredTasks,data.companies]);
+
+  // Por colaborador
+  const byCollaborator = useMemo(()=>data.collaborators.map(u=>{
+    const tasks=filteredTasks.filter(t=>t.assignees.includes(u.id));
+    const done=tasks.filter(t=>t.status==="done").length;
+    const doing=tasks.filter(t=>t.status==="doing").length;
+    const overdue=tasks.filter(t=>isLate(t)).length;
+    return {...u,total:tasks.length,done,doing,overdue};
+  }).filter(u=>u.total>0),[filteredTasks,data.collaborators]);
+
+  // Por setor
+  const bySector = useMemo(()=>data.sectors.map(s=>{
+    const tasks=filteredTasks.filter(t=>t.sector===s.id);
+    return {...s,total:tasks.length,done:tasks.filter(t=>t.status==="done").length};
+  }).filter(s=>s.total>0),[filteredTasks,data.sectors]);
+
+  const maxTasks = Math.max(1,...byCompany.map(c=>c.total),...byCollaborator.map(u=>u.total));
+
+  return (
+    <div>
+      {/* Filtros de período */}
+      <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:24,padding:"14px 18px",background:"#fff",borderRadius:14,border:"1px solid #f1f5f9",boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
+        <span style={{fontSize:13,fontWeight:700,color:"#64748b"}}>📊 Período:</span>
+        <select value={fMonth} onChange={e=>setFMonth(Number(e.target.value))} style={{padding:"6px 10px",borderRadius:8,fontSize:13,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",background:"#fff"}}>
+          {MS.map((m,i)=><option key={i} value={i}>{m}</option>)}
+        </select>
+        <select value={fYear} onChange={e=>setFYear(Number(e.target.value))} style={{padding:"6px 10px",borderRadius:8,fontSize:13,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",background:"#fff"}}>
+          {[2025,2026,2027].map(y=><option key={y} value={y}>{y}</option>)}
+        </select>
+        <select value={coFilter} onChange={e=>setCoFilter(e.target.value)} style={{padding:"6px 10px",borderRadius:8,fontSize:13,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",background:"#fff"}}>
+          <option value="">Todas as empresas</option>
+          {data.companies.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        <span style={{fontSize:12,color:"#94a3b8",marginLeft:"auto"}}>
+          Exibindo {MS[fMonth]} / {fYear} — {filteredTasks.length} tarefa{filteredTasks.length!==1?"s":""}
+        </span>
+      </div>
+
+      {/* KPIs */}
+      <div className="dash-kpis" style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:12,marginBottom:24}}>
+        {[
+          {l:"Total",        v:stats.total,            c:"#6366f1"},
+          {l:"A Fazer",      v:stats.byStatus.todo,    c:"#6366f1"},
+          {l:"Em Andamento", v:stats.byStatus.doing,   c:"#f59e0b"},
+          {l:"Em Revisão",   v:stats.byStatus.review,  c:"#8b5cf6"},
+          {l:"Concluídas",   v:stats.byStatus.done,    c:"#22c55e"},
+          {l:"Atrasadas",    v:stats.overdue,           c:"#ef4444"},
+        ].map(({l,v,c})=>(
+          <div key={l} style={{background:"#fff",borderRadius:14,padding:"16px 18px",border:"1px solid #f1f5f9",boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
+            <div style={{fontSize:30,fontWeight:900,color:c,lineHeight:1}}>{v}</div>
+            <div style={{fontSize:12,fontWeight:700,color:"#64748b",marginTop:4}}>{l}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Status bar */}
+      <div style={{background:"#fff",borderRadius:14,padding:20,border:"1px solid #f1f5f9",boxShadow:"0 1px 4px rgba(0,0,0,.05)",marginBottom:24}}>
+        <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:16}}>Status das Tarefas — {MS[fMonth]}/{fYear}</h3>
+        {STS.map(s=>{
+          const cnt=stats.byStatus[s.id]||0;
+          const pct=stats.total?Math.round((cnt/stats.total)*100):0;
+          return (
+            <div key={s.id} style={{marginBottom:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                <span style={{fontSize:12,fontWeight:700,color:s.color}}>{s.l}</span>
+                <span style={{fontSize:12,color:"#94a3b8"}}>{cnt} ({pct}%)</span>
+              </div>
+              <div style={{height:8,borderRadius:4,background:"#f1f5f9",overflow:"hidden"}}>
+                <div style={{width:`${pct}%`,height:"100%",background:s.color,borderRadius:4,transition:"width .6s ease"}}/>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Por empresa */}
+      <div style={{background:"#fff",borderRadius:14,padding:20,border:"1px solid #f1f5f9",boxShadow:"0 1px 4px rgba(0,0,0,.05)",marginBottom:24}}>
+        <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:18}}>📊 Tarefas por Empresa — {MS[fMonth]}/{fYear}</h3>
+        {byCompany.length===0&&<p style={{color:"#94a3b8",fontSize:13}}>Nenhuma tarefa no período.</p>}
+        {byCompany.map(c=>(
+          <div key={c.id} style={{marginBottom:16,paddingBottom:16,borderBottom:"1px solid #f8fafc"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{width:32,height:32,borderRadius:9,background:c.color+"18",border:`2px solid ${c.color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:900,color:c.color}}>{c.logo}</div>
+                <span style={{fontSize:13,fontWeight:700,color:"#0f172a"}}>{c.name}</span>
+              </div>
+              <div style={{display:"flex",gap:10,fontSize:12}}>
+                <span style={{color:"#22c55e",fontWeight:700}}>✓ {c.done}</span>
+                <span style={{color:"#f59e0b",fontWeight:700}}>⟳ {c.doing}</span>
+                {c.overdue>0&&<span style={{color:"#ef4444",fontWeight:700}}>⚠ {c.overdue}</span>}
+                <span style={{color:"#64748b",fontWeight:700}}>Total: {c.total}</span>
+              </div>
+            </div>
+            <div style={{display:"flex",height:14,borderRadius:7,overflow:"hidden",background:"#f1f5f9"}}>
+              {c.done>0&&<div style={{width:`${(c.done/Math.max(c.total,1))*100}%`,background:"#22c55e",transition:"width .6s"}}/>}
+              {c.doing>0&&<div style={{width:`${(c.doing/Math.max(c.total,1))*100}%`,background:"#f59e0b",transition:"width .6s"}}/>}
+              {(c.total-c.done-c.doing)>0&&<div style={{flex:1,background:"#e2e8f0"}}/>}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Por colaborador */}
+      {byCollaborator.length>0&&(
+        <div style={{background:"#fff",borderRadius:14,padding:20,border:"1px solid #f1f5f9",boxShadow:"0 1px 4px rgba(0,0,0,.05)",marginBottom:24}}>
+          <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:18}}>👥 Tarefas por Colaborador — {MS[fMonth]}/{fYear}</h3>
+          <div className="dash-collabs" style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12}}>
+            {byCollaborator.map(u=>(
+              <div key={u.id} style={{background:"#f8fafc",borderRadius:12,padding:"14px 16px",border:"1px solid #f1f5f9"}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                  <Av initials={u.initials} color={u.color} size={36}/>
+                  <div>
+                    <div style={{fontWeight:700,fontSize:13,color:"#0f172a"}}>{u.name}</div>
+                    <div style={{fontSize:11,color:"#94a3b8"}}>{u.role}</div>
+                  </div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4,marginBottom:8}}>
+                  <div style={{textAlign:"center",background:"#fff",borderRadius:7,padding:"5px 3px"}}>
+                    <div style={{fontSize:16,fontWeight:800,color:"#6366f1"}}>{u.total}</div>
+                    <div style={{fontSize:9,color:"#94a3b8"}}>Total</div>
+                  </div>
+                  <div style={{textAlign:"center",background:"#fff",borderRadius:7,padding:"5px 3px"}}>
+                    <div style={{fontSize:16,fontWeight:800,color:"#22c55e"}}>{u.done}</div>
+                    <div style={{fontSize:9,color:"#94a3b8"}}>Feitas</div>
+                  </div>
+                  <div style={{textAlign:"center",background:"#fff",borderRadius:7,padding:"5px 3px"}}>
+                    <div style={{fontSize:16,fontWeight:800,color:u.overdue>0?"#ef4444":"#94a3b8"}}>{u.overdue}</div>
+                    <div style={{fontSize:9,color:"#94a3b8"}}>Atraso</div>
+                  </div>
+                </div>
+                <div style={{height:6,borderRadius:3,background:"#e2e8f0",overflow:"hidden"}}>
+                  <div style={{width:`${u.total?Math.round((u.done/u.total)*100):0}%`,height:"100%",background:"#22c55e",transition:"width .6s"}}/>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Por setor */}
+      {bySector.length>0&&(
+        <div style={{background:"#fff",borderRadius:14,padding:20,border:"1px solid #f1f5f9",boxShadow:"0 1px 4444rgba(0,0,0,.05)"}}>
+          <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:16}}>◫ Tarefas por Setor — {MS[fMonth]}/{fYear}</h3>
+          <div style={{display:"flex",flexWrap:"wrap",gap:10}}>
+            {bySector.map(s=>(
+              <div key={s.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:10,background:s.color+"0d",border:`1.5px solid ${s.c}33`}}>
+                <span style={{width:10,height:10,borderRadius:"50%",background:s.color}}/>
+                <span style={{fontSize:13,fontWeight:700,color:"#0f172a"}}>{s.name}</span>
+                <span style={{fontSize:13,fontWeight:800,color:s.color}}>{s.total}</span>
+                <span style={{fontSize:11,color:"#94a3b8"}}>({s.done} feitas)</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+
+
+/* ═══════════════════════════════════════════
+   APP ROOT
+═══════════════════════════════════════════ */
+
+function App(){
+  const {user,loading:authLoading,signIn,signUp,signOut} = useAuth();
+  const [data,setData,synced] = useSharedData();
+  const {acquire,forceAcquire,release,getLock} = useLocks();
+  const {list:toasts,add:toast} = useToast();
+  const [page,setPage]      = useState("dashboard");
+  const [taskModal,setTM]   = useState({open:false,task:null,defStatus:"todo",lockInfo:null});
+  const [sideCol,setSideCol]= useState(false);
+
+  // Enquanto verifica sessão
+  if(authLoading) return(
+    <div style={{minHeight:"100dvh",display:"flex",alignItems:"center",justifyContent:"center",background:"#0f172a"}}>
+      <div style={{textAlign:"center"}}>
+        <div style={{width:48,height:48,borderRadius:14,background:"linear-gradient(135deg,#6366f1,#8b5cf6)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,color:"#fff",fontWeight:900,margin:"0 auto 16px"}}>M</div>
+        <div style={{color:"#475569",fontSize:13}}>Carregando...</div>
+      </div>
+    </div>
+  );
+
+  // Não logado → tela de login
+  if(!user) return <LoginScreen onLogin={signIn} onSignUp={signUp}/>;
+
+  // Dados ainda sincronizando
+  if(!synced) return(
+    <div style={{minHeight:"100dvh",display:"flex",alignItems:"center",justifyContent:"center",background:"#f1f5f9"}}>
+      <div style={{textAlign:"center"}}>
+        <div style={{width:48,height:48,borderRadius:14,background:"linear-gradient(135deg,#6366f1,#8b5cf6)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,color:"#fff",fontWeight:900,margin:"0 auto 16px"}}>M</div>
+        <div style={{color:"#64748b",fontSize:13,fontWeight:600}}>Sincronizando dados...</div>
+      </div>
+    </div>
+  );
+
+  const userName = user.user_metadata?.name || user.email?.split("@")[0] || "Usuário";
+
+  const openNew=(status="todo")=>setTM({open:true,task:null,defStatus:status,lockInfo:null});
+
+  const openEdit=(task)=>{
+    const r=acquire(task.id);
+    if(!r.ok){
+      setTM({open:true,task,defStatus:task.status,lockInfo:{user:r.holder}});
+      toast(`🔒 ${r.holder} está editando esta tarefa.`,"lock",5000);
+    } else {
+      setTM({open:true,task,defStatus:task.status,lockInfo:null});
+    }
+  };
+
+  const closeTask=()=>{
+    if(taskModal.task) release(taskModal.task.id);
+    setTM(m=>({...m,open:false,lockInfo:null}));
+  };
+
+  const forceLock=()=>{
+    if(taskModal.task){ forceAcquire(taskModal.task.id); setTM(m=>({...m,lockInfo:null})); toast("✅ Você assumiu a edição.","ok"); }
+  };
+
+  const saveTask=(updated)=>{
+    const isNew=!data.tasks.find(t=>t.id===updated.id);
+    setData(d=>{const ex=d.tasks.find(t=>t.id===updated.id);return{...d,tasks:ex?d.tasks.map(t=>t.id===updated.id?updated:t):[...d.tasks,updated]};});
+    if(taskModal.task) release(taskModal.task.id);
+    setTM(m=>({...m,open:false}));
+    toast(isNew?"✦ Tarefa criada!":"💾 Tarefa atualizada!","ok");
+  };
+
+  const deleteTask=(id)=>{
+    const lk=getLock(id);
+    if(lk){toast(`🔒 Não pode excluir: ${lk.user} está editando.`,"err");return;}
+    if(!confirm("Excluir esta tarefa?"))return;
+    setData(d=>({...d,tasks:d.tasks.filter(t=>t.id!==id)}));
+    toast("Tarefa excluída.","warn");
+  };
+
+  const quickComplete=(task)=>{
+    const lk=getLock(task.id);
+    if(lk){toast(`🔒 ${lk.user} está editando. Aguarde.`,"lock",4000);return;}
+    const newStatus=task.status==="done"?"todo":"done";
+    setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{
+      ...t,status:newStatus,
+      checklist:newStatus==="done"?t.checklist.map(c=>({...c,done:true})):t.checklist,
+    }:t)}));
+    toast(newStatus==="done"?"✅ Tarefa concluída!":"↩ Tarefa reaberta.","ok");
+  };
+
+  const useTemplate=(tpl)=>{
+    const nt={id:uid(),title:tpl.name,description:tpl.description,status:"todo",priority:"media",
+      company:"",sector:"",assignees:[],labels:tpl.labels,dueDate:"",
+      checklist:tpl.checklist.map(text=>({id:uid(),text,done:false})),
+      dependencies:[],recurrence:tpl.recurrence||"",createdAt:todayStr()};
+    setTM({open:true,task:nt,defStatus:"todo",lockInfo:null});
+    setPage("kanban");
+  };
+
+  const exportData=()=>{const b=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});const u=URL.createObjectURL(b);const a=document.createElement("a");a.href=u;a.download=`mdtec-backup-${todayStr()}.json`;a.click();URL.revokeObjectURL(u);toast("Backup exportado!","ok");};
+  const importData=()=>{const i=document.createElement("input");i.type="file";i.accept=".json";i.onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{try{const p=JSON.parse(ev.target.result);if(p.tasks&&p.companies){setData(p);toast("Dados importados!","ok");}else toast("Arquivo inválido.","err");}catch{toast("Erro ao importar.","err");}};r.readAsText(f);};i.click();};
+  const resetData=()=>{if(confirm("Restaurar dados iniciais? Tudo será perdido.")){setData(SEED);toast("Dados restaurados.","warn");}};
+
+  const overdueCount=data.tasks.filter(t=>isLate(t)).length;
+  const doingCount  =data.tasks.filter(t=>t.status==="doing").length;
+  const curPage     =NAV_GROUPS.flatMap(g=>g.items).find(i=>i.id===page);
+
+  return(
+    <div className="shell">
+      {/* ── SIDEBAR ── */}
+      <aside className={`sidebar${sideCol?" slim":""}`}>
+        <div className="sb-logo" style={{padding:sideCol?"14px 12px":"20px 16px",borderBottom:"1px solid rgba(255,255,255,.06)"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:36,height:36,borderRadius:10,flexShrink:0,background:"linear-gradient(135deg,#6366f1,#8b5cf6)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,color:"#fff",fontWeight:900,boxShadow:"0 4px 14px rgba(99,102,241,.5)"}}>M</div>
+            {!sideCol&&<div><div style={{fontSize:14,fontWeight:900,color:"#f8fafc",lineHeight:1.2}}>MdTec Gestão</div><div style={{fontSize:10,color:"#475569",fontWeight:600}}>Sistema de Tarefas</div></div>}
+          </div>
+        </div>
+        {!sideCol&&(
+          <div className="sb-stats" style={{margin:"10px 12px",padding:"10px 12px",background:"rgba(255,255,255,.04)",borderRadius:10,border:"1px solid rgba(255,255,255,.06)"}}>
+            <div style={{display:"flex",justifyContent:"space-between"}}>
+              {[{v:data.tasks.length,l:"Total",c:"#818cf8"},{v:doingCount,l:"Andamento",c:"#fbbf24"},{v:overdueCount,l:"Atraso",c:overdueCount>0?"#f87171":"#475569"}].map(({v,l,c})=>(
+                <div key={l} style={{textAlign:"center"}}>
+                  <div style={{fontSize:16,fontWeight:900,color:c}}>{v}</div>
+                  <div style={{fontSize:9,color:"#475569",fontWeight:600,textTransform:"uppercase",letterSpacing:".05em"}}>{l}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        <nav className="sb-nav" style={{flex:1,padding:"8px 10px",overflowY:"auto",display:"flex",flexDirection:"column"}}>
+          {NAV_GROUPS.map(group=>(
+            <div key={group.label} style={{marginBottom:8}}>
+              {!sideCol&&<div className="sb-section-lbl" style={{fontSize:9,fontWeight:800,color:"#334155",textTransform:"uppercase",letterSpacing:".1em",padding:"8px 10px 4px"}}>{group.label}</div>}
+              {group.items.map(item=>{
+                const active=page===item.id;
+                return(
+                  <button key={item.id} className="nav-btn" onClick={()=>setPage(item.id)} title={sideCol?item.label:""} style={{width:"100%",display:"flex",alignItems:"center",gap:sideCol?0:10,padding:sideCol?"10px":"9px 10px",borderRadius:9,border:"none",cursor:"pointer",background:active?"rgba(99,102,241,.2)":"transparent",color:active?"#818cf8":"#64748b",fontSize:13,fontWeight:active?800:600,textAlign:"left",fontFamily:"inherit",transition:"all .12s",marginBottom:2,justifyContent:sideCol?"center":"flex-start"}}
+                    onMouseEnter={e=>!active&&(e.currentTarget.style.background="rgba(255,255,255,.04)")}
+                    onMouseLeave={e=>!active&&(e.currentTarget.style.background="transparent")}
+                  >
+                    <span className="nb-icon" style={{fontSize:15,width:sideCol?20:18,textAlign:"center",flexShrink:0}}>{item.icon}</span>
+                    {!sideCol&&item.label}
+                    {!sideCol&&active&&<span className="nb-dot" style={{marginLeft:"auto",width:6,height:6,borderRadius:"50%",background:"#818cf8"}}/>}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </nav>
+        <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
+          {/* Usuário logado */}
+          {!sideCol&&(
+            <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>
+              <div style={{width:28,height:28,borderRadius:"50%",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,color:"#fff",fontWeight:800,flexShrink:0}}>{userName.slice(0,2).toUpperCase()}</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:11,fontWeight:700,color:"#f8fafc",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{userName}</div>
+                <div style={{fontSize:9,color:"#475569",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.email}</div>
+              </div>
+              <button onClick={signOut} title="Sair" style={{background:"none",border:"none",cursor:"pointer",color:"#475569",fontSize:14,padding:2,flexShrink:0}} onMouseEnter={e=>e.currentTarget.style.color="#f87171"} onMouseLeave={e=>e.currentTarget.style.color="#475569"}>⎋</button>
+            </div>
+          )}
+          {!sideCol&&<button onClick={openNew} style={{width:"100%",padding:"10px 0",borderRadius:10,border:"none",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 4px 14px rgba(99,102,241,.4)",transition:"filter .15s",marginBottom:8}} onMouseEnter={e=>e.currentTarget.style.filter="brightness(.9)"} onMouseLeave={e=>e.currentTarget.style.filter="brightness(1)"}>+ Nova Tarefa</button>}
+          {!sideCol&&(
+            <div style={{display:"flex",gap:4,marginBottom:8}}>
+              <button onClick={exportData} title="Exportar JSON" style={{flex:1,padding:"5px",borderRadius:6,border:"1px solid rgba(255,255,255,.07)",background:"transparent",color:"#475569",cursor:"pointer",fontSize:10,fontFamily:"inherit"}} onMouseEnter={e=>e.currentTarget.style.color="#94a3b8"} onMouseLeave={e=>e.currentTarget.style.color="#475569"}>⬇ Export</button>
+              <button onClick={importData} title="Importar JSON" style={{flex:1,padding:"5px",borderRadius:6,border:"1px solid rgba(255,255,255,.07)",background:"transparent",color:"#475569",cursor:"pointer",fontSize:10,fontFamily:"inherit"}} onMouseEnter={e=>e.currentTarget.style.color="#94a3b8"} onMouseLeave={e=>e.currentTarget.style.color="#475569"}>⬆ Import</button>
+              <button onClick={resetData} title="Restaurar dados" style={{padding:"5px 8px",borderRadius:6,border:"1px solid rgba(239,68,68,.18)",background:"transparent",color:"#475569",cursor:"pointer",fontSize:10,fontFamily:"inherit"}} onMouseEnter={e=>e.currentTarget.style.color="#f87171"} onMouseLeave={e=>e.currentTarget.style.color="#475569"}>⟳</button>
+            </div>
+          )}
+          <button onClick={()=>setSideCol(s=>!s)} style={{width:"100%",padding:"7px",borderRadius:8,border:"1px solid rgba(255,255,255,.06)",background:"transparent",color:"#475569",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit",gap:4}} onMouseEnter={e=>e.currentTarget.style.color="#94a3b8"} onMouseLeave={e=>e.currentTarget.style.color="#475569"}>
+            {sideCol?"›":"‹"}{!sideCol&&<span style={{fontSize:10}}>Recolher</span>}
+          </button>
+        </div>
+      </aside>
+
+      {/* ── MAIN ── */}
+      <main className="main-content">
+        <div className="topbar" style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:28,gap:12}}>
+          <div>
+            <h1 style={{fontSize:26,fontWeight:900,color:"#0f172a",lineHeight:1.1,letterSpacing:"-.02em"}}>{curPage?.icon} {curPage?.label}</h1>
+            <p style={{fontSize:13,color:"#94a3b8",marginTop:4,fontWeight:500}}>{new Date().toLocaleDateString("pt-BR",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</p>
+          </div>
+          <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+            {overdueCount>0&&(
+              <div style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:10,background:"#fef2f2",border:"1px solid #fecaca"}}>
+                <span style={{width:8,height:8,borderRadius:"50%",background:"#ef4444",animation:"pulse 2s infinite"}}/>
+                <span style={{fontSize:12,fontWeight:700,color:"#ef4444"}}>{overdueCount} atrasada{overdueCount>1?"s":""}</span>
+              </div>
+            )}
+            {["kanban","lista","tabela","calendario"].includes(page)&&<Btn onClick={openNew}>+ Nova Tarefa</Btn>}
+          </div>
+        </div>
+
+        {page==="dashboard"     && <Dashboard data={data}/>}
+        {page==="kanban"        && <KanbanView data={data} onEdit={openEdit} onDelete={deleteTask} onAdd={openNew} onComplete={quickComplete}/>}
+        {page==="lista"         && <ListView data={data} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete}/>}
+        {page==="calendario"    && <CalView data={data} onEdit={openEdit}/>}
+        {page==="tabela"        && <GridView data={data} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete}/>}
+        {page==="modelos"       && <TemplatesPage data={data} setData={setData} onUseTemplate={useTemplate}/>}
+        {page==="empresas"      && <CompaniesPage data={data} setData={setData}/>}
+        {page==="setores"       && <SectorsPage data={data} setData={setData}/>}
+        {page==="colaboradores" && <CollaboratorsPage data={data} setData={setData}/>}
+        {page==="marcadores"    && <LabelsPage data={data} setData={setData}/>}
+        {page==="recorrencias"  && <RecurrencesPage data={data} setData={setData}/>}
+      </main>
+
+      {/* ── TASK MODAL ── */}
+      <Modal open={taskModal.open} onClose={closeTask}
+        title={taskModal.task&&data.tasks.find(t=>t.id===taskModal.task?.id)?"✎ Editar Tarefa":"✦ Nova Tarefa"}
+        width={650}
+      >
+        {taskModal.open&&(
+          <TaskForm
+            key={taskModal.task?.id||"new"}
+            data={data}
+            task={taskModal.task}
+            defStatus={taskModal.defStatus}
+            onSave={saveTask}
+            onClose={closeTask}
+            lockInfo={taskModal.lockInfo}
+            onForce={forceLock}
+          />
+        )}
+      </Modal>
+
+      <Toasts list={toasts}/>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

@@ -304,6 +304,7 @@ function useAuth() {
 function useSharedData() {
   const [data, setRaw] = useState(SEED);
   const [synced, setSynced] = useState(false);
+  const savingRef = useRef(false);
 
   // Carrega dados do Supabase
   const load = useCallback(async () => {
@@ -352,6 +353,7 @@ function useSharedData() {
         table: "app_data",
         filter: "id=eq.1"
       }, (payload) => {
+        if (savingRef.current) return; // ignore echo from our own save
         if (payload.new?.payload) {
           const p = payload.new.payload;
           if (!p.sectors) p.sectors = SEED.sectors;
@@ -369,8 +371,10 @@ function useSharedData() {
       const next = typeof updater === "function" ? updater(prev) : updater;
       // Save to Supabase async (fire-and-forget)
       setTimeout(() => {
+        savingRef.current = true;
         sb.from("app_data").upsert({ id: 1, payload: next })
-          .then(({ error }) => { if(error) console.error("Supabase save error:", error); });
+          .then(({ error }) => { if(error) console.error("Supabase save error:", error); })
+          .finally(() => { setTimeout(() => { savingRef.current = false; }, 2000); });
       }, 0);
       return next;
     });
@@ -1898,7 +1902,7 @@ function Dashboard({ data }) {
 
       {/* Por setor */}
       {bySector.length>0&&(
-        <div style={{background:"#fff",borderRadius:14,padding:20,border:"1px solid #f1f5f9",boxShadow:"0 1px 4444rgba(0,0,0,.05)"}}>
+        <div style={{background:"#fff",borderRadius:14,padding:20,border:"1px solid #f1f5f9",boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
           <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:16}}>◫ Tarefas por Setor - {MS[fMonth]}/{fYear}</h3>
           <div style={{display:"flex",flexWrap:"wrap",gap:10}}>
             {bySector.map(s=>(
@@ -1998,7 +2002,9 @@ function App(){
   };
 
   // Auto-archive completed tasks older than archiveDays
+  const archiveRanRef=useRef(false);
   useEffect(()=>{
+    if(archiveRanRef.current)return;
     const timer = setTimeout(()=>{
       const days=data.archiveDays||30;
       const cutoff=new Date();
@@ -2009,14 +2015,17 @@ function App(){
         return d<cutoff;
       });
       if(toArchive.length>0){
+        archiveRanRef.current=true;
         setData(d=>({
           ...d,
-          tasks:d.tasks.map(t=>toArchive.find(a=>a.id===t.id)?{...t,status:"archived",archivedAt:todayStr()}:t)
+          tasks:d.tasks.map(t=>toArchive.find(a=>a.id===t.id)?{...t,status:"archived",archivedAt:todayStr()}:t),
+          archivedTasks:[...(d.archivedTasks||[]),...toArchive.map(t=>({...t,archivedAt:todayStr()}))]
         }));
+        setTimeout(()=>{archiveRanRef.current=false;},5000);
       }
-    }, 500);
+    }, 1000);
     return ()=>clearTimeout(timer);
-  },[data.tasks,data.archiveDays]);
+  },[data.tasks,data.archiveDays,setData]);
 
   const quickComplete=(task)=>{
     const lk=getLock(task.id);

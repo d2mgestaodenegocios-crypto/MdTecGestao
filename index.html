@@ -327,10 +327,10 @@ function useSharedData() {
           priority: t.priority||"media",
           company: t.company||"",
           sector: t.sector||"",
-          assignees: Array.isArray(t.assignees)?t.assignees:[],
-          labels: Array.isArray(t.labels)?t.labels:[],
-          checklist: Array.isArray(t.checklist)?t.checklist:[],
-          dependencies: Array.isArray(t.dependencies)?t.dependencies:[],
+          assignees: toArr(t.assignees),
+          labels: toArr(t.labels),
+          checklist: toArr(t.checklist),
+          dependencies: toArr(t.dependencies),
           recurrence: t.recurrence||"",
           dueDate: t.dueDate||"",
           createdAt: t.createdAt||"",
@@ -380,10 +380,10 @@ function useSharedData() {
             priority: t.priority||"media",
             company: t.company||"",
             sector: t.sector||"",
-            assignees: Array.isArray(t.assignees)?t.assignees:[],
-            labels: Array.isArray(t.labels)?t.labels:[],
-            checklist: Array.isArray(t.checklist)?t.checklist:[],
-            dependencies: Array.isArray(t.dependencies)?t.dependencies:[],
+            assignees: toArr(t.assignees),
+            labels: toArr(t.labels),
+            checklist: toArr(t.checklist),
+            dependencies: toArr(t.dependencies),
             recurrence: t.recurrence||"",
             dueDate: t.dueDate||"",
             createdAt: t.createdAt||"",
@@ -927,6 +927,11 @@ function QCBtn({isDone,onClick,size=26,absolute=true}){
 
 /* ===========================================
    TASK FORM */
+function toArr(v){
+  if(Array.isArray(v)) return v;
+  if(typeof v==="string"){try{const p=JSON.parse(v);return Array.isArray(p)?p:[];}catch(e){return[];}}
+  return [];
+}
 function sanitizeTask(t){
   return {
     ...t,
@@ -936,10 +941,10 @@ function sanitizeTask(t){
     priority: t.priority||"media",
     company: t.company||"",
     sector: t.sector||"",
-    assignees: Array.isArray(t.assignees)?t.assignees:[],
-    labels: Array.isArray(t.labels)?t.labels:[],
-    checklist: Array.isArray(t.checklist)?t.checklist:[],
-    dependencies: Array.isArray(t.dependencies)?t.dependencies:[],
+    assignees: toArr(t.assignees),
+    labels: toArr(t.labels),
+    checklist: toArr(t.checklist),
+    dependencies: toArr(t.dependencies),
     recurrence: t.recurrence||"",
     dueDate: t.dueDate||"",
     createdAt: t.createdAt||todayStr(),

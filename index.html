@@ -2527,19 +2527,21 @@ function Dashboard({ data }) {
 /* ===========================================
    APP ROOT */
 
-function useHourlyNotif(data){
+function useHourlyNotif(tasks){
   const [notif,setNotif]=useState(null);
+  const [dismissed,setDismissed]=useState(false);
   useEffect(()=>{
+    setDismissed(false);
     const check=()=>{
       const today=todayStr();
-      const due=data.tasks.filter(t=>t.dueDate===today&&t.status!=="done"&&t.status!=="archived");
-      if(due.length>0) setNotif(due);
+      const due=(tasks||[]).filter(t=>t.dueDate===today&&t.status!=="done"&&t.status!=="archived");
+      setNotif(due.length>0?due:null);
     };
     check();
-    const iv=setInterval(check,3600000);
+    const iv=setInterval(()=>{setDismissed(false);check();},3600000);
     return ()=>clearInterval(iv);
-  },[data.tasks]);
-  return [notif,()=>setNotif(null)];
+  },[tasks]);
+  return [dismissed?null:notif,()=>setDismissed(true)];
 }
 
 function App(){
@@ -2551,7 +2553,7 @@ function App(){
   const [page,setPage]      = useState("dashboard");
   const [taskModal,setTM]   = useState({open:false,task:null,defStatus:"todo",lockInfo:null});
   const [sideCol,setSideCol]= useState(false);
-  const [notifTasks,clearNotif]=useHourlyNotif(data);
+  const [notifTasks,clearNotif]=useHourlyNotif(data.tasks);
 
   // Enquanto verifica sessão
   if(authLoading) return(
@@ -2577,18 +2579,6 @@ function App(){
   );
 
   const userName = user.user_metadata?.name || user.email?.split("@")[0] || "Usuário";
-
-  // Hourly notification for tasks due today
-  useEffect(()=>{
-    const notify=()=>{
-      const today=todayStr();
-      const due=data.tasks.filter(t=>t.dueDate===today&&t.status!=="done"&&t.status!=="archived");
-      if(due.length>0) toast(`Lembrete: ${due.length} tarefa${due.length>1?"s":""} vence${due.length>1?"m":""} hoje!`,"warn",8000);
-    };
-    notify();
-    const iv=setInterval(notify,3600000);
-    return()=>clearInterval(iv);
-  },[data.tasks]);
 
   const openNew=(status="todo")=>setTM({open:true,task:null,defStatus:status,lockInfo:null});
 
@@ -2685,12 +2675,22 @@ function App(){
   const resetData=()=>{ askDelete("Todos os dados serão apagados e substituídos pelos dados iniciais!", ()=>{setData(SEED);toast("Dados restaurados.","warn");}); };
 
   const overdueCount=data.tasks.filter(t=>isLate(t)).length;
+  const notifBanner=notifTasks&&notifTasks.length>0?(
+    <div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",zIndex:9999,background:"#1e293b",borderRadius:14,padding:"12px 20px",boxShadow:"0 8px 32px rgba(0,0,0,.3)",display:"flex",alignItems:"center",gap:14,maxWidth:480,width:"calc(100% - 32px)"}}>
+      <span style={{fontSize:20}}>⏰</span>
+      <div style={{flex:1}}>
+        <div style={{color:"#f8fafc",fontWeight:800,fontSize:13}}>Lembrete de hoje</div>
+        <div style={{color:"#94a3b8",fontSize:12}}>{notifTasks.length} tarefa{notifTasks.length>1?"s":""} vence{notifTasks.length>1?"m":""} hoje e ainda {notifTasks.length>1?"nao foram":"nao foi"} concluida{notifTasks.length>1?"s":""}</div>
+      </div>
+      <button onClick={clearNotif} style={{background:"#334155",border:"none",borderRadius:8,color:"#94a3b8",cursor:"pointer",padding:"4px 10px",fontSize:12,fontFamily:"inherit",fontWeight:700}}>OK</button>
+    </div>
+  ):null;
   const doingCount  =data.tasks.filter(t=>t.status==="doing").length;
   const curPage     =NAV_GROUPS.flatMap(g=>g.items).find(i=>i.id===page);
 
   return(
     <div className="shell" style={{minHeight:"100dvh",width:"100%"}}>
-      {}
+      {notifBanner}
       <aside className={`sidebar${sideCol?" slim":""}`}>
         <div className="sb-logo" style={{padding:sideCol?"14px 12px":"20px 16px",borderBottom:"1px solid rgba(255,255,255,.06)"}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>

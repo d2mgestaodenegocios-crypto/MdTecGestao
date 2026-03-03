@@ -372,7 +372,25 @@ function useSharedData() {
         if (payload.new?.payload) {
           const p = payload.new.payload;
           if (!p.sectors) p.sectors = SEED.sectors;
-          p.tasks = (p.tasks || []).map(t => ({ sector: "", recurrence: null, dependencies: [], ...t }));
+          if (!p.archiveDays) p.archiveDays = 30;
+          p.tasks = (p.tasks || []).map(t => ({
+            id: t.id||"",
+            title: t.title||"",
+            description: t.description||"",
+            status: t.status||"todo",
+            priority: t.priority||"media",
+            company: t.company||"",
+            sector: t.sector||"",
+            assignees: Array.isArray(t.assignees)?t.assignees:[],
+            labels: Array.isArray(t.labels)?t.labels:[],
+            checklist: Array.isArray(t.checklist)?t.checklist:[],
+            dependencies: Array.isArray(t.dependencies)?t.dependencies:[],
+            recurrence: t.recurrence||"",
+            dueDate: t.dueDate||"",
+            createdAt: t.createdAt||"",
+            completedAt: t.completedAt||null,
+            archivedAt: t.archivedAt||null,
+          }));
           setRaw(p);
         }
       })
@@ -601,7 +619,23 @@ function ConfigPage({data,setData,toast}){
     setData(d=>({...d,archiveDays:Number(days)}));
     toast("✅ Configurações salvas!","ok");
   };
-  const archived=(data.archivedTasks||[]).length;
+  const archived=data.tasks.filter(t=>t.status==="archived").length;
+  const runArchive=()=>{
+    const d=Number(days)||30;
+    const cutoff=new Date();
+    cutoff.setDate(cutoff.getDate()-d);
+    let count=0;
+    setData(prev=>({
+      ...prev,
+      tasks:prev.tasks.map(t=>{
+        if(t.status!=="done") return t;
+        const dt=new Date((t.completedAt||t.dueDate||t.createdAt||"2000-01-01")+"T12:00:00");
+        if(dt<cutoff){ count++; return {...t,status:"archived",archivedAt:todayStr()}; }
+        return t;
+      })
+    }));
+    setTimeout(()=>toast(count>0?`📦 ${count} tarefa(s) arquivada(s)!`:"Nenhuma tarefa para arquivar.","ok"),100);
+  };
   const iSt={padding:"9px 12px",borderRadius:9,fontSize:14,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",color:"#111",background:"#fff",width:"100%"};
 
   return(
@@ -618,8 +652,9 @@ function ConfigPage({data,setData,toast}){
             <label style={{fontSize:12,fontWeight:700,color:"#374151",display:"block",marginBottom:5}}>Arquivar após (dias)</label>
             <input type="number" min={1} max={365} value={days} onChange={e=>setDays(e.target.value)} style={iSt}/>
           </div>
-          <div style={{paddingTop:22}}>
+          <div style={{paddingTop:22,display:"flex",gap:8,flexWrap:"wrap"}}>
             <Btn onClick={save}>Salvar configuração</Btn>
+            <Btn onClick={runArchive} v="ghost">📦 Arquivar agora</Btn>
           </div>
         </div>
         <div style={{marginTop:16,padding:"10px 14px",borderRadius:9,background:"#f8fafc",border:"1px solid #f1f5f9",fontSize:12,color:"#64748b"}}>
@@ -2039,25 +2074,7 @@ function App(){
   };
 
   // Auto-archive completed tasks older than archiveDays
-  useEffect(()=>{
-    const timer = setTimeout(()=>{
-      const days=data.archiveDays||30;
-      const cutoff=new Date();
-      cutoff.setDate(cutoff.getDate()-days);
-      const toArchive=data.tasks.filter(t=>{
-        if(t.status!=="done")return false;
-        const d=new Date((t.completedAt||t.dueDate||t.createdAt||"2000-01-01")+"T12:00:00");
-        return d<cutoff;
-      });
-      if(toArchive.length>0){
-        setData(d=>({
-          ...d,
-          tasks:d.tasks.map(t=>toArchive.find(a=>a.id===t.id)?{...t,status:"archived",archivedAt:todayStr()}:t)
-        }));
-      }
-    }, 500);
-    return ()=>clearTimeout(timer);
-  },[data.tasks,data.archiveDays]);
+  // Auto-archive handled manually via Config page
 
   const quickComplete=(task)=>{
     const lk=getLock(task.id);

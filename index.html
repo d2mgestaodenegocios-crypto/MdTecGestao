@@ -792,7 +792,8 @@ function Toasts({list}){
 /* ===========================================
    BASE COMPONENTS */
 function Av({initials,color,size=28,title:tip}){
-  return<div title={tip} style={{width:size,height:size,borderRadius:"50%",background:color+"22",border:`2px solid ${color}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:size*.33,fontWeight:700,color,flexShrink:0}}>{initials}</div>;
+  const txt=(initials||"?").slice(0,2).toUpperCase();
+  return<div title={tip} style={{width:size,height:size,borderRadius:"50%",background:(color||"#6366f1")+"22",border:`2px solid ${color||"#6366f1"}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:size*.33,fontWeight:700,color:color||"#6366f1",flexShrink:0}}>{txt}</div>;
 }
 
 function Chip({label,color}){
@@ -1128,7 +1129,7 @@ function TCard({task,data,onEdit,onDelete,onComplete}){
           {assignees.slice(0,3).map(u=>(
             <div key={u.id} style={{display:"flex",alignItems:"center",gap:4,padding:"2px 8px 2px 3px",borderRadius:20,background:u.color+"15",border:`1.5px solid ${u.color}40`}}>
               <Av initials={u.initials} color={u.color} size={18}/>
-              <span style={{fontSize:11,fontWeight:700,color:u.color}}>{u.name.split(" ")[0]}</span>
+              <span style={{fontSize:11,fontWeight:700,color:u.color,maxWidth:80,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name||u.initials||"?"}</span>
             </div>
           ))}
           {assignees.length>3&&<span style={{fontSize:11,color:"#94a3b8",fontWeight:700}}>+{assignees.length-3}</span>}

@@ -1192,12 +1192,16 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
           }
           const rec=data.recurrences.find(r=>r.id===t.recurrence);
           if(!rec) return true;
-          let matchesToday=false;
-          if(rec.interval==="daily") matchesToday=true;
-          else if(rec.interval==="custom_days"&&Array.isArray(rec.days)) matchesToday=rec.days.includes(_dow);
-          else if(rec.interval==="weekly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");matchesToday=_dow===sd.getDay();}
-          else if(rec.interval==="monthly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");matchesToday=_now.getDate()===sd.getDate();}
-          return matchesToday;
+          for(let d=0;d<7;d++){
+            const dt=new Date(_wkStart);dt.setDate(_wkStart.getDate()+d);
+            const dow=dt.getDay();
+            if(rec.interval==="daily") return true;
+            if(rec.interval==="custom_days"&&Array.isArray(rec.days)&&rec.days.includes(dow)) return true;
+            if(rec.interval==="weekly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");if(dow===sd.getDay()) return true;}
+            if(rec.interval==="biweekly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");const diff=Math.round((dt-sd)/86400000);if(dow===sd.getDay()&&diff>=0&&diff%14===0) return true;}
+            if(rec.interval==="monthly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");if(dt.getDate()===sd.getDate()) return true;}
+          }
+          return false;
         });
         return(
           <div key={st.id} className="kanban-col" style={{flexShrink:0,width:268}}>
@@ -1225,43 +1229,48 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
 function ListView({data,onEdit,onDelete,onComplete}){
   const [fl,sfl]=useState({});
   const tasks=applyFilters(data.tasks.filter(t=>t.status!=="archived"),fl);
+  const COL="12px minmax(180px,2.5fr) minmax(100px,120px) minmax(80px,95px) minmax(110px,1.2fr) minmax(90px,1fr) minmax(90px,1fr) minmax(70px,85px) 52px";
+  const cellSt={overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0};
   return(
     <div>
       <FBar data={data} filters={fl} setF={sfl}/>
-      <div className="scroll-x">
-        <div style={{borderRadius:14,border:"1px solid #f1f5f9",overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,.05)",background:"#fff"}}>
-          <div className="list-head" style={{display:"grid",gridTemplateColumns:"32px 2fr 100px 85px 105px 82px 82px 68px 56px",padding:"8px 14px",background:"#f8fafc",borderBottom:"2px solid #f1f5f9",gap:7,fontSize:10,fontWeight:800,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".05em"}}>
+      <div style={{overflowX:"auto"}}>
+        <div style={{minWidth:780,borderRadius:14,border:"1px solid #f1f5f9",overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,.05)",background:"#fff"}}>
+          <div style={{display:"grid",gridTemplateColumns:COL,padding:"9px 16px",background:"#f8fafc",borderBottom:"2px solid #f1f5f9",gap:8,fontSize:10,fontWeight:800,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".05em",alignItems:"center"}}>
             <div/><div>Tarefa</div><div>Status</div><div>Prior.</div><div>Empresa</div><div>Setor</div><div>Resp.</div><div>Venc.</div><div/>
           </div>
           {tasks.length===0&&<div style={{padding:"38px 20px",textAlign:"center",color:"#94a3b8",fontSize:14}}>Nenhuma tarefa encontrada.</div>}
           {tasks.map((t,i)=>{
             const co=data.companies.find(c=>c.id===t.company);
             const sec=data.sectors.find(s=>s.id===t.sector);
-            const asg=data.collaborators.filter(c=>t.assignees.includes(c.id));
+            const asg=toArr(t.assignees);
+            const asgs=data.collaborators.filter(c=>asg.includes(c.id));
             const over=isLate(t),done=t.status==="done";
             return(
-              <div key={t.id} className="list-row" style={{display:"grid",gridTemplateColumns:"32px 2fr 100px 85px 105px 82px 82px 68px 56px",padding:"9px 14px",borderBottom:i<tasks.length-1?"1px solid #f8fafc":"none",alignItems:"center",gap:7,cursor:"pointer",transition:"background .1s",background:done?"#f8fffe":"transparent"}}
+              <div key={t.id} style={{display:"grid",gridTemplateColumns:COL,padding:"9px 16px",borderBottom:i<tasks.length-1?"1px solid #f8fafc":"none",alignItems:"center",gap:8,cursor:"pointer",transition:"background .1s",background:done?"#f8fffe":"transparent"}}
                 onMouseEnter={e=>e.currentTarget.style.background=done?"#f0fdf4":"#fafafa"}
                 onMouseLeave={e=>e.currentTarget.style.background=done?"#f8fffe":"transparent"}
                 onClick={()=>onEdit(t)}
               >
-                {/* Quick complete in list */}
                 <div onClick={e=>e.stopPropagation()}>
                   <QCBtn isDone={done} onClick={()=>onComplete(t)} size={24} absolute={false}/>
                 </div>
-                <div>
-                  <div style={{fontSize:13,fontWeight:700,color:done?"#94a3b8":"#0f172a",textDecoration:done?"line-through":"none"}}>{t.title}</div>
-                  <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:2}}>{data.labels.filter(l=>t.labels.includes(l.id)).map(l=><Chip key={l.id} label={l.name} color={l.color}/>)}</div>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:700,color:done?"#94a3b8":"#0f172a",textDecoration:done?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</div>
+                  <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:2}}>{data.labels.filter(l=>toArr(t.labels).includes(l.id)).map(l=><Chip key={l.id} label={l.name} color={l.color}/>)}</div>
                 </div>
-                <SBadge status={t.status}/>
-                <PBadge priority={t.priority}/>
-                <div>{co?<span style={{fontSize:11,color:co.color,fontWeight:700}}>{co.logo} {co.name}</span>:"-"}</div>
-                <div>{sec?<span style={{fontSize:11,padding:"2px 7px",borderRadius:20,background:sec.color+"18",color:sec.color,fontWeight:700}}>{sec.name}</span>:"-"}</div>
-                <div style={{display:"flex"}}>{asg.slice(0,3).map((u,idx)=><div key={u.id} style={{marginLeft:idx>0?-7:0}}><Av initials={u.initials} color={u.color} size={22} title={u.name}/></div>)}</div>
-                <span style={{fontSize:12,color:over?"#ef4444":"#64748b",fontWeight:over?700:400}}>{fmtDate(t.dueDate)}</span>
-                <div style={{display:"flex",gap:3}} onClick={e=>e.stopPropagation()}>
-                  <Btn onClick={()=>onEdit(t)} v="ghost" sz="sm">✎</Btn>
-                  <Btn onClick={()=>onDelete(t.id)} v="danger" sz="sm">×</Btn>
+                <div style={cellSt}><SBadge status={t.status}/></div>
+                <div style={cellSt}><PBadge priority={t.priority}/></div>
+                <div style={cellSt}>{co?<span style={{fontSize:12,color:co.color,fontWeight:700,display:"flex",alignItems:"center",gap:5}}><span style={{width:8,height:8,borderRadius:"50%",background:co.color,flexShrink:0,display:"inline-block"}}/>{co.name}</span>:<span style={{color:"#cbd5e1"}}>-</span>}</div>
+                <div style={cellSt}>{sec?<span style={{fontSize:11,padding:"2px 8px",borderRadius:20,background:sec.color+"18",color:sec.color,fontWeight:700,display:"inline-block",maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sec.name}</span>:<span style={{color:"#cbd5e1"}}>-</span>}</div>
+                <div style={{display:"flex",alignItems:"center",gap:4,minWidth:0}}>
+                  {asgs.slice(0,3).map((u,idx)=><div key={u.id} style={{marginLeft:idx>0?-7:0,flexShrink:0}}><Av initials={u.initials} color={u.color} size={24} title={u.name}/></div>)}
+                  {asgs.length>3&&<span style={{fontSize:10,fontWeight:700,color:"#94a3b8"}}>+{asgs.length-3}</span>}
+                </div>
+                <div style={cellSt}><span style={{fontSize:12,color:over?"#ef4444":"#64748b",fontWeight:over?700:400}}>{t.dueDate?fmtDate(t.dueDate):"-"}</span></div>
+                <div style={{display:"flex",gap:3,justifyContent:"flex-end"}} onClick={e=>e.stopPropagation()}>
+                  <Btn onClick={()=>onEdit(t)} v="ghost" sz="sm">e</Btn>
+                  <Btn onClick={()=>onDelete(t.id)} v="danger" sz="sm">x</Btn>
                 </div>
               </div>
             );

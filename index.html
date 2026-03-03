@@ -176,7 +176,7 @@ const RINTS=[
 ];
 const NAV_GROUPS=[
   {label:"Visualizações",items:[{id:"dashboard",icon:"✦",label:"Dashboard"},{id:"kanban",icon:"⊞",label:"Kanban"},{id:"lista",icon:"☰",label:"Lista"},{id:"calendario",icon:"📅",label:"Calendário"},{id:"tabela",icon:"▦",label:"Tabela"},{id:"arquivadas",icon:"📦",label:"Arquivadas"}]},
-  {label:"Cadastros",items:[{id:"modelos",icon:"◧",label:"Modelos"},{id:"empresas",icon:"⬡",label:"Empresas"},{id:"setores",icon:"◫",label:"Setores"},{id:"colaboradores",icon:"◉",label:"Colaboradores"},{id:"marcadores",icon:"◈",label:"Marcadores"},{id:"recorrencias",icon:"↻",label:"Recorrências"},{id:"servicos",icon:"⊛",label:"Serviços"}]},
+  {label:"Cadastros",items:[{id:"modelos",icon:"◧",label:"Modelos"},{id:"empresas",icon:"⬡",label:"Empresas"},{id:"setores",icon:"◫",label:"Setores"},{id:"colaboradores",icon:"◉",label:"Colaboradores"},{id:"marcadores",icon:"◈",label:"Marcadores"},{id:"recorrencias",icon:"↻",label:"Recorrências"}]},
   {label:"Sistema",items:[{id:"configuracoes",icon:"⚙",label:"Configurações"}]},
 ];
 
@@ -216,7 +216,6 @@ const SEED={
     {id:"rc5",name:"Quinzenal",interval:"biweekly",days:[]},
     {id:"rc6",name:"Mensal",interval:"monthly",days:[]},
   ],
-  services:[],
   taskTemplates:[
   ],
   tasks:[
@@ -319,7 +318,6 @@ function useSharedData() {
         if (!p.labels || !Array.isArray(p.labels)) p.labels = SEED.labels;
         if (!p.recurrences || !Array.isArray(p.recurrences)) p.recurrences = SEED.recurrences;
         if (!p.taskTemplates || !Array.isArray(p.taskTemplates)) p.taskTemplates = [];
-        if (!p.services || !Array.isArray(p.services)) p.services = [];
         if (!p.archiveDays) p.archiveDays = 30;
         p.tasks = (p.tasks || []).map(t => ({
           id: t.id||uid(),
@@ -373,8 +371,6 @@ function useSharedData() {
           if (!p.labels || !Array.isArray(p.labels)) p.labels = SEED.labels;
           if (!p.recurrences || !Array.isArray(p.recurrences)) p.recurrences = SEED.recurrences;
           if (!p.taskTemplates || !Array.isArray(p.taskTemplates)) p.taskTemplates = [];
-          if (!p.services || !Array.isArray(p.services)) p.services = [];
-        if (!p.services || !Array.isArray(p.services)) p.services = [];
           if (!p.archiveDays) p.archiveDays = 30;
           p.tasks = (p.tasks || []).map(t => ({
             id: t.id||"",
@@ -1177,20 +1173,27 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
   return(
     <div className="kanban-wrap" style={{display:"flex",gap:14,overflowX:"auto",paddingBottom:20,alignItems:"flex-start"}}>
       {STS.filter(st=>st.id!=="archived").map(st=>{
-        const todayDt=new Date();
-        const todayDow=todayDt.getDay();
+        const _now=new Date();
+        const _dow=_now.getDay();
+        const _wkStart=new Date(_now);_wkStart.setDate(_now.getDate()-_dow);_wkStart.setHours(0,0,0,0);
+        const _wkEnd=new Date(_wkStart);_wkEnd.setDate(_wkStart.getDate()+6);_wkEnd.setHours(23,59,59,999);
         const tasks=data.tasks.filter(t=>{
-          if(t.status!==st.id) return false;
-          if(!t.recurrence) return true;
+          if(t.status!==st.id||t.status==="archived") return false;
+          const isOverdue=t.dueDate&&new Date(t.dueDate+"T23:59:59")<_now;
+          if(isOverdue) return true;
+          if(!t.recurrence){
+            if(!t.dueDate) return true;
+            const due=new Date(t.dueDate+"T12:00:00");
+            return due>=_wkStart&&due<=_wkEnd;
+          }
           const rec=data.recurrences.find(r=>r.id===t.recurrence);
           if(!rec) return true;
           let matchesToday=false;
           if(rec.interval==="daily") matchesToday=true;
-          else if(rec.interval==="custom_days"&&Array.isArray(rec.days)) matchesToday=rec.days.includes(todayDow);
-          else if(rec.interval==="weekly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");matchesToday=todayDow===sd.getDay();}
-          else if(rec.interval==="monthly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");matchesToday=todayDt.getDate()===sd.getDate();}
-          const isOverdue=t.dueDate&&new Date(t.dueDate+"T23:59:59")<todayDt;
-          return matchesToday||isOverdue;
+          else if(rec.interval==="custom_days"&&Array.isArray(rec.days)) matchesToday=rec.days.includes(_dow);
+          else if(rec.interval==="weekly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");matchesToday=_dow===sd.getDay();}
+          else if(rec.interval==="monthly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");matchesToday=_now.getDate()===sd.getDate();}
+          return matchesToday;
         });
         return(
           <div key={st.id} className="kanban-col" style={{flexShrink:0,width:268}}>
@@ -1274,33 +1277,7 @@ function CalView({data,onEdit}){
   const [y,sy]=useState(now.getFullYear());
   const wD=["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
   const dim=new Date(y,m+1,0).getDate(),fd=new Date(y,m,1).getDay();
-  const tbd=useMemo(()=>{
-    const mp={};
-    const dim2=new Date(y,m+1,0).getDate();
-    data.tasks.filter(t=>t.status!=="archived").forEach(t=>{
-      if(!t.recurrence){
-        if(!t.dueDate)return;
-        const d=new Date(t.dueDate+"T12:00:00");
-        if(d.getMonth()===m&&d.getFullYear()===y){const day=d.getDate();mp[day]=[...(mp[day]||[]),t];}
-        return;
-      }
-      const rec=data.recurrences.find(r=>r.id===t.recurrence);
-      if(!rec)return;
-      for(let day=1;day<=dim2;day++){
-        const dt=new Date(y,m,day);
-        const dow=dt.getDay();
-        let show=false;
-        if(rec.interval==="daily") show=true;
-        else if(rec.interval==="custom_days"&&Array.isArray(rec.days)) show=rec.days.includes(dow);
-        else if(rec.interval==="weekly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");show=dow===sd.getDay();}
-        else if(rec.interval==="biweekly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");const diff=Math.round((dt-sd)/86400000);show=dow===sd.getDay()&&diff>=0&&diff%14===0;}
-        else if(rec.interval==="monthly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");show=day===sd.getDate();}
-        else if(rec.interval==="yearly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");show=day===sd.getDate()&&m===sd.getMonth();}
-        if(show) mp[day]=[...(mp[day]||[]),{...t,_recurring:true}];
-      }
-    });
-    return mp;
-  },[data.tasks,data.recurrences,m,y]);
+  const tbd=useMemo(()=>{const mp={};data.tasks.filter(t=>t.status!=="archived").forEach(t=>{if(!t.dueDate)return;const d=new Date(t.dueDate+"T12:00:00");if(d.getMonth()===m&&d.getFullYear()===y){const day=d.getDate();mp[day]=[...(mp[day]||[]),t];}});return mp;},[data.tasks,m,y]);
   const cells=[];for(let i=0;i<fd;i++)cells.push(null);for(let i=1;i<=dim;i++)cells.push(i);
   const prev=()=>{if(m===0){sm(11);sy(y-1);}else sm(m-1);};
   const next=()=>{if(m===11){sm(0);sy(y+1);}else sm(m+1);};
@@ -1414,73 +1391,39 @@ function GridView({data,onEdit,onDelete,onComplete}){
 
 // --- EMPRESAS ---------------------------------------------------
 function CompaniesPage({ data, setData }) {
-  const blank={name:"",color:"#6366f1",logo:"",tributacao:"Simples Nacional",cnpj:"",email:"",telefone:"",socio:"",observacoes:"",services:[]};
   const [open,setOpen]=useState(false);
   const [editing,setEditing]=useState(null);
-  const [form,setForm]=useState(blank);
-  const [tab,setTab]=useState("info");
-  const openNew=()=>{setEditing(null);setForm(blank);setTab("info");setOpen(true);};
-  const openEdit=(c)=>{setEditing(c);setForm({...blank,...c,services:toArr(c.services)});setTab("info");setOpen(true);};
+  const [form,setForm]=useState({name:"",color:"#6366f1",logo:"",tributacao:"Simples Nacional",cnpj:""});
+  const openNew=()=>{setEditing(null);setForm({name:"",color:"#6366f1",logo:"",tributacao:"Simples Nacional",cnpj:""});setOpen(true);};
+  const openEdit=(c)=>{setEditing(c);setForm({name:c.name,color:c.color,logo:c.logo,tributacao:c.tributacao||"",cnpj:c.cnpj||""});setOpen(true);};
   const save=()=>{
     if(!form.name.trim())return;
     const logo=form.logo||form.name.slice(0,2).toUpperCase();
-    const co={...form,logo};
-    let newId=null;
-    if(editing){
-      setData(d=>({...d,companies:d.companies.map(c=>c.id===editing.id?{...c,...co}:c)}));
-    } else {
-      newId=uid();
-      setData(d=>({...d,companies:[...d.companies,{id:newId,...co}]}));
-    }
-    // Auto-generate recurring tasks for linked services
-    const coId=editing?editing.id:newId;
-    const svcIds=toArr(form.services);
-    const svcs=data.services.filter(s=>svcIds.includes(s.id));
-    if(svcs.length>0&&coId){
-      setData(d=>{
-        let tasks=[...d.tasks];
-        svcs.forEach(svc=>{
-          const alreadyExists=tasks.some(t=>t.company===coId&&t._serviceId===svc.id);
-          if(!alreadyExists){
-            tasks.push({
-              id:uid(),title:svc.name,description:svc.description||"",
-              status:"todo",priority:"media",company:coId,sector:"",
-              assignees:[],labels:[],checklist:[],dependencies:[],
-              recurrence:svc.recurrence||"",dueDate:svc.defaultDue||"",
-              createdAt:todayStr(),completedAt:null,archivedAt:null,
-              _serviceId:svc.id,
-            });
-          }
-        });
-        return {...d,tasks};
-      });
-    }
+    if(editing) setData(d=>({...d,companies:d.companies.map(c=>c.id===editing.id?{...c,...form,logo}:c)}));
+    else setData(d=>({...d,companies:[...d.companies,{id:uid(),...form,logo}]}));
     setOpen(false);
   };
   const {ask:askDel,modal:delModal}=useConfirmDelete();
   const del=(id)=>{const item=data.companies.find(x=>x.id===id);askDel(`Empresa: "${item?.name||""}"`,()=>setData(d=>({...d,companies:d.companies.filter(c=>c.id!==id)})));};
-  const tabSt=(t)=>({padding:"6px 14px",border:"none",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit",background:tab===t?"#6366f1":"#f1f5f9",color:tab===t?"#fff":"#64748b"});
+
   return (
     <div>
       <PH title="Empresas" icon="⬡" badge={data.companies.length} action={<Btn onClick={openNew}>+ Nova Empresa</Btn>}/>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14}}>
+      <div className="g-companies" style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14}}>
         {data.companies.map(c=>{
-          const collabs=data.collaborators.filter(u=>toArr(u.companies).includes(c.id)||u.company===c.id);
+          const collabs=data.collaborators.filter(u=>u.company===c.id);
           const tasks=data.tasks.filter(t=>t.company===c.id);
-          const sectors=data.sectors.filter(s=>toArr(s.companies).includes(c.id)||s.company===c.id);
-          const svcs=data.services.filter(s=>toArr(c.services).includes(s.id));
+          const sectors=data.sectors.filter(s=>s.company===c.id);
           return (
             <div key={c.id} style={{background:"#fff",borderRadius:16,padding:20,border:"1px solid #f1f5f9",boxShadow:"0 2px 8px rgba(0,0,0,.06)"}}>
-              <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:14}}>
-                <div style={{width:52,height:52,borderRadius:14,background:c.color+"18",border:"2px solid "+c.color+"44",display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,fontWeight:900,color:c.color}}>{c.logo}</div>
-                <div style={{flex:1,minWidth:0}}>
+              <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:16}}>
+                <div style={{width:52,height:52,borderRadius:14,background:c.color+"18",border:`2px solid ${c.color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,fontWeight:900,color:c.color}}>{c.logo}</div>
+                <div>
                   <div style={{fontWeight:900,fontSize:15,color:"#0f172a"}}>{c.name}</div>
-                  <div style={{fontSize:11,color:"#94a3b8"}}>CNPJ: {c.cnpj||"-"}</div>
-                  {c.email&&<div style={{fontSize:11,color:"#64748b"}}>✉ {c.email}</div>}
-                  {c.telefone&&<div style={{fontSize:11,color:"#64748b"}}>📞 {c.telefone}</div>}
+                  <div style={{fontSize:11,color:"#94a3b8",marginTop:2}}>CNPJ: {c.cnpj||"-"}</div>
                 </div>
               </div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}}>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
                 {[{v:collabs.length,l:"Colab."},{v:tasks.length,l:"Tarefas"},{v:sectors.length,l:"Setores"}].map(({v,l})=>(
                   <div key={l} style={{textAlign:"center",background:"#f8fafc",borderRadius:9,padding:"8px 4px"}}>
                     <div style={{fontSize:18,fontWeight:900,color:c.color}}>{v}</div>
@@ -1488,9 +1431,10 @@ function CompaniesPage({ data, setData }) {
                   </div>
                 ))}
               </div>
-              {c.socio&&<div style={{fontSize:11,color:"#64748b",marginBottom:8}}>👤 {c.socio}</div>}
-              {svcs.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:10}}>{svcs.map(s=><span key={s.id} style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:"#6366f118",color:"#6366f1",fontWeight:700}}>{s.name}</span>)}</div>}
-              <div style={{display:"flex",marginBottom:12}}>
+              <div style={{marginBottom:14}}>
+                <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:20,background:c.color+"18",color:c.color}}>📋 {c.tributacao||"-"}</span>
+              </div>
+              <div style={{display:"flex",marginBottom:14}}>
                 {collabs.slice(0,6).map((u,i)=><div key={u.id} style={{marginLeft:i>0?-8:0}}><Av initials={u.initials} color={u.color} size={28} title={u.name}/></div>)}
               </div>
               <div style={{display:"flex",gap:8}}>
@@ -1501,47 +1445,19 @@ function CompaniesPage({ data, setData }) {
           );
         })}
       </div>
-      <Modal open={open} onClose={()=>setOpen(false)} title={editing?"Editar Empresa":"Nova Empresa"} width={520}>
-        <div style={{display:"flex",gap:8,marginBottom:16}}>
-          {["info","contato","servicos"].map(t=><button key={t} style={tabSt(t)} onClick={()=>setTab(t)}>{t==="info"?"Dados":t==="contato"?"Contato":"Serviços"}</button>)}
-        </div>
-        {tab==="info"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
-          <div className="g2"><Inp label="Nome *" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="Nome da empresa"/><Inp label="Sigla" value={form.logo} onChange={v=>setForm(f=>({...f,logo:v}))} placeholder="Ex: MT"/></div>
-          <Inp label="CNPJ" value={form.cnpj} onChange={v=>setForm(f=>({...f,cnpj:v}))} placeholder="00.000.000/0001-00"/>
-          <Sel label="Tributação" value={form.tributacao} onChange={v=>setForm(f=>({...f,tributacao:v}))} options={TRIBS.map(t=>({value:t,label:t}))}/>
-          <Inp label="Sócio / Responsável" value={form.socio} onChange={v=>setForm(f=>({...f,socio:v}))} placeholder="Nome do responsável"/>
-          <Txt label="Observações" value={form.observacoes} onChange={v=>setForm(f=>({...f,observacoes:v}))} placeholder="Anotações sobre a empresa..."/>
-          <CPick value={form.color} onChange={v=>setForm(f=>({...f,color:v}))}/>
-        </div>}
-        {tab==="contato"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
-          <Inp label="E-mail" value={form.email} onChange={v=>setForm(f=>({...f,email:v}))} placeholder="email@empresa.com"/>
-          <Inp label="Telefone" value={form.telefone} onChange={v=>setForm(f=>({...f,telefone:v}))} placeholder="(00) 00000-0000"/>
-        </div>}
-        {tab==="servicos"&&<div style={{display:"flex",flexDirection:"column",gap:10}}>
-          <p style={{fontSize:12,color:"#64748b",marginBottom:4}}>Selecione os serviços contratados. Ao salvar, tarefas recorrentes serão geradas automaticamente.</p>
-          {data.services.length===0&&<p style={{fontSize:13,color:"#94a3b8"}}>Nenhum serviço cadastrado. Vá em <strong>Serviços</strong> para criar.</p>}
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {data.services.map(s=>{
-              const sel=toArr(form.services).includes(s.id);
-              return(
-                <div key={s.id} onClick={()=>setForm(f=>({...f,services:sel?toArr(f.services).filter(x=>x!==s.id):[...toArr(f.services),s.id]}))} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:10,border:"2px solid "+(sel?"#6366f1":"#e5e7eb"),background:sel?"#eef2ff":"#fafafa",cursor:"pointer",transition:"all .1s"}}>
-                  <div style={{width:18,height:18,borderRadius:5,border:"2px solid "+(sel?"#6366f1":"#cbd5e1"),background:sel?"#6366f1":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                    {sel&&<span style={{color:"#fff",fontSize:11,fontWeight:900}}>✓</span>}
-                  </div>
-                  <div style={{flex:1}}>
-                    <div style={{fontWeight:700,fontSize:13,color:"#0f172a"}}>{s.name}</div>
-                    {s.description&&<div style={{fontSize:11,color:"#94a3b8"}}>{s.description}</div>}
-                    {s.recurrence&&<div style={{fontSize:11,color:"#6366f1"}}>↻ {data.recurrences.find(r=>r.id===s.recurrence)?.name||"Recorrente"}</div>}
-                    {s.defaultDue&&<div style={{fontSize:11,color:"#f59e0b"}}>📅 Vence: dia {new Date(s.defaultDue+"T12:00:00").getDate()}</div>}
-                  </div>
-                </div>
-              );
-            })}
+      <Modal open={open} onClose={()=>setOpen(false)} title={editing?"Editar Empresa":"Nova Empresa"} width={460}>
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Inp label="Nome *" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="Nome da empresa"/>
+            <Inp label="Sigla/Logo" value={form.logo} onChange={v=>setForm(f=>({...f,logo:v}))} placeholder="Ex: MT"/>
           </div>
-        </div>}
-        <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16,paddingTop:14,borderTop:"1px solid #f1f5f9"}}>
-          <Btn onClick={()=>setOpen(false)} v="ghost">Cancelar</Btn>
-          <Btn onClick={save}>Salvar</Btn>
+          <Inp label="CNPJ" value={form.cnpj} onChange={v=>setForm(f=>({...f,cnpj:v}))} placeholder="00.000.000/0001-00"/>
+          <Sel label="Tipo de Tributação *" value={form.tributacao} onChange={v=>setForm(f=>({...f,tributacao:v}))} options={TRIBS.map(t=>({value:t,label:t}))}/>
+          <CPick value={form.color} onChange={v=>setForm(f=>({...f,color:v}))}/>
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+            <Btn onClick={()=>setOpen(false)} v="ghost">Cancelar</Btn>
+            <Btn onClick={save}>Salvar</Btn>
+          </div>
         </div>
       </Modal>
       {delModal}
@@ -1549,6 +1465,7 @@ function CompaniesPage({ data, setData }) {
   );
 }
 
+// --- SETORES ----------------------------------------------------
 function SectorsPage({ data, setData }) {
   const [open,setOpen]=useState(false);
   const [editing,setEditing]=useState(null);
@@ -1851,60 +1768,139 @@ function RecurrencesPage({ data, setData }) {
 
 // --- SERVIÇOS ---------------------------------------------------
 function ServicosPage({ data, setData }) {
+  const blankSvc={name:"",description:"",color:"#6366f1",status:"todo",priority:"media",recurrence:"",defaultDue:"",sector:"",assignees:[],labels:[],checklist:[]};
   const [open,setOpen]=useState(false);
   const [editing,setEditing]=useState(null);
-  const [form,setForm]=useState({name:"",description:"",recurrence:"",defaultDue:"",color:"#6366f1"});
-  const openNew=()=>{setEditing(null);setForm({name:"",description:"",recurrence:"",defaultDue:"",color:"#6366f1"});setOpen(true);};
-  const openEdit=(s)=>{setEditing(s);setForm({name:s.name,description:s.description||"",recurrence:s.recurrence||"",defaultDue:s.defaultDue||"",color:s.color||"#6366f1"});setOpen(true);};
+  const [form,setForm]=useState(blankSvc);
+  const [tab,setTab]=useState("geral");
+  const [ckTxt,setCkTxt]=useState("");
+  const openNew=()=>{setEditing(null);setForm(blankSvc);setTab("geral");setCkTxt("");setOpen(true);};
+  const openEdit=(s)=>{setEditing(s);setForm({...blankSvc,...s,assignees:toArr(s.assignees),labels:toArr(s.labels),checklist:toArr(s.checklist)});setTab("geral");setCkTxt("");setOpen(true);};
+  const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+  const tog=(k,id)=>setForm(f=>({...f,[k]:toArr(f[k]).includes(id)?toArr(f[k]).filter(x=>x!==id):[...toArr(f[k]),id]}));
+  const addCk=()=>{if(!ckTxt.trim())return;set("checklist",[...toArr(form.checklist),{id:uid(),text:ckTxt.trim(),done:false}]);setCkTxt("");};
   const save=()=>{
     if(!form.name.trim())return;
-    if(editing) setData(d=>({...d,services:d.services.map(s=>s.id===editing.id?{...s,...form}:s)}));
-    else setData(d=>({...d,services:[...(d.services||[]),{id:uid(),...form}]}));
+    const svc={...form,checklist:toArr(form.checklist),assignees:toArr(form.assignees),labels:toArr(form.labels)};
+    if(editing) setData(d=>({...d,services:d.services.map(s=>s.id===editing.id?{...s,...svc}:s)}));
+    else setData(d=>({...d,services:[...(d.services||[]),{id:uid(),...svc}]}));
     setOpen(false);
   };
   const {ask:askDel,modal:delModal}=useConfirmDelete();
-  const del=(id)=>{const item=(data.services||[]).find(x=>x.id===id);askDel(`Serviço: "${item?.name||""}"`,()=>setData(d=>({...d,services:d.services.filter(s=>s.id!==id)})));};
+  const del=(id)=>{const item=(data.services||[]).find(x=>x.id===id);askDel(`Servico: "${item?.name||""}"`,()=>setData(d=>({...d,services:d.services.filter(s=>s.id!==id)})));};
+  const tabSt=(t)=>({padding:"7px 16px",border:"none",borderRadius:9,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit",transition:"all .12s",background:tab===t?"#6366f1":"#f1f5f9",color:tab===t?"#fff":"#64748b"});
   return (
     <div>
-      <PH title="Serviços" icon="⊛" badge={(data.services||[]).length} action={<Btn onClick={openNew}>+ Novo Serviço</Btn>}/>
-      <p style={{fontSize:13,color:"#64748b",marginBottom:16}}>Cadastre os serviços que você oferece. Ao vincular a uma empresa, tarefas recorrentes são geradas automaticamente.</p>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:12}}>
+      <PH title="Servicos" icon="S" badge={(data.services||[]).length} action={<Btn onClick={openNew}>+ Novo Servico</Btn>}/>
+      <p style={{fontSize:13,color:"#64748b",marginBottom:16}}>Cada servico e um modelo completo de tarefa com checklist, responsaveis e recorrencia. Vincule a uma empresa para gerar tarefas automaticamente.</p>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14}}>
         {(data.services||[]).map(s=>{
           const rec=data.recurrences.find(r=>r.id===s.recurrence);
           const usedBy=data.companies.filter(c=>toArr(c.services).includes(s.id));
+          const ck=toArr(s.checklist);
+          const asg=data.collaborators.filter(c=>toArr(s.assignees).includes(c.id));
+          const lbs=data.labels.filter(l=>toArr(s.labels).includes(l.id));
+          const pri=PRI[s.priority]||PRI.media;
           return (
-            <div key={s.id} style={{background:"#fff",borderRadius:14,padding:18,border:"1px solid #f1f5f9",boxShadow:"0 1px 4px rgba(0,0,0,.06)"}}>
-              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
-                <div style={{width:40,height:40,borderRadius:10,background:(s.color||"#6366f1")+"18",border:"2px solid "+(s.color||"#6366f1")+"44",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>⊛</div>
+            <div key={s.id} style={{background:"#fff",borderRadius:14,padding:18,border:"1px solid #f1f5f9",boxShadow:"0 2px 8px rgba(0,0,0,.06)"}}>
+              <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:12}}>
+                <div style={{width:42,height:42,borderRadius:10,background:(s.color||"#6366f1")+"18",border:"2px solid "+(s.color||"#6366f1")+"44",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:900,color:s.color||"#6366f1",flexShrink:0}}>S</div>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontWeight:800,fontSize:14,color:"#0f172a"}}>{s.name}</div>
+                  <div style={{fontWeight:900,fontSize:14,color:"#0f172a",marginBottom:2}}>{s.name}</div>
                   {s.description&&<div style={{fontSize:11,color:"#94a3b8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.description}</div>}
                 </div>
               </div>
-              <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:12}}>
-                {rec&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:20,background:"#6366f118",color:"#6366f1",fontWeight:700}}>↻ {rec.name}</span>}
-                {s.defaultDue&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:20,background:"#f59e0b18",color:"#f59e0b",fontWeight:700}}>📅 Dia {new Date(s.defaultDue+"T12:00:00").getDate()}</span>}
+              <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:10}}>
+                <span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:pri.bg,color:pri.t,fontWeight:700}}>{pri.l}</span>
+                {rec&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#6366f118",color:"#6366f1",fontWeight:700}}>{rec.name}</span>}
+                {s.defaultDue&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#f59e0b18",color:"#f59e0b",fontWeight:700}}>{fmtDate(s.defaultDue)}</span>}
+                {lbs.map(l=><span key={l.id} style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:l.color+"18",color:l.color,fontWeight:700}}>{l.name}</span>)}
               </div>
-              {usedBy.length>0&&<div style={{fontSize:11,color:"#94a3b8",marginBottom:10}}>Usado por: {usedBy.map(c=>c.name).join(", ")}</div>}
+              {ck.length>0&&<div style={{marginBottom:10}}>
+                <div style={{height:4,borderRadius:2,background:"#f1f5f9",overflow:"hidden",marginBottom:4}}><div style={{width:"30%",height:"100%",background:"#6366f1",borderRadius:2}}/></div>
+                <div style={{fontSize:11,color:"#94a3b8",fontWeight:600}}>{ck.length} item{ck.length!==1?"s":""} no checklist</div>
+              </div>}
+              {asg.length>0&&<div style={{display:"flex",marginBottom:10}}>
+                {asg.slice(0,5).map((u,i)=><div key={u.id} style={{marginLeft:i>0?-7:0}}><Av initials={u.initials} color={u.color} size={26} title={u.name}/></div>)}
+                {asg.length>5&&<div style={{width:26,height:26,borderRadius:"50%",background:"#f1f5f9",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:"#94a3b8",marginLeft:-7}}>+{asg.length-5}</div>}
+              </div>}
+              {usedBy.length>0&&<div style={{fontSize:11,color:"#94a3b8",marginBottom:10}}>Empresas: {usedBy.map(c=>c.name).join(", ")}</div>}
               <div style={{display:"flex",gap:8}}>
-                <Btn onClick={()=>openEdit(s)} v="ghost" sz="sm" xs={{flex:1,justifyContent:"center"}}>✎ Editar</Btn>
-                <Btn onClick={()=>del(s.id)} v="danger" sz="sm">×</Btn>
+                <Btn onClick={()=>openEdit(s)} v="ghost" sz="sm" xs={{flex:1,justifyContent:"center"}}>Editar</Btn>
+                <Btn onClick={()=>del(s.id)} v="danger" sz="sm">x</Btn>
               </div>
             </div>
           );
         })}
       </div>
-      <Modal open={open} onClose={()=>setOpen(false)} title={editing?"Editar Serviço":"Novo Serviço"} width={460}>
-        <div style={{display:"flex",flexDirection:"column",gap:14}}>
-          <Inp label="Nome do Serviço *" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="Ex: Folha de Pagamento"/>
-          <Txt label="Descrição" value={form.description} onChange={v=>setForm(f=>({...f,description:v}))} placeholder="Descreva o serviço..." rows={2}/>
-          <Sel label="Recorrência padrão" value={form.recurrence} onChange={v=>setForm(f=>({...f,recurrence:v}))} placeholder="Sem recorrência" options={data.recurrences.map(r=>({value:r.id,label:r.name}))}/>
-          <Inp label="Data de vencimento padrão" value={form.defaultDue} onChange={v=>setForm(f=>({...f,defaultDue:v}))} type="date" hint="Dia de vencimento mensal da tarefa gerada"/>
-          <CPick value={form.color} onChange={v=>setForm(f=>({...f,color:v}))}/>
-          <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
-            <Btn onClick={()=>setOpen(false)} v="ghost">Cancelar</Btn>
-            <Btn onClick={save}>Salvar</Btn>
+      <Modal open={open} onClose={()=>setOpen(false)} title={editing?"Editar Servico":"Novo Servico"} width={640}>
+        <div style={{display:"flex",gap:6,marginBottom:18,flexWrap:"wrap"}}>
+          {[["geral","Geral"],["responsaveis","Responsaveis"],["checklist","Checklist"],["config","Recorrencia"]].map(([t,l])=>(
+            <button key={t} style={tabSt(t)} onClick={()=>setTab(t)}>{l}</button>
+          ))}
+        </div>
+        {tab==="geral"&&<div style={{display:"flex",flexDirection:"column",gap:13}}>
+          <Inp label="Nome do Servico *" value={form.name} onChange={v=>set("name",v)} placeholder="Ex: Folha de Pagamento"/>
+          <Txt label="Descricao / Instrucoes" value={form.description} onChange={v=>set("description",v)} placeholder="Descreva o servico e instrucoes para execucao..." rows={3}/>
+          <div className="g2">
+            <Sel label="Prioridade padrao" value={form.priority} onChange={v=>set("priority",v)} options={Object.entries(PRI).map(([k,v])=>({value:k,label:v.l}))}/>
+            <Sel label="Status inicial" value={form.status} onChange={v=>set("status",v)} options={STS.filter(s=>s.id!=="archived").map(s=>({value:s.id,label:s.l}))}/>
           </div>
+          <Sel label="Setor padrao" value={form.sector||""} onChange={v=>set("sector",v)} placeholder="Nenhum" options={data.sectors.map(s=>({value:s.id,label:s.name}))}/>
+          <Fld label="Marcadores padrao">
+            <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+              {data.labels.map(l=>{const sel=toArr(form.labels).includes(l.id);return(
+                <button key={l.id} onClick={()=>tog("labels",l.id)} style={{padding:"3px 10px",borderRadius:20,cursor:"pointer",fontSize:12,fontWeight:700,border:"2px solid "+(sel?l.color:"#e5e7eb"),background:sel?l.color+"18":"#f9fafb",color:sel?l.color:"#6b7280",fontFamily:"inherit"}}>{l.name}</button>
+              );})}
+            </div>
+          </Fld>
+          <CPick value={form.color} onChange={v=>set("color",v)}/>
+        </div>}
+        {tab==="responsaveis"&&<div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <p style={{fontSize:12,color:"#64748b"}}>Responsaveis padrao que serao atribuidos ao gerar a tarefa.</p>
+          {data.collaborators.length===0
+            ?<p style={{fontSize:13,color:"#94a3b8"}}>Nenhum colaborador cadastrado.</p>
+            :<div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+              {data.collaborators.map(u=>{const sel=toArr(form.assignees).includes(u.id);return(
+                <button key={u.id} onClick={()=>tog("assignees",u.id)} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 12px 6px 6px",borderRadius:22,border:"2px solid "+(sel?u.color:"#e5e7eb"),background:sel?u.color+"18":"#f9fafb",color:sel?u.color:"#6b7280",cursor:"pointer",fontSize:13,fontWeight:700,fontFamily:"inherit",transition:"all .12s"}}>
+                  <Av initials={u.initials} color={u.color} size={26}/>{u.name}
+                </button>
+              );})}
+            </div>
+          }
+        </div>}
+        {tab==="checklist"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <p style={{fontSize:12,color:"#64748b"}}>Itens de checklist que toda tarefa gerada por este servico tera automaticamente.</p>
+          <div style={{display:"flex",gap:8}}>
+            <input value={ckTxt} onChange={e=>setCkTxt(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addCk()} placeholder="Novo item... (Enter para adicionar)" style={{flex:1,padding:"8px 13px",borderRadius:9,fontSize:13,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit"}}/>
+            <Btn onClick={addCk} sz="sm">+ Add</Btn>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:5,maxHeight:320,overflowY:"auto"}}>
+            {toArr(form.checklist).length===0&&<div style={{padding:"24px",textAlign:"center",color:"#cbd5e1",fontSize:13,border:"2px dashed #f1f5f9",borderRadius:10}}>Nenhum item ainda. Adicione acima.</div>}
+            {toArr(form.checklist).map((ck,idx)=>(
+              <div key={ck.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:9,background:"#f9fafb",border:"1px solid #f3f4f6"}}>
+                <span style={{width:22,height:22,borderRadius:6,border:"2px solid #e5e7eb",background:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:"#94a3b8",flexShrink:0}}>{idx+1}</span>
+                <span style={{flex:1,fontSize:13,color:"#374151"}}>{ck.text}</span>
+                <button onClick={()=>set("checklist",toArr(form.checklist).filter(x=>x.id!==ck.id))} style={{background:"none",border:"none",cursor:"pointer",color:"#cbd5e1",fontSize:18,lineHeight:1,padding:"0 3px",fontFamily:"inherit"}}>x</button>
+              </div>
+            ))}
+          </div>
+          {toArr(form.checklist).length>0&&<div style={{fontSize:12,color:"#6366f1",fontWeight:700}}>{toArr(form.checklist).length} item{toArr(form.checklist).length!==1?"s":""} no checklist</div>}
+        </div>}
+        {tab==="config"&&<div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <Sel label="Recorrencia padrao" value={form.recurrence||""} onChange={v=>set("recurrence",v)} placeholder="Sem recorrencia" options={data.recurrences.map(r=>({value:r.id,label:r.name}))}/>
+          <Inp label="Vencimento padrao" value={form.defaultDue||""} onChange={v=>set("defaultDue",v)} type="date" hint="A tarefa gerada usara esta data como vencimento inicial"/>
+          <div style={{padding:"14px",background:"#f8fafc",borderRadius:10,fontSize:12,color:"#64748b",lineHeight:1.7}}>
+            <strong style={{color:"#0f172a",display:"block",marginBottom:6}}>Como funciona:</strong>
+            1. Cadastre o servico preenchendo todas as abas (Geral, Responsaveis, Checklist, Recorrencia).<br/>
+            2. Va em Empresas, abra a aba Servicos e marque este servico.<br/>
+            3. Ao salvar a empresa, a tarefa e criada automaticamente com todos os dados do modelo.<br/>
+            4. As proximas ocorrencias aparecem no Calendario e Kanban conforme a recorrencia.
+          </div>
+        </div>}
+        <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20,paddingTop:14,borderTop:"1px solid #f1f5f9"}}>
+          <Btn onClick={()=>setOpen(false)} v="ghost">Cancelar</Btn>
+          <Btn onClick={save}>Salvar Servico</Btn>
         </div>
       </Modal>
       {delModal}

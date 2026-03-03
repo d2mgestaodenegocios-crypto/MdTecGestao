@@ -1112,32 +1112,49 @@ function TCard({task,data,onEdit,onDelete,onComplete}){
 
       {task.description&&<p style={{fontSize:12,color:"#94a3b8",marginBottom:10,lineHeight:1.5}}>{task.description.length>70?task.description.slice(0,70)+"…":task.description}</p>}
 
-      <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:10}}>
+      {/* Empresa + Setor em destaque */}
+      {company&&(
+        <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,padding:"5px 9px",borderRadius:8,background:company.color+"12",border:`1px solid ${company.color}30`}}>
+          <span style={{fontSize:12,fontWeight:900,color:company.color}}>{company.logo}</span>
+          <span style={{fontSize:12,fontWeight:800,color:company.color,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{company.name}</span>
+          {sector&&<span style={{fontSize:10,fontWeight:700,padding:"1px 7px",borderRadius:10,background:sector.color+"22",color:sector.color,whiteSpace:"nowrap"}}>{sector.name}</span>}
+        </div>
+      )}
+
+      {/* Responsáveis em destaque */}
+      {assignees.length>0&&(
+        <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,flexWrap:"wrap"}}>
+          <span style={{fontSize:10,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".05em"}}>Resp.</span>
+          {assignees.slice(0,3).map(u=>(
+            <div key={u.id} style={{display:"flex",alignItems:"center",gap:4,padding:"2px 8px 2px 3px",borderRadius:20,background:u.color+"15",border:`1.5px solid ${u.color}40`}}>
+              <Av initials={u.initials} color={u.color} size={18}/>
+              <span style={{fontSize:11,fontWeight:700,color:u.color}}>{u.name.split(" ")[0]}</span>
+            </div>
+          ))}
+          {assignees.length>3&&<span style={{fontSize:11,color:"#94a3b8",fontWeight:700}}>+{assignees.length-3}</span>}
+        </div>
+      )}
+
+      <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:8}}>
         <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:700,background:p.bg,color:p.t}}><span style={{display:"inline-block",width:5,height:5,borderRadius:"50%",background:p.d,marginRight:4,verticalAlign:"middle"}}/>{p.l}</span>
-        {company&&<span style={{fontSize:11,padding:"2px 7px",borderRadius:20,background:company.color+"18",color:company.color,fontWeight:700}}>{company.logo}</span>}
-        {sector&&<span style={{fontSize:11,padding:"2px 7px",borderRadius:20,background:sector.color+"18",color:sector.color,fontWeight:600}}>{sector.name}</span>}
         {task.dueDate&&<span style={{fontSize:11,color:over?"#ef4444":"#94a3b8",fontWeight:over?800:400}}>📅 {fmtDate(task.dueDate)}</span>}
         {rec&&<span style={{fontSize:11,color:"#14b8a6",fontWeight:700}}>↻ {rec.name}</span>}
         {task.dependencies?.length>0&&<span style={{fontSize:11,color:"#f59e0b",fontWeight:700}}>⬡ {task.dependencies.length}</span>}
       </div>
 
       {prog!==null&&(
-        <div style={{marginBottom:10}}>
+        <div style={{marginBottom:8}}>
           <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
             <span style={{fontSize:10,color:"#94a3b8"}}>Checklist</span>
             <span style={{fontSize:10,fontWeight:700,color:"#64748b"}}>{ckDone}/{ckTot}</span>
           </div>
-          <div style={{height:5,borderRadius:3,background:"#f1f5f9",overflow:"hidden"}}>
+          <div style={{height:4,borderRadius:3,background:"#f1f5f9",overflow:"hidden"}}>
             <div style={{width:`${prog}%`,height:"100%",background:prog===100?"#22c55e":"#6366f1",borderRadius:3,transition:"width .4s"}}/>
           </div>
         </div>
       )}
 
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div style={{display:"flex"}}>
-          {assignees.slice(0,4).map((u,i)=><div key={u.id} style={{marginLeft:i>0?-8:0,zIndex:4-i}}><Av initials={u.initials} color={u.color} size={24} title={u.name}/></div>)}
-          {assignees.length>4&&<div style={{width:24,height:24,borderRadius:"50%",background:"#f1f5f9",fontSize:10,fontWeight:700,color:"#94a3b8",display:"flex",alignItems:"center",justifyContent:"center",marginLeft:-8}}>+{assignees.length-4}</div>}
-        </div>
+      <div style={{display:"flex",justifyContent:"flex-end",alignItems:"center"}}>
         <button onClick={e=>{e.stopPropagation();onDelete(task.id);}} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#e2e8f0",padding:"2px 4px",borderRadius:5,transition:"color .15s"}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#e2e8f0"}>🗑</button>
       </div>
     </div>

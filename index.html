@@ -217,19 +217,8 @@ const SEED={
     {id:"rc6",name:"Mensal",interval:"monthly",days:[]},
   ],
   taskTemplates:[
-    {id:"tp1",name:"Onboarding",description:"Processo padrão de integração de novos membros",labels:["lb2"],checklist:["Criar conta","Configurar perfil","Treinamento inicial","Apresentar ao time"],recurrence:"rc6"},
-    {id:"tp2",name:"Bug Fix",description:"Template para correção e validação de bugs",labels:["lb1","lb3"],checklist:["Reproduzir o bug","Identificar causa raiz","Implementar correção","Testar fix","Deploy"],recurrence:""},
-    {id:"tp3",name:"New Feature",description:"Desenvolvimento de nova funcionalidade",labels:["lb2","lb4"],checklist:["Refinamento","Design aprovado","Implementação","Code review","QA","Deploy"],recurrence:""},
-    {id:"tp4",name:"Daily Report",description:"Relatório diário de atividades da equipe",labels:["lb6"],checklist:["Coletar dados","Rascunho","Revisão","Envio"],recurrence:"rc1"},
   ],
   tasks:[
-    {id:"t1",title:"Implementar tela de login",description:"Criar fluxo completo com OAuth e 2FA.",status:"doing",priority:"alta",company:"co1",sector:"sec1",assignees:["u1","u2"],labels:["lb2","lb3"],dueDate:"2026-03-10",checklist:[{id:"c1",text:"Layout responsivo",done:true},{id:"c2",text:"Integração OAuth",done:true},{id:"c3",text:"2FA SMS",done:false},{id:"c4",text:"Testes E2E",done:false}],dependencies:[],recurrence:null,createdAt:"2026-02-01"},
-    {id:"t2",title:"Design do Dashboard",description:"Protótipo hi-fi no Figma.",status:"review",priority:"media",company:"co1",sector:"sec2",assignees:["u2"],labels:["lb5","lb2"],dueDate:"2026-03-05",checklist:[{id:"c5",text:"Wireframe",done:true},{id:"c6",text:"Mockup",done:true},{id:"c7",text:"Aprovação",done:false}],dependencies:["t1"],recurrence:null,createdAt:"2026-02-03"},
-    {id:"t3",title:"Corrigir bug no relatório",description:"Valores incorretos na exportação CSV.",status:"done",priority:"alta",company:"co2",sector:"sec3",assignees:["u3"],labels:["lb1","lb3"],dueDate:"2026-02-28",checklist:[{id:"c8",text:"Reproduzir",done:true},{id:"c9",text:"Corrigir",done:true},{id:"c10",text:"Deploy",done:true}],dependencies:[],recurrence:null,createdAt:"2026-02-10"},
-    {id:"t4",title:"API de notificações",description:"Webhook e push notifications.",status:"todo",priority:"media",company:"co2",sector:"sec4",assignees:["u4"],labels:["lb2","lb4"],dueDate:"2026-03-20",checklist:[{id:"c11",text:"Definir endpoints",done:false},{id:"c12",text:"Implementar",done:false}],dependencies:["t1"],recurrence:"rc2",createdAt:"2026-02-12"},
-    {id:"t5",title:"Onboarding novos usuários",description:"Fluxo guiado de primeiro acesso.",status:"backlog",priority:"baixa",company:"co3",sector:"sec5",assignees:["u5"],labels:["lb2","lb6"],dueDate:"2026-04-01",checklist:[{id:"c13",text:"Mapeamento do fluxo",done:false},{id:"c14",text:"Copys",done:false},{id:"c15",text:"Implementação",done:false}],dependencies:["t2","t4"],recurrence:null,createdAt:"2026-02-15"},
-    {id:"t6",title:"Relatório semanal automático",description:"Envio toda segunda-feira às 8h.",status:"todo",priority:"baixa",company:"co1",sector:"sec1",assignees:["u1","u4"],labels:["lb4"],dueDate:"2026-03-07",checklist:[{id:"c16",text:"Template de email",done:false},{id:"c17",text:"Agendamento cron",done:false}],dependencies:[],recurrence:"rc4",createdAt:"2026-02-18"},
-    {id:"t7",title:"Atualizar documentação APIs",description:"Documentar todas as APIs novas do Q1.",status:"todo",priority:"media",company:"co1",sector:"sec1",assignees:["u1"],labels:["lb6"],dueDate:"2026-03-15",checklist:[{id:"c18",text:"Listar endpoints",done:false},{id:"c19",text:"Escrever docs",done:false},{id:"c20",text:"Publicar",done:false}],dependencies:[],recurrence:null,createdAt:"2026-02-20"},
   ],
 };
 
@@ -946,7 +935,7 @@ function sanitizeTask(t){
     createdAt: t.createdAt||todayStr(),
   };
 }
-function TaskForm({data,task,defStatus="todo",onSave,onClose,lockInfo,onForce}){
+function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,onForce}){
   const blank={id:uid(),title:"",description:"",status:defStatus,priority:"media",company:"",sector:"",assignees:[],labels:[],dueDate:"",checklist:[],dependencies:[],recurrence:"",createdAt:todayStr()};
   const [f,sf]=useState(task?sanitizeTask(task):blank);
   const [ckTxt,sCk]=useState("");
@@ -2219,6 +2208,7 @@ function App(){
             defStatus={taskModal.defStatus}
             onSave={saveTask}
             onClose={closeTask}
+            onDelete={deleteTask}
             lockInfo={taskModal.lockInfo}
             onForce={forceLock}
           />

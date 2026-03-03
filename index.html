@@ -955,7 +955,6 @@ function sanitizeTask(t){
     mesRef: t.mesRef||"",
     dueDate: t.dueDate||"",
     createdAt: t.createdAt||todayStr(),
-    _copies: Array.isArray(t._copies)?t._copies:[],
   };
 }
 function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,onForce}){
@@ -1109,7 +1108,7 @@ function FBar({data,filters,setF,showMonth=true}){
 
 /* ===========================================
    TASK CARD  - with ✓ Quick Complete button */
-function TCard({task,data,onEdit,onDelete,onComplete,activeDow,DOW,dowIsDone}){
+function TCard({task,data,onEdit,onDelete,onComplete,activeDow,DOW}){
   const assignees=data.collaborators.filter(c=>task.assignees.includes(c.id));
   const labels=data.labels.filter(l=>task.labels.includes(l.id));
   const rec=task.recurrence?data.recurrences.find(r=>r.id===task.recurrence):null;
@@ -1119,15 +1118,7 @@ function TCard({task,data,onEdit,onDelete,onComplete,activeDow,DOW,dowIsDone}){
   const ckTot=task.checklist.length;
   const prog=ckTot>0?Math.round((ckDone/ckTot)*100):null;
   const over=isLate(task);
-  // For recurring cards, check if this specific day is done via _copies
-  const _now2=new Date();
-  const _wkStart2=new Date(_now2);_wkStart2.setDate(_now2.getDate()-_now2.getDay());_wkStart2.setHours(0,0,0,0);
-  const _dowDate=activeDow!==null&&activeDow!==undefined?(()=>{const d=new Date(_wkStart2);d.setDate(_wkStart2.getDate()+activeDow);return d.toISOString().slice(0,10);})():null;
-  const done=dowIsDone!==undefined&&dowIsDone!==null
-    ?dowIsDone
-    :task.recurrence&&activeDow!==null&&activeDow!==undefined
-      ?(task._copies||[]).includes(_dowDate)
-      :task.status==="done";
+  const done=task.status==="done";
   const p=PRI[task.priority]||PRI.media;
 
   return(
@@ -1142,7 +1133,7 @@ function TCard({task,data,onEdit,onDelete,onComplete,activeDow,DOW,dowIsDone}){
       onClick={()=>onEdit(task)}
     >
       {/* -- QUICK COMPLETE - 1 click, top right, outside card content -- */}
-      <QCBtn isDone={done} onClick={e=>{e.stopPropagation();onComplete(task,activeDow);}} size={26} absolute={true}/>
+      <QCBtn isDone={done} onClick={()=>onComplete(task)} size={26} absolute={true}/>
 
       {labels.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8,paddingRight:36}}>{labels.map(l=><Chip key={l.id} label={l.name} color={l.color}/>)}</div>}
 
@@ -1205,7 +1196,7 @@ function TCard({task,data,onEdit,onDelete,onComplete,activeDow,DOW,dowIsDone}){
 /* ===========================================
    KANBAN VIEW */
 function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
-  const [kf,setKf]=useState({user:"",company:"",sector:"",todayOnly:true,overdueOnly:true});
+  const [kf,setKf]=useState({user:"",company:"",sector:""});
   const DOW=["Dom","Seg","Ter","Qua","Qui","Sex","Sab"];
   const _now=new Date();
   const _wkStart=new Date(_now);_wkStart.setDate(_now.getDate()-_now.getDay());_wkStart.setHours(0,0,0,0);
@@ -1229,7 +1220,8 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
   return(
     <div>
       {/* Kanban filters */}
-      <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center",padding:"10px 14px",background:"#fff",borderRadius:12,border:"1px solid #f1f5f9",boxShadow:"0 1px 4px rgba(0,0,0,.04)"}}>
+      <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
+        <span style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase"}}>Filtrar:</span>
         <select value={kf.user} onChange={e=>setKf(f=>({...f,user:e.target.value}))} style={{padding:"5px 10px",borderRadius:8,border:"1.5px solid #e5e7eb",fontSize:12,fontFamily:"inherit",color:"#374151",background:"#fff",cursor:"pointer"}}>
           <option value="">Todos responsaveis</option>
           {data.collaborators.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
@@ -1242,91 +1234,36 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
           <option value="">Todos setores</option>
           {data.sectors.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
-        <div style={{width:"1px",height:20,background:"#e5e7eb",margin:"0 2px"}}/>
-        <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",fontSize:12,fontWeight:700,color:kf.todayOnly?"#f59e0b":"#94a3b8",padding:"4px 10px",borderRadius:8,background:kf.todayOnly?"#fef3c7":"#f8fafc",border:"1.5px solid "+(kf.todayOnly?"#f59e0b40":"#e5e7eb"),transition:"all .15s"}} onClick={()=>setKf(f=>({...f,todayOnly:!f.todayOnly}))}>
-          <span style={{width:14,height:14,borderRadius:4,border:"2px solid "+(kf.todayOnly?"#f59e0b":"#cbd5e1"),background:kf.todayOnly?"#f59e0b":"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{kf.todayOnly&&<span style={{color:"#fff",fontSize:9,fontWeight:900,lineHeight:1}}>v</span>}</span>
-          Vencem hoje
-        </label>
-        <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",fontSize:12,fontWeight:700,color:kf.overdueOnly?"#ef4444":"#94a3b8",padding:"4px 10px",borderRadius:8,background:kf.overdueOnly?"#fff1f2":"#f8fafc",border:"1.5px solid "+(kf.overdueOnly?"#ef444440":"#e5e7eb"),transition:"all .15s"}} onClick={()=>setKf(f=>({...f,overdueOnly:!f.overdueOnly}))}>
-          <span style={{width:14,height:14,borderRadius:4,border:"2px solid "+(kf.overdueOnly?"#ef4444":"#cbd5e1"),background:kf.overdueOnly?"#ef4444":"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{kf.overdueOnly&&<span style={{color:"#fff",fontSize:9,fontWeight:900,lineHeight:1}}>v</span>}</span>
-          Vencidas
-        </label>
-        {(kf.user||kf.company||kf.sector)&&<button onClick={()=>setKf(f=>({...f,user:"",company:"",sector:""}))} style={{padding:"5px 10px",borderRadius:8,border:"1.5px solid #fca5a5",background:"#fff1f2",color:"#ef4444",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Limpar</button>}
+        {(kf.user||kf.company||kf.sector)&&<button onClick={()=>setKf({user:"",company:"",sector:""})} style={{padding:"5px 10px",borderRadius:8,border:"1.5px solid #fca5a5",background:"#fff1f2",color:"#ef4444",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Limpar</button>}
       </div>
-    <div className="kanban-wrap" style={{display:"flex",gap:14,overflowX:"auto",paddingBottom:20,alignItems:"flex-start",maxHeight:"calc(100vh - 180px)",overflowY:"hidden"}}>
+    <div className="kanban-wrap" style={{display:"flex",gap:14,overflowX:"auto",paddingBottom:20,alignItems:"flex-start"}}>
       {STS.filter(st=>st.id!=="archived").map(st=>{
         // Build card list: recurring tasks expand into one card per day-of-week hit this week
-        const today=todayStr();
         const cards=[];
         data.tasks.forEach(t=>{
-          if(t._recDoneKey||t._recParentId) return; // skip done-snapshots from main list
           if(t.status!==st.id||t.status==="archived") return;
           if(kf.user&&!toArr(t.assignees).includes(kf.user)) return;
           if(kf.company&&t.company!==kf.company) return;
           if(kf.sector&&t.sector!==kf.sector) return;
           const isOverdue=t.dueDate&&new Date(t.dueDate+"T23:59:59")<_now;
-          const isDueToday=t.dueDate===today;
           if(!t.recurrence){
-            if(isOverdue||!t.dueDate){
-              if(!kf.todayOnly&&!kf.overdueOnly) cards.push({t,dow:null,isOverdue,isDueToday});
-              else if(kf.todayOnly&&isDueToday) cards.push({t,dow:null,isOverdue,isDueToday});
-              else if(kf.overdueOnly&&isOverdue) cards.push({t,dow:null,isOverdue,isDueToday});
-              else if(kf.todayOnly&&kf.overdueOnly&&(isDueToday||isOverdue)) cards.push({t,dow:null,isOverdue,isDueToday});
-              return;
-            }
+            // Normal task: show if overdue OR due this week OR no date
+            if(isOverdue||!t.dueDate){cards.push({t,dow:null});return;}
             const due=new Date(t.dueDate+"T12:00:00");
-            if(due>=_wkStart&&due<=_wkEnd){
-              if(!kf.todayOnly&&!kf.overdueOnly) cards.push({t,dow:null,isOverdue:false,isDueToday});
-              else if(kf.todayOnly&&isDueToday) cards.push({t,dow:null,isOverdue:false,isDueToday});
-              else if(kf.overdueOnly&&isOverdue) cards.push({t,dow:null,isOverdue:false,isDueToday});
-              else if(kf.todayOnly&&kf.overdueOnly&&(isDueToday||isOverdue)) cards.push({t,dow:null,isOverdue:false,isDueToday});
-            }
+            if(due>=_wkStart&&due<=_wkEnd) cards.push({t,dow:null});
             return;
           }
           const rec=data.recurrences.find(r=>r.id===t.recurrence);
-          if(!rec){cards.push({t,dow:null,isOverdue,isDueToday});return;}
-          if(isOverdue){cards.push({t,dow:null,isOverdue,isDueToday});return;}
+          if(!rec){cards.push({t,dow:null});return;}
+          if(isOverdue){cards.push({t,dow:null});return;}
+          // Expand recurring: one card per day hit this week
           const days=getRecDays(rec,t);
           if(days.length===0) return;
-          days.forEach(dow=>{
-            const dtForDow=new Date(_wkStart);dtForDow.setDate(_wkStart.getDate()+dow);
-            const dowDateStr=dtForDow.toISOString().slice(0,10);
-            const dowIsToday=dowDateStr===today;
-            const dowOverdue=dtForDow<new Date(_now.toDateString());
-            const doneKey=`${t.id}-dow${dow}-${dowDateStr}`;
-            const isDone=!!data.tasks.find(x=>x._recDoneKey===doneKey);
-            // apply today/overdue filter
-            if(kf.todayOnly&&kf.overdueOnly){if(!dowIsToday&&!dowOverdue) return;}
-            else if(kf.todayOnly){if(!dowIsToday) return;}
-            else if(kf.overdueOnly){if(!dowOverdue) return;}
-            const isDoneCopy=(t._copies||[]).includes(dowDateStr);
-            cards.push({t,dow,isDone:isDoneCopy,doneKey,isOverdue:dowOverdue,isDueToday:dowIsToday});
-          });
-        });
-        // Sort: overdue first, then today, then by dow
-        cards.sort((a,b)=>{
-          if(a.isOverdue!==b.isOverdue) return a.isOverdue?-1:1;
-          if(a.isDueToday!==b.isDueToday) return a.isDueToday?-1:1;
-          const da=a.t.dueDate||(a.dow!=null?"9999-"+String(a.dow).padStart(2,"0"):"9999-99");
-          const db=b.t.dueDate||(b.dow!=null?"9999-"+String(b.dow).padStart(2,"0"):"9999-99");
-          return da<db?-1:da>db?1:0;
-        });
-        // Sort by: due date (overdue first, then by date asc), then by dow
-        cards.sort((a,b)=>{
-          const getSort=(card)=>{
-            if(card.dow!==null){
-              // recurring: sort by day of week this week
-              const d=new Date(_wkStart);d.setDate(_wkStart.getDate()+card.dow);
-              return d.getTime();
-            }
-            if(!card.t.dueDate) return 9999999999999;
-            return new Date(card.t.dueDate+"T12:00:00").getTime();
-          };
-          return getSort(a)-getSort(b);
+          days.forEach(dow=>cards.push({t,dow}));
         });
         return(
-          <div key={st.id} className="kanban-col" style={{flexShrink:0,width:268,display:"flex",flexDirection:"column",maxHeight:"calc(100vh - 220px)"}}>
-            <div style={{position:"sticky",top:0,zIndex:10,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 12px",borderRadius:10,background:st.bg,border:`1.5px solid ${st.c}33`,marginBottom:10,backdropFilter:"blur(8px)"}}>
+          <div key={st.id} className="kanban-col" style={{flexShrink:0,width:268}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 12px",borderRadius:10,background:st.bg,border:`1.5px solid ${st.c}33`,marginBottom:10}}>
               <div style={{display:"flex",alignItems:"center",gap:7}}>
                 <span style={{width:9,height:9,borderRadius:"50%",background:st.c,display:"inline-block"}}/>
                 <span style={{fontSize:12,fontWeight:800,color:st.c}}>{st.l}</span>
@@ -1334,16 +1271,17 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
               </div>
               <button onClick={()=>onAdd(st.id)} style={{background:st.c+"20",border:"none",borderRadius:7,width:24,height:24,cursor:"pointer",color:st.c,fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
             </div>
-            <div style={{display:"flex",flexDirection:"column",gap:8,overflowY:"auto",flex:1,paddingBottom:8}}>
-              {cards.map(({t,dow,isDone:cardIsDone,isOverdue:cardOver,isDueToday:cardToday})=>(
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {cards.map(({t,dow},idx)=>(
                 <div key={t.id+(dow!=null?"-"+dow:"")}>
                   {dow!==null&&(
-                    <div style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px 5px 10px",borderRadius:"9px 9px 0 0",background:cardIsDone?"linear-gradient(90deg,#22c55e,#16a34a)":cardOver?"linear-gradient(90deg,#ef4444,#dc2626)":cardToday?"linear-gradient(90deg,#f59e0b,#d97706)":"linear-gradient(90deg,#0ea5e9,#6366f1)",marginBottom:-2}}>
-                      <span style={{fontSize:12,fontWeight:900,color:"#fff",textTransform:"uppercase",letterSpacing:".07em"}}>{DOW[dow]}</span>
-                      <span style={{marginLeft:"auto",fontSize:9,color:"rgba(255,255,255,.8)",fontWeight:700}}>{cardIsDone?"concluida":cardOver?"vencida":cardToday?"hoje":"recorrente"}</span>
+                    <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px 4px 8px",borderRadius:"8px 8px 0 0",background:"linear-gradient(90deg,#0ea5e9,#6366f1)",marginBottom:-2}}>
+                      <span style={{width:7,height:7,borderRadius:"50%",background:"rgba(255,255,255,.7)",flexShrink:0}}/>
+                      <span style={{fontSize:11,fontWeight:900,color:"#fff",textTransform:"uppercase",letterSpacing:".06em"}}>{DOW[dow]}</span>
+                      <span style={{marginLeft:"auto",fontSize:9,color:"rgba(255,255,255,.7)",fontWeight:700}}>recorrente</span>
                     </div>
                   )}
-                  <TCard task={t} data={data} onEdit={onEdit} onDelete={onDelete} onComplete={onComplete} activeDow={dow} DOW={DOW} dowIsDone={cardIsDone||false}/>
+                  <TCard key={t.id+(dow!=null?"-"+dow:"")} task={t} data={data} onEdit={onEdit} onDelete={onDelete} onComplete={onComplete} activeDow={dow} DOW={DOW}/>
                 </div>
               ))}
               {cards.length===0&&<div style={{padding:18,textAlign:"center",fontSize:12,color:"#cbd5e1",border:"2px dashed #f1f5f9",borderRadius:10}}>Sem tarefas</div>}
@@ -2707,30 +2645,9 @@ function App(){
   // Auto-archive completed tasks older than archiveDays
   // Auto-archive handled manually via Config page
 
-  const quickComplete=(task,dow=null)=>{
+  const quickComplete=(task)=>{
     const lk=getLock(task.id);
     if(lk){toast(`🔒 ${lk.user} está editando. Aguarde.`,"lock",4000);return;}
-    // Recurring task with specific day: create a "done" copy for that day only
-    if(task.recurrence&&dow!==null){
-      const _now=new Date();
-      const _wkStart=new Date(_now);_wkStart.setDate(_now.getDate()-_now.getDay());_wkStart.setHours(0,0,0,0);
-      // find the actual date of that dow this week
-      const dt=new Date(_wkStart);dt.setDate(_wkStart.getDate()+dow);
-      const dateStr=dt.toISOString().slice(0,10);
-      // check if a done-copy already exists for this task+day
-      const existsCopy=task._copies&&task._copies.includes(dateStr);
-      if(existsCopy){
-        // undo: remove the done copy
-        setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{...t,_copies:(t._copies||[]).filter(d=>d!==dateStr)}:t)}));
-        toast("↩ Ocorrência reaberta.","ok");
-      } else {
-        // mark this day as done
-        setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{...t,_copies:[...(t._copies||[]),dateStr]}:t)}));
-        toast("✅ Ocorrência concluída!","ok");
-      }
-      return;
-    }
-    // Normal task
     const newStatus=task.status==="done"?"todo":"done";
     setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{
       ...t,status:newStatus,

@@ -1458,7 +1458,7 @@ function CompaniesPage({ data, setData }) {
     setOpen(false);
   };
   const {ask:askDel,modal:delModal}=useConfirmDelete();
-  const del=(id)=>{const item=data.companies.find(x=>x.id===id);askDel("Empresa: "" +item?.name+""",()=>setData(d=>({...d,companies:d.companies.filter(c=>c.id!==id)})));};
+  const del=(id)=>{const item=data.companies.find(x=>x.id===id);askDel(`Empresa: "${item?.name||""}"`,()=>setData(d=>({...d,companies:d.companies.filter(c=>c.id!==id)})));};
   const tabSt=(t)=>({padding:"6px 14px",border:"none",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit",background:tab===t?"#6366f1":"#f1f5f9",color:tab===t?"#fff":"#64748b"});
   return (
     <div>

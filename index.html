@@ -312,7 +312,12 @@ function useSharedData() {
 
       if (row?.payload) {
         const p = row.payload;
-        if (!p.sectors) p.sectors = SEED.sectors;
+        if (!p.sectors || !Array.isArray(p.sectors)) p.sectors = SEED.sectors;
+        if (!p.collaborators || !Array.isArray(p.collaborators)) p.collaborators = SEED.collaborators;
+        if (!p.companies || !Array.isArray(p.companies)) p.companies = SEED.companies;
+        if (!p.labels || !Array.isArray(p.labels)) p.labels = SEED.labels;
+        if (!p.recurrences || !Array.isArray(p.recurrences)) p.recurrences = SEED.recurrences;
+        if (!p.taskTemplates || !Array.isArray(p.taskTemplates)) p.taskTemplates = [];
         if (!p.archiveDays) p.archiveDays = 30;
         p.tasks = (p.tasks || []).map(t => ({
           id: t.id||uid(),
@@ -360,7 +365,12 @@ function useSharedData() {
       }, (payload) => {
         if (payload.new?.payload) {
           const p = payload.new.payload;
-          if (!p.sectors) p.sectors = SEED.sectors;
+          if (!p.sectors || !Array.isArray(p.sectors)) p.sectors = SEED.sectors;
+          if (!p.collaborators || !Array.isArray(p.collaborators)) p.collaborators = SEED.collaborators;
+          if (!p.companies || !Array.isArray(p.companies)) p.companies = SEED.companies;
+          if (!p.labels || !Array.isArray(p.labels)) p.labels = SEED.labels;
+          if (!p.recurrences || !Array.isArray(p.recurrences)) p.recurrences = SEED.recurrences;
+          if (!p.taskTemplates || !Array.isArray(p.taskTemplates)) p.taskTemplates = [];
           if (!p.archiveDays) p.archiveDays = 30;
           p.tasks = (p.tasks || []).map(t => ({
             id: t.id||"",
@@ -542,14 +552,13 @@ function useConfirmDelete(){
 
 
 function ArchivedPage({data,setData,toast}){
-  const archived=(data.archivedTasks||[]);
+  const archived=data.tasks.filter(t=>t.status==="archived");
   const {ask:askDel,modal:delModal}=useConfirmDelete();
 
   const restore=(task)=>{
     setData(d=>({
       ...d,
-      tasks:[...d.tasks,{...task,status:"todo",archivedAt:null}],
-      archivedTasks:(d.archivedTasks||[]).filter(t=>t.id!==task.id)
+      tasks:d.tasks.map(t=>t.id===task.id?{...t,status:"todo",archivedAt:null}:t)
     }));
     toast("↩ Tarefa restaurada!","ok");
   };
@@ -557,7 +566,7 @@ function ArchivedPage({data,setData,toast}){
   const delArchived=(id)=>{
     const t=archived.find(x=>x.id===id);
     askDel(`Tarefa: "${t?.title||""}"`,()=>{
-      setData(d=>({...d,archivedTasks:(d.archivedTasks||[]).filter(t=>t.id!==id)}));
+      setData(d=>({...d,tasks:d.tasks.filter(t=>t.id!==id)}));
       toast("Tarefa excluída permanentemente.","warn");
     });
   };
@@ -941,8 +950,8 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
   const [ckTxt,sCk]=useState("");
   const set=(k,v)=>sf(p=>({...p,[k]:v}));
   const tog=(k,id)=>set(k,f[k].includes(id)?f[k].filter(x=>x!==id):[...f[k],id]);
-  const fC=data.collaborators.filter(c=>(!f.company||c.company===f.company)&&(!f.sector||c.sector===f.sector));
-  const fS=data.sectors.filter(s=>!f.company||s.company===f.company);
+  const fC=data.collaborators.filter(c=> !f.company || !c.company || c.company===f.company );
+  const fS=data.sectors.filter(s=>!s.company||!f.company||s.company===f.company);
   const addCk=()=>{if(!ckTxt.trim())return;set("checklist",[...f.checklist,{id:uid(),text:ckTxt.trim(),done:false}]);sCk("");};
   const blocked=!!lockInfo;
 
@@ -967,7 +976,7 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
       <Sel label="Recorrência" value={f.recurrence||""} onChange={v=>set("recurrence",v)} placeholder="Sem recorrência" options={data.recurrences.map(r=>({value:r.id,label:r.name}))} disabled={blocked}/>
 
       <Fld label="Responsáveis">
-        {fC.length===0?<p style={{fontSize:12,color:"#94a3b8"}}>Selecione empresa/setor primeiro.</p>:
+        {fC.length===0?<p style={{fontSize:12,color:"#94a3b8"}}>Nenhum colaborador cadastrado ainda.</p>:
           <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
             {fC.map(u=>{const sel=f.assignees.includes(u.id);return(
               <button key={u.id} onClick={()=>!blocked&&tog("assignees",u.id)} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px 4px 5px",borderRadius:20,border:`2px solid ${sel?u.color:"#e5e7eb"}`,background:sel?u.color+"18":"#f9fafb",color:sel?u.color:"#6b7280",cursor:blocked?"not-allowed":"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit",transition:"all .12s",opacity:blocked?.7:1}}>
@@ -1140,7 +1149,7 @@ function TCard({task,data,onEdit,onDelete,onComplete}){
 function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
   return(
     <div className="kanban-wrap" style={{display:"flex",gap:14,overflowX:"auto",paddingBottom:20,alignItems:"flex-start"}}>
-      {STS.map(st=>{
+      {STS.filter(st=>st.id!=="archived").map(st=>{
         const tasks=data.tasks.filter(t=>t.status===st.id);
         return(
           <div key={st.id} className="kanban-col" style={{flexShrink:0,width:268}}>
@@ -1167,7 +1176,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
    LIST VIEW */
 function ListView({data,onEdit,onDelete,onComplete}){
   const [fl,sfl]=useState({});
-  const tasks=applyFilters(data.tasks,fl);
+  const tasks=applyFilters(data.tasks.filter(t=>t.status!=="archived"),fl);
   return(
     <div>
       <FBar data={data} filters={fl} setF={sfl}/>
@@ -1278,7 +1287,7 @@ function GridView({data,onEdit,onDelete,onComplete}){
   const [sort,ss]=useState({k:"createdAt",dir:"desc"});
   const [fl,sfl]=useState({});
   const ts=k=>ss(s=>s.k===k?{k,dir:s.dir==="asc"?"desc":"asc"}:{k,dir:"asc"});
-  const filtered=applyFilters(data.tasks,fl);
+  const filtered=applyFilters(data.tasks.filter(t=>t.status!=="archived"),fl);
   const sorted=[...filtered].sort((a,b)=>{let va=a[sort.k]??"",vb=b[sort.k]??"";return sort.dir==="asc"?va<vb?-1:va>vb?1:0:va>vb?-1:va<vb?1:0;});
   const SH=({f:fk,l})=><button onClick={()=>ts(fk)} style={{background:"none",border:"none",cursor:"pointer",fontSize:10,fontWeight:800,color:sort.k===fk?"#6366f1":"#94a3b8",textTransform:"uppercase",letterSpacing:".05em",fontFamily:"inherit",display:"flex",alignItems:"center",gap:2}}>{l} {sort.k===fk?(sort.dir==="asc"?"↑":"↓"):"↕"}</button>;
   return(
@@ -1512,7 +1521,7 @@ function CollaboratorsPage({ data, setData }) {
               <div style={{fontSize:12,color:"#94a3b8",marginBottom:8}}>{u.role}</div>
               {u.email&&<div style={{fontSize:11,color:"#64748b",marginBottom:8,wordBreak:"break-all"}}>✉ {u.email}</div>}
               <div style={{display:"flex",gap:5,justifyContent:"center",flexWrap:"wrap",marginBottom:12}}>
-                {co&&<Chip label={co.name} color={co.color}/>}
+                {co?<Chip label={co.name} color={co.color}/>:<Chip label="Todas as empresas" color="#94a3b8"/>}
                 {sec&&<Chip label={sec.name} color={sec.color}/>}
               </div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:12}}>
@@ -1541,7 +1550,7 @@ function CollaboratorsPage({ data, setData }) {
           </div>
           <Inp label="E-mail" value={form.email} onChange={v=>setForm(f=>({...f,email:v}))} placeholder="email@empresa.com"/>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-            <Sel label="Empresa" value={form.company} onChange={v=>setForm(f=>({...f,company:v,sector:""}))} placeholder="Selecionar..." options={data.companies.map(c=>({value:c.id,label:c.name}))}/>
+            <Sel label="Empresa (opcional)" value={form.company} onChange={v=>setForm(f=>({...f,company:v,sector:""}))} placeholder="Todas as empresas" options={data.companies.map(c=>({value:c.id,label:c.name}))}/>
             <Sel label="Setor" value={form.sector} onChange={v=>setForm(f=>({...f,sector:v}))} placeholder="Selecionar..." options={filteredSectors(form.company).map(s=>({value:s.id,label:s.name}))}/>
           </div>
           <Inp label="Iniciais (auto se vazio)" value={form.initials} onChange={v=>setForm(f=>({...f,initials:v}))} placeholder="Ex: AL"/>
@@ -1782,16 +1791,17 @@ function Dashboard({ data }) {
 
   const [viewMode, setViewMode] = useState("month"); // month | year
 
-  const filteredTasks = useMemo(()=>data.tasks.filter(t=>{
-    if(!coFilter || t.company===coFilter || !coFilter) {
-      const dateStr = t.createdAt || t.dueDate;
-      if(!dateStr) return viewMode==="year";
+  const filteredTasks = useMemo(()=>{
+    return data.tasks.filter(t=>{
+      if(t.status==="archived") return false;
+      if(coFilter && t.company!==coFilter) return false;
+      const dateStr = t.createdAt || t.dueDate || "";
+      if(!dateStr) return true; // show tasks without date
       const d = new Date(dateStr+"T12:00:00");
-      if(viewMode==="year") return d.getFullYear()===fYear && (!coFilter||t.company===coFilter);
-      return d.getMonth()===fMonth && d.getFullYear()===fYear && (!coFilter||t.company===coFilter);
-    }
-    return false;
-  }),[data.tasks,fMonth,fYear,coFilter,viewMode]);
+      if(viewMode==="year") return d.getFullYear()===fYear;
+      return d.getMonth()===fMonth && d.getFullYear()===fYear;
+    });
+  },[data.tasks,fMonth,fYear,coFilter,viewMode]);
 
   const allTasks = coFilter ? data.tasks.filter(t=>t.company===coFilter) : data.tasks;
 
@@ -2045,8 +2055,18 @@ function App(){
 
   const saveTask=(updated)=>{
     const isNew=!data.tasks.find(t=>t.id===updated.id);
-    const withDate={...updated,completedAt:updated.status==="done"&&!updated.completedAt?todayStr():updated.completedAt};
-    setData(d=>{const ex=d.tasks.find(t=>t.id===updated.id);return{...d,tasks:ex?d.tasks.map(t=>t.id===updated.id?withDate:t):[...d.tasks,withDate]};});
+    const withDate={
+      ...updated,
+      assignees: Array.isArray(updated.assignees)?updated.assignees:[],
+      labels: Array.isArray(updated.labels)?updated.labels:[],
+      checklist: Array.isArray(updated.checklist)?updated.checklist:[],
+      dependencies: Array.isArray(updated.dependencies)?updated.dependencies:[],
+      completedAt:updated.status==="done"&&!updated.completedAt?todayStr():updated.completedAt
+    };
+    setData(d=>{
+      const ex=d.tasks.find(t=>t.id===withDate.id);
+      return {...d,tasks:ex?d.tasks.map(t=>t.id===withDate.id?withDate:t):[...d.tasks,withDate]};
+    });
     if(taskModal.task) release(taskModal.task.id);
     setTM(m=>({...m,open:false}));
     toast(isNew?"✦ Tarefa criada!":"💾 Tarefa atualizada!","ok");

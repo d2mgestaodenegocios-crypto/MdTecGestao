@@ -959,6 +959,7 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
   const blank={id:uid(),title:"",description:"",status:defStatus,priority:"media",company:"",sector:"",assignees:[],labels:[],dueDate:"",mesRef:"",checklist:[],dependencies:[],recurrence:"",createdAt:todayStr()};
   const [f,sf]=useState(task?sanitizeTask(task):blank);
   const [ckTxt,sCk]=useState("");
+  const [depQ,setDepQ]=useState("");
   const [depSearch,setDepSearch]=useState("");
   const set=(k,v)=>sf(p=>({...p,[k]:v}));
   const tog=(k,id)=>set(k,f[k].includes(id)?f[k].filter(x=>x!==id):[...f[k],id]);
@@ -1011,7 +1012,6 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
 
       <Fld label="Dependências">
         {(()=>{
-          const [depQ,setDepQ]=useState("");
           const otherTasks=data.tasks.filter(t=>t.id!==f.id&&t.status!=="archived");
           const selDeps=otherTasks.filter(t=>f.dependencies.includes(t.id));
           const filtered=depQ.trim()?otherTasks.filter(t=>t.title.toLowerCase().includes(depQ.toLowerCase())):[];

@@ -176,7 +176,7 @@ const RINTS=[
 ];
 const NAV_GROUPS=[
   {label:"Visualizações",items:[{id:"dashboard",icon:"✦",label:"Dashboard"},{id:"kanban",icon:"⊞",label:"Kanban"},{id:"lista",icon:"☰",label:"Lista"},{id:"calendario",icon:"📅",label:"Calendário"},{id:"tabela",icon:"▦",label:"Tabela"},{id:"arquivadas",icon:"📦",label:"Arquivadas"}]},
-  {label:"Cadastros",items:[{id:"modelos",icon:"◧",label:"Modelos"},{id:"empresas",icon:"⬡",label:"Empresas"},{id:"setores",icon:"◫",label:"Setores"},{id:"colaboradores",icon:"◉",label:"Colaboradores"},{id:"marcadores",icon:"◈",label:"Marcadores"},{id:"recorrencias",icon:"↻",label:"Recorrências"}]},
+  {label:"Cadastros",items:[{id:"modelos",icon:"◧",label:"Modelos"},{id:"empresas",icon:"⬡",label:"Empresas"},{id:"setores",icon:"◫",label:"Setores"},{id:"colaboradores",icon:"◉",label:"Colaboradores"},{id:"marcadores",icon:"◈",label:"Marcadores"},{id:"recorrencias",icon:"↻",label:"Recorrências"},{id:"servicos",icon:"⊛",label:"Serviços"}]},
   {label:"Sistema",items:[{id:"configuracoes",icon:"⚙",label:"Configurações"}]},
 ];
 
@@ -216,6 +216,7 @@ const SEED={
     {id:"rc5",name:"Quinzenal",interval:"biweekly",days:[]},
     {id:"rc6",name:"Mensal",interval:"monthly",days:[]},
   ],
+  services:[],
   taskTemplates:[
   ],
   tasks:[
@@ -318,6 +319,7 @@ function useSharedData() {
         if (!p.labels || !Array.isArray(p.labels)) p.labels = SEED.labels;
         if (!p.recurrences || !Array.isArray(p.recurrences)) p.recurrences = SEED.recurrences;
         if (!p.taskTemplates || !Array.isArray(p.taskTemplates)) p.taskTemplates = [];
+        if (!p.services || !Array.isArray(p.services)) p.services = [];
         if (!p.archiveDays) p.archiveDays = 30;
         p.tasks = (p.tasks || []).map(t => ({
           id: t.id||uid(),
@@ -371,6 +373,8 @@ function useSharedData() {
           if (!p.labels || !Array.isArray(p.labels)) p.labels = SEED.labels;
           if (!p.recurrences || !Array.isArray(p.recurrences)) p.recurrences = SEED.recurrences;
           if (!p.taskTemplates || !Array.isArray(p.taskTemplates)) p.taskTemplates = [];
+          if (!p.services || !Array.isArray(p.services)) p.services = [];
+        if (!p.services || !Array.isArray(p.services)) p.services = [];
           if (!p.archiveDays) p.archiveDays = 30;
           p.tasks = (p.tasks || []).map(t => ({
             id: t.id||"",
@@ -956,8 +960,8 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
   const [ckTxt,sCk]=useState("");
   const set=(k,v)=>sf(p=>({...p,[k]:v}));
   const tog=(k,id)=>set(k,f[k].includes(id)?f[k].filter(x=>x!==id):[...f[k],id]);
-  const fC=data.collaborators.filter(c=> !f.company || !c.company || c.company===f.company );
-  const fS=data.sectors.filter(s=>!s.company||!f.company||s.company===f.company);
+  const fC=data.collaborators.filter(c=>{if(!f.company) return true;const cos=toArr(c.companies).length>0?toArr(c.companies):(c.company?[c.company]:[]);return cos.length===0||cos.includes(f.company);});
+  const fS=data.sectors.filter(s=>{if(!f.company) return true;const cos=toArr(s.companies).length>0?toArr(s.companies):(s.company?[s.company]:[]);return cos.length===0||cos.includes(f.company);});
   const addCk=()=>{if(!ckTxt.trim())return;set("checklist",[...f.checklist,{id:uid(),text:ckTxt.trim(),done:false}]);sCk("");};
   const blocked=!!lockInfo;
 
@@ -1173,7 +1177,21 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
   return(
     <div className="kanban-wrap" style={{display:"flex",gap:14,overflowX:"auto",paddingBottom:20,alignItems:"flex-start"}}>
       {STS.filter(st=>st.id!=="archived").map(st=>{
-        const tasks=data.tasks.filter(t=>t.status===st.id);
+        const todayDt=new Date();
+        const todayDow=todayDt.getDay();
+        const tasks=data.tasks.filter(t=>{
+          if(t.status!==st.id) return false;
+          if(!t.recurrence) return true;
+          const rec=data.recurrences.find(r=>r.id===t.recurrence);
+          if(!rec) return true;
+          let matchesToday=false;
+          if(rec.interval==="daily") matchesToday=true;
+          else if(rec.interval==="custom_days"&&Array.isArray(rec.days)) matchesToday=rec.days.includes(todayDow);
+          else if(rec.interval==="weekly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");matchesToday=todayDow===sd.getDay();}
+          else if(rec.interval==="monthly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");matchesToday=todayDt.getDate()===sd.getDate();}
+          const isOverdue=t.dueDate&&new Date(t.dueDate+"T23:59:59")<todayDt;
+          return matchesToday||isOverdue;
+        });
         return(
           <div key={st.id} className="kanban-col" style={{flexShrink:0,width:268}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 12px",borderRadius:10,background:st.bg,border:`1.5px solid ${st.c}33`,marginBottom:10}}>
@@ -1256,7 +1274,33 @@ function CalView({data,onEdit}){
   const [y,sy]=useState(now.getFullYear());
   const wD=["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
   const dim=new Date(y,m+1,0).getDate(),fd=new Date(y,m,1).getDay();
-  const tbd=useMemo(()=>{const mp={};data.tasks.filter(t=>t.status!=="archived").forEach(t=>{if(!t.dueDate)return;const d=new Date(t.dueDate+"T12:00:00");if(d.getMonth()===m&&d.getFullYear()===y){const day=d.getDate();mp[day]=[...(mp[day]||[]),t];}});return mp;},[data.tasks,m,y]);
+  const tbd=useMemo(()=>{
+    const mp={};
+    const dim2=new Date(y,m+1,0).getDate();
+    data.tasks.filter(t=>t.status!=="archived").forEach(t=>{
+      if(!t.recurrence){
+        if(!t.dueDate)return;
+        const d=new Date(t.dueDate+"T12:00:00");
+        if(d.getMonth()===m&&d.getFullYear()===y){const day=d.getDate();mp[day]=[...(mp[day]||[]),t];}
+        return;
+      }
+      const rec=data.recurrences.find(r=>r.id===t.recurrence);
+      if(!rec)return;
+      for(let day=1;day<=dim2;day++){
+        const dt=new Date(y,m,day);
+        const dow=dt.getDay();
+        let show=false;
+        if(rec.interval==="daily") show=true;
+        else if(rec.interval==="custom_days"&&Array.isArray(rec.days)) show=rec.days.includes(dow);
+        else if(rec.interval==="weekly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");show=dow===sd.getDay();}
+        else if(rec.interval==="biweekly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");const diff=Math.round((dt-sd)/86400000);show=dow===sd.getDay()&&diff>=0&&diff%14===0;}
+        else if(rec.interval==="monthly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");show=day===sd.getDate();}
+        else if(rec.interval==="yearly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");show=day===sd.getDate()&&m===sd.getMonth();}
+        if(show) mp[day]=[...(mp[day]||[]),{...t,_recurring:true}];
+      }
+    });
+    return mp;
+  },[data.tasks,data.recurrences,m,y]);
   const cells=[];for(let i=0;i<fd;i++)cells.push(null);for(let i=1;i<=dim;i++)cells.push(i);
   const prev=()=>{if(m===0){sm(11);sy(y-1);}else sm(m-1);};
   const next=()=>{if(m===11){sm(0);sy(y+1);}else sm(m+1);};
@@ -1318,7 +1362,7 @@ function GridView({data,onEdit,onDelete,onComplete}){
       <FBar data={data} filters={fl} setF={sfl}/>
       <div className="scroll-x">
         <div style={{borderRadius:14,border:"1px solid #f1f5f9",overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,.05)",background:"#fff"}}>
-          <div className="tbl-head" style={{display:"grid",gridTemplateColumns:"12px minmax(160px,2fr) 110px 82px minmax(120px,1.3fr) minmax(90px,1fr) minmax(140px,1.4fr) 86px 64px 52px",padding:"10px 16px",background:"#f8fafc",borderBottom:"2px solid #f1f5f9",gap:8,alignItems:"center"}}>
+          <div className="tbl-head" style={{display:"grid",gridTemplateColumns:"12px minmax(160px,2fr) 110px 82px minmax(120px,1.3fr) minmax(90px,1fr) minmax(140px,1.4fr) 86px minmax(80px,110px) 52px",padding:"10px 16px",background:"#f8fafc",borderBottom:"2px solid #f1f5f9",gap:8,alignItems:"center"}}>
             <div/>
             <SH f="title" l="Tarefa"/>
             <SH f="status" l="Status"/>
@@ -1339,7 +1383,7 @@ function GridView({data,onEdit,onDelete,onComplete}){
             const ckd=toArr(t.checklist).filter(c=>c.done).length,ckt=toArr(t.checklist).length;
             const over=isLate(t),done=t.status==="done";
             return(
-              <div key={t.id} className="tbl-row" style={{display:"grid",gridTemplateColumns:"12px minmax(160px,2fr) 110px 82px minmax(120px,1.3fr) minmax(90px,1fr) minmax(140px,1.4fr) 86px 64px 52px",padding:"10px 16px",borderBottom:i<sorted.length-1?"1px solid #f8fafc":"none",alignItems:"center",gap:8,cursor:"pointer",transition:"background .1s",background:done?"#f8fffe":"transparent"}}
+              <div key={t.id} className="tbl-row" style={{display:"grid",gridTemplateColumns:"12px minmax(160px,2fr) 110px 82px minmax(120px,1.3fr) minmax(90px,1fr) minmax(140px,1.4fr) 86px minmax(80px,110px) 52px",padding:"10px 16px",borderBottom:i<sorted.length-1?"1px solid #f8fafc":"none",alignItems:"center",gap:8,cursor:"pointer",transition:"background .1s",background:done?"#f8fffe":"transparent"}}
                 onMouseEnter={e=>e.currentTarget.style.background=done?"#f0fdf4":"#fafafa"}
                 onMouseLeave={e=>e.currentTarget.style.background=done?"#f8fffe":"transparent"}
                 onClick={()=>onEdit(t)}
@@ -1370,39 +1414,73 @@ function GridView({data,onEdit,onDelete,onComplete}){
 
 // --- EMPRESAS ---------------------------------------------------
 function CompaniesPage({ data, setData }) {
+  const blank={name:"",color:"#6366f1",logo:"",tributacao:"Simples Nacional",cnpj:"",email:"",telefone:"",socio:"",observacoes:"",services:[]};
   const [open,setOpen]=useState(false);
   const [editing,setEditing]=useState(null);
-  const [form,setForm]=useState({name:"",color:"#6366f1",logo:"",tributacao:"Simples Nacional",cnpj:""});
-  const openNew=()=>{setEditing(null);setForm({name:"",color:"#6366f1",logo:"",tributacao:"Simples Nacional",cnpj:""});setOpen(true);};
-  const openEdit=(c)=>{setEditing(c);setForm({name:c.name,color:c.color,logo:c.logo,tributacao:c.tributacao||"",cnpj:c.cnpj||""});setOpen(true);};
+  const [form,setForm]=useState(blank);
+  const [tab,setTab]=useState("info");
+  const openNew=()=>{setEditing(null);setForm(blank);setTab("info");setOpen(true);};
+  const openEdit=(c)=>{setEditing(c);setForm({...blank,...c,services:toArr(c.services)});setTab("info");setOpen(true);};
   const save=()=>{
     if(!form.name.trim())return;
     const logo=form.logo||form.name.slice(0,2).toUpperCase();
-    if(editing) setData(d=>({...d,companies:d.companies.map(c=>c.id===editing.id?{...c,...form,logo}:c)}));
-    else setData(d=>({...d,companies:[...d.companies,{id:uid(),...form,logo}]}));
+    const co={...form,logo};
+    let newId=null;
+    if(editing){
+      setData(d=>({...d,companies:d.companies.map(c=>c.id===editing.id?{...c,...co}:c)}));
+    } else {
+      newId=uid();
+      setData(d=>({...d,companies:[...d.companies,{id:newId,...co}]}));
+    }
+    // Auto-generate recurring tasks for linked services
+    const coId=editing?editing.id:newId;
+    const svcIds=toArr(form.services);
+    const svcs=data.services.filter(s=>svcIds.includes(s.id));
+    if(svcs.length>0&&coId){
+      setData(d=>{
+        let tasks=[...d.tasks];
+        svcs.forEach(svc=>{
+          const alreadyExists=tasks.some(t=>t.company===coId&&t._serviceId===svc.id);
+          if(!alreadyExists){
+            tasks.push({
+              id:uid(),title:svc.name,description:svc.description||"",
+              status:"todo",priority:"media",company:coId,sector:"",
+              assignees:[],labels:[],checklist:[],dependencies:[],
+              recurrence:svc.recurrence||"",dueDate:svc.defaultDue||"",
+              createdAt:todayStr(),completedAt:null,archivedAt:null,
+              _serviceId:svc.id,
+            });
+          }
+        });
+        return {...d,tasks};
+      });
+    }
     setOpen(false);
   };
   const {ask:askDel,modal:delModal}=useConfirmDelete();
-  const del=(id)=>{const item=data.companies.find(x=>x.id===id);askDel(`Empresa: "${item?.name||""}"`,()=>setData(d=>({...d,companies:d.companies.filter(c=>c.id!==id)})));};
-
+  const del=(id)=>{const item=data.companies.find(x=>x.id===id);askDel("Empresa: "" +item?.name+""",()=>setData(d=>({...d,companies:d.companies.filter(c=>c.id!==id)})));};
+  const tabSt=(t)=>({padding:"6px 14px",border:"none",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit",background:tab===t?"#6366f1":"#f1f5f9",color:tab===t?"#fff":"#64748b"});
   return (
     <div>
       <PH title="Empresas" icon="⬡" badge={data.companies.length} action={<Btn onClick={openNew}>+ Nova Empresa</Btn>}/>
-      <div className="g-companies" style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14}}>
         {data.companies.map(c=>{
-          const collabs=data.collaborators.filter(u=>u.company===c.id);
+          const collabs=data.collaborators.filter(u=>toArr(u.companies).includes(c.id)||u.company===c.id);
           const tasks=data.tasks.filter(t=>t.company===c.id);
-          const sectors=data.sectors.filter(s=>s.company===c.id);
+          const sectors=data.sectors.filter(s=>toArr(s.companies).includes(c.id)||s.company===c.id);
+          const svcs=data.services.filter(s=>toArr(c.services).includes(s.id));
           return (
             <div key={c.id} style={{background:"#fff",borderRadius:16,padding:20,border:"1px solid #f1f5f9",boxShadow:"0 2px 8px rgba(0,0,0,.06)"}}>
-              <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:16}}>
-                <div style={{width:52,height:52,borderRadius:14,background:c.color+"18",border:`2px solid ${c.color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,fontWeight:900,color:c.color}}>{c.logo}</div>
-                <div>
+              <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:14}}>
+                <div style={{width:52,height:52,borderRadius:14,background:c.color+"18",border:"2px solid "+c.color+"44",display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,fontWeight:900,color:c.color}}>{c.logo}</div>
+                <div style={{flex:1,minWidth:0}}>
                   <div style={{fontWeight:900,fontSize:15,color:"#0f172a"}}>{c.name}</div>
-                  <div style={{fontSize:11,color:"#94a3b8",marginTop:2}}>CNPJ: {c.cnpj||"-"}</div>
+                  <div style={{fontSize:11,color:"#94a3b8"}}>CNPJ: {c.cnpj||"-"}</div>
+                  {c.email&&<div style={{fontSize:11,color:"#64748b"}}>✉ {c.email}</div>}
+                  {c.telefone&&<div style={{fontSize:11,color:"#64748b"}}>📞 {c.telefone}</div>}
                 </div>
               </div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}}>
                 {[{v:collabs.length,l:"Colab."},{v:tasks.length,l:"Tarefas"},{v:sectors.length,l:"Setores"}].map(({v,l})=>(
                   <div key={l} style={{textAlign:"center",background:"#f8fafc",borderRadius:9,padding:"8px 4px"}}>
                     <div style={{fontSize:18,fontWeight:900,color:c.color}}>{v}</div>
@@ -1410,10 +1488,9 @@ function CompaniesPage({ data, setData }) {
                   </div>
                 ))}
               </div>
-              <div style={{marginBottom:14}}>
-                <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:20,background:c.color+"18",color:c.color}}>📋 {c.tributacao||"-"}</span>
-              </div>
-              <div style={{display:"flex",marginBottom:14}}>
+              {c.socio&&<div style={{fontSize:11,color:"#64748b",marginBottom:8}}>👤 {c.socio}</div>}
+              {svcs.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:10}}>{svcs.map(s=><span key={s.id} style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:"#6366f118",color:"#6366f1",fontWeight:700}}>{s.name}</span>)}</div>}
+              <div style={{display:"flex",marginBottom:12}}>
                 {collabs.slice(0,6).map((u,i)=><div key={u.id} style={{marginLeft:i>0?-8:0}}><Av initials={u.initials} color={u.color} size={28} title={u.name}/></div>)}
               </div>
               <div style={{display:"flex",gap:8}}>
@@ -1424,19 +1501,47 @@ function CompaniesPage({ data, setData }) {
           );
         })}
       </div>
-      <Modal open={open} onClose={()=>setOpen(false)} title={editing?"Editar Empresa":"Nova Empresa"} width={460}>
-        <div style={{display:"flex",flexDirection:"column",gap:14}}>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-            <Inp label="Nome *" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="Nome da empresa"/>
-            <Inp label="Sigla/Logo" value={form.logo} onChange={v=>setForm(f=>({...f,logo:v}))} placeholder="Ex: MT"/>
-          </div>
+      <Modal open={open} onClose={()=>setOpen(false)} title={editing?"Editar Empresa":"Nova Empresa"} width={520}>
+        <div style={{display:"flex",gap:8,marginBottom:16}}>
+          {["info","contato","servicos"].map(t=><button key={t} style={tabSt(t)} onClick={()=>setTab(t)}>{t==="info"?"Dados":t==="contato"?"Contato":"Serviços"}</button>)}
+        </div>
+        {tab==="info"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <div className="g2"><Inp label="Nome *" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="Nome da empresa"/><Inp label="Sigla" value={form.logo} onChange={v=>setForm(f=>({...f,logo:v}))} placeholder="Ex: MT"/></div>
           <Inp label="CNPJ" value={form.cnpj} onChange={v=>setForm(f=>({...f,cnpj:v}))} placeholder="00.000.000/0001-00"/>
-          <Sel label="Tipo de Tributação *" value={form.tributacao} onChange={v=>setForm(f=>({...f,tributacao:v}))} options={TRIBS.map(t=>({value:t,label:t}))}/>
+          <Sel label="Tributação" value={form.tributacao} onChange={v=>setForm(f=>({...f,tributacao:v}))} options={TRIBS.map(t=>({value:t,label:t}))}/>
+          <Inp label="Sócio / Responsável" value={form.socio} onChange={v=>setForm(f=>({...f,socio:v}))} placeholder="Nome do responsável"/>
+          <Txt label="Observações" value={form.observacoes} onChange={v=>setForm(f=>({...f,observacoes:v}))} placeholder="Anotações sobre a empresa..."/>
           <CPick value={form.color} onChange={v=>setForm(f=>({...f,color:v}))}/>
-          <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
-            <Btn onClick={()=>setOpen(false)} v="ghost">Cancelar</Btn>
-            <Btn onClick={save}>Salvar</Btn>
+        </div>}
+        {tab==="contato"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <Inp label="E-mail" value={form.email} onChange={v=>setForm(f=>({...f,email:v}))} placeholder="email@empresa.com"/>
+          <Inp label="Telefone" value={form.telefone} onChange={v=>setForm(f=>({...f,telefone:v}))} placeholder="(00) 00000-0000"/>
+        </div>}
+        {tab==="servicos"&&<div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <p style={{fontSize:12,color:"#64748b",marginBottom:4}}>Selecione os serviços contratados. Ao salvar, tarefas recorrentes serão geradas automaticamente.</p>
+          {data.services.length===0&&<p style={{fontSize:13,color:"#94a3b8"}}>Nenhum serviço cadastrado. Vá em <strong>Serviços</strong> para criar.</p>}
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {data.services.map(s=>{
+              const sel=toArr(form.services).includes(s.id);
+              return(
+                <div key={s.id} onClick={()=>setForm(f=>({...f,services:sel?toArr(f.services).filter(x=>x!==s.id):[...toArr(f.services),s.id]}))} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:10,border:"2px solid "+(sel?"#6366f1":"#e5e7eb"),background:sel?"#eef2ff":"#fafafa",cursor:"pointer",transition:"all .1s"}}>
+                  <div style={{width:18,height:18,borderRadius:5,border:"2px solid "+(sel?"#6366f1":"#cbd5e1"),background:sel?"#6366f1":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                    {sel&&<span style={{color:"#fff",fontSize:11,fontWeight:900}}>✓</span>}
+                  </div>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:700,fontSize:13,color:"#0f172a"}}>{s.name}</div>
+                    {s.description&&<div style={{fontSize:11,color:"#94a3b8"}}>{s.description}</div>}
+                    {s.recurrence&&<div style={{fontSize:11,color:"#6366f1"}}>↻ {data.recurrences.find(r=>r.id===s.recurrence)?.name||"Recorrente"}</div>}
+                    {s.defaultDue&&<div style={{fontSize:11,color:"#f59e0b"}}>📅 Vence: dia {new Date(s.defaultDue+"T12:00:00").getDate()}</div>}
+                  </div>
+                </div>
+              );
+            })}
           </div>
+        </div>}
+        <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16,paddingTop:14,borderTop:"1px solid #f1f5f9"}}>
+          <Btn onClick={()=>setOpen(false)} v="ghost">Cancelar</Btn>
+          <Btn onClick={save}>Salvar</Btn>
         </div>
       </Modal>
       {delModal}
@@ -1444,13 +1549,13 @@ function CompaniesPage({ data, setData }) {
   );
 }
 
-// --- SETORES ----------------------------------------------------
 function SectorsPage({ data, setData }) {
   const [open,setOpen]=useState(false);
   const [editing,setEditing]=useState(null);
-  const [form,setForm]=useState({name:"",color:"#14b8a6",company:""});
-  const openNew=()=>{setEditing(null);setForm({name:"",color:"#14b8a6",company:""});setOpen(true);};
-  const openEdit=(s)=>{setEditing(s);setForm({name:s.name,color:s.color,company:s.company});setOpen(true);};
+  const [form,setForm]=useState({name:"",color:"#14b8a6",companies:[]});
+  const openNew=()=>{setEditing(null);setForm({name:"",color:"#14b8a6",companies:[]});setOpen(true);};
+  const openEdit=(s)=>{setEditing(s);setForm({name:s.name,color:s.color,companies:toArr(s.companies).length>0?toArr(s.companies):(s.company?[s.company]:[])});setOpen(true);};
+  const togCo=(id)=>setForm(f=>({...f,companies:toArr(f.companies).includes(id)?toArr(f.companies).filter(x=>x!==id):[...toArr(f.companies),id]}));
   const save=()=>{
     if(!form.name.trim())return;
     if(editing) setData(d=>({...d,sectors:d.sectors.map(s=>s.id===editing.id?{...s,...form}:s)}));
@@ -1465,8 +1570,9 @@ function SectorsPage({ data, setData }) {
       <PH title="Setores" icon="◫" badge={data.sectors.length} action={<Btn onClick={openNew}>+ Novo Setor</Btn>}/>
       <div className="g-sectors" style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:12}}>
         {data.sectors.map(s=>{
-          const co=data.companies.find(c=>c.id===s.company);
-          const collabs=data.collaborators.filter(u=>u.sector===s.id);
+          const coIds=toArr(s.companies).length>0?toArr(s.companies):(s.company?[s.company]:[]);
+          const cos=data.companies.filter(c=>coIds.includes(c.id));
+          const collabs=data.collaborators.filter(u=>{const us=toArr(u.sectors).length>0?toArr(u.sectors):(u.sector?[u.sector]:[]);return us.includes(s.id);});
           const tasks=data.tasks.filter(t=>t.sector===s.id);
           return (
             <div key={s.id} style={{background:"#fff",borderRadius:14,padding:18,border:"1px solid #f1f5f9",boxShadow:"0 1px 4px rgba(0,0,0,.06)"}}>
@@ -1474,7 +1580,7 @@ function SectorsPage({ data, setData }) {
                 <div style={{width:38,height:38,borderRadius:10,background:s.color+"18",border:`2px solid ${s.c}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:17}}>◫</div>
                 <div>
                   <div style={{fontWeight:800,fontSize:14,color:"#0f172a"}}>{s.name}</div>
-                  {co&&<div style={{fontSize:11,color:co.color,fontWeight:700}}>{co.name}</div>}
+                  <div style={{display:"flex",flexWrap:"wrap",gap:3,marginTop:2}}>{cos.map(co=><span key={co.id} style={{fontSize:10,padding:"1px 6px",borderRadius:10,background:co.color+"18",color:co.color,fontWeight:700}}>{co.name}</span>)}{cos.length===0&&<span style={{fontSize:10,color:"#94a3b8"}}>Todas as empresas</span>}</div>
                 </div>
               </div>
               <div style={{display:"flex",gap:8,marginBottom:14}}>
@@ -1498,7 +1604,14 @@ function SectorsPage({ data, setData }) {
       <Modal open={open} onClose={()=>setOpen(false)} title={editing?"Editar Setor":"Novo Setor"} width={400}>
         <div style={{display:"flex",flexDirection:"column",gap:14}}>
           <Inp label="Nome *" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="Ex: Desenvolvimento"/>
-          <Sel label="Empresa" value={form.company} onChange={v=>setForm(f=>({...f,company:v}))} placeholder="Selecionar..." options={data.companies.map(c=>({value:c.id,label:c.name}))}/>
+          <div>
+            <label style={{fontSize:12,fontWeight:700,color:"#64748b",display:"block",marginBottom:8}}>Empresas (opcional — vazio = todas)</label>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+              {data.companies.map(c=>{const sel=toArr(form.companies).includes(c.id);return(
+                <button key={c.id} onClick={()=>togCo(c.id)} style={{padding:"4px 12px",borderRadius:20,border:"2px solid "+(sel?c.color:"#e5e7eb"),background:sel?c.color+"18":"#fafafa",color:sel?c.color:"#6b7280",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .1s"}}>{c.name}</button>
+              );})}
+            </div>
+          </div>
           <CPick value={form.color} onChange={v=>setForm(f=>({...f,color:v}))}/>
           <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
             <Btn onClick={()=>setOpen(false)} v="ghost">Cancelar</Btn>
@@ -1515,9 +1628,18 @@ function SectorsPage({ data, setData }) {
 function CollaboratorsPage({ data, setData }) {
   const [open,setOpen]=useState(false);
   const [editing,setEditing]=useState(null);
-  const [form,setForm]=useState({name:"",role:"",company:"",sector:"",color:"#8b5cf6",initials:"",email:""});
-  const openNew=()=>{setEditing(null);setForm({name:"",role:"",company:"",sector:"",color:"#8b5cf6",initials:"",email:""});setOpen(true);};
-  const openEdit=(u)=>{setEditing(u);setForm({name:u.name,role:u.role,company:u.company,sector:u.sector||"",color:u.color,initials:u.initials,email:u.email||""});setOpen(true);};
+  const [form,setForm]=useState({name:"",role:"",companies:[],sectors:[],color:"#8b5cf6",initials:"",email:""});
+  const openNew=()=>{setEditing(null);setForm({name:"",role:"",companies:[],sectors:[],color:"#8b5cf6",initials:"",email:""});setOpen(true);};
+  const openEdit=(u)=>{
+    setEditing(u);
+    setForm({name:u.name,role:u.role,
+      companies:toArr(u.companies).length>0?toArr(u.companies):(u.company?[u.company]:[]),
+      sectors:toArr(u.sectors).length>0?toArr(u.sectors):(u.sector?[u.sector]:[]),
+      color:u.color,initials:u.initials,email:u.email||""});
+    setOpen(true);
+  };
+  const togUCo=(id)=>setForm(f=>({...f,companies:toArr(f.companies).includes(id)?toArr(f.companies).filter(x=>x!==id):[...toArr(f.companies),id]}));
+  const togUSec=(id)=>setForm(f=>({...f,sectors:toArr(f.sectors).includes(id)?toArr(f.sectors).filter(x=>x!==id):[...toArr(f.sectors),id]}));
   const save=()=>{
     if(!form.name.trim())return;
     const initials=form.initials||form.name.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2);
@@ -1527,7 +1649,6 @@ function CollaboratorsPage({ data, setData }) {
   };
   const {ask:askDel,modal:delModal}=useConfirmDelete();
   const del=(id)=>{const item=data.collaborators.find(x=>x.id===id);askDel(`Colaborador: "${item?.name||""}"`,()=>setData(d=>({...d,collaborators:d.collaborators.filter(u=>u.id!==id)})));};
-  const filteredSectors=(c)=>data.sectors.filter(s=>!c||s.company===c);
 
   return (
     <div>
@@ -1546,9 +1667,8 @@ function CollaboratorsPage({ data, setData }) {
               <div style={{fontWeight:900,fontSize:14,color:"#0f172a",marginBottom:2}}>{u.name}</div>
               <div style={{fontSize:12,color:"#94a3b8",marginBottom:8}}>{u.role}</div>
               {u.email&&<div style={{fontSize:11,color:"#64748b",marginBottom:8,wordBreak:"break-all"}}>✉ {u.email}</div>}
-              <div style={{display:"flex",gap:5,justifyContent:"center",flexWrap:"wrap",marginBottom:12}}>
-                {co?<Chip label={co.name} color={co.color}/>:<Chip label="Todas as empresas" color="#94a3b8"/>}
-                {sec&&<Chip label={sec.name} color={sec.color}/>}
+              <div style={{display:"flex",gap:4,justifyContent:"center",flexWrap:"wrap",marginBottom:12}}>
+                {(()=>{const uCos=toArr(u.companies).length>0?toArr(u.companies):(u.company?[u.company]:[]);const cos=data.companies.filter(c=>uCos.includes(c.id));return cos.length>0?cos.map(c=><Chip key={c.id} label={c.name} color={c.color}/>):<Chip label="Todas as empresas" color="#94a3b8"/>;})()}
               </div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:12}}>
                 <div style={{background:"#f8fafc",borderRadius:8,padding:"6px"}}>
@@ -1575,9 +1695,21 @@ function CollaboratorsPage({ data, setData }) {
             <Inp label="Cargo" value={form.role} onChange={v=>setForm(f=>({...f,role:v}))} placeholder="Ex: Dev Frontend"/>
           </div>
           <Inp label="E-mail" value={form.email} onChange={v=>setForm(f=>({...f,email:v}))} placeholder="email@empresa.com"/>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-            <Sel label="Empresa (opcional)" value={form.company} onChange={v=>setForm(f=>({...f,company:v,sector:""}))} placeholder="Todas as empresas" options={data.companies.map(c=>({value:c.id,label:c.name}))}/>
-            <Sel label="Setor" value={form.sector} onChange={v=>setForm(f=>({...f,sector:v}))} placeholder="Selecionar..." options={filteredSectors(form.company).map(s=>({value:s.id,label:s.name}))}/>
+          <div>
+            <label style={{fontSize:12,fontWeight:700,color:"#64748b",display:"block",marginBottom:8}}>Empresas (opcional — vazio = todas)</label>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+              {data.companies.map(c=>{const sel=toArr(form.companies).includes(c.id);return(
+                <button key={c.id} onClick={()=>togUCo(c.id)} style={{padding:"4px 12px",borderRadius:20,border:"2px solid "+(sel?c.color:"#e5e7eb"),background:sel?c.color+"18":"#fafafa",color:sel?c.color:"#6b7280",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{c.name}</button>
+              );})}
+            </div>
+          </div>
+          <div>
+            <label style={{fontSize:12,fontWeight:700,color:"#64748b",display:"block",marginBottom:8}}>Setores (opcional)</label>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+              {data.sectors.map(s=>{const sel=toArr(form.sectors).includes(s.id);return(
+                <button key={s.id} onClick={()=>togUSec(s.id)} style={{padding:"4px 12px",borderRadius:20,border:"2px solid "+(sel?s.color:"#e5e7eb"),background:sel?s.color+"18":"#fafafa",color:sel?s.color:"#6b7280",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{s.name}</button>
+              );})}
+            </div>
           </div>
           <Inp label="Iniciais (auto se vazio)" value={form.initials} onChange={v=>setForm(f=>({...f,initials:v}))} placeholder="Ex: AL"/>
           <CPick value={form.color} onChange={v=>setForm(f=>({...f,color:v}))}/>
@@ -1716,6 +1848,70 @@ function RecurrencesPage({ data, setData }) {
 }
 
 // --- MODELOS -----------------------------------------------------
+
+// --- SERVIÇOS ---------------------------------------------------
+function ServicosPage({ data, setData }) {
+  const [open,setOpen]=useState(false);
+  const [editing,setEditing]=useState(null);
+  const [form,setForm]=useState({name:"",description:"",recurrence:"",defaultDue:"",color:"#6366f1"});
+  const openNew=()=>{setEditing(null);setForm({name:"",description:"",recurrence:"",defaultDue:"",color:"#6366f1"});setOpen(true);};
+  const openEdit=(s)=>{setEditing(s);setForm({name:s.name,description:s.description||"",recurrence:s.recurrence||"",defaultDue:s.defaultDue||"",color:s.color||"#6366f1"});setOpen(true);};
+  const save=()=>{
+    if(!form.name.trim())return;
+    if(editing) setData(d=>({...d,services:d.services.map(s=>s.id===editing.id?{...s,...form}:s)}));
+    else setData(d=>({...d,services:[...(d.services||[]),{id:uid(),...form}]}));
+    setOpen(false);
+  };
+  const {ask:askDel,modal:delModal}=useConfirmDelete();
+  const del=(id)=>{const item=(data.services||[]).find(x=>x.id===id);askDel(`Serviço: "${item?.name||""}"`,()=>setData(d=>({...d,services:d.services.filter(s=>s.id!==id)})));};
+  return (
+    <div>
+      <PH title="Serviços" icon="⊛" badge={(data.services||[]).length} action={<Btn onClick={openNew}>+ Novo Serviço</Btn>}/>
+      <p style={{fontSize:13,color:"#64748b",marginBottom:16}}>Cadastre os serviços que você oferece. Ao vincular a uma empresa, tarefas recorrentes são geradas automaticamente.</p>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:12}}>
+        {(data.services||[]).map(s=>{
+          const rec=data.recurrences.find(r=>r.id===s.recurrence);
+          const usedBy=data.companies.filter(c=>toArr(c.services).includes(s.id));
+          return (
+            <div key={s.id} style={{background:"#fff",borderRadius:14,padding:18,border:"1px solid #f1f5f9",boxShadow:"0 1px 4px rgba(0,0,0,.06)"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                <div style={{width:40,height:40,borderRadius:10,background:(s.color||"#6366f1")+"18",border:"2px solid "+(s.color||"#6366f1")+"44",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>⊛</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:800,fontSize:14,color:"#0f172a"}}>{s.name}</div>
+                  {s.description&&<div style={{fontSize:11,color:"#94a3b8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.description}</div>}
+                </div>
+              </div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:12}}>
+                {rec&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:20,background:"#6366f118",color:"#6366f1",fontWeight:700}}>↻ {rec.name}</span>}
+                {s.defaultDue&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:20,background:"#f59e0b18",color:"#f59e0b",fontWeight:700}}>📅 Dia {new Date(s.defaultDue+"T12:00:00").getDate()}</span>}
+              </div>
+              {usedBy.length>0&&<div style={{fontSize:11,color:"#94a3b8",marginBottom:10}}>Usado por: {usedBy.map(c=>c.name).join(", ")}</div>}
+              <div style={{display:"flex",gap:8}}>
+                <Btn onClick={()=>openEdit(s)} v="ghost" sz="sm" xs={{flex:1,justifyContent:"center"}}>✎ Editar</Btn>
+                <Btn onClick={()=>del(s.id)} v="danger" sz="sm">×</Btn>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <Modal open={open} onClose={()=>setOpen(false)} title={editing?"Editar Serviço":"Novo Serviço"} width={460}>
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <Inp label="Nome do Serviço *" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="Ex: Folha de Pagamento"/>
+          <Txt label="Descrição" value={form.description} onChange={v=>setForm(f=>({...f,description:v}))} placeholder="Descreva o serviço..." rows={2}/>
+          <Sel label="Recorrência padrão" value={form.recurrence} onChange={v=>setForm(f=>({...f,recurrence:v}))} placeholder="Sem recorrência" options={data.recurrences.map(r=>({value:r.id,label:r.name}))}/>
+          <Inp label="Data de vencimento padrão" value={form.defaultDue} onChange={v=>setForm(f=>({...f,defaultDue:v}))} type="date" hint="Dia de vencimento mensal da tarefa gerada"/>
+          <CPick value={form.color} onChange={v=>setForm(f=>({...f,color:v}))}/>
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+            <Btn onClick={()=>setOpen(false)} v="ghost">Cancelar</Btn>
+            <Btn onClick={save}>Salvar</Btn>
+          </div>
+        </div>
+      </Modal>
+      {delModal}
+    </div>
+  );
+}
+
 function TemplatesPage({ data, setData, onUseTemplate }) {
   const [open,setOpen]=useState(false);
   const [editing,setEditing]=useState(null);
@@ -2231,6 +2427,7 @@ function App(){
         {page==="lista"         && <ListView data={data} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete}/>}
         {page==="calendario"    && <CalView data={data} onEdit={openEdit}/>}
         {page==="tabela"        && <GridView data={data} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete}/>}
+        {page==="servicos"      && <ServicosPage data={data} setData={setData}/>}
         {page==="modelos"       && <TemplatesPage data={data} setData={setData} onUseTemplate={useTemplate}/>}
         {page==="empresas"      && <CompaniesPage data={data} setData={setData}/>}
         {page==="setores"       && <SectorsPage data={data} setData={setData}/>}

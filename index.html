@@ -325,7 +325,7 @@ function useSharedData() {
           id: t.id||uid(),
           title: t.title||"",
           description: t.description||"",
-          status: (t.recurrence&&t.status==="done")?"todo":(t.status||"todo"),
+          status: t.status||"todo",
           priority: t.priority||"media",
           company: t.company||"",
           sector: t.sector||"",
@@ -1112,8 +1112,7 @@ function TCard({task,data,onEdit,onDelete,onComplete}){
   const ckTot=task.checklist.length;
   const prog=ckTot>0?Math.round((ckDone/ckTot)*100):null;
   const over=isLate(task);
-  const _today=new Date().toISOString().slice(0,10);
-  const done=task.recurrence?(task._copies||[]).includes(_today):task.status==="done";
+  const done=task.status==="done";
   const p=PRI[task.priority]||PRI.media;
 
   return(
@@ -2438,25 +2437,17 @@ function App(){
   const quickComplete=(task)=>{
     const lk=getLock(task.id);
     if(lk){toast(`🔒 ${lk.user} está editando. Aguarde.`,"lock",4000);return;}
+    // Todas as tarefas (recorrentes ou não) seguem o mesmo ciclo de status
     const CYCLE={todo:"doing",doing:"review",review:"done",done:"todo"};
     const LABELS={todo:"Em Análise",doing:"Revisão",review:"Concluído",done:"A Fazer"};
-    if(task.recurrence){
-      const today=todayStr();
-      const copies=Array.isArray(task._copies)?[...task._copies]:[];
-      const already=copies.includes(today);
-      const next=already?copies.filter(x=>x!==today):[...copies,today];
-      setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{...t,_copies:next,status:"todo"}:t)}));
-      toast(already?"↩ Ocorrência reaberta.":"✅ Ocorrência concluída!","ok");
-    } else {
-      const cur=task.status||"todo";
-      const newStatus=CYCLE[cur]||"doing";
-      setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{
-        ...t,status:newStatus,
-        completedAt:newStatus==="done"?todayStr():null,
-        checklist:newStatus==="done"?t.checklist.map(c=>({...c,done:true})):t.checklist,
-      }:t)}));
-      toast(`→ ${LABELS[cur]||"Em Análise"}!`,"ok");
-    }
+    const cur=task.status||"todo";
+    const newStatus=CYCLE[cur]||"doing";
+    setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{
+      ...t,status:newStatus,
+      completedAt:newStatus==="done"?todayStr():null,
+      checklist:newStatus==="done"?t.checklist.map(c=>({...c,done:true})):t.checklist,
+    }:t)}));
+    toast(`→ ${LABELS[cur]}!`,"ok");
   };
 
   const useTemplate=(tpl)=>{

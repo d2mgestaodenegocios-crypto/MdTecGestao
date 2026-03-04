@@ -1240,9 +1240,17 @@ function TCard({task,data,onEdit,onDelete,onComplete,activeDow,DOW,dowIsDone}){
   // For recurring cards, check if this specific day is done via _copies
   const _now2=new Date();
   const _wkStart2=new Date(_now2);_wkStart2.setDate(_now2.getDate()-_now2.getDay());_wkStart2.setHours(0,0,0,0);
-  const _dowDate=activeDow!==null&&activeDow!==undefined?(()=>{const d=new Date(_wkStart2);d.setDate(_wkStart2.getDate()+Number(activeDow));return d.toISOString().slice(0,10);})():null;
-  // Always compute done from live task._copies (never rely on stale prop)
-  const done=task.recurrence&&activeDow!==null&&activeDow!==undefined
+  const _dowDate=(()=>{
+    if(activeDow!==null&&activeDow!==undefined){
+      const d=new Date(_wkStart2);d.setDate(_wkStart2.getDate()+Number(activeDow));
+      return d.toISOString().slice(0,10);
+    }
+    // fallback: today
+    return _now2.toISOString().slice(0,10);
+  })();
+  // Recurring: done = this specific date is in _copies
+  // Non-recurring: done = status is "done"
+  const done=task.recurrence
     ?(task._copies||[]).includes(_dowDate)
     :task.status==="done";
   const p=PRI[task.priority]||PRI.media;
@@ -2581,7 +2589,8 @@ function Dashboard({ data, user, isAdm }) {
     return base.filter(t=>{
       if(t.status==="archived") return false;
       if(coFilter && t.company!==coFilter) return false;
-      const dateStr = t.createdAt || t.dueDate || "";
+      // Use dueDate for period filter; tasks with no dueDate always show
+      const dateStr = t.dueDate || "";
       if(!dateStr) return true;
       const d = new Date(dateStr+"T12:00:00");
       if(viewMode==="year") return d.getFullYear()===fYear;
@@ -2596,7 +2605,7 @@ function Dashboard({ data, user, isAdm }) {
     const total=t.filter(x=>x.status!=="archived").length;
     const byStatus={};
     STS.forEach(s=>{byStatus[s.id]=t.filter(x=>x.status===s.id).length;});
-    const overdue=t.filter(x=>isLate(x)).length;
+    const overdue=t.filter(x=>isLate(x)&&x.status!=="done").length;
     const totalCk=t.reduce((a,x)=>a+x.checklist.length,0);
     const doneCk=t.reduce((a,x)=>a+x.checklist.filter(c=>c.done).length,0);
     const done=byStatus["done"]||0;
@@ -2653,7 +2662,7 @@ function Dashboard({ data, user, isAdm }) {
           {data.companies.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         <span style={{fontSize:12,color:"#94a3b8",marginLeft:"auto"}}>
-          Exibindo {viewMode==="year"?fYear:`${MS[fMonth]} / ${fYear}`} - {filteredTasks.length} tarefa{filteredTasks.length!==1?"s":""}
+          Exibindo {viewMode==="year"?fYear:`${MS[fMonth]} / ${fYear}`} — {stats.total} tarefa{stats.total!==1?"s":""}
         </span>
       </div>
 
@@ -2902,32 +2911,33 @@ function App(){
   const quickComplete=(task,dow=null)=>{
     const lk=getLock(task.id);
     if(lk){toast(`🔒 ${lk.user} está editando. Aguarde.`,"lock",4000);return;}
-    // Recurring task with specific day → toggle that day in _copies
-    if(task.recurrence&&dow!==null){
+
+    const curTask=data.tasks.find(t=>t.id===task.id);
+    if(!curTask) return;
+
+    // RECURRING task → NEVER change status, only toggle _copies for that specific date
+    if(curTask.recurrence){
       const _n=new Date();
       const _ws=new Date(_n);_ws.setDate(_n.getDate()-_n.getDay());_ws.setHours(0,0,0,0);
-      const dt=new Date(_ws);dt.setDate(_ws.getDate()+Number(dow));
+      // If dow passed (Kanban card), use that day; else use today
+      const targetDow = dow!==null ? Number(dow) : _n.getDay();
+      const dt=new Date(_ws);dt.setDate(_ws.getDate()+targetDow);
       const dateStr=dt.toISOString().slice(0,10);
-      // read current _copies from data directly (not stale closure)
-      const curTask=data.tasks.find(t=>t.id===task.id);
-      if(!curTask) return;
       const copies=Array.isArray(curTask._copies)?[...curTask._copies]:[];
       const already=copies.includes(dateStr);
       const next=already?copies.filter(x=>x!==dateStr):[...copies,dateStr];
-      setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{...t,_copies:next}:t)}));
+      setData(d=>({...d,tasks:d.tasks.map(t=>t.id===curTask.id?{...t,_copies:next}:t)}));
       toast(already?"↩ Ocorrência reaberta.":"✅ Ocorrência concluída!","ok");
       return;
     }
-    // Normal task → toggle done/todo
-    const curTask=data.tasks.find(t=>t.id===task.id);
-    if(!curTask) return;
+
+    // NON-RECURRING task → toggle status done/todo
     const newStatus=curTask.status==="done"?"todo":"done";
-    setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{
+    setData(d=>({...d,tasks:d.tasks.map(t=>t.id===curTask.id?{
       ...t,status:newStatus,
       completedAt:newStatus==="done"?todayStr():null,
       checklist:newStatus==="done"?t.checklist.map(c=>({...c,done:true})):t.checklist,
     }:t)}));
-    toast(newStatus==="done"?"✅ Tarefa concluída!":"↩ Tarefa reaberta.","ok");
     toast(newStatus==="done"?"✅ Tarefa concluída!":"↩ Tarefa reaberta.","ok");
   };
 

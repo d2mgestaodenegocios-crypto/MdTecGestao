@@ -321,6 +321,7 @@ function useSharedData() {
         if (!p.taskTemplates || !Array.isArray(p.taskTemplates)) p.taskTemplates = [];
         if (!p.services || !Array.isArray(p.services)) p.services = [];
         if (!p.archiveDays) p.archiveDays = 30;
+        if (!p.recStatus) p.recStatus={};
         p.tasks = (p.tasks || []).map(t => ({
           id: t.id||uid(),
           title: t.title||"",
@@ -340,7 +341,6 @@ function useSharedData() {
           completedAt: t.completedAt||null,
           _copies: Array.isArray(t._copies)?[...t._copies]:[],
           archivedAt: t.archivedAt||null,
-          _parentId: t._parentId||null,
         }));
         setRaw(p);
       } else {
@@ -398,8 +398,7 @@ function useSharedData() {
             completedAt: t.completedAt||null,
             _copies: Array.isArray(t._copies)?[...t._copies]:[],
             archivedAt: t.archivedAt||null,
-            _parentId: t._parentId||null,
-          }));
+            }));
           setRaw(p);
         }
       })
@@ -1104,7 +1103,7 @@ function FBar({data,filters,setF,showMonth=true}){
 
 /* ===========================================
    TASK CARD  - with ✓ Quick Complete button */
-function TCard({task,data,onEdit,onDelete,onComplete,recDate}){
+function TCard({task,data,onEdit,onDelete,onComplete,recDate,recStatus}){
   const assignees=data.collaborators.filter(c=>task.assignees.includes(c.id));
   const labels=data.labels.filter(l=>task.labels.includes(l.id));
   const rec=task.recurrence?data.recurrences.find(r=>r.id===task.recurrence):null;
@@ -1114,7 +1113,8 @@ function TCard({task,data,onEdit,onDelete,onComplete,recDate}){
   const ckTot=task.checklist.length;
   const prog=ckTot>0?Math.round((ckDone/ckTot)*100):null;
   const over=isLate(task);
-  const done=task.status==="done";
+  const effectiveStatus=task.recurrence&&recDate?recStatus:task.status;
+  const done=effectiveStatus==="done";
   const p=PRI[task.priority]||PRI.media;
 
   return(
@@ -1129,7 +1129,7 @@ function TCard({task,data,onEdit,onDelete,onComplete,recDate}){
       onClick={()=>onEdit(task)}
     >
       {/* -- QUICK COMPLETE - 1 click, top right, outside card content -- */}
-      <QCBtn status={task.status} onClick={()=>onComplete(task,recDate)} size={26} absolute={true}/>
+      <QCBtn status={effectiveStatus} onClick={()=>onComplete(task,recDate)} size={26} absolute={true}/>
 
       {labels.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8,paddingRight:36}}>{labels.map(l=><Chip key={l.id} label={l.name} color={l.color}/>)}</div>}
 
@@ -1191,70 +1191,62 @@ function TCard({task,data,onEdit,onDelete,onComplete,recDate}){
 /* ===========================================
    KANBAN VIEW */
 function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
-  const DOW_NAMES=["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
+  const DOW=["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
+  const now=new Date();
+  const wkStart=new Date(now);wkStart.setDate(now.getDate()-now.getDay());wkStart.setHours(0,0,0,0);
+  const wkEnd=new Date(wkStart);wkEnd.setDate(wkStart.getDate()+6);wkEnd.setHours(23,59,59,999);
+  const today=todayStr();
+  const rs=data.recStatus||{};
 
-  // Retorna lista de dias-da-semana (0-6) em que a tarefa recorrente ocorre esta semana
-  function getRecDaysThisWeek(t,rec,wkStart){
-    const days=[];
+  // Para cada tarefa recorrente, calcular quais dias desta semana ela ocorre
+  function occurrences(t){
+    const rec=data.recurrences.find(r=>r.id===t.recurrence);
+    if(!rec) return [];
+    const result=[];
     for(let d=0;d<7;d++){
       const dt=new Date(wkStart);dt.setDate(wkStart.getDate()+d);
       const dow=dt.getDay();
+      const ds=dt.toISOString().slice(0,10);
       let hit=false;
       if(rec.interval==="daily") hit=true;
       else if(rec.interval==="custom_days"&&Array.isArray(rec.days)) hit=rec.days.includes(dow);
       else if(rec.interval==="weekly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");hit=dow===sd.getDay();}
       else if(rec.interval==="biweekly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");const diff=Math.round((dt-sd)/86400000);hit=dow===sd.getDay()&&diff>=0&&diff%14===0;}
       else if(rec.interval==="monthly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");hit=dt.getDate()===sd.getDate();}
-      if(hit) days.push({dow,dateStr:dt.toISOString().slice(0,10)});
+      if(hit) result.push({dow,ds});
     }
-    return days;
+    return result;
   }
 
   return(
     <div className="kanban-wrap" style={{display:"flex",gap:14,overflowX:"auto",paddingBottom:20,alignItems:"flex-start"}}>
       {STS.filter(st=>st.id!=="archived").map(st=>{
-        const _now=new Date();
-        const _wkStart=new Date(_now);_wkStart.setDate(_now.getDate()-_now.getDay());_wkStart.setHours(0,0,0,0);
-        const _wkEnd=new Date(_wkStart);_wkEnd.setDate(_wkStart.getDate()+6);_wkEnd.setHours(23,59,59,999);
-        const today=todayStr();
-
-        // Construir cards: tarefas normais + cards virtuais de recorrentes
         const cards=[];
-        // IDs de tarefas filhas (geradas por clique em recorrente)
-        const childIds=new Set(data.tasks.filter(t=>t._parentId).map(t=>t.id));
 
-        data.tasks.filter(t=>t.status!=="archived"&&!t._parentId).forEach(t=>{
+        data.tasks.filter(t=>t.status!=="archived").forEach(t=>{
           if(!t.recurrence){
-            // Tarefa normal: filtrar por status e semana
+            // Tarefa normal — mostrar na coluna do seu status
             if(t.status!==st.id) return;
             const due=t.dueDate?new Date(t.dueDate+"T12:00:00"):null;
-            const isOverdue=due&&due<_now;
-            if(!due||isOverdue||(due>=_wkStart&&due<=_wkEnd)){
-              cards.push({key:t.id,task:t,dowLabel:null,dateStr:t.dueDate||null});
-            }
+            if(due&&due<new Date(wkStart)&&!( due<now)) return; // só semana atual ou vencida
+            cards.push({key:t.id,task:t,label:null,ds:t.dueDate||null,recDate:null});
           } else {
-            // Tarefa recorrente: um card por ocorrência DESTA semana
-            const rec=data.recurrences.find(r=>r.id===t.recurrence);
-            if(!rec) return;
-            const occurrences=getRecDaysThisWeek(t,rec,_wkStart);
-            occurrences.forEach(({dow,dateStr})=>{
-              // Verificar se já existe tarefa filha para este dia
-              const childId=`${t.id}_${dateStr}`;
-              const child=data.tasks.find(x=>x.id===childId);
-              // Mostrar card no status correto (filho ou pai=todo)
-              const cardStatus=child?child.status:"todo";
-              if(cardStatus!==st.id) return;
-              cards.push({key:childId,task:child||t,dowLabel:DOW_NAMES[dow],dateStr,parentTask:child?null:t});
+            // Tarefa recorrente — um card por ocorrência desta semana
+            occurrences(t).forEach(({dow,ds})=>{
+              const key=`${t.id}_${ds}`;
+              const status=rs[key]||"todo";
+              if(status!==st.id) return;
+              cards.push({key,task:t,label:DOW[dow],ds,recDate:ds});
             });
           }
         });
 
         // Ordenar por data
         cards.sort((a,b)=>{
-          if(!a.dateStr&&!b.dateStr) return 0;
-          if(!a.dateStr) return 1;
-          if(!b.dateStr) return -1;
-          return a.dateStr<b.dateStr?-1:a.dateStr>b.dateStr?1:0;
+          if(!a.ds&&!b.ds) return 0;
+          if(!a.ds) return 1;
+          if(!b.ds) return -1;
+          return a.ds<b.ds?-1:a.ds>b.ds?1:0;
         });
 
         return(
@@ -1268,16 +1260,16 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
               <button onClick={()=>onAdd(st.id)} style={{background:st.c+"20",border:"none",borderRadius:7,width:24,height:24,cursor:"pointer",color:st.c,fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {cards.map(({key,task:t,dowLabel,dateStr})=>(
+              {cards.map(({key,task:t,label,ds,recDate})=>(
                 <div key={key}>
-                  {dowLabel&&(
-                    <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",borderRadius:"8px 8px 0 0",background:dateStr===today?"linear-gradient(90deg,#f59e0b,#d97706)":"linear-gradient(90deg,#6366f1,#8b5cf6)",marginBottom:-2}}>
-                      <span style={{fontSize:11,fontWeight:900,color:"#fff",textTransform:"uppercase",letterSpacing:".06em"}}>{dowLabel}</span>
-                      {dateStr&&<span style={{fontSize:10,color:"rgba(255,255,255,.75)",marginLeft:4}}>{dateStr.slice(5).replace("-","/")}</span>}
-                      {dateStr===today&&<span style={{fontSize:10,color:"#fff",fontWeight:700,marginLeft:"auto"}}>hoje</span>}
+                  {label&&(
+                    <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",borderRadius:"8px 8px 0 0",background:ds===today?"linear-gradient(90deg,#f59e0b,#d97706)":"linear-gradient(90deg,#6366f1,#8b5cf6)",marginBottom:-2}}>
+                      <span style={{fontSize:11,fontWeight:900,color:"#fff",textTransform:"uppercase",letterSpacing:".06em"}}>{label}</span>
+                      {ds&&<span style={{fontSize:10,color:"rgba(255,255,255,.75)",marginLeft:4}}>{ds.slice(5).replace("-","/")}</span>}
+                      {ds===today&&<span style={{fontSize:10,color:"#fff",fontWeight:700,marginLeft:"auto"}}>hoje</span>}
                     </div>
                   )}
-                  <TCard key={key} task={t} recDate={dateStr} data={data} onEdit={onEdit} onDelete={onDelete} onComplete={onComplete}/>
+                  <TCard task={t} recDate={recDate} recStatus={rs[key]||"todo"} data={data} onEdit={onEdit} onDelete={onDelete} onComplete={onComplete}/>
                 </div>
               ))}
               {cards.length===0&&<div style={{padding:18,textAlign:"center",fontSize:12,color:"#cbd5e1",border:"2px dashed #f1f5f9",borderRadius:10}}>Sem tarefas</div>}
@@ -1288,9 +1280,6 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
     </div>
   );
 }
-
-/* ===========================================
-   LIST VIEW */
 function ListView({data,onEdit,onDelete,onComplete}){
   const [fl,sfl]=useState({});
   const tasks=applyFilters(data.tasks.filter(t=>t.status!=="archived"),fl);
@@ -2485,44 +2474,28 @@ function App(){
   };
 
   const quickComplete=(task,recDate=null)=>{
+    const lk=getLock(task.id);
+    if(lk){toast(`🔒 ${lk.user} está editando. Aguarde.`,"lock",4000);return;}
     const CYCLE={todo:"doing",doing:"review",review:"done",done:"todo"};
     const LABELS={todo:"Em Análise",doing:"Revisão",review:"Concluído",done:"A Fazer"};
-
     if(task.recurrence&&recDate){
-      // Card virtual de recorrente: usar id composto "taskId_YYYY-MM-DD"
-      const childId=`${task.id}_${recDate}`;
+      // Recorrente: status por ocorrência em recStatus map
+      const key=`${task.id}_${recDate}`;
       setData(d=>{
-        const existing=d.tasks.find(t=>t.id===childId);
-        if(existing){
-          // Tarefa filha já existe: avançar ciclo normalmente
-          const lk=getLock(childId);
-          if(lk){setTimeout(()=>toast(`🔒 ${lk.user} está editando. Aguarde.`,"lock",4000),0);return d;}
-          const cur=existing.status||"todo";
-          const newStatus=CYCLE[cur]||"doing";
-          setTimeout(()=>toast(`→ ${LABELS[cur]}!`,"ok"),0);
-          return {...d,tasks:d.tasks.map(t=>t.id===childId?{
-            ...t,status:newStatus,
-            completedAt:newStatus==="done"?todayStr():null,
-            checklist:newStatus==="done"?t.checklist.map(c=>({...c,done:true})):t.checklist,
-          }:t)};
-        } else {
-          // Criar tarefa filha com id único para este dia
-          const child={...task,id:childId,dueDate:recDate,status:"doing",
-            completedAt:null,recurrence:"",_parentId:task.id};
-          setTimeout(()=>toast("→ Em Análise!","ok"),0);
-          return {...d,tasks:[...d.tasks,child]};
-        }
+        const rs={...(d.recStatus||{})};
+        const cur=rs[key]||"todo";
+        const next=CYCLE[cur]||"doing";
+        rs[key]=next;
+        toast(`→ ${LABELS[cur]}!`,"ok");
+        return {...d,recStatus:rs};
       });
     } else {
-      // Tarefa normal: ciclo direto
-      const lk=getLock(task.id);
-      if(lk){toast(`🔒 ${lk.user} está editando. Aguarde.`,"lock",4000);return;}
       const cur=task.status||"todo";
-      const newStatus=CYCLE[cur]||"doing";
+      const next=CYCLE[cur]||"doing";
       setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{
-        ...t,status:newStatus,
-        completedAt:newStatus==="done"?todayStr():null,
-        checklist:newStatus==="done"?t.checklist.map(c=>({...c,done:true})):t.checklist,
+        ...t,status:next,
+        completedAt:next==="done"?todayStr():null,
+        checklist:next==="done"?t.checklist.map(c=>({...c,done:true})):t.checklist,
       }:t)}));
       toast(`→ ${LABELS[cur]}!`,"ok");
     }

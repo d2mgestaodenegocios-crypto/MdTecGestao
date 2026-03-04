@@ -203,9 +203,10 @@ const isAdmin=(user,data)=>{
 const filterTasksForUser=(tasks,data,user)=>{
   if(!user) return [];
   if(isAdmin(user,data)) return tasks;
-  // find collaborator by email
   const collab=data.collaborators.find(u=>(u.email||"").toLowerCase()===(user.email||"").toLowerCase());
-  if(!collab) return []; // unknown user sees nothing
+  if(!collab) return [];
+  // editor/admin see all; viewer sees only assigned
+  if(collab.accessLevel==="editor"||collab.isAdmin) return tasks;
   return tasks.filter(t=>toArr(t.assignees).includes(collab.id));
 };
 
@@ -1239,12 +1240,11 @@ function TCard({task,data,onEdit,onDelete,onComplete,activeDow,DOW,dowIsDone}){
   // For recurring cards, check if this specific day is done via _copies
   const _now2=new Date();
   const _wkStart2=new Date(_now2);_wkStart2.setDate(_now2.getDate()-_now2.getDay());_wkStart2.setHours(0,0,0,0);
-  const _dowDate=activeDow!==null&&activeDow!==undefined?(()=>{const d=new Date(_wkStart2);d.setDate(_wkStart2.getDate()+activeDow);return d.toISOString().slice(0,10);})():null;
-  const done=dowIsDone!==undefined&&dowIsDone!==null
-    ?dowIsDone
-    :task.recurrence&&activeDow!==null&&activeDow!==undefined
-      ?(task._copies||[]).includes(_dowDate)
-      :task.status==="done";
+  const _dowDate=activeDow!==null&&activeDow!==undefined?(()=>{const d=new Date(_wkStart2);d.setDate(_wkStart2.getDate()+Number(activeDow));return d.toISOString().slice(0,10);})():null;
+  // Always compute done from live task._copies (never rely on stale prop)
+  const done=task.recurrence&&activeDow!==null&&activeDow!==undefined
+    ?(task._copies||[]).includes(_dowDate)
+    :task.status==="done";
   const p=PRI[task.priority]||PRI.media;
 
   return(
@@ -1418,7 +1418,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete,user,isAdm}){
               else if(kf.overdueOnly){if(!dowOverdue) return;}
             }
             const isDoneCopy=(t._copies||[]).includes(dowDateStr);
-            cards.push({t,dow,isDone:isDoneCopy,doneKey,isOverdue:dowOverdue,isDueToday:dowIsToday});
+            cards.push({t,dow,isDone:isDoneCopy,dowDateStr,isOverdue:dowOverdue,isDueToday:dowIsToday});
           });
         });
         // Sort: overdue first, then today, then by dow
@@ -1467,7 +1467,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete,user,isAdm}){
               <button onClick={()=>onAdd(st.id)} style={{background:st.c+"20",border:"none",borderRadius:7,width:24,height:24,cursor:"pointer",color:st.c,fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:8,overflowY:"auto",flex:1,paddingBottom:8}}>
-              {cards.map(({t,dow,isDone:cardIsDone,isOverdue:cardOver,isDueToday:cardToday})=>(
+              {cards.map(({t,dow,dowDateStr:cds,isDone:_ci,isOverdue:cardOver,isDueToday:cardToday})=>{const cardIsDone=t.recurrence&&dow!==null?(t._copies||[]).includes(cds):t.status==="done";return(
                 <div key={t.id+(dow!=null?"-"+dow:"")}
                   draggable={!cardIsDone}
                   onDragStart={e=>{e.dataTransfer.effectAllowed="move";setDragging({taskId:t.id,fromStatus:st.id});}}
@@ -1483,7 +1483,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete,user,isAdm}){
                   <TCard task={t} data={data} onEdit={onEdit} onDelete={onDelete} onComplete={onComplete} activeDow={dow} DOW={DOW} dowIsDone={cardIsDone||false}/>
                 </div>
                 
-              ))}
+              );})}
               {cards.length===0&&<div style={{padding:18,textAlign:"center",fontSize:12,color:"#cbd5e1",border:"2px dashed #f1f5f9",borderRadius:10}}>Sem tarefas</div>}
             </div>
           </div>
@@ -1810,15 +1810,25 @@ function CompaniesPage({ data, setData }) {
         {tab==="contato"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
           <Inp label="E-mail de acesso" value={form.email} onChange={v=>setForm(f=>({...f,email:v}))} placeholder="email@empresa.com"/>
           <Inp label={editing?"Nova senha (deixe vazio para manter)":"Senha de acesso"} value={form.password||""} onChange={v=>setForm(f=>({...f,password:v}))} placeholder="••••••••" type="password"/>
-          <label style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",padding:"8px 0"}}>
-            <div onClick={()=>setForm(f=>({...f,isAdmin:!f.isAdmin}))} style={{width:38,height:22,borderRadius:11,background:form.isAdmin?"#6366f1":"#e5e7eb",position:"relative",transition:"background .2s",flexShrink:0}}>
-              <div style={{position:"absolute",top:2,left:form.isAdmin?18:2,width:18,height:18,borderRadius:"50%",background:"#fff",boxShadow:"0 1px 3px rgba(0,0,0,.2)",transition:"left .2s"}}/>
+          <div>
+            <label style={{fontSize:12,fontWeight:700,color:"#64748b",display:"block",marginBottom:6}}>Tipo de Acesso</label>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              {[
+                {v:"viewer",l:"👁 Visualizador",d:"Vê apenas suas tarefas"},
+                {v:"editor",l:"✏ Editor",d:"Cria e edita tarefas"},
+                {v:"admin",l:"⚡ Administrador",d:"Acesso total"}
+              ].map(({v,l,d})=>{
+                const sel=(form.accessLevel||"viewer")===v;
+                return(
+                  <div key={v} onClick={()=>setForm(f=>({...f,accessLevel:v,isAdmin:v==="admin"}))}
+                    style={{flex:1,minWidth:100,padding:"8px 12px",borderRadius:10,border:"2px solid "+(sel?"#6366f1":"#e5e7eb"),background:sel?"#eef2ff":"#fafafa",cursor:"pointer",transition:"all .15s"}}>
+                    <div style={{fontSize:12,fontWeight:800,color:sel?"#6366f1":"#374151"}}>{l}</div>
+                    <div style={{fontSize:10,color:"#94a3b8",marginTop:2}}>{d}</div>
+                  </div>
+                );
+              })}
             </div>
-            <div>
-              <span style={{fontSize:13,fontWeight:700,color:"#0f172a"}}>Administrador</span>
-              <span style={{fontSize:11,color:"#94a3b8",marginLeft:6}}>Acesso total ao sistema</span>
-            </div>
-          </label>
+          </div>
           <Inp label="Telefone" value={form.telefone} onChange={v=>setForm(f=>({...f,telefone:v}))} placeholder="(00) 00000-0000"/>
         </div>}
         {tab==="servicos"&&<div style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -1932,14 +1942,14 @@ function SectorsPage({ data, setData }) {
 function CollaboratorsPage({ data, setData }) {
   const [open,setOpen]=useState(false);
   const [editing,setEditing]=useState(null);
-  const [form,setForm]=useState({name:"",role:"",companies:[],sectors:[],color:"#8b5cf6",initials:"",email:"",password:"",isAdmin:false});
-  const openNew=()=>{setEditing(null);setForm({name:"",role:"",companies:[],sectors:[],color:"#8b5cf6",initials:"",email:"",password:"",isAdmin:false});setOpen(true);};
+  const [form,setForm]=useState({name:"",role:"",companies:[],sectors:[],color:"#8b5cf6",initials:"",email:"",password:"",isAdmin:false,accessLevel:"viewer"});
+  const openNew=()=>{setEditing(null);setForm({name:"",role:"",companies:[],sectors:[],color:"#8b5cf6",initials:"",email:"",password:"",isAdmin:false,accessLevel:"viewer"});setOpen(true);};
   const openEdit=(u)=>{
     setEditing(u);
     setForm({name:u.name,role:u.role,
       companies:toArr(u.companies).length>0?toArr(u.companies):(u.company?[u.company]:[]),
       sectors:toArr(u.sectors).length>0?toArr(u.sectors):(u.sector?[u.sector]:[]),
-      color:u.color,initials:u.initials,email:u.email||"",password:"",isAdmin:!!u.isAdmin});
+      color:u.color,initials:u.initials,email:u.email||"",password:"",isAdmin:!!u.isAdmin,accessLevel:u.accessLevel||(u.isAdmin?"admin":"viewer")});
     setOpen(true);
   };
   const togUCo=(id)=>setForm(f=>({...f,companies:toArr(f.companies).includes(id)?toArr(f.companies).filter(x=>x!==id):[...toArr(f.companies),id]}));
@@ -1973,7 +1983,12 @@ function CollaboratorsPage({ data, setData }) {
               <div style={{fontWeight:900,fontSize:14,color:"#0f172a",marginBottom:2}}>{u.name}</div>
               <div style={{fontSize:12,color:"#94a3b8",marginBottom:8}}>{u.role}</div>
               {u.email&&<div style={{fontSize:11,color:"#64748b",marginBottom:4,wordBreak:"break-all"}}>✉ {u.email}</div>}
-              {u.isAdmin&&<div style={{fontSize:10,fontWeight:800,color:"#6366f1",background:"#eef2ff",borderRadius:6,padding:"2px 8px",display:"inline-block",marginBottom:6}}>⚡ Admin</div>}
+              {(()=>{
+                const lvl=u.accessLevel||(u.isAdmin?"admin":"viewer");
+                const cfg={admin:{bg:"#eef2ff",c:"#6366f1",l:"⚡ Admin"},editor:{bg:"#f0fdf4",c:"#16a34a",l:"✏ Editor"},viewer:{bg:"#f8fafc",c:"#64748b",l:"👁 Visualizador"}};
+                const s=cfg[lvl]||cfg.viewer;
+                return <div style={{fontSize:10,fontWeight:800,color:s.c,background:s.bg,borderRadius:6,padding:"2px 8px",display:"inline-block",marginBottom:6}}>{s.l}</div>;
+              })()}
               <div style={{display:"flex",gap:4,justifyContent:"center",flexWrap:"wrap",marginBottom:12}}>
                 {(()=>{const uCos=toArr(u.companies).length>0?toArr(u.companies):(u.company?[u.company]:[]);const cos=data.companies.filter(c=>uCos.includes(c.id));return cos.length>0?cos.map(c=><Chip key={c.id} label={c.name} color={c.color}/>):<Chip label="Todas as empresas" color="#94a3b8"/>;})()}
               </div>
@@ -2891,31 +2906,28 @@ function App(){
     if(task.recurrence&&dow!==null){
       const _n=new Date();
       const _ws=new Date(_n);_ws.setDate(_n.getDate()-_n.getDay());_ws.setHours(0,0,0,0);
-      const dt=new Date(_ws);dt.setDate(_ws.getDate()+dow);
+      const dt=new Date(_ws);dt.setDate(_ws.getDate()+Number(dow));
       const dateStr=dt.toISOString().slice(0,10);
-      setData(d=>{
-        const cur=d.tasks.find(t=>t.id===task.id);
-        if(!cur) return d;
-        const copies=Array.isArray(cur._copies)?[...cur._copies]:[];
-        const already=copies.includes(dateStr);
-        const next=already?copies.filter(x=>x!==dateStr):[...copies,dateStr];
-        toast(already?"↩ Ocorrência reaberta.":"✅ Ocorrência concluída!","ok");
-        return {...d,tasks:d.tasks.map(t=>t.id===task.id?{...t,_copies:next}:t)};
-      });
+      // read current _copies from data directly (not stale closure)
+      const curTask=data.tasks.find(t=>t.id===task.id);
+      if(!curTask) return;
+      const copies=Array.isArray(curTask._copies)?[...curTask._copies]:[];
+      const already=copies.includes(dateStr);
+      const next=already?copies.filter(x=>x!==dateStr):[...copies,dateStr];
+      setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{...t,_copies:next}:t)}));
+      toast(already?"↩ Ocorrência reaberta.":"✅ Ocorrência concluída!","ok");
       return;
     }
     // Normal task → toggle done/todo
-    setData(d=>{
-      const cur=d.tasks.find(t=>t.id===task.id);
-      if(!cur) return d;
-      const newStatus=cur.status==="done"?"todo":"done";
-      toast(newStatus==="done"?"✅ Tarefa concluída!":"↩ Tarefa reaberta.","ok");
-      return {...d,tasks:d.tasks.map(t=>t.id===task.id?{
-        ...t,status:newStatus,
-        completedAt:newStatus==="done"?todayStr():null,
-        checklist:newStatus==="done"?t.checklist.map(c=>({...c,done:true})):t.checklist,
-      }:t)};
-    });
+    const curTask=data.tasks.find(t=>t.id===task.id);
+    if(!curTask) return;
+    const newStatus=curTask.status==="done"?"todo":"done";
+    setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{
+      ...t,status:newStatus,
+      completedAt:newStatus==="done"?todayStr():null,
+      checklist:newStatus==="done"?t.checklist.map(c=>({...c,done:true})):t.checklist,
+    }:t)}));
+    toast(newStatus==="done"?"✅ Tarefa concluída!":"↩ Tarefa reaberta.","ok");
     toast(newStatus==="done"?"✅ Tarefa concluída!":"↩ Tarefa reaberta.","ok");
   };
 
@@ -2947,26 +2959,33 @@ function App(){
   const importData=()=>{const i=document.createElement("input");i.type="file";i.accept=".json";i.onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{try{const p=JSON.parse(ev.target.result);if(p.tasks&&p.companies){setData(p);toast("Dados importados!","ok");}else toast("Arquivo inválido.","err");}catch{toast("Erro ao importar.","err");}};r.readAsText(f);};i.click();};
   const resetData=()=>{ askDelete("Todos os dados serão apagados e substituídos pelos dados iniciais!", ()=>{setData(SEED);toast("Dados restaurados.","warn");}); };
 
+  const userTasks=filterTasksForUser(data.tasks,data,user);
   const overdueCount=(()=>{
     const _n=new Date();
+    const todayMidnight=new Date(_n.toDateString()); // start of today
+    const countedTaskIds=new Set();
     let cnt=0;
     userTasks.filter(t=>t.status!=="archived"&&t.status!=="done").forEach(t=>{
-      if(!t.recurrence){if(isLate(t)) cnt++;}
-      else{
+      if(!t.recurrence){
+        // normal task: overdue if dueDate < today and not done
+        if(isLate(t)&&!countedTaskIds.has(t.id)){countedTaskIds.add(t.id);cnt++;}
+      } else {
         const rec=data.recurrences.find(r=>r.id===t.recurrence);
         if(!rec) return;
         const _ws=new Date(_n);_ws.setDate(_n.getDate()-_n.getDay());_ws.setHours(0,0,0,0);
+        // check only PAST days this week (strictly before today)
         for(let d=0;d<7;d++){
           const dt=new Date(_ws);dt.setDate(_ws.getDate()+d);
-          if(dt>=_n) break;
+          dt.setHours(0,0,0,0);
+          if(dt>=todayMidnight) break; // stop at today
           const ds=dt.toISOString().slice(0,10);
-          let hit=false;
           const dow=dt.getDay();
+          let hit=false;
           if(rec.interval==="daily") hit=true;
           else if(rec.interval==="custom_days"&&Array.isArray(rec.days)) hit=rec.days.includes(dow);
           else if(rec.interval==="weekly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");hit=dow===sd.getDay();}
           else if(rec.interval==="monthly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");hit=dt.getDate()===sd.getDate();}
-          if(hit&&!(t._copies||[]).includes(ds)) cnt++;
+          if(hit&&!(t._copies||[]).includes(ds)){cnt++;break;} // count task once even if multiple past days
         }
       }
     });
@@ -2990,7 +3009,6 @@ function App(){
       </div>
     );
   })();
-  const userTasks=filterTasksForUser(data.tasks,data,user);
   const doingCount  =userTasks.filter(t=>t.status==="doing"&&t.status!=="archived").length;
   const totalCount  =userTasks.filter(t=>t.status!=="archived").length;
   const curPage     =NAV_GROUPS.flatMap(g=>g.items).find(i=>i.id===page);

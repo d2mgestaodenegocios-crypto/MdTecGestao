@@ -340,6 +340,7 @@ function useSharedData() {
           completedAt: t.completedAt||null,
           _copies: Array.isArray(t._copies)?[...t._copies]:[],
           archivedAt: t.archivedAt||null,
+          _parentId: t._parentId||null,
         }));
         setRaw(p);
       } else {
@@ -397,6 +398,7 @@ function useSharedData() {
             completedAt: t.completedAt||null,
             _copies: Array.isArray(t._copies)?[...t._copies]:[],
             archivedAt: t.archivedAt||null,
+            _parentId: t._parentId||null,
           }));
           setRaw(p);
         }

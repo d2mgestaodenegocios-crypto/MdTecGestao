@@ -333,33 +333,21 @@ function useSharedData() {
   const [data, setRaw] = useState(SEED);
   const [synced, setSynced] = useState(false);
 
-  // Carrega dados do Supabase
   const load = useCallback(async () => {
     try {
-      const { data: row, error } = await sb
-        .from("app_data")
-        .select("payload")
-        .eq("id", 1)
-        .maybeSingle();
-
-      if (error) {
-        console.error("Supabase load error:", error);
-        setRaw(SEED);
-        setSynced(true);
-        return;
-      }
-
+      const { data: row, error } = await sb.from("app_data").select("payload").eq("id", 1).maybeSingle();
+      if (error) { console.error("Supabase load error:", error); setRaw(SEED); setSynced(true); return; }
       if (row?.payload) {
         const p = row.payload;
-        if (!p.sectors || !Array.isArray(p.sectors)) p.sectors = SEED.sectors;
-        if (!p.collaborators || !Array.isArray(p.collaborators)) p.collaborators = SEED.collaborators;
-        if (!p.companies || !Array.isArray(p.companies)) p.companies = SEED.companies;
-        if (!p.labels || !Array.isArray(p.labels)) p.labels = SEED.labels;
-        if (!p.recurrences || !Array.isArray(p.recurrences)) p.recurrences = SEED.recurrences;
-        if (!p.taskTemplates || !Array.isArray(p.taskTemplates)) p.taskTemplates = [];
-        if (!p.services || !Array.isArray(p.services)) p.services = [];
-        if (!p.archiveDays) p.archiveDays = 30;
-        p.tasks = (p.tasks || []).map(t => ({
+        if (!p.sectors||!Array.isArray(p.sectors)) p.sectors=SEED.sectors;
+        if (!p.collaborators||!Array.isArray(p.collaborators)) p.collaborators=SEED.collaborators;
+        if (!p.companies||!Array.isArray(p.companies)) p.companies=SEED.companies;
+        if (!p.labels||!Array.isArray(p.labels)) p.labels=SEED.labels;
+        if (!p.recurrences||!Array.isArray(p.recurrences)) p.recurrences=SEED.recurrences;
+        if (!p.taskTemplates||!Array.isArray(p.taskTemplates)) p.taskTemplates=[];
+        if (!p.services||!Array.isArray(p.services)) p.services=[];
+        if (!p.archiveDays) p.archiveDays=30;
+        p.tasks=(p.tasks||[]).map(t=>({
           id: t.id||uid(),
           title: t.title||"",
           description: t.description||"",
@@ -381,70 +369,52 @@ function useSharedData() {
         }));
         setRaw(p);
       } else {
-        // First time - save seed data
         const { error: upsertErr } = await sb.from("app_data").upsert({ id: 1, payload: SEED });
         if (upsertErr) console.error("Seed upsert error:", upsertErr);
         setRaw(SEED);
       }
       setSynced(true);
-    } catch (e) {
-      console.error("Erro ao carregar dados:", e);
-      setSynced(true);
-    }
+    } catch (e) { console.error("Erro ao carregar dados:", e); setSynced(true); }
   }, []);
-
-  const isSavingRef = useRef(false);
 
   useEffect(() => {
     load();
-
-    // Escuta mudanças em tempo real (Realtime)
-    const channel = sb
-      .channel("app_data_changes")
-      .on("postgres_changes", {
-        event: "UPDATE",
-        schema: "public",
-        table: "app_data",
-        filter: "id=eq.1"
-      }, (payload) => {
-        // Ignore realtime echo from our own save
-        if (isSavingRef.current) return;
-        if (payload.new?.payload) {
-          const p = payload.new.payload;
-          if (!p.sectors || !Array.isArray(p.sectors)) p.sectors = SEED.sectors;
-          if (!p.collaborators || !Array.isArray(p.collaborators)) p.collaborators = SEED.collaborators;
-          if (!p.companies || !Array.isArray(p.companies)) p.companies = SEED.companies;
-          if (!p.labels || !Array.isArray(p.labels)) p.labels = SEED.labels;
-          if (!p.recurrences || !Array.isArray(p.recurrences)) p.recurrences = SEED.recurrences;
-          if (!p.taskTemplates || !Array.isArray(p.taskTemplates)) p.taskTemplates = [];
-          if (!p.services || !Array.isArray(p.services)) p.services = [];
-        if (!p.services || !Array.isArray(p.services)) p.services = [];
-          if (!p.archiveDays) p.archiveDays = 30;
-          p.tasks = (p.tasks || []).map(t => ({
-            id: t.id||"",
-            title: t.title||"",
-            description: t.description||"",
-            status: t.status||"todo",
-            priority: t.priority||"media",
-            company: t.company||"",
-            sector: t.sector||"",
-            assignees: toArr(t.assignees),
-            labels: toArr(t.labels),
-            checklist: toArr(t.checklist),
-            dependencies: toArr(t.dependencies),
-            recurrence: t.recurrence||"",
-            mesRef: t.mesRef||"",
-            dueDate: t.dueDate||"",
-            createdAt: t.createdAt||"",
-            completedAt: t.completedAt||null,
-            archivedAt: t.archivedAt||null,
-            _copies: Array.isArray(t._copies)?[...t._copies]:[],
-          }));
-          setRaw(p);
-        }
-      })
-      .subscribe();
-
+    const channel = sb.channel("app_data_changes").on("postgres_changes", {
+      event: "UPDATE", schema: "public", table: "app_data", filter: "id=eq.1"
+    }, (payload) => {
+      if (payload.new?.payload) {
+        const p = payload.new.payload;
+        if (!p.sectors||!Array.isArray(p.sectors)) p.sectors=SEED.sectors;
+        if (!p.collaborators||!Array.isArray(p.collaborators)) p.collaborators=SEED.collaborators;
+        if (!p.companies||!Array.isArray(p.companies)) p.companies=SEED.companies;
+        if (!p.labels||!Array.isArray(p.labels)) p.labels=SEED.labels;
+        if (!p.recurrences||!Array.isArray(p.recurrences)) p.recurrences=SEED.recurrences;
+        if (!p.taskTemplates||!Array.isArray(p.taskTemplates)) p.taskTemplates=[];
+        if (!p.services||!Array.isArray(p.services)) p.services=[];
+        if (!p.archiveDays) p.archiveDays=30;
+        p.tasks=(p.tasks||[]).map(t=>({
+          id: t.id||"",
+          title: t.title||"",
+          description: t.description||"",
+          status: t.status||"todo",
+          priority: t.priority||"media",
+          company: t.company||"",
+          sector: t.sector||"",
+          assignees: toArr(t.assignees),
+          labels: toArr(t.labels),
+          checklist: toArr(t.checklist),
+          dependencies: toArr(t.dependencies),
+          recurrence: t.recurrence||"",
+          mesRef: t.mesRef||"",
+          dueDate: t.dueDate||"",
+          createdAt: t.createdAt||"",
+          completedAt: t.completedAt||null,
+          archivedAt: t.archivedAt||null,
+          _copies: Array.isArray(t._copies)?[...t._copies]:[],
+        }));
+        setRaw(p);
+      }
+    }).subscribe();
     return () => sb.removeChannel(channel);
   }, [load]);
 
@@ -452,17 +422,13 @@ function useSharedData() {
   const setData = useCallback((updater) => {
     setRaw(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
-      // Save immediately to Supabase (no debounce for _copies integrity)
       if(pendingSave.current) clearTimeout(pendingSave.current);
       pendingSave.current = setTimeout(() => {
-        isSavingRef.current = true;
         sb.from("app_data").upsert({ id: 1, payload: next })
           .then(({ error }) => {
             if(error) console.error("Supabase save error:", error);
-            // Reset saving flag after realtime has time to fire
-            setTimeout(()=>{isSavingRef.current=false;}, 2000);
           });
-      }, 50);
+      }, 300);
       return next;
     });
   }, []);

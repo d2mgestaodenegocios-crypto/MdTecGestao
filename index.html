@@ -325,7 +325,7 @@ function useSharedData() {
           id: t.id||uid(),
           title: t.title||"",
           description: t.description||"",
-          status: t.status||"todo",
+          status: (t.recurrence&&t.status==="done")?"todo":(t.status||"todo"),
           priority: t.priority||"media",
           company: t.company||"",
           sector: t.sector||"",
@@ -910,31 +910,42 @@ function LockBanner({holder,onForce}){
    QUICK COMPLETE BUTTON
    Circular check button shown on cards/rows
    to mark done/undone with 1 click outside modal */
-function QCBtn({isDone,onClick,size=26,absolute=true}){
+function QCBtn({status,onClick,size=26,absolute=true}){
   const [hov,sh]=useState(false);
+  // Ciclo: todo -> doing -> review -> done -> todo
+  const CYCLE={todo:"doing",doing:"review",review:"done",done:"todo"};
+  const COLORS={
+    todo:  {border:"#d1d5db",bg:"#fff",    hover:"#eef2ff", icon:"",    title:"Avançar para Em Análise"},
+    doing: {border:"#f59e0b",bg:"#fffbeb", hover:"#fef3c7", icon:"⏳",  title:"Avançar para Revisão"},
+    review:{border:"#8b5cf6",bg:"#f5f3ff", hover:"#ede9fe", icon:"🔍",  title:"Avançar para Concluído"},
+    done:  {border:"#22c55e",bg:"#22c55e", hover:"#16a34a", icon:"✓",   title:"Reabrir tarefa"},
+  };
+  const s=COLORS[status]||COLORS.todo;
+  const isDone=status==="done";
   return(
     <button
-      title={isDone?"Reabrir tarefa":"✓ Concluir com 1 clique"}
+      title={s.title}
       onClick={e=>{e.stopPropagation();onClick();}}
       onMouseEnter={()=>sh(true)}
       onMouseLeave={()=>sh(false)}
       style={{
         width:size,height:size,borderRadius:"50%",flexShrink:0,
-        border:`2px solid ${isDone?"#22c55e":hov?"#22c55e":"#d1d5db"}`,
-        background:isDone?"#22c55e":hov?"#f0fdf4":"#fff",
+        border:`2px solid ${hov?s.hover:s.border}`,
+        background:hov?s.hover:s.bg,
         display:"flex",alignItems:"center",justifyContent:"center",
-        cursor:"pointer",fontSize:size*.44,
-        color:isDone?"#fff":hov?"#22c55e":"#9ca3af",
-        transition:"all .18s",
+        cursor:"pointer",
+        transition:"all .15s",
+        position:absolute?"absolute":"relative",
+        top:absolute?10:undefined,right:absolute?10:undefined,
+        zIndex:absolute?2:undefined,
+        color:isDone?"#fff":s.border,
+        fontSize:size*0.55,fontWeight:900,
         boxShadow:isDone?"0 2px 8px rgba(34,197,94,.4)":"none",
-        ...(absolute?{position:"absolute",top:10,right:10,zIndex:2}:{position:"relative"}),
       }}
-    >✓</button>
+    >{isDone?"✓":hov&&!isDone?"→":s.icon}</button>
   );
 }
 
-/* ===========================================
-   TASK FORM */
 function toArr(v){
   if(Array.isArray(v)) return v;
   if(typeof v==="string"){try{const p=JSON.parse(v);return Array.isArray(p)?p:[];}catch(e){return[];}}
@@ -1101,7 +1112,8 @@ function TCard({task,data,onEdit,onDelete,onComplete}){
   const ckTot=task.checklist.length;
   const prog=ckTot>0?Math.round((ckDone/ckTot)*100):null;
   const over=isLate(task);
-  const done=task.status==="done";
+  const _today=new Date().toISOString().slice(0,10);
+  const done=task.recurrence?(task._copies||[]).includes(_today):task.status==="done";
   const p=PRI[task.priority]||PRI.media;
 
   return(
@@ -1116,7 +1128,7 @@ function TCard({task,data,onEdit,onDelete,onComplete}){
       onClick={()=>onEdit(task)}
     >
       {/* -- QUICK COMPLETE - 1 click, top right, outside card content -- */}
-      <QCBtn isDone={done} onClick={()=>onComplete(task)} size={26} absolute={true}/>
+      <QCBtn status={task.status} onClick={()=>onComplete(task)} size={26} absolute={true}/>
 
       {labels.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8,paddingRight:36}}>{labels.map(l=><Chip key={l.id} label={l.name} color={l.color}/>)}</div>}
 
@@ -1257,7 +1269,7 @@ function ListView({data,onEdit,onDelete,onComplete}){
                 onClick={()=>onEdit(t)}
               >
                 <div onClick={e=>e.stopPropagation()}>
-                  <QCBtn isDone={done} onClick={()=>onComplete(t)} size={24} absolute={false}/>
+                  <QCBtn status={t.status} onClick={()=>onComplete(t)} size={24} absolute={false}/>
                 </div>
                 <div style={{minWidth:0}}>
                   <div style={{fontSize:13,fontWeight:700,color:done?"#94a3b8":"#0f172a",textDecoration:done?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</div>
@@ -1418,7 +1430,7 @@ function GridView({data,onEdit,onDelete,onComplete}){
                 <span style={{fontSize:12,color:over?"#ef4444":"#64748b",fontWeight:over?700:400,whiteSpace:"nowrap"}}>{t.dueDate?fmtDate(t.dueDate):"—"}</span>
                 <div>{ckt>0?<div><div style={{height:4,borderRadius:2,background:"#f1f5f9",overflow:"hidden",marginBottom:3}}><div style={{width:`${(ckd/ckt)*100}%`,height:"100%",background:ckd===ckt?"#22c55e":"#6366f1",borderRadius:2}}/></div><span style={{fontSize:10,color:"#94a3b8",fontWeight:600}}>{ckd}/{ckt}</span></div>:<span style={{color:"#cbd5e1",fontSize:12}}>—</span>}</div>
                 <div style={{display:"flex",gap:3,alignItems:"center"}} onClick={e=>e.stopPropagation()}>
-                  <QCBtn isDone={done} onClick={()=>onComplete(t)} size={22} absolute={false}/>
+                  <QCBtn status={t.status} onClick={()=>onComplete(t)} size={22} absolute={false}/>
                   <Btn onClick={()=>onDelete(t.id)} v="danger" sz="sm">×</Btn>
                 </div>
               </div>
@@ -2426,13 +2438,25 @@ function App(){
   const quickComplete=(task)=>{
     const lk=getLock(task.id);
     if(lk){toast(`🔒 ${lk.user} está editando. Aguarde.`,"lock",4000);return;}
-    const newStatus=task.status==="done"?"todo":"done";
-    setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{
-      ...t,status:newStatus,
-      completedAt:newStatus==="done"?todayStr():null,
-      checklist:newStatus==="done"?t.checklist.map(c=>({...c,done:true})):t.checklist,
-    }:t)}));
-    toast(newStatus==="done"?"✅ Tarefa concluída!":"↩ Tarefa reaberta.","ok");
+    const CYCLE={todo:"doing",doing:"review",review:"done",done:"todo"};
+    const LABELS={todo:"Em Análise",doing:"Revisão",review:"Concluído",done:"A Fazer"};
+    if(task.recurrence){
+      const today=todayStr();
+      const copies=Array.isArray(task._copies)?[...task._copies]:[];
+      const already=copies.includes(today);
+      const next=already?copies.filter(x=>x!==today):[...copies,today];
+      setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{...t,_copies:next,status:"todo"}:t)}));
+      toast(already?"↩ Ocorrência reaberta.":"✅ Ocorrência concluída!","ok");
+    } else {
+      const cur=task.status||"todo";
+      const newStatus=CYCLE[cur]||"doing";
+      setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{
+        ...t,status:newStatus,
+        completedAt:newStatus==="done"?todayStr():null,
+        checklist:newStatus==="done"?t.checklist.map(c=>({...c,done:true})):t.checklist,
+      }:t)}));
+      toast(`→ ${LABELS[cur]||"Em Análise"}!`,"ok");
+    }
   };
 
   const useTemplate=(tpl)=>{

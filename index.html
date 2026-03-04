@@ -393,6 +393,8 @@ function useSharedData() {
     }
   }, []);
 
+  const isSavingRef = useRef(false);
+
   useEffect(() => {
     load();
 
@@ -405,6 +407,8 @@ function useSharedData() {
         table: "app_data",
         filter: "id=eq.1"
       }, (payload) => {
+        // Ignore realtime echo from our own save
+        if (isSavingRef.current) return;
         if (payload.new?.payload) {
           const p = payload.new.payload;
           if (!p.sectors || !Array.isArray(p.sectors)) p.sectors = SEED.sectors;
@@ -448,15 +452,17 @@ function useSharedData() {
   const setData = useCallback((updater) => {
     setRaw(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
-      // Debounced save to Supabase
+      // Save immediately to Supabase (no debounce for _copies integrity)
       if(pendingSave.current) clearTimeout(pendingSave.current);
       pendingSave.current = setTimeout(() => {
+        isSavingRef.current = true;
         sb.from("app_data").upsert({ id: 1, payload: next })
           .then(({ error }) => {
             if(error) console.error("Supabase save error:", error);
-            else console.log("Saved to Supabase");
+            // Reset saving flag after realtime has time to fire
+            setTimeout(()=>{isSavingRef.current=false;}, 2000);
           });
-      }, 300);
+      }, 50);
       return next;
     });
   }, []);
@@ -1397,7 +1403,11 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete,user,isAdm}){
         const cards=[];
         visibleTasks.forEach(t=>{
           if(t._recDoneKey||t._recParentId) return; // skip done-snapshots from main list
-          if(t.status!==st.id||t.status==="archived") return;
+          // Recorrentes: sempre em "todo" mas cada dia é independente
+          // Não-recorrentes: filtrar pela coluna exata
+          if(t.status==="archived") return;
+          if(!t.recurrence && t.status!==st.id) return;
+          if(t.recurrence && st.id!=="todo") return; // recorrentes só na coluna A Fazer
           if(kf.user&&!toArr(t.assignees).includes(kf.user)) return;
           if(kf.company&&t.company!==kf.company) return;
           if(kf.sector&&t.sector!==kf.sector) return;

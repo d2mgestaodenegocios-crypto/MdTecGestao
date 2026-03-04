@@ -1260,13 +1260,7 @@ function TCard({task,data,onEdit,onDelete,onComplete,activeDow,dowDate,DOW,dowIs
   const ckTot=task.checklist.length;
   const prog=ckTot>0?Math.round((ckDone/ckTot)*100):null;
   const over=isLate(task);
-  // Use the exact date passed from Kanban (dowDate prop) for recurring cards
-  // This ensures SEG and QUA are independent: each has its own date string
-  const _targetDate = dowDate || new Date().toISOString().slice(0,10);
-  // Recurring: done = exact date in _copies; Non-recurring: status="done"
-  const done = task.recurrence
-    ? (task._copies||[]).includes(_targetDate)
-    : task.status==="done";
+  const done=task.status==="done";
   const p=PRI[task.priority]||PRI.media;
 
   return(
@@ -1281,7 +1275,7 @@ function TCard({task,data,onEdit,onDelete,onComplete,activeDow,dowDate,DOW,dowIs
       onClick={()=>onEdit(task)}
     >
       {/* -- QUICK COMPLETE - 1 click, top right, outside card content -- */}
-      <QCBtn isDone={done} onClick={e=>{e.stopPropagation();onComplete(task,activeDow,_targetDate);}} size={26} absolute={true}/>
+      <QCBtn isDone={done} onClick={e=>{e.stopPropagation();onComplete(task);}} size={26} absolute={true}/>
 
       {labels.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8,paddingRight:36}}>{labels.map(l=><Chip key={l.id} label={l.name} color={l.color}/>)}</div>}
 
@@ -1552,9 +1546,7 @@ function ListView({data,onEdit,onDelete,onComplete,user,isAdm}){
             const sec=data.sectors.find(s=>s.id===t.sector);
             const asg=toArr(t.assignees);
             const asgs=data.collaborators.filter(c=>asg.includes(c.id));
-            const _today=new Date().toISOString().slice(0,10);
-            const over=isLate(t);
-            const done=t.recurrence?(t._copies||[]).includes(_today):t.status==="done";
+            const over=isLate(t),done=t.status==="done";
             return(
               <div key={t.id} style={{display:"grid",gridTemplateColumns:COL,padding:"9px 16px",borderBottom:i<tasks.length-1?"1px solid #f8fafc":"none",alignItems:"center",gap:8,cursor:"pointer",transition:"background .1s",background:done?"#f8fffe":"transparent"}}
                 onMouseEnter={e=>e.currentTarget.style.background=done?"#f0fdf4":"#fafafa"}
@@ -1562,7 +1554,7 @@ function ListView({data,onEdit,onDelete,onComplete,user,isAdm}){
                 onClick={()=>onEdit(t)}
               >
                 <div onClick={e=>e.stopPropagation()}>
-                  <QCBtn isDone={done} onClick={()=>onComplete(t,null,new Date().toISOString().slice(0,10))} size={24} absolute={false}/>
+                  <QCBtn isDone={done} onClick={()=>onComplete(t)} size={24} absolute={false}/>
                 </div>
                 <div style={{minWidth:0}}>
                   <div style={{fontSize:13,fontWeight:700,color:done?"#94a3b8":"#0f172a",textDecoration:done?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</div>
@@ -1707,9 +1699,7 @@ function GridView({data,onEdit,onDelete,onComplete,user,isAdm}){
             const sec=data.sectors.find(s=>s.id===t.sector);
             const asg=data.collaborators.filter(c=>toArr(t.assignees).includes(c.id));
             const ckd=toArr(t.checklist).filter(c=>c.done).length,ckt=toArr(t.checklist).length;
-            const _gtoday=new Date().toISOString().slice(0,10);
-            const over=isLate(t);
-            const done=t.recurrence?(t._copies||[]).includes(_gtoday):t.status==="done";
+            const over=isLate(t),done=t.status==="done";
             return(
               <div key={t.id} className="tbl-row" style={{display:"grid",gridTemplateColumns:"12px minmax(160px,2fr) 110px 82px minmax(120px,1.3fr) minmax(90px,1fr) minmax(140px,1.4fr) 86px minmax(80px,110px) 52px",padding:"10px 16px",borderBottom:i<sorted.length-1?"1px solid #f8fafc":"none",alignItems:"center",gap:8,cursor:"pointer",transition:"background .1s",background:done?"#f8fffe":"transparent"}}
                 onMouseEnter={e=>e.currentTarget.style.background=done?"#f0fdf4":"#fafafa"}
@@ -1726,7 +1716,7 @@ function GridView({data,onEdit,onDelete,onComplete,user,isAdm}){
                 <span style={{fontSize:12,color:over?"#ef4444":"#64748b",fontWeight:over?700:400,whiteSpace:"nowrap"}}>{t.dueDate?fmtDate(t.dueDate):"—"}</span>
                 <div>{ckt>0?<div><div style={{height:4,borderRadius:2,background:"#f1f5f9",overflow:"hidden",marginBottom:3}}><div style={{width:`${(ckd/ckt)*100}%`,height:"100%",background:ckd===ckt?"#22c55e":"#6366f1",borderRadius:2}}/></div><span style={{fontSize:10,color:"#94a3b8",fontWeight:600}}>{ckd}/{ckt}</span></div>:<span style={{color:"#cbd5e1",fontSize:12}}>—</span>}</div>
                 <div style={{display:"flex",gap:3,alignItems:"center"}} onClick={e=>e.stopPropagation()}>
-                  <QCBtn isDone={done} onClick={()=>onComplete(t,null,new Date().toISOString().slice(0,10))} size={22} absolute={false}/>
+                  <QCBtn isDone={done} onClick={()=>onComplete(t)} size={22} absolute={false}/>
                   <Btn onClick={()=>onDelete(t.id)} v="danger" sz="sm">×</Btn>
                 </div>
               </div>
@@ -2944,43 +2934,16 @@ function App(){
   // Auto-archive completed tasks older than archiveDays
   // Auto-archive handled manually via Config page
 
-  // quickComplete: cada ocorrência recorrente é INDEPENDENTE
-  // exactDate = string ISO da data exata do card (ex: "2026-03-04")
-  const quickComplete=(task,dow=null,exactDate=null)=>{
+  const quickComplete=(task)=>{
     const lk=getLock(task.id);
     if(lk){toast(`🔒 ${lk.user} está editando. Aguarde.`,"lock",4000);return;}
-
-    // Calcular data alvo FORA do setData (valores puros, sem closure)
-    const _n=new Date();
-    const targetDateStr=exactDate || _n.toISOString().slice(0,10);
-
-    setData(d=>{
-      // Lê estado ATUAL via argumento d (sempre fresco, sem stale closure)
-      const cur=d.tasks.find(t=>t.id===task.id);
-      if(!cur) return d;
-
-      if(cur.recurrence){
-        // RECORRENTE: toggle APENAS a data específica em _copies
-        // SEG e QUA são datas diferentes → completamente independentes
-        const copies=Array.isArray(cur._copies)?[...cur._copies]:[];
-        const already=copies.includes(targetDateStr);
-        const next=already
-          ?copies.filter(x=>x!==targetDateStr)
-          :[...copies,targetDateStr];
-        // Toast fora do setData para não causar side effect
-        setTimeout(()=>toast(already?"↩ Ocorrência reaberta.":"✅ Ocorrência concluída!","ok"),0);
-        return {...d,tasks:d.tasks.map(t=>t.id===cur.id?{...t,_copies:next}:t)};
-      }
-
-      // NÃO-RECORRENTE: alterna status done/todo
-      const newStatus=cur.status==="done"?"todo":"done";
-      setTimeout(()=>toast(newStatus==="done"?"✅ Tarefa concluída!":"↩ Tarefa reaberta.","ok"),0);
-      return {...d,tasks:d.tasks.map(t=>t.id===cur.id?{
-        ...t,status:newStatus,
-        completedAt:newStatus==="done"?targetDateStr:null,
-        checklist:newStatus==="done"?t.checklist.map(c=>({...c,done:true})):t.checklist,
-      }:t)};
-    });
+    const newStatus=task.status==="done"?"todo":"done";
+    setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{
+      ...t,status:newStatus,
+      completedAt:newStatus==="done"?todayStr():null,
+      checklist:newStatus==="done"?t.checklist.map(c=>({...c,done:true})):t.checklist,
+    }:t)}));
+    toast(newStatus==="done"?"✅ Tarefa concluída!":"↩ Tarefa reaberta.","ok");
   };
 
   const useTemplate=(tpl)=>{

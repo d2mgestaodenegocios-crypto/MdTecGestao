@@ -192,6 +192,23 @@ const NAV_GROUPS=[
 ];
 
 /* -- Seed Data -- */
+const ADMIN_EMAIL="mdmotriz@gmail.com";
+const isAdmin=(user,data)=>{
+  if(!user) return false;
+  if(user.email?.toLowerCase()===ADMIN_EMAIL.toLowerCase()) return true;
+  if(data){const col=data.collaborators?.find(u=>(u.email||"").toLowerCase()===(user.email||"").toLowerCase());if(col?.isAdmin) return true;}
+  return false;
+};
+// Returns tasks filtered for the current user (admin sees all, others see only assigned)
+const filterTasksForUser=(tasks,data,user)=>{
+  if(!user) return [];
+  if(isAdmin(user,data)) return tasks;
+  // find collaborator by email
+  const collab=data.collaborators.find(u=>(u.email||"").toLowerCase()===(user.email||"").toLowerCase());
+  if(!collab) return []; // unknown user sees nothing
+  return tasks.filter(t=>toArr(t.assignees).includes(collab.id));
+};
+
 const SEED={
   version:7,
   archiveDays:30,
@@ -1305,11 +1322,12 @@ function TCard({task,data,onEdit,onDelete,onComplete,activeDow,DOW,dowIsDone}){
 
 /* ===========================================
    KANBAN VIEW */
-function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
+function KanbanView({data,onEdit,onDelete,onAdd,onComplete,user,isAdm}){
   const [kf,setKf]=useState({user:"",company:"",sector:"",todayOnly:false,overdueOnly:false});
   const [dragging,setDragging]=useState(null); // {taskId, fromStatus}
   const [dragOver,setDragOver]=useState(null); // status id
   const DOW=["Dom","Seg","Ter","Qua","Qui","Sex","Sab"];
+  const visibleTasks=filterTasksForUser(data.tasks,data,user);
   const _now=new Date();
   const _wkStart=new Date(_now);_wkStart.setDate(_now.getDate()-_now.getDay());_wkStart.setHours(0,0,0,0);
   const _wkEnd=new Date(_wkStart);_wkEnd.setDate(_wkStart.getDate()+6);_wkEnd.setHours(23,59,59,999);
@@ -1361,7 +1379,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
         // Build card list: recurring tasks expand into one card per day-of-week hit this week
         const today=todayStr();
         const cards=[];
-        data.tasks.forEach(t=>{
+        visibleTasks.forEach(t=>{
           if(t._recDoneKey||t._recParentId) return; // skip done-snapshots from main list
           if(t.status!==st.id||t.status==="archived") return;
           if(kf.user&&!toArr(t.assignees).includes(kf.user)) return;
@@ -1478,11 +1496,12 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
 
 /* ===========================================
    LIST VIEW */
-function ListView({data,onEdit,onDelete,onComplete}){
+function ListView({data,onEdit,onDelete,onComplete,user,isAdm}){
   const [fl,sfl]=useState({});
   const [sortK,setSortK]=useState("dueDate");
   const [sortD,setSortD]=useState(1);
-  const raw=applyFilters(data.tasks.filter(t=>t.status!=="archived"),fl);
+  const visibleTasks=filterTasksForUser(data.tasks,data,user);
+  const raw=applyFilters(visibleTasks.filter(t=>t.status!=="archived"),fl);
   const tasks=[...raw].sort((a,b)=>{
     if(sortK==="dueDate"){const da=a.dueDate||"9999",db=b.dueDate||"9999";return sortD*(da<db?-1:da>db?1:0);}
     if(sortK==="priority"){const o={urgente:0,alta:1,media:2,baixa:3};return sortD*((o[a.priority]||2)-(o[b.priority]||2));}
@@ -1628,11 +1647,12 @@ function CalView({data,onEdit}){
 
 /* ===========================================
    TABLE / GRID VIEW */
-function GridView({data,onEdit,onDelete,onComplete}){
+function GridView({data,onEdit,onDelete,onComplete,user,isAdm}){
   const [sort,ss]=useState({k:"createdAt",dir:"desc"});
   const [fl,sfl]=useState({});
   const ts=k=>ss(s=>s.k===k?{k,dir:s.dir==="asc"?"desc":"asc"}:{k,dir:"asc"});
-  const filtered=applyFilters(data.tasks.filter(t=>t.status!=="archived"),fl);
+  const visibleTasks2=filterTasksForUser(data.tasks,data,user);
+  const filtered=applyFilters(visibleTasks2.filter(t=>t.status!=="archived"),fl);
   const sorted=[...filtered].sort((a,b)=>{let va=a[sort.k]??"",vb=b[sort.k]??"";return sort.dir==="asc"?va<vb?-1:va>vb?1:0:va>vb?-1:va<vb?1:0;});
   const SH=({f:fk,l})=><button onClick={()=>ts(fk)} style={{background:"none",border:"none",cursor:"pointer",fontSize:10,fontWeight:800,color:sort.k===fk?"#6366f1":"#94a3b8",textTransform:"uppercase",letterSpacing:".05em",fontFamily:"inherit",display:"flex",alignItems:"center",gap:2}}>{l} {sort.k===fk?(sort.dir==="asc"?"↑":"↓"):"↕"}</button>;
   return(
@@ -1788,7 +1808,17 @@ function CompaniesPage({ data, setData }) {
           <CPick value={form.color} onChange={v=>setForm(f=>({...f,color:v}))}/>
         </div>}
         {tab==="contato"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
-          <Inp label="E-mail" value={form.email} onChange={v=>setForm(f=>({...f,email:v}))} placeholder="email@empresa.com"/>
+          <Inp label="E-mail de acesso" value={form.email} onChange={v=>setForm(f=>({...f,email:v}))} placeholder="email@empresa.com"/>
+          <Inp label={editing?"Nova senha (deixe vazio para manter)":"Senha de acesso"} value={form.password||""} onChange={v=>setForm(f=>({...f,password:v}))} placeholder="••••••••" type="password"/>
+          <label style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",padding:"8px 0"}}>
+            <div onClick={()=>setForm(f=>({...f,isAdmin:!f.isAdmin}))} style={{width:38,height:22,borderRadius:11,background:form.isAdmin?"#6366f1":"#e5e7eb",position:"relative",transition:"background .2s",flexShrink:0}}>
+              <div style={{position:"absolute",top:2,left:form.isAdmin?18:2,width:18,height:18,borderRadius:"50%",background:"#fff",boxShadow:"0 1px 3px rgba(0,0,0,.2)",transition:"left .2s"}}/>
+            </div>
+            <div>
+              <span style={{fontSize:13,fontWeight:700,color:"#0f172a"}}>Administrador</span>
+              <span style={{fontSize:11,color:"#94a3b8",marginLeft:6}}>Acesso total ao sistema</span>
+            </div>
+          </label>
           <Inp label="Telefone" value={form.telefone} onChange={v=>setForm(f=>({...f,telefone:v}))} placeholder="(00) 00000-0000"/>
         </div>}
         {tab==="servicos"&&<div style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -1902,14 +1932,14 @@ function SectorsPage({ data, setData }) {
 function CollaboratorsPage({ data, setData }) {
   const [open,setOpen]=useState(false);
   const [editing,setEditing]=useState(null);
-  const [form,setForm]=useState({name:"",role:"",companies:[],sectors:[],color:"#8b5cf6",initials:"",email:""});
-  const openNew=()=>{setEditing(null);setForm({name:"",role:"",companies:[],sectors:[],color:"#8b5cf6",initials:"",email:""});setOpen(true);};
+  const [form,setForm]=useState({name:"",role:"",companies:[],sectors:[],color:"#8b5cf6",initials:"",email:"",password:"",isAdmin:false});
+  const openNew=()=>{setEditing(null);setForm({name:"",role:"",companies:[],sectors:[],color:"#8b5cf6",initials:"",email:"",password:"",isAdmin:false});setOpen(true);};
   const openEdit=(u)=>{
     setEditing(u);
     setForm({name:u.name,role:u.role,
       companies:toArr(u.companies).length>0?toArr(u.companies):(u.company?[u.company]:[]),
       sectors:toArr(u.sectors).length>0?toArr(u.sectors):(u.sector?[u.sector]:[]),
-      color:u.color,initials:u.initials,email:u.email||""});
+      color:u.color,initials:u.initials,email:u.email||"",password:"",isAdmin:!!u.isAdmin});
     setOpen(true);
   };
   const togUCo=(id)=>setForm(f=>({...f,companies:toArr(f.companies).includes(id)?toArr(f.companies).filter(x=>x!==id):[...toArr(f.companies),id]}));
@@ -1917,8 +1947,10 @@ function CollaboratorsPage({ data, setData }) {
   const save=()=>{
     if(!form.name.trim())return;
     const initials=form.initials||form.name.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2);
-    if(editing) setData(d=>({...d,collaborators:d.collaborators.map(u=>u.id===editing.id?{...u,...form,initials}:u)}));
-    else setData(d=>({...d,collaborators:[...d.collaborators,{id:uid(),...form,initials}]}));
+    const saved={...form,initials};
+    if(!saved.password) delete saved.password; // don't overwrite if empty
+    if(editing) setData(d=>({...d,collaborators:d.collaborators.map(u=>u.id===editing.id?{...u,...saved}:u)}));
+    else setData(d=>({...d,collaborators:[...d.collaborators,{id:uid(),...saved}]}));
     setOpen(false);
   };
   const {ask:askDel,modal:delModal}=useConfirmDelete();
@@ -1940,7 +1972,8 @@ function CollaboratorsPage({ data, setData }) {
               </div>
               <div style={{fontWeight:900,fontSize:14,color:"#0f172a",marginBottom:2}}>{u.name}</div>
               <div style={{fontSize:12,color:"#94a3b8",marginBottom:8}}>{u.role}</div>
-              {u.email&&<div style={{fontSize:11,color:"#64748b",marginBottom:8,wordBreak:"break-all"}}>✉ {u.email}</div>}
+              {u.email&&<div style={{fontSize:11,color:"#64748b",marginBottom:4,wordBreak:"break-all"}}>✉ {u.email}</div>}
+              {u.isAdmin&&<div style={{fontSize:10,fontWeight:800,color:"#6366f1",background:"#eef2ff",borderRadius:6,padding:"2px 8px",display:"inline-block",marginBottom:6}}>⚡ Admin</div>}
               <div style={{display:"flex",gap:4,justifyContent:"center",flexWrap:"wrap",marginBottom:12}}>
                 {(()=>{const uCos=toArr(u.companies).length>0?toArr(u.companies):(u.company?[u.company]:[]);const cos=data.companies.filter(c=>uCos.includes(c.id));return cos.length>0?cos.map(c=><Chip key={c.id} label={c.name} color={c.color}/>):<Chip label="Todas as empresas" color="#94a3b8"/>;})()}
               </div>
@@ -2518,7 +2551,7 @@ function TemplatesPage({ data, setData, onUseTemplate }) {
 //  PART 6: Dashboard com filtros mensais + gráficos por empresa/colaborador
 // ===================================================================
 
-function Dashboard({ data }) {
+function Dashboard({ data, user, isAdm }) {
   const thisMonth = new Date().getMonth();
   const thisYear  = new Date().getFullYear();
   const [fMonth, setFMonth] = useState(thisMonth);
@@ -2529,28 +2562,31 @@ function Dashboard({ data }) {
   const [viewMode, setViewMode] = useState("month"); // month | year
 
   const filteredTasks = useMemo(()=>{
-    return data.tasks.filter(t=>{
+    const base=filterTasksForUser(data.tasks,data,user);
+    return base.filter(t=>{
       if(t.status==="archived") return false;
       if(coFilter && t.company!==coFilter) return false;
       const dateStr = t.createdAt || t.dueDate || "";
-      if(!dateStr) return true; // show tasks without date
+      if(!dateStr) return true;
       const d = new Date(dateStr+"T12:00:00");
       if(viewMode==="year") return d.getFullYear()===fYear;
       return d.getMonth()===fMonth && d.getFullYear()===fYear;
     });
-  },[data.tasks,fMonth,fYear,coFilter,viewMode]);
+  },[data.tasks,data,user,fMonth,fYear,coFilter,viewMode]);
 
   const allTasks = coFilter ? data.tasks.filter(t=>t.company===coFilter) : data.tasks;
 
   const stats = useMemo(()=>{
     const t=filteredTasks;
-    const total=t.length;
+    const total=t.filter(x=>x.status!=="archived").length;
     const byStatus={};
     STS.forEach(s=>{byStatus[s.id]=t.filter(x=>x.status===s.id).length;});
     const overdue=t.filter(x=>isLate(x)).length;
     const totalCk=t.reduce((a,x)=>a+x.checklist.length,0);
     const doneCk=t.reduce((a,x)=>a+x.checklist.filter(c=>c.done).length,0);
-    return {total,byStatus,overdue,totalCk,doneCk};
+    const done=byStatus["done"]||0;
+    const pct=total>0?Math.round((done/total)*100):0;
+    return {total,byStatus,overdue,totalCk,doneCk,done,pct};
   },[filteredTasks]);
 
   // Por empresa
@@ -2851,33 +2887,35 @@ function App(){
   const quickComplete=(task,dow=null)=>{
     const lk=getLock(task.id);
     if(lk){toast(`🔒 ${lk.user} está editando. Aguarde.`,"lock",4000);return;}
-    // Recurring task with specific day: create a "done" copy for that day only
+    // Recurring task with specific day → toggle that day in _copies
     if(task.recurrence&&dow!==null){
-      const _now=new Date();
-      const _wkStart=new Date(_now);_wkStart.setDate(_now.getDate()-_now.getDay());_wkStart.setHours(0,0,0,0);
-      // find the actual date of that dow this week
-      const dt=new Date(_wkStart);dt.setDate(_wkStart.getDate()+dow);
+      const _n=new Date();
+      const _ws=new Date(_n);_ws.setDate(_n.getDate()-_n.getDay());_ws.setHours(0,0,0,0);
+      const dt=new Date(_ws);dt.setDate(_ws.getDate()+dow);
       const dateStr=dt.toISOString().slice(0,10);
-      // check if a done-copy already exists for this task+day
-      const existsCopy=task._copies&&task._copies.includes(dateStr);
-      if(existsCopy){
-        // undo: remove the done copy
-        setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{...t,_copies:(t._copies||[]).filter(d=>d!==dateStr)}:t)}));
-        toast("↩ Ocorrência reaberta.","ok");
-      } else {
-        // mark this day as done
-        setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{...t,_copies:[...(t._copies||[]),dateStr]}:t)}));
-        toast("✅ Ocorrência concluída!","ok");
-      }
+      setData(d=>{
+        const cur=d.tasks.find(t=>t.id===task.id);
+        if(!cur) return d;
+        const copies=Array.isArray(cur._copies)?[...cur._copies]:[];
+        const already=copies.includes(dateStr);
+        const next=already?copies.filter(x=>x!==dateStr):[...copies,dateStr];
+        toast(already?"↩ Ocorrência reaberta.":"✅ Ocorrência concluída!","ok");
+        return {...d,tasks:d.tasks.map(t=>t.id===task.id?{...t,_copies:next}:t)};
+      });
       return;
     }
-    // Normal task
-    const newStatus=task.status==="done"?"todo":"done";
-    setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{
-      ...t,status:newStatus,
-      completedAt:newStatus==="done"?todayStr():null,
-      checklist:newStatus==="done"?t.checklist.map(c=>({...c,done:true})):t.checklist,
-    }:t)}));
+    // Normal task → toggle done/todo
+    setData(d=>{
+      const cur=d.tasks.find(t=>t.id===task.id);
+      if(!cur) return d;
+      const newStatus=cur.status==="done"?"todo":"done";
+      toast(newStatus==="done"?"✅ Tarefa concluída!":"↩ Tarefa reaberta.","ok");
+      return {...d,tasks:d.tasks.map(t=>t.id===task.id?{
+        ...t,status:newStatus,
+        completedAt:newStatus==="done"?todayStr():null,
+        checklist:newStatus==="done"?t.checklist.map(c=>({...c,done:true})):t.checklist,
+      }:t)};
+    });
     toast(newStatus==="done"?"✅ Tarefa concluída!":"↩ Tarefa reaberta.","ok");
   };
 
@@ -2912,7 +2950,7 @@ function App(){
   const overdueCount=(()=>{
     const _n=new Date();
     let cnt=0;
-    data.tasks.filter(t=>t.status!=="archived"&&t.status!=="done").forEach(t=>{
+    userTasks.filter(t=>t.status!=="archived"&&t.status!=="done").forEach(t=>{
       if(!t.recurrence){if(isLate(t)) cnt++;}
       else{
         const rec=data.recurrences.find(r=>r.id===t.recurrence);
@@ -2952,7 +2990,9 @@ function App(){
       </div>
     );
   })();
-  const doingCount  =data.tasks.filter(t=>t.status==="doing").length;
+  const userTasks=filterTasksForUser(data.tasks,data,user);
+  const doingCount  =userTasks.filter(t=>t.status==="doing"&&t.status!=="archived").length;
+  const totalCount  =userTasks.filter(t=>t.status!=="archived").length;
   const curPage     =NAV_GROUPS.flatMap(g=>g.items).find(i=>i.id===page);
 
   return(
@@ -2968,7 +3008,7 @@ function App(){
         {!sideCol&&(
           <div className="sb-stats" style={{margin:"10px 12px",padding:"10px 12px",background:"rgba(255,255,255,.04)",borderRadius:10,border:"1px solid rgba(255,255,255,.06)"}}>
             <div style={{display:"flex",justifyContent:"space-between"}}>
-              {[{v:data.tasks.length,l:"Total",c:"#818cf8"},{v:doingCount,l:"Andamento",c:"#fbbf24"},{v:overdueCount,l:"Atraso",c:overdueCount>0?"#f87171":"#475569"}].map(({v,l,c})=>(
+              {[{v:totalCount,l:"Total",c:"#818cf8"},{v:doingCount,l:"Andamento",c:"#fbbf24"},{v:overdueCount,l:"Atraso",c:overdueCount>0?"#f87171":"#475569"}].map(({v,l,c})=>(
                 <div key={l} style={{textAlign:"center"}}>
                   <div style={{fontSize:16,fontWeight:900,color:c}}>{v}</div>
                   <div style={{fontSize:9,color:"#475569",fontWeight:600,textTransform:"uppercase",letterSpacing:".05em"}}>{l}</div>
@@ -3043,10 +3083,10 @@ function App(){
         </div>
 
         {page==="dashboard"     && <Dashboard data={data}/>}
-        {page==="kanban"        && <KanbanView data={data} onEdit={openEdit} onDelete={deleteTask} onAdd={openNew} onComplete={quickComplete}/>}
-        {page==="lista"         && <ListView data={data} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete}/>}
+        {page==="kanban"        && <KanbanView data={data} onEdit={openEdit} onDelete={deleteTask} onAdd={openNew} onComplete={quickComplete} user={user} isAdm={isAdmin(user,data)}/>}
+        {page==="lista"         && <ListView data={data} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete} user={user} isAdm={isAdmin(user,data)}/>}
         {page==="calendario"    && <CalView data={data} onEdit={openEdit}/>}
-        {page==="tabela"        && <GridView data={data} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete}/>}
+        {page==="tabela"        && <GridView data={data} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete} user={user} isAdm={isAdmin(user,data)}/>}
         {page==="admin"         && <AdminPage data={data} setData={setData} toast={toast}/>}
         {page==="servicos"      && <ServicosPage data={data} setData={setData}/>}
         {page==="modelos"       && <TemplatesPage data={data} setData={setData} onUseTemplate={useTemplate}/>}

@@ -1102,7 +1102,7 @@ function FBar({data,filters,setF,showMonth=true}){
 
 /* ===========================================
    TASK CARD  - with ✓ Quick Complete button */
-function TCard({task,data,onEdit,onDelete,onComplete}){
+function TCard({task,data,onEdit,onDelete,onComplete,recDate}){
   const assignees=data.collaborators.filter(c=>task.assignees.includes(c.id));
   const labels=data.labels.filter(l=>task.labels.includes(l.id));
   const rec=task.recurrence?data.recurrences.find(r=>r.id===task.recurrence):null;
@@ -1127,7 +1127,7 @@ function TCard({task,data,onEdit,onDelete,onComplete}){
       onClick={()=>onEdit(task)}
     >
       {/* -- QUICK COMPLETE - 1 click, top right, outside card content -- */}
-      <QCBtn status={task.status} onClick={()=>onComplete(task)} size={26} absolute={true}/>
+      <QCBtn status={task.status} onClick={()=>onComplete(task,recDate)} size={26} absolute={true}/>
 
       {labels.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8,paddingRight:36}}>{labels.map(l=><Chip key={l.id} label={l.name} color={l.color}/>)}</div>}
 
@@ -1218,27 +1218,32 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
 
         // Construir cards: tarefas normais + cards virtuais de recorrentes
         const cards=[];
-        data.tasks.filter(t=>t.status!=="archived").forEach(t=>{
-          if(t.status!==st.id) return;
+        // IDs de tarefas filhas (geradas por clique em recorrente)
+        const childIds=new Set(data.tasks.filter(t=>t._parentId).map(t=>t.id));
+
+        data.tasks.filter(t=>t.status!=="archived"&&!t._parentId).forEach(t=>{
           if(!t.recurrence){
-            // Tarefa normal: mostra se sem data, vencida, ou vence esta semana
+            // Tarefa normal: filtrar por status e semana
+            if(t.status!==st.id) return;
             const due=t.dueDate?new Date(t.dueDate+"T12:00:00"):null;
             const isOverdue=due&&due<_now;
-            if(!due||isOverdue||( due>=_wkStart&&due<=_wkEnd)){
+            if(!due||isOverdue||(due>=_wkStart&&due<=_wkEnd)){
               cards.push({key:t.id,task:t,dowLabel:null,dateStr:t.dueDate||null});
             }
           } else {
-            // Tarefa recorrente: um card por ocorrência desta semana
+            // Tarefa recorrente: um card por ocorrência DESTA semana
             const rec=data.recurrences.find(r=>r.id===t.recurrence);
-            if(!rec){cards.push({key:t.id,task:t,dowLabel:null,dateStr:null});return;}
+            if(!rec) return;
             const occurrences=getRecDaysThisWeek(t,rec,_wkStart);
-            if(occurrences.length===0){
-              cards.push({key:t.id,task:t,dowLabel:null,dateStr:null});
-            } else {
-              occurrences.forEach(({dow,dateStr})=>{
-                cards.push({key:`${t.id}-${dateStr}`,task:t,dowLabel:DOW_NAMES[dow],dateStr});
-              });
-            }
+            occurrences.forEach(({dow,dateStr})=>{
+              // Verificar se já existe tarefa filha para este dia
+              const childId=`${t.id}_${dateStr}`;
+              const child=data.tasks.find(x=>x.id===childId);
+              // Mostrar card no status correto (filho ou pai=todo)
+              const cardStatus=child?child.status:"todo";
+              if(cardStatus!==st.id) return;
+              cards.push({key:childId,task:child||t,dowLabel:DOW_NAMES[dow],dateStr,parentTask:child?null:t});
+            });
           }
         });
 
@@ -1270,7 +1275,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
                       {dateStr===today&&<span style={{fontSize:10,color:"#fff",fontWeight:700,marginLeft:"auto"}}>hoje</span>}
                     </div>
                   )}
-                  <TCard key={t.id} task={t} data={data} onEdit={onEdit} onDelete={onDelete} onComplete={onComplete}/>
+                  <TCard key={key} task={t} recDate={dateStr} data={data} onEdit={onEdit} onDelete={onDelete} onComplete={onComplete}/>
                 </div>
               ))}
               {cards.length===0&&<div style={{padding:18,textAlign:"center",fontSize:12,color:"#cbd5e1",border:"2px dashed #f1f5f9",borderRadius:10}}>Sem tarefas</div>}
@@ -2477,20 +2482,48 @@ function App(){
     toast(`${removed} tarefa${removed>1?"s duplicadas removidas":"duplicada removida"}!`,"ok");
   };
 
-  const quickComplete=(task)=>{
-    const lk=getLock(task.id);
-    if(lk){toast(`🔒 ${lk.user} está editando. Aguarde.`,"lock",4000);return;}
-    // Todas as tarefas (recorrentes ou não) seguem o mesmo ciclo de status
+  const quickComplete=(task,recDate=null)=>{
     const CYCLE={todo:"doing",doing:"review",review:"done",done:"todo"};
     const LABELS={todo:"Em Análise",doing:"Revisão",review:"Concluído",done:"A Fazer"};
-    const cur=task.status||"todo";
-    const newStatus=CYCLE[cur]||"doing";
-    setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{
-      ...t,status:newStatus,
-      completedAt:newStatus==="done"?todayStr():null,
-      checklist:newStatus==="done"?t.checklist.map(c=>({...c,done:true})):t.checklist,
-    }:t)}));
-    toast(`→ ${LABELS[cur]}!`,"ok");
+
+    if(task.recurrence&&recDate){
+      // Card virtual de recorrente: usar id composto "taskId_YYYY-MM-DD"
+      const childId=`${task.id}_${recDate}`;
+      setData(d=>{
+        const existing=d.tasks.find(t=>t.id===childId);
+        if(existing){
+          // Tarefa filha já existe: avançar ciclo normalmente
+          const lk=getLock(childId);
+          if(lk){setTimeout(()=>toast(`🔒 ${lk.user} está editando. Aguarde.`,"lock",4000),0);return d;}
+          const cur=existing.status||"todo";
+          const newStatus=CYCLE[cur]||"doing";
+          setTimeout(()=>toast(`→ ${LABELS[cur]}!`,"ok"),0);
+          return {...d,tasks:d.tasks.map(t=>t.id===childId?{
+            ...t,status:newStatus,
+            completedAt:newStatus==="done"?todayStr():null,
+            checklist:newStatus==="done"?t.checklist.map(c=>({...c,done:true})):t.checklist,
+          }:t)};
+        } else {
+          // Criar tarefa filha com id único para este dia
+          const child={...task,id:childId,dueDate:recDate,status:"doing",
+            completedAt:null,recurrence:"",_parentId:task.id};
+          setTimeout(()=>toast("→ Em Análise!","ok"),0);
+          return {...d,tasks:[...d.tasks,child]};
+        }
+      });
+    } else {
+      // Tarefa normal: ciclo direto
+      const lk=getLock(task.id);
+      if(lk){toast(`🔒 ${lk.user} está editando. Aguarde.`,"lock",4000);return;}
+      const cur=task.status||"todo";
+      const newStatus=CYCLE[cur]||"doing";
+      setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{
+        ...t,status:newStatus,
+        completedAt:newStatus==="done"?todayStr():null,
+        checklist:newStatus==="done"?t.checklist.map(c=>({...c,done:true})):t.checklist,
+      }:t)}));
+      toast(`→ ${LABELS[cur]}!`,"ok");
+    }
   };
 
   const useTemplate=(tpl)=>{

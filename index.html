@@ -1189,48 +1189,91 @@ function TCard({task,data,onEdit,onDelete,onComplete}){
 /* ===========================================
    KANBAN VIEW */
 function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
+  const DOW_NAMES=["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
+
+  // Retorna lista de dias-da-semana (0-6) em que a tarefa recorrente ocorre esta semana
+  function getRecDaysThisWeek(t,rec,wkStart){
+    const days=[];
+    for(let d=0;d<7;d++){
+      const dt=new Date(wkStart);dt.setDate(wkStart.getDate()+d);
+      const dow=dt.getDay();
+      let hit=false;
+      if(rec.interval==="daily") hit=true;
+      else if(rec.interval==="custom_days"&&Array.isArray(rec.days)) hit=rec.days.includes(dow);
+      else if(rec.interval==="weekly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");hit=dow===sd.getDay();}
+      else if(rec.interval==="biweekly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");const diff=Math.round((dt-sd)/86400000);hit=dow===sd.getDay()&&diff>=0&&diff%14===0;}
+      else if(rec.interval==="monthly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");hit=dt.getDate()===sd.getDate();}
+      if(hit) days.push({dow,dateStr:dt.toISOString().slice(0,10)});
+    }
+    return days;
+  }
+
   return(
     <div className="kanban-wrap" style={{display:"flex",gap:14,overflowX:"auto",paddingBottom:20,alignItems:"flex-start"}}>
       {STS.filter(st=>st.id!=="archived").map(st=>{
         const _now=new Date();
-        const _dow=_now.getDay();
-        const _wkStart=new Date(_now);_wkStart.setDate(_now.getDate()-_dow);_wkStart.setHours(0,0,0,0);
+        const _wkStart=new Date(_now);_wkStart.setDate(_now.getDate()-_now.getDay());_wkStart.setHours(0,0,0,0);
         const _wkEnd=new Date(_wkStart);_wkEnd.setDate(_wkStart.getDate()+6);_wkEnd.setHours(23,59,59,999);
-        const tasks=data.tasks.filter(t=>{
-          if(t.status!==st.id||t.status==="archived") return false;
-          const isOverdue=t.dueDate&&new Date(t.dueDate+"T23:59:59")<_now;
-          if(isOverdue) return true;
+        const today=todayStr();
+
+        // Construir cards: tarefas normais + cards virtuais de recorrentes
+        const cards=[];
+        data.tasks.filter(t=>t.status!=="archived").forEach(t=>{
+          if(t.status!==st.id) return;
           if(!t.recurrence){
-            if(!t.dueDate) return true;
-            const due=new Date(t.dueDate+"T12:00:00");
-            return due>=_wkStart&&due<=_wkEnd;
+            // Tarefa normal: mostra se sem data, vencida, ou vence esta semana
+            const due=t.dueDate?new Date(t.dueDate+"T12:00:00"):null;
+            const isOverdue=due&&due<_now;
+            if(!due||isOverdue||( due>=_wkStart&&due<=_wkEnd)){
+              cards.push({key:t.id,task:t,dowLabel:null,dateStr:t.dueDate||null});
+            }
+          } else {
+            // Tarefa recorrente: um card por ocorrência desta semana
+            const rec=data.recurrences.find(r=>r.id===t.recurrence);
+            if(!rec){cards.push({key:t.id,task:t,dowLabel:null,dateStr:null});return;}
+            const occurrences=getRecDaysThisWeek(t,rec,_wkStart);
+            if(occurrences.length===0){
+              cards.push({key:t.id,task:t,dowLabel:null,dateStr:null});
+            } else {
+              occurrences.forEach(({dow,dateStr})=>{
+                cards.push({key:`${t.id}-${dateStr}`,task:t,dowLabel:DOW_NAMES[dow],dateStr});
+              });
+            }
           }
-          const rec=data.recurrences.find(r=>r.id===t.recurrence);
-          if(!rec) return true;
-          for(let d=0;d<7;d++){
-            const dt=new Date(_wkStart);dt.setDate(_wkStart.getDate()+d);
-            const dow=dt.getDay();
-            if(rec.interval==="daily") return true;
-            if(rec.interval==="custom_days"&&Array.isArray(rec.days)&&rec.days.includes(dow)) return true;
-            if(rec.interval==="weekly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");if(dow===sd.getDay()) return true;}
-            if(rec.interval==="biweekly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");const diff=Math.round((dt-sd)/86400000);if(dow===sd.getDay()&&diff>=0&&diff%14===0) return true;}
-            if(rec.interval==="monthly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");if(dt.getDate()===sd.getDate()) return true;}
-          }
-          return false;
         });
+
+        // Ordenar por data
+        cards.sort((a,b)=>{
+          if(!a.dateStr&&!b.dateStr) return 0;
+          if(!a.dateStr) return 1;
+          if(!b.dateStr) return -1;
+          return a.dateStr<b.dateStr?-1:a.dateStr>b.dateStr?1:0;
+        });
+
         return(
           <div key={st.id} className="kanban-col" style={{flexShrink:0,width:268}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 12px",borderRadius:10,background:st.bg,border:`1.5px solid ${st.c}33`,marginBottom:10}}>
               <div style={{display:"flex",alignItems:"center",gap:7}}>
                 <span style={{width:9,height:9,borderRadius:"50%",background:st.c,display:"inline-block"}}/>
                 <span style={{fontSize:12,fontWeight:800,color:st.c}}>{st.l}</span>
-                <span style={{fontSize:11,fontWeight:800,color:st.c,background:st.c+"28",borderRadius:10,padding:"1px 7px"}}>{tasks.length}</span>
+                <span style={{fontSize:11,fontWeight:800,color:st.c,background:st.c+"28",borderRadius:10,padding:"1px 7px"}}>{cards.length}</span>
               </div>
               <button onClick={()=>onAdd(st.id)} style={{background:st.c+"20",border:"none",borderRadius:7,width:24,height:24,cursor:"pointer",color:st.c,fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {tasks.map(t=><TCard key={t.id} task={t} data={data} onEdit={onEdit} onDelete={onDelete} onComplete={onComplete}/>)}
-              {tasks.length===0&&<div style={{padding:18,textAlign:"center",fontSize:12,color:"#cbd5e1",border:"2px dashed #f1f5f9",borderRadius:10}}>Sem tarefas</div>}
+              {cards.map(({key,task:t,dowLabel,dateStr})=>(
+                <div key={key}>
+                  {dowLabel&&(
+                    <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",borderRadius:"8px 8px 0 0",background:dateStr===today?"linear-gradient(90deg,#f59e0b,#d97706)":"linear-gradient(90deg,#6366f1,#8b5cf6)",marginBottom:-2}}>
+                      <span style={{fontSize:11,fontWeight:900,color:"#fff",textTransform:"uppercase",letterSpacing:".06em"}}>{dowLabel}</span>
+                      {dateStr&&<span style={{fontSize:10,color:"rgba(255,255,255,.75)",marginLeft:4}}>{dateStr.slice(5).replace("-","/")}</span>}
+                      {dateStr===today&&<span style={{fontSize:10,color:"#fff",fontWeight:700,marginLeft:"auto"}}>hoje</span>}
+                    </div>
+                  )}
+                  <TCard key={t.id} task={t} data={data} onEdit={onEdit} onDelete={onDelete} onComplete={onComplete}/>
+                </div>
+              ))}
+              {cards.length===0&&<div style={{padding:18,textAlign:"center",fontSize:12,color:"#cbd5e1",border:"2px dashed #f1f5f9",borderRadius:10}}>Sem tarefas</div>}
             </div>
           </div>
         );

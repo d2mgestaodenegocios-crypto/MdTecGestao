@@ -377,6 +377,7 @@ function useSharedData() {
           createdAt: t.createdAt||"",
           completedAt: t.completedAt||null,
           archivedAt: t.archivedAt||null,
+          _copies: Array.isArray(t._copies)?[...t._copies]:[],
         }));
         setRaw(p);
       } else {
@@ -433,6 +434,7 @@ function useSharedData() {
             createdAt: t.createdAt||"",
             completedAt: t.completedAt||null,
             archivedAt: t.archivedAt||null,
+            _copies: Array.isArray(t._copies)?[...t._copies]:[],
           }));
           setRaw(p);
         }
@@ -2932,47 +2934,43 @@ function App(){
   // Auto-archive completed tasks older than archiveDays
   // Auto-archive handled manually via Config page
 
-  // quickComplete(task, dow, exactDate)
-  // - task: task object
-  // - dow: day-of-week number (Kanban card) or null
-  // - exactDate: ISO date string "2026-03-04" — the EXACT date to toggle in _copies
+  // quickComplete: cada ocorrência recorrente é INDEPENDENTE
+  // exactDate = string ISO da data exata do card (ex: "2026-03-04")
   const quickComplete=(task,dow=null,exactDate=null)=>{
     const lk=getLock(task.id);
     if(lk){toast(`🔒 ${lk.user} está editando. Aguarde.`,"lock",4000);return;}
 
-    // Read freshest data via ref
-    const freshData=dataRef.current;
-    const cur=freshData.tasks.find(t=>t.id===task.id);
-    if(!cur) return;
+    // Calcular data alvo FORA do setData (valores puros, sem closure)
+    const _n=new Date();
+    const targetDateStr=exactDate || _n.toISOString().slice(0,10);
 
-    if(cur.recurrence){
-      // Use exactDate if provided (from Kanban card with known date)
-      // Otherwise compute from dow or use today
-      let dateStr=exactDate;
-      if(!dateStr){
-        const _n=new Date();
-        const _ws=new Date(_n);_ws.setDate(_n.getDate()-_n.getDay());_ws.setHours(0,0,0,0);
-        const targetDow=dow!==null?Number(dow):_n.getDay();
-        const _dt=new Date(_ws);_dt.setDate(_ws.getDate()+targetDow);
-        dateStr=_dt.toISOString().slice(0,10);
+    setData(d=>{
+      // Lê estado ATUAL via argumento d (sempre fresco, sem stale closure)
+      const cur=d.tasks.find(t=>t.id===task.id);
+      if(!cur) return d;
+
+      if(cur.recurrence){
+        // RECORRENTE: toggle APENAS a data específica em _copies
+        // SEG e QUA são datas diferentes → completamente independentes
+        const copies=Array.isArray(cur._copies)?[...cur._copies]:[];
+        const already=copies.includes(targetDateStr);
+        const next=already
+          ?copies.filter(x=>x!==targetDateStr)
+          :[...copies,targetDateStr];
+        // Toast fora do setData para não causar side effect
+        setTimeout(()=>toast(already?"↩ Ocorrência reaberta.":"✅ Ocorrência concluída!","ok"),0);
+        return {...d,tasks:d.tasks.map(t=>t.id===cur.id?{...t,_copies:next}:t)};
       }
-      // Toggle ONLY this specific date — completely independent from other dates
-      const copies=Array.isArray(cur._copies)?[...cur._copies]:[];
-      const already=copies.includes(dateStr);
-      const next=already?copies.filter(x=>x!==dateStr):[...copies,dateStr];
-      setData(d=>({...d,tasks:d.tasks.map(t=>t.id===cur.id?{...t,_copies:next}:t)}));
-      toast(already?"↩ Ocorrência reaberta.":"✅ Ocorrência concluída!","ok");
-    } else {
-      // NON-RECURRING → toggle status done/todo
-      const todayDateStr=new Date().toISOString().slice(0,10);
+
+      // NÃO-RECORRENTE: alterna status done/todo
       const newStatus=cur.status==="done"?"todo":"done";
-      setData(d=>({...d,tasks:d.tasks.map(t=>t.id===cur.id?{
+      setTimeout(()=>toast(newStatus==="done"?"✅ Tarefa concluída!":"↩ Tarefa reaberta.","ok"),0);
+      return {...d,tasks:d.tasks.map(t=>t.id===cur.id?{
         ...t,status:newStatus,
-        completedAt:newStatus==="done"?todayDateStr:null,
+        completedAt:newStatus==="done"?targetDateStr:null,
         checklist:newStatus==="done"?t.checklist.map(c=>({...c,done:true})):t.checklist,
-      }:t)}));
-      toast(newStatus==="done"?"✅ Tarefa concluída!":"↩ Tarefa reaberta.","ok");
-    }
+      }:t)};
+    });
   };
 
   const useTemplate=(tpl)=>{

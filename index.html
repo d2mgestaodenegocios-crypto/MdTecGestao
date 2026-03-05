@@ -296,30 +296,36 @@ function useAuth() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Login: tenta colaborador local primeiro, depois Supabase Auth
-  const signIn = async (email, password, appData) => {
-    // Tentar como colaborador cadastrado no app_data
-    if(appData){
-      const collab = appData.collaborators?.find(c =>
-        c.email && c.email.toLowerCase() === email.toLowerCase() && c._pwdHash
-      );
-      if(collab){
-        const hash = await hashPwd(password);
-        if(hash === collab._pwdHash){
-          const sess = {
-            id: collab.id, email: collab.email,
-            user_metadata: {name: collab.name},
-            _localAuth: true, _collabId: collab.id
-          };
-          localStorage.setItem(LOCAL_KEY, JSON.stringify(sess));
-          setUser(sess);
-          return;
-        } else {
-          throw new Error("Email ou senha incorretos.");
+  // Login: busca dados do Supabase, verifica colaborador, senão tenta Supabase Auth
+  const signIn = async (email, password) => {
+    // 1. Buscar app_data direto do banco para verificar colaboradores
+    try{
+      const { data: row } = await sb.from("app_data").select("payload").eq("id",1).maybeSingle();
+      if(row?.payload?.collaborators){
+        const collab = row.payload.collaborators.find(c =>
+          c.email && c.email.toLowerCase() === email.toLowerCase() && c._pwdHash
+        );
+        if(collab){
+          const hash = await hashPwd(password);
+          if(hash === collab._pwdHash){
+            const sess = {
+              id: collab.id, email: collab.email,
+              user_metadata: {name: collab.name},
+              _localAuth: true, _collabId: collab.id
+            };
+            localStorage.setItem(LOCAL_KEY, JSON.stringify(sess));
+            setUser(sess);
+            return;
+          } else {
+            throw new Error("Email ou senha incorretos.");
+          }
         }
       }
+    } catch(e){
+      if(e.message === "Email ou senha incorretos.") throw e;
+      // Se falhar ao buscar dados, continua para Supabase Auth
     }
-    // Fallback: Supabase Auth (para admin)
+    // 2. Supabase Auth (para admin)
     const { error } = await sb.auth.signInWithPassword({ email, password });
     if (error) throw new Error("Email ou senha incorretos.");
   };
@@ -2680,7 +2686,7 @@ function App(){
   );
 
   // Não logado -> tela de login
-  if(!user) return <LoginScreen onLogin={(e,p)=>signIn(e,p,data)}/>;
+  if(!user) return <LoginScreen onLogin={signIn}/>;
 
   // Dados ainda sincronizando
   if(!synced) return(

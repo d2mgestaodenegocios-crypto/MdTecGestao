@@ -1830,25 +1830,54 @@ function SectorsPage({ data, setData }) {
 function CollaboratorsPage({ data, setData }) {
   const [open,setOpen]=useState(false);
   const [editing,setEditing]=useState(null);
-  const [form,setForm]=useState({name:"",role:"",companies:[],sectors:[],color:"#8b5cf6",initials:"",email:"",userId:"",accessLevel:"user"});
-  const openNew=()=>{setEditing(null);setForm({name:"",role:"",companies:[],sectors:[],color:"#8b5cf6",initials:"",email:"",userId:"",accessLevel:"user"});setOpen(true);};
+  const [form,setForm]=useState({name:"",role:"",companies:[],sectors:[],color:"#8b5cf6",initials:"",email:"",password:"",userId:"",accessLevel:"user"});
+  const openNew=()=>{setEditing(null);setForm({name:"",role:"",companies:[],sectors:[],color:"#8b5cf6",initials:"",email:"",password:"",userId:"",accessLevel:"user"});setOpen(true);};
   const openEdit=(u)=>{
     setEditing(u);
     setForm({name:u.name,role:u.role,
       companies:toArr(u.companies).length>0?toArr(u.companies):(u.company?[u.company]:[]),
       sectors:toArr(u.sectors).length>0?toArr(u.sectors):(u.sector?[u.sector]:[]),
       color:u.color,initials:u.initials,email:u.email||"",
-      userId:u.userId||"",accessLevel:u.accessLevel||"user"});
+      password:"",userId:u.userId||"",accessLevel:u.accessLevel||"user"});
     setOpen(true);
   };
   const togUCo=(id)=>setForm(f=>({...f,companies:toArr(f.companies).includes(id)?toArr(f.companies).filter(x=>x!==id):[...toArr(f.companies),id]}));
   const togUSec=(id)=>setForm(f=>({...f,sectors:toArr(f.sectors).includes(id)?toArr(f.sectors).filter(x=>x!==id):[...toArr(f.sectors),id]}));
-  const save=()=>{
+  const [savingUser,setSavingUser]=useState(false);
+  const [saveErr,setSaveErr]=useState("");
+  const save=async()=>{
     if(!form.name.trim())return;
+    setSaveErr("");
     const initials=form.initials||form.name.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2);
-    if(editing) setData(d=>({...d,collaborators:d.collaborators.map(u=>u.id===editing.id?{...u,...form,initials,accessLevel:form.accessLevel||"user"}:u)}));
-    else setData(d=>({...d,collaborators:[...d.collaborators,{id:uid(),...form,initials,accessLevel:form.accessLevel||"user"}]}));
-    setOpen(false);
+    if(editing){
+      // Ao editar: atualizar dados + senha se preenchida
+      if(form.password&&form.password.length>=6&&form.email){
+        setSavingUser(true);
+        try{
+          // Atualizar senha via Supabase Admin (signUp cria novo se não existir)
+          await sb.auth.admin?.updateUserById?.(form.userId,{password:form.password}).catch(()=>{});
+        } catch(e){}
+        setSavingUser(false);
+      }
+      setData(d=>({...d,collaborators:d.collaborators.map(u=>u.id===editing.id?{...u,...form,initials,password:"",accessLevel:form.accessLevel||"user"}:u)}));
+      setOpen(false);
+    } else {
+      // Novo colaborador: criar usuário no Supabase Auth
+      if(!form.email){setSaveErr("Email obrigatório para criar acesso.");return;}
+      if(!form.password||form.password.length<6){setSaveErr("Senha obrigatória (mín. 6 caracteres).");return;}
+      setSavingUser(true);
+      try{
+        const {error}=await sb.auth.signUp({
+          email:form.email,
+          password:form.password,
+          options:{data:{name:form.name}}
+        });
+        if(error){setSaveErr(error.message==="User already registered"?"Este email já está cadastrado.":error.message);setSavingUser(false);return;}
+      } catch(e){setSaveErr("Erro ao criar usuário.");setSavingUser(false);return;}
+      setSavingUser(false);
+      setData(d=>({...d,collaborators:[...d.collaborators,{id:uid(),...form,initials,password:"",accessLevel:form.accessLevel||"user"}]}));
+      setOpen(false);
+    }
   };
   const {ask:askDel,modal:delModal}=useConfirmDelete();
   const del=(id)=>{const item=data.collaborators.find(x=>x.id===id);askDel(`Colaborador: "${item?.name||""}"`,()=>setData(d=>({...d,collaborators:d.collaborators.filter(u=>u.id!==id)})));};
@@ -1903,6 +1932,10 @@ function CollaboratorsPage({ data, setData }) {
             <Inp label="Cargo" value={form.role} onChange={v=>setForm(f=>({...f,role:v}))} placeholder="Ex: Dev Frontend"/>
           </div>
           <Inp label="E-mail (usado no login)" value={form.email} onChange={v=>setForm(f=>({...f,email:v}))} placeholder="email@empresa.com"/>
+              <div style={{position:"relative"}}>
+                <Inp label={editing?"Nova senha (deixe vazio para manter)":"Senha *"} value={form.password||""} onChange={v=>setForm(f=>({...f,password:v}))} placeholder="Mínimo 6 caracteres" type="password"/>
+              </div>
+              {saveErr&&<div style={{fontSize:12,color:"#ef4444",fontWeight:600,padding:"6px 10px",background:"#fef2f2",borderRadius:8}}>{saveErr}</div>}
               <Sel label="Nível de acesso" value={form.accessLevel||"user"} onChange={v=>setForm(f=>({...f,accessLevel:v}))} options={[{value:"user",label:"👤 Usuário"},{value:"admin",label:"🔑 Administrador"}]}/>
           <div>
             <label style={{fontSize:12,fontWeight:700,color:"#64748b",display:"block",marginBottom:8}}>Empresas (opcional — vazio = todas)</label>
@@ -1924,7 +1957,7 @@ function CollaboratorsPage({ data, setData }) {
           <CPick value={form.color} onChange={v=>setForm(f=>({...f,color:v}))}/>
           <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
             <Btn onClick={()=>setOpen(false)} v="ghost">Cancelar</Btn>
-            <Btn onClick={save}>Salvar</Btn>
+            <Btn onClick={save} disabled={savingUser}>{savingUser?"⏳ Criando...":"Salvar"}</Btn>
           </div>
         </div>
       </Modal>

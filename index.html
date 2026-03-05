@@ -323,7 +323,7 @@ function useSharedData() {
         if (!p.archiveDays) p.archiveDays = 30;
         if (!p.recStatus) p.recStatus={};
         // MIGRAÇÃO: converter tarefas recorrentes antigas em tarefas reais
-        if(!p._migrated_v2){
+        if(!p._migrated_v3){
           const recTasks=p.tasks.filter(t=>t.recurrence);
           const normalTasks=p.tasks.filter(t=>!t.recurrence);
           const generated=[];
@@ -365,8 +365,12 @@ function useSharedData() {
             }
           });
           // Remover tarefas _parentId obsoletas
-          p.tasks=[...normalTasks.filter(t=>!t._parentId),...generated];
-          p._migrated_v2=true;
+          // Também resetar checklist de tarefas _recGroup já existentes (geradas sem reset)
+          const resetChecklist=p.tasks
+            .filter(t=>!t.recurrence)
+            .map(t=>t._recGroup?{...t,checklist:(t.checklist||[]).map(c=>({...c,done:false})),status:t.status==="archived"?t.status:"todo",completedAt:null}:t);
+          p.tasks=[...resetChecklist.filter(t=>!t._parentId&&!t.recurrence),...generated];
+          p._migrated_v3=true;
         }
         p.tasks = (p.tasks || []).map(t => ({
           id: t.id||uid(),
@@ -387,6 +391,7 @@ function useSharedData() {
           completedAt: t.completedAt||null,
           _copies: Array.isArray(t._copies)?[...t._copies]:[],
           archivedAt: t.archivedAt||null,
+          _recGroup: t._recGroup||null,
         }));
         setRaw(p);
       } else {
@@ -444,6 +449,7 @@ function useSharedData() {
             completedAt: t.completedAt||null,
             _copies: Array.isArray(t._copies)?[...t._copies]:[],
             archivedAt: t.archivedAt||null,
+            _recGroup: t._recGroup||null,
             }));
           setRaw(p);
         }

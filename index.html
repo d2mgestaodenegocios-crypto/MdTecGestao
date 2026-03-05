@@ -245,10 +245,16 @@ const MY_NAME=getUsername();
    ⚠️  Substitua pelos seus valores do Supabase */
 const SUPABASE_URL = "https://mcnwrwjzxyhvdcvusurd.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1jbndyd2p6eHlodmRjdnVzdXJkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI0NTE3MDMsImV4cCI6MjA4ODAyNzcwM30.934IFBKMu3inYavz7-9bnQszOUg5DegUPKPKJJOHTNo";
+// Cole aqui a service_role key do Supabase (Settings → API → service_role)
+const SUPABASE_SERVICE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1jbndyd2p6eHlodmRjdnVzdXJkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjQ1MTcwMywiZXhwIjoyMDg4MDI3NzAzfQ.BbTsLKfe2HYcSP_y8IoUpIpa6mo8IRK1M97_Hwq6yJQ";
 
 /* -- Cliente Supabase (via CDN) -- */
 const { createClient } = supabase;
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
+// Cliente admin (só usado para criar/gerenciar usuários)
+const sbAdmin = SUPABASE_SERVICE_KEY
+  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {auth:{autoRefreshToken:false,persistSession:false}})
+  : null;
 
 /* ===========================================
    AUTH HOOK */
@@ -1870,35 +1876,44 @@ function CollaboratorsPage({ data, setData }) {
       setSavingUser(true);
       try{
         // 1. Tentar criar o usuário
-        const {data:signUpData,error:signUpErr}=await sb.auth.signUp({
-          email:form.email,
-          password:form.password,
-          options:{data:{name:form.name},emailRedirectTo:null}
-        });
-        if(signUpErr){
-          const msg=signUpErr.message;
-          if(msg.includes("already registered")||msg.includes("already been registered")){
+        let authErr=null;
+        // Usar sbAdmin (service_role) se disponível — cria sem confirmação
+        if(sbAdmin){
+          const {data:au,error:ae}=await sbAdmin.auth.admin.createUser({
+            email:form.email,
+            password:form.password,
+            email_confirm:true,
+            user_metadata:{name:form.name}
+          });
+          authErr=ae;
+        } else {
+          // Fallback: signUp normal (pode exigir confirmação)
+          const {error:se}=await sb.auth.signUp({
+            email:form.email,
+            password:form.password,
+            options:{data:{name:form.name}}
+          });
+          authErr=se;
+        }
+        if(authErr){
+          const msg=authErr.message||"";
+          if(msg.includes("already registered")||msg.includes("already been registered")||msg.includes("already exists")){
             setSaveErr("Este email já está cadastrado no sistema.");
+          } else if(!sbAdmin&&(msg.includes("confirm")||msg.length===0)){
+            setSaveErr("⚠️ Usuário criado mas precisa confirmar email. Configure a service_role key para evitar isso.");
           } else {
             setSaveErr("Erro: "+msg);
           }
           setSavingUser(false);return;
         }
-        // 2. Tentar logar imediatamente para verificar se confirmação é necessária
-        const {error:signInErr}=await sb.auth.signInWithPassword({email:form.email,password:form.password});
-        const needsConfirm=signInErr&&(signInErr.message.includes("confirm")||signInErr.message.includes("Email not confirmed"));
         setSavingUser(false);
         setData(d=>({...d,collaborators:[...d.collaborators,{
           id:uid(),...form,initials,password:"",
           accessLevel:form.accessLevel||"user",
-          _authPending:needsConfirm
+          _authPending:false
         }]}));
-        if(needsConfirm){
-          setSaveErr("⚠️ Usuário criado! Confirme o email em: Supabase Dashboard → Authentication → Users → clique no email → Send confirmation");
-          // Não fechar o modal para que admin veja a instrução
-          return;
-        }
         setOpen(false);
+        toast("✅ Usuário "+form.name+" criado com sucesso!","ok");
       } catch(e){setSaveErr("Erro ao criar usuário: "+e.message);setSavingUser(false);return;}
     }
   };

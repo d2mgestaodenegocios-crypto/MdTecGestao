@@ -322,6 +322,52 @@ function useSharedData() {
         if (!p.services || !Array.isArray(p.services)) p.services = [];
         if (!p.archiveDays) p.archiveDays = 30;
         if (!p.recStatus) p.recStatus={};
+        // MIGRAÇÃO: converter tarefas recorrentes antigas em tarefas reais
+        if(!p._migrated_v2){
+          const recTasks=p.tasks.filter(t=>t.recurrence);
+          const normalTasks=p.tasks.filter(t=>!t.recurrence);
+          const generated=[];
+          recTasks.forEach(t=>{
+            const rec=(p.recurrences||[]).find(r=>r.id===t.recurrence);
+            if(!rec){generated.push({...t,recurrence:""});return;}
+            const today=new Date();today.setHours(0,0,0,0);
+            const end=new Date(today);end.setDate(today.getDate()+28);
+            const cleanChecklist=(t.checklist||[]).map(c=>({...c,done:false}));
+            if(rec.interval==="daily"){
+              for(let d=new Date(today);d<=end;d.setDate(d.getDate()+1)){
+                generated.push({...t,id:uid(),dueDate:d.toISOString().slice(0,10),recurrence:"",_recGroup:t.id,status:"todo",completedAt:null,checklist:cleanChecklist});
+              }
+            } else if(rec.interval==="custom_days"&&Array.isArray(rec.days)&&rec.days.length>0){
+              for(let d=new Date(today);d<=end;d.setDate(d.getDate()+1)){
+                if(rec.days.includes(d.getDay())){
+                  generated.push({...t,id:uid(),dueDate:d.toISOString().slice(0,10),recurrence:"",_recGroup:t.id,status:"todo",completedAt:null,checklist:cleanChecklist});
+                }
+              }
+            } else if(rec.interval==="weekly"){
+              const targetDow=t.dueDate?new Date(t.dueDate+"T12:00:00").getDay():today.getDay();
+              for(let d=new Date(today);d<=end;d.setDate(d.getDate()+1)){
+                if(d.getDay()===targetDow) generated.push({...t,id:uid(),dueDate:d.toISOString().slice(0,10),recurrence:"",_recGroup:t.id,status:"todo",completedAt:null,checklist:cleanChecklist});
+              }
+            } else if(rec.interval==="monthly"){
+              const td=t.dueDate?new Date(t.dueDate+"T12:00:00").getDate():today.getDate();
+              for(let m=0;m<3;m++){
+                const d=new Date(today.getFullYear(),today.getMonth()+m,td);
+                if(d>=today) generated.push({...t,id:uid(),dueDate:d.toISOString().slice(0,10),recurrence:"",_recGroup:t.id,status:"todo",completedAt:null,checklist:cleanChecklist});
+              }
+            } else if(rec.interval==="biweekly"){
+              const targetDow=t.dueDate?new Date(t.dueDate+"T12:00:00").getDay():today.getDay();
+              let cnt=0;
+              for(let d=new Date(today);d<=end;d.setDate(d.getDate()+1)){
+                if(d.getDay()===targetDow){if(cnt%2===0) generated.push({...t,id:uid(),dueDate:d.toISOString().slice(0,10),recurrence:"",_recGroup:t.id,status:"todo",completedAt:null,checklist:cleanChecklist});cnt++;}
+              }
+            } else {
+              generated.push({...t,recurrence:"",_recGroup:t.id});
+            }
+          });
+          // Remover tarefas _parentId obsoletas
+          p.tasks=[...normalTasks.filter(t=>!t._parentId),...generated];
+          p._migrated_v2=true;
+        }
         p.tasks = (p.tasks || []).map(t => ({
           id: t.id||uid(),
           title: t.title||"",

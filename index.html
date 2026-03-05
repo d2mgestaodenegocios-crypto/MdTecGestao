@@ -1107,6 +1107,17 @@ function TCard({task,data,onEdit,onDelete,onComplete}){
   const assignees=data.collaborators.filter(c=>task.assignees.includes(c.id));
   const labels=data.labels.filter(l=>task.labels.includes(l.id));
   const rec=task.recurrence?data.recurrences.find(r=>r.id===task.recurrence):null;
+
+  // Tag dia da semana para tarefas de grupo recorrente
+  const DOW_NAMES=["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
+  const DOW_COLORS=["#f59e0b","#6366f1","#14b8a6","#8b5cf6","#f97316","#22c55e","#ec4899"];
+  const dowTag=(()=>{
+    if(!task._recGroup||!task.dueDate) return null;
+    const d=new Date(task.dueDate+"T12:00:00");
+    const dow=d.getDay();
+    const isToday=task.dueDate===todayStr();
+    return {label:DOW_NAMES[dow],color:DOW_COLORS[dow],isToday};
+  })();
   const sector=task.sector?data.sectors.find(s=>s.id===task.sector):null;
   const company=data.companies.find(c=>c.id===task.company);
   const ckDone=task.checklist.filter(c=>c.done).length;
@@ -1130,6 +1141,13 @@ function TCard({task,data,onEdit,onDelete,onComplete}){
       {/* -- QUICK COMPLETE - 1 click, top right, outside card content -- */}
       <QCBtn status={task.status} onClick={()=>onComplete(task)} size={26} absolute={true}/>
 
+      {dowTag&&(
+        <div style={{display:"inline-flex",alignItems:"center",gap:5,marginBottom:8,padding:"3px 10px 3px 8px",borderRadius:20,background:dowTag.isToday?"linear-gradient(90deg,#f59e0b,#d97706)":dowTag.color+"22",border:`1.5px solid ${dowTag.color}`,alignSelf:"flex-start"}}>
+          <span style={{width:7,height:7,borderRadius:"50%",background:dowTag.color,flexShrink:0}}/>
+          <span style={{fontSize:11,fontWeight:900,color:dowTag.isToday?"#fff":dowTag.color,letterSpacing:".04em"}}>{dowTag.label}</span>
+          {dowTag.isToday&&<span style={{fontSize:10,color:"#fff",fontWeight:700,marginLeft:2}}>· hoje</span>}
+        </div>
+      )}
       {labels.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8,paddingRight:36}}>{labels.map(l=><Chip key={l.id} label={l.name} color={l.color}/>)}</div>}
 
       <div style={{fontSize:13,fontWeight:800,color:done?"#94a3b8":"#0f172a",marginBottom:6,lineHeight:1.4,paddingRight:36,textDecoration:done?"line-through":"none"}}>
@@ -2383,13 +2401,13 @@ function App(){
     if(rec.interval==="daily"){
       for(let d=new Date(today);d<=end;d.setDate(d.getDate()+1)){
         const ds=d.toISOString().slice(0,10);
-        tasks.push({...base,id:uid(),dueDate:ds,recurrence:"",_recGroup:base.id,createdAt:todayStr()});
+        tasks.push({...base,id:uid(),dueDate:ds,recurrence:"",_recGroup:base.id,createdAt:todayStr(),status:"todo",completedAt:null,checklist:(base.checklist||[]).map(c=>({...c,done:false}))});
       }
     } else if(rec.interval==="custom_days"&&Array.isArray(rec.days)&&rec.days.length>0){
       for(let d=new Date(today);d<=end;d.setDate(d.getDate()+1)){
         if(rec.days.includes(d.getDay())){
           const ds=d.toISOString().slice(0,10);
-          tasks.push({...base,id:uid(),dueDate:ds,recurrence:"",_recGroup:base.id,createdAt:todayStr()});
+          tasks.push({...base,id:uid(),dueDate:ds,recurrence:"",_recGroup:base.id,createdAt:todayStr(),status:"todo",completedAt:null,checklist:(base.checklist||[]).map(c=>({...c,done:false}))});
         }
       }
     } else if(rec.interval==="weekly"){
@@ -2397,7 +2415,7 @@ function App(){
       for(let d=new Date(today);d<=end;d.setDate(d.getDate()+1)){
         if(d.getDay()===targetDow){
           const ds=d.toISOString().slice(0,10);
-          tasks.push({...base,id:uid(),dueDate:ds,recurrence:"",_recGroup:base.id,createdAt:todayStr()});
+          tasks.push({...base,id:uid(),dueDate:ds,recurrence:"",_recGroup:base.id,createdAt:todayStr(),status:"todo",completedAt:null,checklist:(base.checklist||[]).map(c=>({...c,done:false}))});
         }
       }
     } else if(rec.interval==="biweekly"){
@@ -2407,7 +2425,7 @@ function App(){
         if(d.getDay()===targetDow){
           if(count%2===0){
             const ds=d.toISOString().slice(0,10);
-            tasks.push({...base,id:uid(),dueDate:ds,recurrence:"",_recGroup:base.id,createdAt:todayStr()});
+            tasks.push({...base,id:uid(),dueDate:ds,recurrence:"",_recGroup:base.id,createdAt:todayStr(),status:"todo",completedAt:null,checklist:(base.checklist||[]).map(c=>({...c,done:false}))});
           }
           count++;
         }
@@ -2418,7 +2436,7 @@ function App(){
         const d=new Date(today.getFullYear(),today.getMonth()+m,targetDay);
         if(d>=today){
           const ds=d.toISOString().slice(0,10);
-          tasks.push({...base,id:uid(),dueDate:ds,recurrence:"",_recGroup:base.id,createdAt:todayStr()});
+          tasks.push({...base,id:uid(),dueDate:ds,recurrence:"",_recGroup:base.id,createdAt:todayStr(),status:"todo",completedAt:null,checklist:(base.checklist||[]).map(c=>({...c,done:false}))});
         }
       }
     } else if(rec.interval==="yearly"){

@@ -1022,6 +1022,65 @@ function sanitizeTask(t){
     createdAt: t.createdAt||todayStr(),
   };
 }
+
+function DepPicker({tasks,selfId,selected,onChange,blocked}){
+  const [q,sq]=useState("");
+  const all=tasks.filter(t=>t.id!==selfId&&t.status!=="archived");
+  const filtered=q.trim()?all.filter(t=>t.title.toLowerCase().includes(q.toLowerCase())):all.slice(0,8);
+  const selTasks=tasks.filter(t=>selected.includes(t.id));
+  const toggle=(id)=>{
+    if(blocked) return;
+    onChange(selected.includes(id)?selected.filter(x=>x!==id):[...selected,id]);
+  };
+  return(
+    <div>
+      {selTasks.length>0&&(
+        <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:8}}>
+          {selTasks.map(t=>{
+            const st=STS.find(s=>s.id===t.status);
+            return(
+              <span key={t.id} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:20,background:"#eef2ff",border:"1.5px solid #6366f1",fontSize:11,fontWeight:700,color:"#6366f1"}}>
+                <span style={{width:6,height:6,borderRadius:"50%",background:st?.c||"#94a3b8",flexShrink:0}}/>
+                {t.title}
+                {!blocked&&<button onClick={()=>toggle(t.id)} style={{background:"none",border:"none",cursor:"pointer",color:"#6366f1",fontSize:13,lineHeight:1,padding:"0 0 0 2px",fontWeight:900}}>×</button>}
+              </span>
+            );
+          })}
+        </div>
+      )}
+      {!blocked&&(
+        <div style={{position:"relative"}}>
+          <input
+            value={q} onChange={e=>sq(e.target.value)}
+            placeholder="Buscar tarefa para adicionar dependência..."
+            style={{width:"100%",padding:"7px 12px",borderRadius:9,fontSize:12,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}
+          />
+          {(q||filtered.length>0)&&(
+            <div style={{position:"absolute",top:"100%",left:0,right:0,background:"#fff",border:"1.5px solid #e5e7eb",borderRadius:9,boxShadow:"0 8px 24px rgba(0,0,0,.1)",zIndex:50,maxHeight:200,overflowY:"auto",marginTop:3}}>
+              {filtered.length===0&&<div style={{padding:"10px 14px",fontSize:12,color:"#94a3b8"}}>Nenhuma tarefa encontrada</div>}
+              {filtered.map(t=>{
+                const sel=selected.includes(t.id);
+                const st=STS.find(s=>s.id===t.status);
+                return(
+                  <div key={t.id} onClick={()=>toggle(t.id)}
+                    style={{padding:"8px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:7,background:sel?"#eef2ff":"#fff",borderBottom:"1px solid #f8fafc",fontSize:12,fontWeight:sel?700:500,color:sel?"#6366f1":"#374151"}}
+                    onMouseEnter={e=>e.currentTarget.style.background=sel?"#e0e7ff":"#f8fafc"}
+                    onMouseLeave={e=>e.currentTarget.style.background=sel?"#eef2ff":"#fff"}
+                  >
+                    <span style={{width:7,height:7,borderRadius:"50%",background:st?.c||"#94a3b8",flexShrink:0}}/>
+                    <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</span>
+                    {sel&&<span style={{fontSize:14,color:"#6366f1",fontWeight:900}}>✓</span>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,onForce}){
   const blank={id:uid(),title:"",description:"",status:defStatus,priority:"media",company:"",sector:"",assignees:[],labels:[],dueDate:"",checklist:[],dependencies:[],recurrence:"",createdAt:todayStr()};
   const [f,sf]=useState(task?sanitizeTask(task):blank);
@@ -1073,13 +1132,7 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
       </Fld>
 
       <Fld label="Dependências">
-        <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-          {data.tasks.filter(t=>t.id!==f.id).map(t=>{const sel=f.dependencies.includes(t.id);const st=STS.find(s=>s.id===t.status);return(
-            <button key={t.id} onClick={()=>!blocked&&tog("dependencies",t.id)} style={{padding:"3px 10px",borderRadius:8,cursor:blocked?"not-allowed":"pointer",fontSize:12,fontWeight:600,border:`2px solid ${sel?"#6366f1":"#e5e7eb"}`,background:sel?"#eef2ff":"#f9fafb",color:sel?"#6366f1":"#6b7280",fontFamily:"inherit",transition:"all .12s",display:"flex",alignItems:"center",gap:5,opacity:blocked?.7:1}}>
-              <span style={{width:6,height:6,borderRadius:"50%",background:st?.c,flexShrink:0}}/>{t.title}
-            </button>
-          );})}
-        </div>
+        <DepPicker tasks={data.tasks} selfId={f.id} selected={f.dependencies} onChange={v=>!blocked&&setF(x=>({...x,dependencies:v}))} blocked={blocked}/>
       </Fld>
 
       <Fld label="Checklist">
@@ -1260,7 +1313,21 @@ function TCard({task,data,onEdit,onDelete,onComplete}){
 /* ===========================================
    KANBAN VIEW */
 function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
+  const [showOverdue,setShowOverdue]=useState(true);
+  const [showToday,setShowToday]=useState(true);
+  const today=todayStr();
+  const btnStyle=(active,color)=>({
+    padding:"4px 12px",borderRadius:20,border:`1.5px solid ${color}`,
+    background:active?color:color+"18",color:active?"#fff":color,
+    fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .15s"
+  });
   return(
+    <div>
+      <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center"}}>
+        <span style={{fontSize:12,fontWeight:700,color:"#64748b"}}>Mostrar:</span>
+        <button style={btnStyle(showOverdue,"#ef4444")} onClick={()=>setShowOverdue(v=>!v)}>🔴 Vencidas</button>
+        <button style={btnStyle(showToday,"#f59e0b")} onClick={()=>setShowToday(v=>!v)}>🟡 Vence hoje</button>
+      </div>
     <div className="kanban-wrap" style={{display:"flex",gap:14,overflowX:"auto",paddingBottom:20,alignItems:"flex-start"}}>
       {STS.filter(st=>st.id!=="archived").map(st=>{
         const now=new Date();
@@ -1270,8 +1337,11 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
           if(t.status!==st.id||t.status==="archived") return false;
           if(!t.dueDate) return true;
           const due=new Date(t.dueDate+"T12:00:00");
-          const isOverdue=due<now;
-          return isOverdue||(due>=wkStart&&due<=wkEnd);
+          const isOverdue=due<now&&t.dueDate!==today;
+          const isDueToday=t.dueDate===today;
+          if(isOverdue&&!showOverdue) return false;
+          if(isDueToday&&!showToday) return false;
+          return isOverdue||isDueToday||(due>=wkStart&&due<=wkEnd);
         });
         tasks.sort((a,b)=>(a.dueDate||"").localeCompare(b.dueDate||""));
         return(
@@ -1291,6 +1361,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
           </div>
         );
       })}
+    </div>
     </div>
   );
 }
@@ -1522,22 +1593,55 @@ function CompaniesPage({ data, setData }) {
       setData(d=>{
         let tasks=[...d.tasks];
         svcs.forEach(svc=>{
-          const exists=tasks.some(t=>t.company===coId&&t._serviceId===svc.id);
-          if(!exists){
-            tasks.push({
+          const existsAny=tasks.some(t=>t.company===coId&&t._serviceId===svc.id);
+          if(!existsAny){
+            const rec=data.recurrences.find(r=>r.id===svc.recurrence);
+            const base={
               id:uid(),title:svc.name,description:svc.description||"",
               status:svc.status||"todo",priority:svc.priority||"media",
               company:coId,sector:svc.sector||"",
               assignees:toArr(svc.assignees),labels:toArr(svc.labels),
               checklist:toArr(svc.checklist).map(ck=>({...ck,done:false})),
-              dependencies:[],recurrence:svc.recurrence||"",
+              dependencies:[],recurrence:"",
               dueDate:svc.defaultDue||"",
               createdAt:todayStr(),completedAt:null,archivedAt:null,
               _serviceId:svc.id,
-            });
+            };
+            if(rec){
+              const startDate=svc.mesInicio?new Date(svc.mesInicio+"-01T00:00:00"):new Date();
+              startDate.setHours(0,0,0,0);
+              const endDate=new Date(startDate);endDate.setMonth(startDate.getMonth()+3);
+              const cleanCk=toArr(svc.checklist).map(ck=>({...ck,done:false}));
+              const gId=base.id;
+              if(rec.interval==="monthly"||rec.interval==="yearly"){
+                const targetDay=svc.defaultDue?new Date(svc.defaultDue+"T12:00:00").getDate():1;
+                for(let m=0;m<3;m++){
+                  const d=new Date(startDate.getFullYear(),startDate.getMonth()+m,targetDay);
+                  if(d>=startDate) tasks.push({...base,id:uid(),dueDate:d.toISOString().slice(0,10),checklist:cleanCk,_recGroup:gId});
+                }
+              } else if(rec.interval==="custom_days"&&Array.isArray(rec.days)&&rec.days.length>0){
+                for(let d=new Date(startDate);d<=endDate;d.setDate(d.getDate()+1)){
+                  if(rec.days.includes(d.getDay())) tasks.push({...base,id:uid(),dueDate:d.toISOString().slice(0,10),checklist:cleanCk,_recGroup:gId});
+                }
+              } else if(rec.interval==="weekly"){
+                const tdow=svc.defaultDue?new Date(svc.defaultDue+"T12:00:00").getDay():1;
+                for(let d=new Date(startDate);d<=endDate;d.setDate(d.getDate()+1)){
+                  if(d.getDay()===tdow) tasks.push({...base,id:uid(),dueDate:d.toISOString().slice(0,10),checklist:cleanCk,_recGroup:gId});
+                }
+              } else if(rec.interval==="daily"){
+                const endD28=new Date(startDate);endD28.setDate(startDate.getDate()+28);
+                for(let d=new Date(startDate);d<=endD28;d.setDate(d.getDate()+1)){
+                  tasks.push({...base,id:uid(),dueDate:d.toISOString().slice(0,10),checklist:cleanCk,_recGroup:gId});
+                }
+              } else {
+                tasks.push(base);
+              }
+            } else {
+              tasks.push(base);
+            }
           }
         });
-        return {...d,tasks};
+        return {...d,tasks};;
       });
     }
     setOpen(false);
@@ -1938,7 +2042,7 @@ function RecurrencesPage({ data, setData }) {
 
 // --- SERVIÇOS ---------------------------------------------------
 function ServicosPage({ data, setData }) {
-  const blankSvc={name:"",description:"",color:"#6366f1",status:"todo",priority:"media",recurrence:"",defaultDue:"",sector:"",assignees:[],labels:[],checklist:[]};
+  const blankSvc={name:"",description:"",color:"#6366f1",status:"todo",priority:"media",recurrence:"",defaultDue:"",mesInicio:"",sector:"",assignees:[],labels:[],checklist:[]};
   const [open,setOpen]=useState(false);
   const [editing,setEditing]=useState(null);
   const [form,setForm]=useState(blankSvc);
@@ -1952,9 +2056,34 @@ function ServicosPage({ data, setData }) {
   const save=()=>{
     if(!form.name.trim())return;
     const svc={...form,checklist:toArr(form.checklist),assignees:toArr(form.assignees),labels:toArr(form.labels)};
-    if(editing) setData(d=>({...d,services:d.services.map(s=>s.id===editing.id?{...s,...svc}:s)}));
-    else setData(d=>({...d,services:[...(d.services||[]),{id:uid(),...svc}]}));
+    if(editing){
+      setData(d=>{
+        // Atualizar o serviço
+        const services=d.services.map(s=>s.id===editing.id?{...s,...svc}:s);
+        // Auto-atualizar tarefas vinculadas (mesmo _serviceId) que ainda estão pendentes
+        const tasks=d.tasks.map(t=>{
+          if(t._serviceId!==editing.id||t.status==="archived"||t.status==="done") return t;
+          return {
+            ...t,
+            title:svc.name,
+            description:svc.description||t.description,
+            priority:svc.priority||t.priority,
+            sector:svc.sector||t.sector,
+            assignees:toArr(svc.assignees).length>0?toArr(svc.assignees):t.assignees,
+            labels:toArr(svc.labels).length>0?toArr(svc.labels):t.labels,
+            dueDate:svc.defaultDue||t.dueDate,
+            checklist:t.checklist.every(c=>!c.done)
+              ?toArr(svc.checklist).map(ck=>({...ck,done:false}))
+              :t.checklist,
+          };
+        });
+        return {...d,services,tasks};
+      });
+    } else {
+      setData(d=>({...d,services:[...(d.services||[]),{id:uid(),...svc}]}));
+    }
     setOpen(false);
+    toast(editing?"✦ Serviço e tarefas atualizados!":"✦ Serviço criado!","ok");
   };
   const {ask:askDel,modal:delModal}=useConfirmDelete();
   const del=(id)=>{const item=(data.services||[]).find(x=>x.id===id);askDel(`Servico: "${item?.name||""}"`,()=>setData(d=>({...d,services:d.services.filter(s=>s.id!==id)})));};
@@ -2059,7 +2188,10 @@ function ServicosPage({ data, setData }) {
         </div>}
         {tab==="config"&&<div style={{display:"flex",flexDirection:"column",gap:14}}>
           <Sel label="Recorrencia padrao" value={form.recurrence||""} onChange={v=>set("recurrence",v)} placeholder="Sem recorrencia" options={data.recurrences.map(r=>({value:r.id,label:r.name}))}/>
-          <Inp label="Vencimento padrao" value={form.defaultDue||""} onChange={v=>set("defaultDue",v)} type="date" hint="A tarefa gerada usara esta data como vencimento inicial"/>
+          <div className="g2">
+              <Inp label="Mes de inicio" value={form.mesInicio||""} onChange={v=>set("mesInicio",v)} type="month" hint="Mes em que a recorrencia mensal inicia"/>
+              <Inp label="Vencimento padrao" value={form.defaultDue||""} onChange={v=>set("defaultDue",v)} type="date" hint="Data de vencimento da primeira ocorrencia"/>
+            </div>
           <div style={{padding:"14px",background:"#f8fafc",borderRadius:10,fontSize:12,color:"#64748b",lineHeight:1.7}}>
             <strong style={{color:"#0f172a",display:"block",marginBottom:6}}>Como funciona:</strong>
             1. Cadastre o servico preenchendo todas as abas (Geral, Responsaveis, Checklist, Recorrencia).<br/>
@@ -2573,7 +2705,11 @@ function App(){
     setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{
       ...t,status:next,
       completedAt:next==="done"?todayStr():null,
-      checklist:next==="done"?t.checklist.map(c=>({...c,done:true})):t.checklist,
+      checklist:next==="done"
+        ?t.checklist.map(c=>({...c,done:true}))
+        :next==="todo"
+          ?t.checklist.map(c=>({...c,done:false}))
+          :t.checklist,
     }:t)}));
     toast(`→ ${LABELS[cur]}!`,"ok");
   };

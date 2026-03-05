@@ -296,38 +296,38 @@ function useAuth() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Login: busca dados do Supabase, verifica colaborador, senão tenta Supabase Auth
+  // Login: usa service_role para buscar dados (ignora RLS)
   const signIn = async (email, password) => {
-    // 1. Buscar app_data direto do banco para verificar colaboradores
-    try{
-      const { data: row } = await sb.from("app_data").select("payload").eq("id",1).maybeSingle();
-      if(row?.payload?.collaborators){
-        const collab = row.payload.collaborators.find(c =>
-          c.email && c.email.toLowerCase() === email.toLowerCase() && c._pwdHash
-        );
-        if(collab){
-          const hash = await hashPwd(password);
-          if(hash === collab._pwdHash){
-            const sess = {
-              id: collab.id, email: collab.email,
-              user_metadata: {name: collab.name},
-              _localAuth: true, _collabId: collab.id
-            };
-            localStorage.setItem(LOCAL_KEY, JSON.stringify(sess));
-            setUser(sess);
-            return;
-          } else {
-            throw new Error("Email ou senha incorretos.");
-          }
-        }
-      }
-    } catch(e){
-      if(e.message === "Email ou senha incorretos.") throw e;
-      // Se falhar ao buscar dados, continua para Supabase Auth
+    // 1. Primeiro tenta Supabase Auth (admin)
+    const { data: authData, error: authErr } = await sb.auth.signInWithPassword({ email, password });
+    if(!authErr && authData?.user){
+      // Login admin via Supabase Auth funcionou
+      return;
     }
-    // 2. Supabase Auth (para admin)
-    const { error } = await sb.auth.signInWithPassword({ email, password });
-    if (error) throw new Error("Email ou senha incorretos.");
+    // 2. Buscar colaboradores via service_role (ignora RLS)
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/app_data?select=payload&id=eq.1`,
+      { headers: {
+        "apikey": SUPABASE_SERVICE_KEY,
+        "Authorization": "Bearer " + SUPABASE_SERVICE_KEY,
+        "Content-Type": "application/json"
+      }}
+    );
+    if(!res.ok) throw new Error("Email ou senha incorretos.");
+    const rows = await res.json();
+    const collabs = rows?.[0]?.payload?.collaborators || [];
+    const collab = collabs.find(c => c.email && c.email.toLowerCase() === email.toLowerCase());
+    if(!collab || !collab._pwdHash) throw new Error("Email ou senha incorretos.");
+    const hash = await hashPwd(password);
+    if(hash !== collab._pwdHash) throw new Error("Email ou senha incorretos.");
+    // Login local aprovado
+    const sess = {
+      id: collab.id, email: collab.email,
+      user_metadata: {name: collab.name},
+      _localAuth: true, _collabId: collab.id
+    };
+    localStorage.setItem(LOCAL_KEY, JSON.stringify(sess));
+    setUser(sess);
   };
 
   const signOut = () => {

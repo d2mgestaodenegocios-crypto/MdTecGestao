@@ -528,7 +528,7 @@ function LoginScreen({ onLogin, onSignUp }) {
         <div style={{ background: "#fff", borderRadius: 20, padding: "28px 24px", boxShadow: "0 32px 80px rgba(0,0,0,.4)" }}>
           {/* Tabs */}
           <div style={{ display: "flex", gap: 4, marginBottom: 24, background: "#f1f5f9", borderRadius: 10, padding: 4 }}>
-            {[["login","Entrar"],["signup","Criar conta"]].map(([m,l]) => (
+            {[["login","Entrar"]].map(([m,l]) => (
               <button key={m} onClick={() => { setMode(m); setError(""); setSuccess(""); }} style={{ flex: 1, padding: "8px", borderRadius: 7, border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 700, background: mode === m ? "#fff" : "transparent", color: mode === m ? "#6366f1" : "#64748b", transition: "all .15s", boxShadow: mode === m ? "0 1px 4px rgba(0,0,0,.1)" : "none" }}>{l}</button>
             ))}
           </div>
@@ -1112,11 +1112,11 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
 
       <Sel label="Recorrência" value={f.recurrence||""} onChange={v=>set("recurrence",v)} placeholder="Sem recorrência" options={data.recurrences.map(r=>({value:r.id,label:r.name}))} disabled={blocked}/>
 
-      <Fld label="Responsáveis">
+      <Fld label={`Responsáveis (máx. 2)${(f.assignees||[]).length>=2?" · limite":""}`}>
         {fC.length===0?<p style={{fontSize:12,color:"#94a3b8"}}>Nenhum colaborador cadastrado ainda.</p>:
           <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-            {fC.map(u=>{const sel=f.assignees.includes(u.id);return(
-              <button key={u.id} onClick={()=>!blocked&&tog("assignees",u.id)} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px 4px 5px",borderRadius:20,border:`2px solid ${sel?u.color:"#e5e7eb"}`,background:sel?u.color+"18":"#f9fafb",color:sel?u.color:"#6b7280",cursor:blocked?"not-allowed":"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit",transition:"all .12s",opacity:blocked?.7:1}}>
+            {fC.map(u=>{const sel=(f.assignees||[]).includes(u.id);const maxed=!sel&&(f.assignees||[]).length>=2;return(
+              <button key={u.id} onClick={()=>!blocked&&!maxed&&tog("assignees",u.id)} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px 4px 5px",borderRadius:20,border:`2px solid ${sel?u.color:"#e5e7eb"}`,background:sel?u.color+"18":"#f9fafb",color:sel?u.color:"#6b7280",cursor:(blocked||maxed)?"not-allowed":"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit",transition:"all .12s",opacity:(blocked||maxed)?.5:1}}>
                 <Av initials={u.initials} color={u.color} size={22}/>{u.name}
               </button>
             );})}
@@ -1705,7 +1705,8 @@ function CompaniesPage({ data, setData }) {
           <CPick value={form.color} onChange={v=>setForm(f=>({...f,color:v}))}/>
         </div>}
         {tab==="contato"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
-          <Inp label="E-mail" value={form.email} onChange={v=>setForm(f=>({...f,email:v}))} placeholder="email@empresa.com"/>
+          <Inp label="E-mail (login)" value={form.email} onChange={v=>setForm(f=>({...f,email:v}))} placeholder="email@empresa.com"/>
+              <Sel label="Nível de Acesso" value={form.accessLevel||"user"} onChange={v=>setForm(f=>({...f,accessLevel:v}))} options={[{value:"admin",label:"🔑 Administrador"},{value:"user",label:"👤 Usuário"}]}/>
           <Inp label="Telefone" value={form.telefone} onChange={v=>setForm(f=>({...f,telefone:v}))} placeholder="(00) 00000-0000"/>
         </div>}
         {tab==="servicos"&&<div style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -1819,14 +1820,15 @@ function SectorsPage({ data, setData }) {
 function CollaboratorsPage({ data, setData }) {
   const [open,setOpen]=useState(false);
   const [editing,setEditing]=useState(null);
-  const [form,setForm]=useState({name:"",role:"",companies:[],sectors:[],color:"#8b5cf6",initials:"",email:""});
-  const openNew=()=>{setEditing(null);setForm({name:"",role:"",companies:[],sectors:[],color:"#8b5cf6",initials:"",email:""});setOpen(true);};
+  const [form,setForm]=useState({name:"",role:"",companies:[],sectors:[],color:"#8b5cf6",initials:"",email:"",userId:"",accessLevel:"user"});
+  const openNew=()=>{setEditing(null);setForm({name:"",role:"",companies:[],sectors:[],color:"#8b5cf6",initials:"",email:"",userId:"",accessLevel:"user"});setOpen(true);};
   const openEdit=(u)=>{
     setEditing(u);
     setForm({name:u.name,role:u.role,
       companies:toArr(u.companies).length>0?toArr(u.companies):(u.company?[u.company]:[]),
       sectors:toArr(u.sectors).length>0?toArr(u.sectors):(u.sector?[u.sector]:[]),
-      color:u.color,initials:u.initials,email:u.email||""});
+      color:u.color,initials:u.initials,email:u.email||"",
+      userId:u.userId||"",accessLevel:u.accessLevel||"user"});
     setOpen(true);
   };
   const togUCo=(id)=>setForm(f=>({...f,companies:toArr(f.companies).includes(id)?toArr(f.companies).filter(x=>x!==id):[...toArr(f.companies),id]}));
@@ -1834,8 +1836,8 @@ function CollaboratorsPage({ data, setData }) {
   const save=()=>{
     if(!form.name.trim())return;
     const initials=form.initials||form.name.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2);
-    if(editing) setData(d=>({...d,collaborators:d.collaborators.map(u=>u.id===editing.id?{...u,...form,initials}:u)}));
-    else setData(d=>({...d,collaborators:[...d.collaborators,{id:uid(),...form,initials}]}));
+    if(editing) setData(d=>({...d,collaborators:d.collaborators.map(u=>u.id===editing.id?{...u,...form,initials,accessLevel:form.accessLevel||"user"}:u)}));
+    else setData(d=>({...d,collaborators:[...d.collaborators,{id:uid(),...form,initials,accessLevel:form.accessLevel||"user"}]}));
     setOpen(false);
   };
   const {ask:askDel,modal:delModal}=useConfirmDelete();
@@ -1856,7 +1858,12 @@ function CollaboratorsPage({ data, setData }) {
                 <Av initials={u.initials} color={u.color} size={54}/>
               </div>
               <div style={{fontWeight:900,fontSize:14,color:"#0f172a",marginBottom:2}}>{u.name}</div>
-              <div style={{fontSize:12,color:"#94a3b8",marginBottom:8}}>{u.role}</div>
+              <div style={{fontSize:12,color:"#94a3b8",marginBottom:4}}>{u.role}</div>
+              <div style={{marginBottom:8}}>
+                <span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:u.accessLevel==="admin"?"#fef3c7":"#f1f5f9",color:u.accessLevel==="admin"?"#d97706":"#64748b",fontWeight:700,border:u.accessLevel==="admin"?"1px solid #fcd34d":"1px solid #e2e8f0"}}>
+                  {u.accessLevel==="admin"?"🔑 Admin":"👤 Usuário"}
+                </span>
+              </div>
               {u.email&&<div style={{fontSize:11,color:"#64748b",marginBottom:8,wordBreak:"break-all"}}>✉ {u.email}</div>}
               <div style={{display:"flex",gap:4,justifyContent:"center",flexWrap:"wrap",marginBottom:12}}>
                 {(()=>{const uCos=toArr(u.companies).length>0?toArr(u.companies):(u.company?[u.company]:[]);const cos=data.companies.filter(c=>uCos.includes(c.id));return cos.length>0?cos.map(c=><Chip key={c.id} label={c.name} color={c.color}/>):<Chip label="Todas as empresas" color="#94a3b8"/>;})()}
@@ -2550,6 +2557,15 @@ function App(){
   );
 
   const userName = user.user_metadata?.name || user.email?.split("@")[0] || "Usuário";
+  // Encontrar colaborador vinculado ao email logado
+  const myCollab = data.collaborators.find(c=>c.email&&c.email.toLowerCase()===user.email?.toLowerCase());
+  const isAdmin = !myCollab || myCollab.accessLevel==="admin"; // sem collab = admin (dono do sistema)
+  const myCollabId = myCollab?.id||null;
+  // Filtrar tarefas para o usuário atual
+  const visibleTasks = isAdmin
+    ? data.tasks
+    : data.tasks.filter(t=>t.assignees&&t.assignees.includes(myCollabId));
+  const dataForUser = isAdmin ? data : {...data, tasks: visibleTasks};
 
   const openNew=(status="todo")=>setTM({open:true,task:null,defStatus:status,lockInfo:null});
 
@@ -2754,7 +2770,7 @@ function App(){
           </div>
         )}
         <nav className="sb-nav" style={{flex:1,padding:"8px 10px",overflowY:"auto",display:"flex",flexDirection:"column"}}>
-          {NAV_GROUPS.map(group=>(
+          {NAV_GROUPS.filter(g=>isAdmin||g.label==="Visualizações").map(group=>(
             <div key={group.label} style={{marginBottom:8}}>
               {!sideCol&&<div className="sb-section-lbl" style={{fontSize:9,fontWeight:800,color:"#334155",textTransform:"uppercase",letterSpacing:".1em",padding:"8px 10px 4px"}}>{group.label}</div>}
               {group.items.map(item=>{
@@ -2817,11 +2833,11 @@ function App(){
           </div>
         </div>
 
-        {page==="dashboard"     && <Dashboard data={data}/>}
-        {page==="kanban"        && <KanbanView data={data} onEdit={openEdit} onDelete={deleteTask} onAdd={openNew} onComplete={quickComplete}/>}
-        {page==="lista"         && <ListView data={data} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete}/>}
-        {page==="calendario"    && <CalView data={data} onEdit={openEdit}/>}
-        {page==="tabela"        && <GridView data={data} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete}/>}
+        {page==="dashboard"     && <Dashboard data={dataForUser}/>}
+        {page==="kanban"        && <KanbanView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onAdd={openNew} onComplete={quickComplete}/>}
+        {page==="lista"         && <ListView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete}/>}
+        {page==="calendario"    && <CalView data={dataForUser} onEdit={openEdit}/>}
+        {page==="tabela"        && <GridView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete}/>}
         {page==="servicos"      && <ServicosPage data={data} setData={setData}/>}
         {page==="modelos"       && <TemplatesPage data={data} setData={setData} onUseTemplate={useTemplate}/>}
         {page==="empresas"      && <CompaniesPage data={data} setData={setData}/>}

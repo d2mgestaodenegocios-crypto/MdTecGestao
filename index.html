@@ -1025,8 +1025,9 @@ function sanitizeTask(t){
 
 function DepPicker({tasks,selfId,selected,onChange,blocked}){
   const [q,sq]=useState("");
+  const [open,setOpen]=useState(false);
   const all=tasks.filter(t=>t.id!==selfId&&t.status!=="archived");
-  const filtered=q.trim()?all.filter(t=>t.title.toLowerCase().includes(q.toLowerCase())):all.slice(0,8);
+  const filtered=q.trim()?all.filter(t=>t.title.toLowerCase().includes(q.toLowerCase())):[];
   const selTasks=tasks.filter(t=>selected.includes(t.id));
   const toggle=(id)=>{
     if(blocked) return;
@@ -1042,7 +1043,7 @@ function DepPicker({tasks,selfId,selected,onChange,blocked}){
               <span key={t.id} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:20,background:"#eef2ff",border:"1.5px solid #6366f1",fontSize:11,fontWeight:700,color:"#6366f1"}}>
                 <span style={{width:6,height:6,borderRadius:"50%",background:st?.c||"#94a3b8",flexShrink:0}}/>
                 {t.title}
-                {!blocked&&<button onClick={()=>toggle(t.id)} style={{background:"none",border:"none",cursor:"pointer",color:"#6366f1",fontSize:13,lineHeight:1,padding:"0 0 0 2px",fontWeight:900}}>×</button>}
+                {!blocked&&<button onClick={(e)=>{e.stopPropagation();toggle(t.id);}} style={{background:"none",border:"none",cursor:"pointer",color:"#6366f1",fontSize:13,lineHeight:1,padding:"0 0 0 2px",fontWeight:900}}>×</button>}
               </span>
             );
           })}
@@ -1051,28 +1052,34 @@ function DepPicker({tasks,selfId,selected,onChange,blocked}){
       {!blocked&&(
         <div style={{position:"relative"}}>
           <input
-            value={q} onChange={e=>sq(e.target.value)}
-            placeholder="Buscar tarefa para adicionar dependência..."
+            value={q}
+            onChange={e=>{sq(e.target.value);setOpen(true);}}
+            onFocus={()=>setOpen(true)}
+            onBlur={()=>setTimeout(()=>setOpen(false),150)}
+            placeholder="Digite para buscar tarefa..."
             style={{width:"100%",padding:"7px 12px",borderRadius:9,fontSize:12,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}
           />
-          {(q||filtered.length>0)&&(
-            <div style={{position:"absolute",top:"100%",left:0,right:0,background:"#fff",border:"1.5px solid #e5e7eb",borderRadius:9,boxShadow:"0 8px 24px rgba(0,0,0,.1)",zIndex:50,maxHeight:200,overflowY:"auto",marginTop:3}}>
-              {filtered.length===0&&<div style={{padding:"10px 14px",fontSize:12,color:"#94a3b8"}}>Nenhuma tarefa encontrada</div>}
-              {filtered.map(t=>{
-                const sel=selected.includes(t.id);
-                const st=STS.find(s=>s.id===t.status);
-                return(
-                  <div key={t.id} onClick={()=>toggle(t.id)}
-                    style={{padding:"8px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:7,background:sel?"#eef2ff":"#fff",borderBottom:"1px solid #f8fafc",fontSize:12,fontWeight:sel?700:500,color:sel?"#6366f1":"#374151"}}
-                    onMouseEnter={e=>e.currentTarget.style.background=sel?"#e0e7ff":"#f8fafc"}
-                    onMouseLeave={e=>e.currentTarget.style.background=sel?"#eef2ff":"#fff"}
-                  >
-                    <span style={{width:7,height:7,borderRadius:"50%",background:st?.c||"#94a3b8",flexShrink:0}}/>
-                    <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</span>
-                    {sel&&<span style={{fontSize:14,color:"#6366f1",fontWeight:900}}>✓</span>}
-                  </div>
-                );
-              })}
+          {open&&q.trim()&&(
+            <div style={{position:"absolute",top:"100%",left:0,right:0,background:"#fff",border:"1.5px solid #e5e7eb",borderRadius:9,boxShadow:"0 8px 24px rgba(0,0,0,.1)",zIndex:999,maxHeight:200,overflowY:"auto",marginTop:3}}>
+              {filtered.length===0
+                ?<div style={{padding:"10px 14px",fontSize:12,color:"#94a3b8"}}>Nenhuma tarefa encontrada</div>
+                :filtered.map(t=>{
+                  const sel=selected.includes(t.id);
+                  const st=STS.find(s=>s.id===t.status);
+                  return(
+                    <div key={t.id}
+                      onMouseDown={e=>{e.preventDefault();toggle(t.id);sq("");}}
+                      style={{padding:"8px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:7,background:sel?"#eef2ff":"#fff",borderBottom:"1px solid #f8fafc",fontSize:12,fontWeight:sel?700:500,color:sel?"#6366f1":"#374151"}}
+                      onMouseEnter={e=>e.currentTarget.style.background=sel?"#e0e7ff":"#f8fafc"}
+                      onMouseLeave={e=>e.currentTarget.style.background=sel?"#eef2ff":"#fff"}
+                    >
+                      <span style={{width:7,height:7,borderRadius:"50%",background:st?.c||"#94a3b8",flexShrink:0}}/>
+                      <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</span>
+                      {sel&&<span style={{fontSize:14,color:"#6366f1",fontWeight:900}}>✓</span>}
+                    </div>
+                  );
+                })
+              }
             </div>
           )}
         </div>
@@ -1313,20 +1320,21 @@ function TCard({task,data,onEdit,onDelete,onComplete}){
 /* ===========================================
    KANBAN VIEW */
 function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
-  const [showOverdue,setShowOverdue]=useState(true);
-  const [showToday,setShowToday]=useState(true);
+  const [kanbanFilter,setKanbanFilter]=useState("week"); // "week"|"overdue"|"today"|"all"
   const today=todayStr();
-  const btnStyle=(active,color)=>({
-    padding:"4px 12px",borderRadius:20,border:`1.5px solid ${color}`,
-    background:active?color:color+"18",color:active?"#fff":color,
+  const btnStyle=(active)=>({
+    padding:"4px 14px",borderRadius:20,border:"1.5px solid "+(active?"#6366f1":"#e2e8f0"),
+    background:active?"#6366f1":"#f8fafc",color:active?"#fff":"#64748b",
     fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .15s"
   });
   return(
     <div>
-      <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center"}}>
-        <span style={{fontSize:12,fontWeight:700,color:"#64748b"}}>Mostrar:</span>
-        <button style={btnStyle(showOverdue,"#ef4444")} onClick={()=>setShowOverdue(v=>!v)}>🔴 Vencidas</button>
-        <button style={btnStyle(showToday,"#f59e0b")} onClick={()=>setShowToday(v=>!v)}>🟡 Vence hoje</button>
+      <div style={{display:"flex",gap:6,marginBottom:14,alignItems:"center",flexWrap:"wrap"}}>
+        <span style={{fontSize:12,fontWeight:700,color:"#64748b",marginRight:2}}>Mostrar:</span>
+        <button style={btnStyle(kanbanFilter==="week")} onClick={()=>setKanbanFilter("week")}>📅 Esta semana</button>
+        <button style={btnStyle(kanbanFilter==="overdue")} onClick={()=>setKanbanFilter("overdue")}>🔴 Vencidas</button>
+        <button style={btnStyle(kanbanFilter==="today")} onClick={()=>setKanbanFilter("today")}>🟡 Vence hoje</button>
+        <button style={btnStyle(kanbanFilter==="all")} onClick={()=>setKanbanFilter("all")}>☰ Todas</button>
       </div>
     <div className="kanban-wrap" style={{display:"flex",gap:14,overflowX:"auto",paddingBottom:20,alignItems:"flex-start"}}>
       {STS.filter(st=>st.id!=="archived").map(st=>{
@@ -1335,12 +1343,14 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
         const wkEnd=new Date(wkStart);wkEnd.setDate(wkStart.getDate()+6);wkEnd.setHours(23,59,59,999);
         const tasks=data.tasks.filter(t=>{
           if(t.status!==st.id||t.status==="archived") return false;
-          if(!t.dueDate) return true;
+          if(kanbanFilter==="all") return true;
+          if(!t.dueDate) return kanbanFilter==="week"||kanbanFilter==="all";
           const due=new Date(t.dueDate+"T12:00:00");
           const isOverdue=due<now&&t.dueDate!==today;
           const isDueToday=t.dueDate===today;
-          if(isOverdue&&!showOverdue) return false;
-          if(isDueToday&&!showToday) return false;
+          if(kanbanFilter==="overdue") return isOverdue;
+          if(kanbanFilter==="today") return isDueToday;
+          // week: vencidas + hoje + esta semana
           return isOverdue||isDueToday||(due>=wkStart&&due<=wkEnd);
         });
         tasks.sort((a,b)=>(a.dueDate||"").localeCompare(b.dueDate||""));
@@ -1892,7 +1902,8 @@ function CollaboratorsPage({ data, setData }) {
             <Inp label="Nome *" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="Nome completo"/>
             <Inp label="Cargo" value={form.role} onChange={v=>setForm(f=>({...f,role:v}))} placeholder="Ex: Dev Frontend"/>
           </div>
-          <Inp label="E-mail" value={form.email} onChange={v=>setForm(f=>({...f,email:v}))} placeholder="email@empresa.com"/>
+          <Inp label="E-mail (usado no login)" value={form.email} onChange={v=>setForm(f=>({...f,email:v}))} placeholder="email@empresa.com"/>
+              <Sel label="Nível de acesso" value={form.accessLevel||"user"} onChange={v=>setForm(f=>({...f,accessLevel:v}))} options={[{value:"user",label:"👤 Usuário"},{value:"admin",label:"🔑 Administrador"}]}/>
           <div>
             <label style={{fontSize:12,fontWeight:700,color:"#64748b",display:"block",marginBottom:8}}>Empresas (opcional — vazio = todas)</label>
             <div style={{display:"flex",flexWrap:"wrap",gap:6}}>

@@ -2700,13 +2700,21 @@ function App(){
 
   const userName = user.user_metadata?.name || user.email?.split("@")[0] || "Usuário";
   // Encontrar colaborador vinculado ao email logado
-  const myCollab = data.collaborators.find(c=>c.email&&c.email.toLowerCase()===user.email?.toLowerCase());
-  const isAdmin = !myCollab || myCollab.accessLevel==="admin"; // sem collab = admin (dono do sistema)
-  const myCollabId = myCollab?.id||null;
+  // Detectar colaborador pelo email do usuário logado
+  const myCollab = data.collaborators.find(c=>
+    c.email && c.email.toLowerCase()===(user.email||"").toLowerCase()
+  );
+  // isAdmin: tem accessLevel admin OU é Supabase Auth (dono) OU não achou collab E é Supabase Auth
+  const isAdmin = user._supabaseAuth
+    ? (!myCollab || myCollab.accessLevel==="admin")
+    : (myCollab?.accessLevel==="admin");
+  const myCollabId = myCollab?.id || user._collabId || null;
+  // Debug
+  console.log("[ACCESS] email:", user.email, "isAdmin:", isAdmin, "myCollabId:", myCollabId, "collab:", myCollab?.name);
   // Filtrar tarefas para o usuário atual
   const visibleTasks = isAdmin
     ? data.tasks
-    : data.tasks.filter(t=>t.assignees&&t.assignees.includes(myCollabId));
+    : data.tasks.filter(t=>Array.isArray(t.assignees)&&t.assignees.includes(myCollabId));
   const dataForUser = isAdmin ? data : {...data, tasks: visibleTasks};
 
   const openNew=(status="todo")=>setTM({open:true,task:null,defStatus:status,lockInfo:null});

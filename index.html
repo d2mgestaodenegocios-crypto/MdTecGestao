@@ -1876,36 +1876,36 @@ function CollaboratorsPage({ data, setData }) {
       setSavingUser(true);
       try{
         // 1. Tentar criar o usuário
-        let authErr=null;
-        // Usar sbAdmin (service_role) se disponível — cria sem confirmação
-        if(sbAdmin){
-          const {data:au,error:ae}=await sbAdmin.auth.admin.createUser({
-            email:form.email,
-            password:form.password,
-            email_confirm:true,
-            user_metadata:{name:form.name}
+        // Criar usuário via REST API admin (sem confirmação de email)
+        let createErr=null;
+        try{
+          const res=await fetch(`${SUPABASE_URL}/auth/v1/admin/users`,{
+            method:"POST",
+            headers:{
+              "Content-Type":"application/json",
+              "apikey":SUPABASE_SERVICE_KEY,
+              "Authorization":"Bearer "+SUPABASE_SERVICE_KEY
+            },
+            body:JSON.stringify({
+              email:form.email,
+              password:form.password,
+              email_confirm:true,
+              user_metadata:{name:form.name}
+            })
           });
-          authErr=ae;
-        } else {
-          // Fallback: signUp normal (pode exigir confirmação)
-          const {error:se}=await sb.auth.signUp({
-            email:form.email,
-            password:form.password,
-            options:{data:{name:form.name}}
-          });
-          authErr=se;
-        }
-        if(authErr){
-          const msg=authErr.message||"";
-          if(msg.includes("already registered")||msg.includes("already been registered")||msg.includes("already exists")){
-            setSaveErr("Este email já está cadastrado no sistema.");
-          } else if(!sbAdmin&&(msg.includes("confirm")||msg.length===0)){
-            setSaveErr("⚠️ Usuário criado mas precisa confirmar email. Configure a service_role key para evitar isso.");
-          } else {
-            setSaveErr("Erro: "+msg);
+          const json=await res.json();
+          if(!res.ok){
+            const msg=json.msg||json.message||json.error_description||JSON.stringify(json);
+            if(msg.includes("already registered")||msg.includes("already exists")||msg.includes("already been registered")){
+              createErr="Este email já está cadastrado no sistema.";
+            } else {
+              createErr="Erro ao criar usuário: "+msg;
+            }
           }
-          setSavingUser(false);return;
+        } catch(e){
+          createErr="Erro de conexão: "+e.message;
         }
+        if(createErr){setSaveErr(createErr);setSavingUser(false);return;}
         setSavingUser(false);
         setData(d=>({...d,collaborators:[...d.collaborators,{
           id:uid(),...form,initials,password:"",

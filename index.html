@@ -506,6 +506,8 @@ function LoginScreen({ onLogin, onSignUp }) {
     } catch (e) {
       const msgs = {
         "Invalid login credentials": "Email ou senha incorretos.",
+        "Email not confirmed": "Email não confirmado. Peça ao administrador para confirmar no Supabase.",
+        "email not confirmed": "Email não confirmado. Peça ao administrador para confirmar no Supabase.",
         "Email not confirmed": "Confirme seu email antes de entrar.",
         "User already registered": "Este email já está cadastrado.",
       };
@@ -1867,16 +1869,37 @@ function CollaboratorsPage({ data, setData }) {
       if(!form.password||form.password.length<6){setSaveErr("Senha obrigatória (mín. 6 caracteres).");return;}
       setSavingUser(true);
       try{
-        const {error}=await sb.auth.signUp({
+        // 1. Tentar criar o usuário
+        const {data:signUpData,error:signUpErr}=await sb.auth.signUp({
           email:form.email,
           password:form.password,
-          options:{data:{name:form.name}}
+          options:{data:{name:form.name},emailRedirectTo:null}
         });
-        if(error){setSaveErr(error.message==="User already registered"?"Este email já está cadastrado.":error.message);setSavingUser(false);return;}
-      } catch(e){setSaveErr("Erro ao criar usuário.");setSavingUser(false);return;}
-      setSavingUser(false);
-      setData(d=>({...d,collaborators:[...d.collaborators,{id:uid(),...form,initials,password:"",accessLevel:form.accessLevel||"user"}]}));
-      setOpen(false);
+        if(signUpErr){
+          const msg=signUpErr.message;
+          if(msg.includes("already registered")||msg.includes("already been registered")){
+            setSaveErr("Este email já está cadastrado no sistema.");
+          } else {
+            setSaveErr("Erro: "+msg);
+          }
+          setSavingUser(false);return;
+        }
+        // 2. Tentar logar imediatamente para verificar se confirmação é necessária
+        const {error:signInErr}=await sb.auth.signInWithPassword({email:form.email,password:form.password});
+        const needsConfirm=signInErr&&(signInErr.message.includes("confirm")||signInErr.message.includes("Email not confirmed"));
+        setSavingUser(false);
+        setData(d=>({...d,collaborators:[...d.collaborators,{
+          id:uid(),...form,initials,password:"",
+          accessLevel:form.accessLevel||"user",
+          _authPending:needsConfirm
+        }]}));
+        if(needsConfirm){
+          setSaveErr("⚠️ Usuário criado! Confirme o email em: Supabase Dashboard → Authentication → Users → clique no email → Send confirmation");
+          // Não fechar o modal para que admin veja a instrução
+          return;
+        }
+        setOpen(false);
+      } catch(e){setSaveErr("Erro ao criar usuário: "+e.message);setSavingUser(false);return;}
     }
   };
   const {ask:askDel,modal:delModal}=useConfirmDelete();
@@ -1898,10 +1921,11 @@ function CollaboratorsPage({ data, setData }) {
               </div>
               <div style={{fontWeight:900,fontSize:14,color:"#0f172a",marginBottom:2}}>{u.name}</div>
               <div style={{fontSize:12,color:"#94a3b8",marginBottom:4}}>{u.role}</div>
-              <div style={{marginBottom:8}}>
+              <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8,justifyContent:"center"}}>
                 <span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:u.accessLevel==="admin"?"#fef3c7":"#f1f5f9",color:u.accessLevel==="admin"?"#d97706":"#64748b",fontWeight:700,border:u.accessLevel==="admin"?"1px solid #fcd34d":"1px solid #e2e8f0"}}>
                   {u.accessLevel==="admin"?"🔑 Admin":"👤 Usuário"}
                 </span>
+                {u._authPending&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:"#fff7ed",color:"#ea580c",fontWeight:700,border:"1px solid #fed7aa"}}>⚠️ Email pendente</span>}
               </div>
               {u.email&&<div style={{fontSize:11,color:"#64748b",marginBottom:8,wordBreak:"break-all"}}>✉ {u.email}</div>}
               <div style={{display:"flex",gap:4,justifyContent:"center",flexWrap:"wrap",marginBottom:12}}>
@@ -1935,7 +1959,20 @@ function CollaboratorsPage({ data, setData }) {
               <div style={{position:"relative"}}>
                 <Inp label={editing?"Nova senha (deixe vazio para manter)":"Senha *"} value={form.password||""} onChange={v=>setForm(f=>({...f,password:v}))} placeholder="Mínimo 6 caracteres" type="password"/>
               </div>
-              {saveErr&&<div style={{fontSize:12,color:"#ef4444",fontWeight:600,padding:"6px 10px",background:"#fef2f2",borderRadius:8}}>{saveErr}</div>}
+              {saveErr&&(
+              saveErr.startsWith("⚠️")
+              ?<div style={{fontSize:12,color:"#92400e",fontWeight:600,padding:"10px 12px",background:"#fffbeb",borderRadius:8,border:"1px solid #fcd34d",lineHeight:1.6}}>
+                {saveErr}
+                <div style={{marginTop:8,fontSize:11,color:"#64748b",fontWeight:500}}>
+                  <strong>Passos para confirmar:</strong><br/>
+                  1. Acesse <strong>supabase.com</strong> → seu projeto<br/>
+                  2. Vá em <strong>Authentication → Users</strong><br/>
+                  3. Clique nos 3 pontinhos do email → <strong>Send confirmation</strong><br/>
+                  <strong style={{color:"#059669"}}>OU: Desative confirmação permanentemente em Authentication → Providers → Email → desmarque "Confirm email"</strong>
+                </div>
+              </div>
+              :<div style={{fontSize:12,color:"#ef4444",fontWeight:600,padding:"6px 10px",background:"#fef2f2",borderRadius:8}}>{saveErr}</div>
+            )}
               <Sel label="Nível de acesso" value={form.accessLevel||"user"} onChange={v=>setForm(f=>({...f,accessLevel:v}))} options={[{value:"user",label:"👤 Usuário"},{value:"admin",label:"🔑 Administrador"}]}/>
           <div>
             <label style={{fontSize:12,fontWeight:700,color:"#64748b",display:"block",marginBottom:8}}>Empresas (opcional — vazio = todas)</label>

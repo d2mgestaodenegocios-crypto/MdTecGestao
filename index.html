@@ -1103,7 +1103,7 @@ function FBar({data,filters,setF,showMonth=true}){
 
 /* ===========================================
    TASK CARD  - with ✓ Quick Complete button */
-function TCard({task,data,onEdit,onDelete,onComplete,recDate,recStatus}){
+function TCard({task,data,onEdit,onDelete,onComplete}){
   const assignees=data.collaborators.filter(c=>task.assignees.includes(c.id));
   const labels=data.labels.filter(l=>task.labels.includes(l.id));
   const rec=task.recurrence?data.recurrences.find(r=>r.id===task.recurrence):null;
@@ -1113,8 +1113,7 @@ function TCard({task,data,onEdit,onDelete,onComplete,recDate,recStatus}){
   const ckTot=task.checklist.length;
   const prog=ckTot>0?Math.round((ckDone/ckTot)*100):null;
   const over=isLate(task);
-  const effectiveStatus=task.recurrence&&recDate?recStatus:task.status;
-  const done=effectiveStatus==="done";
+  const done=task.status==="done";
   const p=PRI[task.priority]||PRI.media;
 
   return(
@@ -1129,7 +1128,7 @@ function TCard({task,data,onEdit,onDelete,onComplete,recDate,recStatus}){
       onClick={()=>onEdit(task)}
     >
       {/* -- QUICK COMPLETE - 1 click, top right, outside card content -- */}
-      <QCBtn status={effectiveStatus} onClick={()=>onComplete(task,recDate)} size={26} absolute={true}/>
+      <QCBtn status={task.status} onClick={()=>onComplete(task)} size={26} absolute={true}/>
 
       {labels.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8,paddingRight:36}}>{labels.map(l=><Chip key={l.id} label={l.name} color={l.color}/>)}</div>}
 
@@ -1191,88 +1190,33 @@ function TCard({task,data,onEdit,onDelete,onComplete,recDate,recStatus}){
 /* ===========================================
    KANBAN VIEW */
 function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
-  const DOW=["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
-  const now=new Date();
-  const wkStart=new Date(now);wkStart.setDate(now.getDate()-now.getDay());wkStart.setHours(0,0,0,0);
-  const wkEnd=new Date(wkStart);wkEnd.setDate(wkStart.getDate()+6);wkEnd.setHours(23,59,59,999);
-  const today=todayStr();
-  const rs=data.recStatus||{};
-
-  // Para cada tarefa recorrente, calcular quais dias desta semana ela ocorre
-  function occurrences(t){
-    const rec=data.recurrences.find(r=>r.id===t.recurrence);
-    if(!rec) return [];
-    const result=[];
-    for(let d=0;d<7;d++){
-      const dt=new Date(wkStart);dt.setDate(wkStart.getDate()+d);
-      const dow=dt.getDay();
-      const ds=dt.toISOString().slice(0,10);
-      let hit=false;
-      if(rec.interval==="daily") hit=true;
-      else if(rec.interval==="custom_days"&&Array.isArray(rec.days)) hit=rec.days.includes(dow);
-      else if(rec.interval==="weekly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");hit=dow===sd.getDay();}
-      else if(rec.interval==="biweekly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");const diff=Math.round((dt-sd)/86400000);hit=dow===sd.getDay()&&diff>=0&&diff%14===0;}
-      else if(rec.interval==="monthly"&&t.dueDate){const sd=new Date(t.dueDate+"T12:00:00");hit=dt.getDate()===sd.getDate();}
-      if(hit) result.push({dow,ds});
-    }
-    return result;
-  }
-
   return(
     <div className="kanban-wrap" style={{display:"flex",gap:14,overflowX:"auto",paddingBottom:20,alignItems:"flex-start"}}>
       {STS.filter(st=>st.id!=="archived").map(st=>{
-        const cards=[];
-
-        data.tasks.filter(t=>t.status!=="archived").forEach(t=>{
-          if(!t.recurrence){
-            // Tarefa normal — mostrar na coluna do seu status
-            if(t.status!==st.id) return;
-            const due=t.dueDate?new Date(t.dueDate+"T12:00:00"):null;
-            if(due&&due<new Date(wkStart)&&!( due<now)) return; // só semana atual ou vencida
-            cards.push({key:t.id,task:t,label:null,ds:t.dueDate||null,recDate:null});
-          } else {
-            // Tarefa recorrente — um card por ocorrência desta semana
-            occurrences(t).forEach(({dow,ds})=>{
-              const key=`${t.id}_${ds}`;
-              const status=rs[key]||"todo";
-              if(status!==st.id) return;
-              cards.push({key,task:t,label:DOW[dow],ds,recDate:ds});
-            });
-          }
+        const now=new Date();
+        const wkStart=new Date(now);wkStart.setDate(now.getDate()-now.getDay());wkStart.setHours(0,0,0,0);
+        const wkEnd=new Date(wkStart);wkEnd.setDate(wkStart.getDate()+6);wkEnd.setHours(23,59,59,999);
+        const tasks=data.tasks.filter(t=>{
+          if(t.status!==st.id||t.status==="archived") return false;
+          if(!t.dueDate) return true;
+          const due=new Date(t.dueDate+"T12:00:00");
+          const isOverdue=due<now;
+          return isOverdue||(due>=wkStart&&due<=wkEnd);
         });
-
-        // Ordenar por data
-        cards.sort((a,b)=>{
-          if(!a.ds&&!b.ds) return 0;
-          if(!a.ds) return 1;
-          if(!b.ds) return -1;
-          return a.ds<b.ds?-1:a.ds>b.ds?1:0;
-        });
-
+        tasks.sort((a,b)=>(a.dueDate||"").localeCompare(b.dueDate||""));
         return(
           <div key={st.id} className="kanban-col" style={{flexShrink:0,width:268}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 12px",borderRadius:10,background:st.bg,border:`1.5px solid ${st.c}33`,marginBottom:10}}>
               <div style={{display:"flex",alignItems:"center",gap:7}}>
                 <span style={{width:9,height:9,borderRadius:"50%",background:st.c,display:"inline-block"}}/>
                 <span style={{fontSize:12,fontWeight:800,color:st.c}}>{st.l}</span>
-                <span style={{fontSize:11,fontWeight:800,color:st.c,background:st.c+"28",borderRadius:10,padding:"1px 7px"}}>{cards.length}</span>
+                <span style={{fontSize:11,fontWeight:800,color:st.c,background:st.c+"28",borderRadius:10,padding:"1px 7px"}}>{tasks.length}</span>
               </div>
               <button onClick={()=>onAdd(st.id)} style={{background:st.c+"20",border:"none",borderRadius:7,width:24,height:24,cursor:"pointer",color:st.c,fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {cards.map(({key,task:t,label,ds,recDate})=>(
-                <div key={key}>
-                  {label&&(
-                    <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",borderRadius:"8px 8px 0 0",background:ds===today?"linear-gradient(90deg,#f59e0b,#d97706)":"linear-gradient(90deg,#6366f1,#8b5cf6)",marginBottom:-2}}>
-                      <span style={{fontSize:11,fontWeight:900,color:"#fff",textTransform:"uppercase",letterSpacing:".06em"}}>{label}</span>
-                      {ds&&<span style={{fontSize:10,color:"rgba(255,255,255,.75)",marginLeft:4}}>{ds.slice(5).replace("-","/")}</span>}
-                      {ds===today&&<span style={{fontSize:10,color:"#fff",fontWeight:700,marginLeft:"auto"}}>hoje</span>}
-                    </div>
-                  )}
-                  <TCard task={t} recDate={recDate} recStatus={rs[key]||"todo"} data={data} onEdit={onEdit} onDelete={onDelete} onComplete={onComplete}/>
-                </div>
-              ))}
-              {cards.length===0&&<div style={{padding:18,textAlign:"center",fontSize:12,color:"#cbd5e1",border:"2px dashed #f1f5f9",borderRadius:10}}>Sem tarefas</div>}
+              {tasks.map(t=><TCard key={t.id} task={t} data={data} onEdit={onEdit} onDelete={onDelete} onComplete={onComplete}/>)}
+              {tasks.length===0&&<div style={{padding:18,textAlign:"center",fontSize:12,color:"#cbd5e1",border:"2px dashed #f1f5f9",borderRadius:10}}>Sem tarefas</div>}
             </div>
           </div>
         );
@@ -2427,9 +2371,69 @@ function App(){
     if(taskModal.task){ forceAcquire(taskModal.task.id); setTM(m=>({...m,lockInfo:null})); toast("✅ Você assumiu a edição.","ok"); }
   };
 
+
+  // Gera tarefas reais independentes para recorrência (4 semanas à frente)
+  const generateRecurringTasks=(base,rec)=>{
+    const tasks=[];
+    const today=new Date();
+    today.setHours(0,0,0,0);
+    const end=new Date(today);
+    end.setDate(today.getDate()+28); // 4 semanas
+
+    if(rec.interval==="daily"){
+      for(let d=new Date(today);d<=end;d.setDate(d.getDate()+1)){
+        const ds=d.toISOString().slice(0,10);
+        tasks.push({...base,id:uid(),dueDate:ds,recurrence:"",_recGroup:base.id,createdAt:todayStr()});
+      }
+    } else if(rec.interval==="custom_days"&&Array.isArray(rec.days)&&rec.days.length>0){
+      for(let d=new Date(today);d<=end;d.setDate(d.getDate()+1)){
+        if(rec.days.includes(d.getDay())){
+          const ds=d.toISOString().slice(0,10);
+          tasks.push({...base,id:uid(),dueDate:ds,recurrence:"",_recGroup:base.id,createdAt:todayStr()});
+        }
+      }
+    } else if(rec.interval==="weekly"){
+      const targetDow=base.dueDate?new Date(base.dueDate+"T12:00:00").getDay():today.getDay();
+      for(let d=new Date(today);d<=end;d.setDate(d.getDate()+1)){
+        if(d.getDay()===targetDow){
+          const ds=d.toISOString().slice(0,10);
+          tasks.push({...base,id:uid(),dueDate:ds,recurrence:"",_recGroup:base.id,createdAt:todayStr()});
+        }
+      }
+    } else if(rec.interval==="biweekly"){
+      const targetDow=base.dueDate?new Date(base.dueDate+"T12:00:00").getDay():today.getDay();
+      let count=0;
+      for(let d=new Date(today);d<=end;d.setDate(d.getDate()+1)){
+        if(d.getDay()===targetDow){
+          if(count%2===0){
+            const ds=d.toISOString().slice(0,10);
+            tasks.push({...base,id:uid(),dueDate:ds,recurrence:"",_recGroup:base.id,createdAt:todayStr()});
+          }
+          count++;
+        }
+      }
+    } else if(rec.interval==="monthly"){
+      const targetDay=base.dueDate?new Date(base.dueDate+"T12:00:00").getDate():today.getDate();
+      for(let m=0;m<3;m++){
+        const d=new Date(today.getFullYear(),today.getMonth()+m,targetDay);
+        if(d>=today){
+          const ds=d.toISOString().slice(0,10);
+          tasks.push({...base,id:uid(),dueDate:ds,recurrence:"",_recGroup:base.id,createdAt:todayStr()});
+        }
+      }
+    } else if(rec.interval==="yearly"){
+      const d=base.dueDate?new Date(base.dueDate+"T12:00:00"):today;
+      const next=new Date(today.getFullYear(),d.getMonth(),d.getDate());
+      if(next>=today){
+        tasks.push({...base,id:uid(),dueDate:next.toISOString().slice(0,10),recurrence:"",_recGroup:base.id,createdAt:todayStr()});
+      }
+    }
+    return tasks;
+  };
+
   const saveTask=(updated)=>{
     const isNew=!data.tasks.find(t=>t.id===updated.id);
-    const withDate={
+    const base={
       ...updated,
       assignees: Array.isArray(updated.assignees)?updated.assignees:[],
       labels: Array.isArray(updated.labels)?updated.labels:[],
@@ -2437,9 +2441,25 @@ function App(){
       dependencies: Array.isArray(updated.dependencies)?updated.dependencies:[],
       completedAt:updated.status==="done"&&!updated.completedAt?todayStr():updated.completedAt
     };
+
+    // Se nova tarefa com recorrência: gerar cópias reais independentes
+    if(isNew && base.recurrence){
+      const rec=data.recurrences.find(r=>r.id===base.recurrence);
+      if(rec){
+        const copies=generateRecurringTasks(base,rec);
+        if(copies.length>0){
+          setData(d=>({...d,tasks:[...d.tasks,...copies]}));
+          if(taskModal.task) release(taskModal.task.id);
+          setTM(m=>({...m,open:false}));
+          toast(`✦ ${copies.length} tarefas recorrentes criadas!`,"ok");
+          return;
+        }
+      }
+    }
+
     setData(d=>{
-      const ex=d.tasks.find(t=>t.id===withDate.id);
-      return {...d,tasks:ex?d.tasks.map(t=>t.id===withDate.id?withDate:t):[...d.tasks,withDate]};
+      const ex=d.tasks.find(t=>t.id===base.id);
+      return {...d,tasks:ex?d.tasks.map(t=>t.id===base.id?base:t):[...d.tasks,base]};
     });
     if(taskModal.task) release(taskModal.task.id);
     setTM(m=>({...m,open:false}));
@@ -2473,32 +2493,19 @@ function App(){
     toast(`${removed} tarefa${removed>1?"s duplicadas removidas":"duplicada removida"}!`,"ok");
   };
 
-  const quickComplete=(task,recDate=null)=>{
+  const quickComplete=(task)=>{
     const lk=getLock(task.id);
     if(lk){toast(`🔒 ${lk.user} está editando. Aguarde.`,"lock",4000);return;}
     const CYCLE={todo:"doing",doing:"review",review:"done",done:"todo"};
     const LABELS={todo:"Em Análise",doing:"Revisão",review:"Concluído",done:"A Fazer"};
-    if(task.recurrence&&recDate){
-      // Recorrente: status por ocorrência em recStatus map
-      const key=`${task.id}_${recDate}`;
-      setData(d=>{
-        const rs={...(d.recStatus||{})};
-        const cur=rs[key]||"todo";
-        const next=CYCLE[cur]||"doing";
-        rs[key]=next;
-        toast(`→ ${LABELS[cur]}!`,"ok");
-        return {...d,recStatus:rs};
-      });
-    } else {
-      const cur=task.status||"todo";
-      const next=CYCLE[cur]||"doing";
-      setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{
-        ...t,status:next,
-        completedAt:next==="done"?todayStr():null,
-        checklist:next==="done"?t.checklist.map(c=>({...c,done:true})):t.checklist,
-      }:t)}));
-      toast(`→ ${LABELS[cur]}!`,"ok");
-    }
+    const cur=task.status||"todo";
+    const next=CYCLE[cur]||"doing";
+    setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{
+      ...t,status:next,
+      completedAt:next==="done"?todayStr():null,
+      checklist:next==="done"?t.checklist.map(c=>({...c,done:true})):t.checklist,
+    }:t)}));
+    toast(`→ ${LABELS[cur]}!`,"ok");
   };
 
   const useTemplate=(tpl)=>{

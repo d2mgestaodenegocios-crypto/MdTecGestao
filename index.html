@@ -258,39 +258,79 @@ const sbAdmin = SUPABASE_SERVICE_KEY
 
 /* ===========================================
    AUTH HOOK */
+
+  // Hash simples para senhas de colaboradores (não use para dados críticos)
+  async function hashPwd(pwd){
+    const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(pwd+"mdtec_salt_2026"));
+    return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+  }
+
 function useAuth() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const LOCAL_KEY = "mdtec_local_session";
 
   useEffect(() => {
-    // Sessão atual
+    // 1. Verificar sessão local (colaborador)
+    const local = localStorage.getItem(LOCAL_KEY);
+    if(local){
+      try{
+        const sess = JSON.parse(local);
+        if(sess && sess.email){
+          setUser(sess);
+          setLoading(false);
+          return;
+        }
+      }catch(e){}
+    }
+    // 2. Verificar sessão Supabase Auth (admin)
     sb.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
+      if(session?.user) setUser({...session.user, _supabaseAuth: true});
       setLoading(false);
     });
-    // Escuta mudanças de sessão
     const { data: { subscription } } = sb.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
+      if(!localStorage.getItem(LOCAL_KEY)){
+        setUser(session?.user ? {...session.user, _supabaseAuth: true} : null);
+      }
     });
     return () => subscription.unsubscribe();
   }, []);
 
-  const signIn = async (email, password) => {
+  // Login: tenta colaborador local primeiro, depois Supabase Auth
+  const signIn = async (email, password, appData) => {
+    // Tentar como colaborador cadastrado no app_data
+    if(appData){
+      const collab = appData.collaborators?.find(c =>
+        c.email && c.email.toLowerCase() === email.toLowerCase() && c._pwdHash
+      );
+      if(collab){
+        const hash = await hashPwd(password);
+        if(hash === collab._pwdHash){
+          const sess = {
+            id: collab.id, email: collab.email,
+            user_metadata: {name: collab.name},
+            _localAuth: true, _collabId: collab.id
+          };
+          localStorage.setItem(LOCAL_KEY, JSON.stringify(sess));
+          setUser(sess);
+          return;
+        } else {
+          throw new Error("Email ou senha incorretos.");
+        }
+      }
+    }
+    // Fallback: Supabase Auth (para admin)
     const { error } = await sb.auth.signInWithPassword({ email, password });
-    if (error) throw error;
+    if (error) throw new Error("Email ou senha incorretos.");
   };
 
-  const signUp = async (email, password, name) => {
-    const { error } = await sb.auth.signUp({
-      email, password,
-      options: { data: { name } }
-    });
-    if (error) throw error;
+  const signOut = () => {
+    localStorage.removeItem(LOCAL_KEY);
+    sb.auth.signOut();
+    setUser(null);
   };
 
-  const signOut = () => sb.auth.signOut();
-
-  return { user, loading, signIn, signUp, signOut };
+  return { user, loading, signIn, signOut };
 }
 
 /* ===========================================
@@ -487,42 +527,22 @@ function useSharedData() {
 
 /* ===========================================
    TELA DE LOGIN */
-function LoginScreen({ onLogin, onSignUp }) {
-  const [mode, setMode] = useState("login"); // "login" | "signup"
+function LoginScreen({ onLogin }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
 
   const handle = async () => {
-    setError(""); setSuccess("");
-    if (!email || !password) { setError("Preencha email e senha."); return; }
-    if (mode === "signup" && !name) { setError("Preencha seu nome."); return; }
-    setLoading(true);
+    if(!email || !password){ setError("Preencha email e senha."); return; }
+    setLoading(true); setError("");
     try {
-      if (mode === "login") {
-        await onLogin(email, password);
-      } else {
-        await onSignUp(email, password, name);
-        setSuccess("✅ Conta criada! Verifique seu email para confirmar.");
-        setMode("login");
-      }
-    } catch (e) {
-      const msgs = {
-        "Invalid login credentials": "Email ou senha incorretos.",
-        "Email not confirmed": "Email não confirmado. Peça ao administrador para confirmar no Supabase.",
-        "email not confirmed": "Email não confirmado. Peça ao administrador para confirmar no Supabase.",
-        "Email not confirmed": "Confirme seu email antes de entrar.",
-        "User already registered": "Este email já está cadastrado.",
-      };
-      setError(msgs[e.message] || e.message);
+      await onLogin(email, password);
+    } catch(e) {
+      setError(e.message || "Email ou senha incorretos.");
     }
     setLoading(false);
   };
-
-  const iSt = { padding: "11px 14px", borderRadius: 10, fontSize: 14, border: "2px solid #e5e7eb", outline: "none", fontFamily: "inherit", color: "#111", background: "#fff", transition: "border .15s", width: "100%" };
 
   return (
     <div style={{ minHeight: "100dvh", width: "100%", background: "linear-gradient(135deg,#0f172a 0%,#1e1b4b 50%,#0f172a 100%)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px 16px" }}>
@@ -1853,22 +1873,20 @@ function CollaboratorsPage({ data, setData }) {
   const togUSec=(id)=>setForm(f=>({...f,sectors:toArr(f.sectors).includes(id)?toArr(f.sectors).filter(x=>x!==id):[...toArr(f.sectors),id]}));
   const [savingUser,setSavingUser]=useState(false);
   const [saveErr,setSaveErr]=useState("");
+  const [createdCreds,setCreatedCreds]=useState(null);
   const save=async()=>{
     if(!form.name.trim())return;
     setSaveErr("");
     const initials=form.initials||form.name.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2);
     if(editing){
       // Ao editar: atualizar dados + senha se preenchida
-      if(form.password&&form.password.length>=6&&form.email){
-        setSavingUser(true);
-        try{
-          // Atualizar senha via Supabase Admin (signUp cria novo se não existir)
-          await sb.auth.admin?.updateUserById?.(form.userId,{password:form.password}).catch(()=>{});
-        } catch(e){}
-        setSavingUser(false);
+      let newHash = editing._pwdHash||"";
+      if(form.password&&form.password.length>=6){
+        newHash = await hashPwd(form.password);
       }
-      setData(d=>({...d,collaborators:d.collaborators.map(u=>u.id===editing.id?{...u,...form,initials,password:"",accessLevel:form.accessLevel||"user"}:u)}));
+      setData(d=>({...d,collaborators:d.collaborators.map(u=>u.id===editing.id?{...u,...form,initials,password:"",accessLevel:form.accessLevel||"user",_pwdHash:newHash}:u)}));
       setOpen(false);
+      toast("💾 Colaborador atualizado!","ok");
     } else {
       // Novo colaborador: criar usuário no Supabase Auth
       if(!form.email){setSaveErr("Email obrigatório para criar acesso.");return;}
@@ -1876,44 +1894,18 @@ function CollaboratorsPage({ data, setData }) {
       setSavingUser(true);
       try{
         // 1. Tentar criar o usuário
-        // Criar usuário via REST API admin (sem confirmação de email)
-        let createErr=null;
-        try{
-          const res=await fetch(`${SUPABASE_URL}/auth/v1/admin/users`,{
-            method:"POST",
-            headers:{
-              "Content-Type":"application/json",
-              "apikey":SUPABASE_SERVICE_KEY,
-              "Authorization":"Bearer "+SUPABASE_SERVICE_KEY
-            },
-            body:JSON.stringify({
-              email:form.email,
-              password:form.password,
-              email_confirm:true,
-              user_metadata:{name:form.name}
-            })
-          });
-          const json=await res.json();
-          if(!res.ok){
-            const msg=json.msg||json.message||json.error_description||JSON.stringify(json);
-            if(msg.includes("already registered")||msg.includes("already exists")||msg.includes("already been registered")){
-              createErr="Este email já está cadastrado no sistema.";
-            } else {
-              createErr="Erro ao criar usuário: "+msg;
-            }
-          }
-        } catch(e){
-          createErr="Erro de conexão: "+e.message;
-        }
-        if(createErr){setSaveErr(createErr);setSavingUser(false);return;}
+        // Gerar hash da senha e salvar no colaborador (sem Supabase Auth)
+        const pwdHash = await hashPwd(form.password);
         setSavingUser(false);
+        const newCollabId=uid();
         setData(d=>({...d,collaborators:[...d.collaborators,{
-          id:uid(),...form,initials,password:"",
+          id:newCollabId,...form,initials,password:"",
           accessLevel:form.accessLevel||"user",
-          _authPending:false
+          _pwdHash:pwdHash
         }]}));
         setOpen(false);
-        toast("✅ Usuário "+form.name+" criado com sucesso!","ok");
+        // Mostrar credenciais para admin copiar/enviar
+        setCreatedCreds({name:form.name,email:form.email,password:form.password});
       } catch(e){setSaveErr("Erro ao criar usuário: "+e.message);setSavingUser(false);return;}
     }
   };
@@ -2014,6 +2006,59 @@ function CollaboratorsPage({ data, setData }) {
         </div>
       </Modal>
       {delModal}
+      {/* Modal credenciais criadas */}
+      {createdCreds&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:"#fff",borderRadius:16,padding:28,maxWidth:420,width:"100%",boxShadow:"0 24px 64px rgba(0,0,0,.2)"}}>
+            <div style={{fontSize:32,textAlign:"center",marginBottom:8}}>✅</div>
+            <div style={{fontSize:16,fontWeight:900,color:"#0f172a",textAlign:"center",marginBottom:4}}>Usuário criado com sucesso!</div>
+            <div style={{fontSize:13,color:"#64748b",textAlign:"center",marginBottom:20}}>Guarde ou envie as credenciais abaixo</div>
+            <div style={{background:"#f8fafc",borderRadius:10,padding:16,marginBottom:12,border:"1px solid #e2e8f0"}}>
+              <div style={{fontSize:12,color:"#64748b",marginBottom:2}}>Nome</div>
+              <div style={{fontSize:14,fontWeight:700,color:"#0f172a",marginBottom:10}}>{createdCreds.name}</div>
+              <div style={{fontSize:12,color:"#64748b",marginBottom:2}}>Email (login)</div>
+              <div style={{fontSize:14,fontWeight:700,color:"#6366f1",marginBottom:10,wordBreak:"break-all"}}>{createdCreds.email}</div>
+              <div style={{fontSize:12,color:"#64748b",marginBottom:2}}>Senha</div>
+              <div style={{fontSize:16,fontWeight:900,color:"#6366f1",fontFamily:"monospace",letterSpacing:3}}>{createdCreds.password}</div>
+            </div>
+            <div style={{background:"#fffbeb",borderRadius:8,padding:10,marginBottom:14,fontSize:11,color:"#92400e",border:"1px solid #fcd34d"}}>
+              ⚠️ Anote a senha agora — ela não é armazenada no sistema por segurança.
+            </div>
+            <div style={{display:"flex",gap:8,marginBottom:8}}>
+              <button onClick={()=>{
+                const txt=`MdTec Gestão - Acesso
+Nome: ${createdCreds.name}
+Email: ${createdCreds.email}
+Senha: ${createdCreds.password}
+Acesse: ${window.location.href}`;
+                navigator.clipboard?.writeText(txt).then(()=>alert("Credenciais copiadas!"));
+              }} style={{flex:1,padding:"9px 0",borderRadius:9,border:"1.5px solid #6366f1",background:"#eef2ff",color:"#6366f1",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
+                📋 Copiar
+              </button>
+              <button onClick={()=>{
+                const sub=encodeURIComponent("Seu acesso ao MdTec Gestão");
+                const body=encodeURIComponent(`Olá ${createdCreds.name},
+
+Seu acesso foi criado:
+
+Email: ${createdCreds.email}
+Senha: ${createdCreds.password}
+
+Acesse: ${window.location.href}
+
+Atenciosamente,
+Equipe MdTec`);
+                window.open(`mailto:${createdCreds.email}?subject=${sub}&body=${body}`);
+              }} style={{flex:1,padding:"9px 0",borderRadius:9,border:"none",background:"#6366f1",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
+                ✉️ Enviar email
+              </button>
+            </div>
+            <button onClick={()=>setCreatedCreds(null)} style={{width:"100%",padding:"8px 0",borderRadius:9,border:"1px solid #e2e8f0",background:"#f8fafc",color:"#64748b",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
+              Fechar
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2640,7 +2685,7 @@ function App(){
   );
 
   // Não logado -> tela de login
-  if(!user) return <LoginScreen onLogin={signIn} onSignUp={signUp}/>;
+  if(!user) return <LoginScreen onLogin={(e,p)=>signIn(e,p,data)}/>;
 
   // Dados ainda sincronizando
   if(!synced) return(

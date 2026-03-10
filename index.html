@@ -230,7 +230,7 @@ const RINTS=[
   {value:"yearly",label:"Anual"}
 ];
 const NAV_GROUPS=[
-  {label:"Visualizações",items:[{id:"dashboard",icon:"✦",label:"Dashboard"},{id:"kanban",icon:"⊞",label:"Kanban"},{id:"lista",icon:"☰",label:"Lista"},{id:"calendario",icon:"📅",label:"Calendário"},{id:"tabela",icon:"▦",label:"Tabela"},{id:"minhas",icon:"👤",label:"Minhas Tarefas"},{id:"arquivadas",icon:"📦",label:"Arquivadas"}]},
+  {label:"Visualizações",items:[{id:"dashboard",icon:"✦",label:"Dashboard"},{id:"kanban",icon:"⊞",label:"Kanban"},{id:"lista",icon:"☰",label:"Lista"},{id:"calendario",icon:"📅",label:"Calendário"},{id:"tabela",icon:"▦",label:"Tabela"},{id:"minhas",icon:"👤",label:"Minhas Tarefas"},{id:"chat",icon:"💬",label:"Chat"},{id:"arquivadas",icon:"📦",label:"Arquivadas"}]},
   {label:"Cadastros",items:[{id:"modelos",icon:"◧",label:"Modelos"},{id:"empresas",icon:"⬡",label:"Empresas"},{id:"setores",icon:"◫",label:"Setores"},{id:"colaboradores",icon:"◉",label:"Colaboradores"},{id:"marcadores",icon:"◈",label:"Marcadores"},{id:"recorrencias",icon:"↻",label:"Recorrências"},{id:"servicos",icon:"S",label:"Serviços"}]},
   {label:"Sistema",items:[{id:"configuracoes",icon:"⚙",label:"Configurações"}]},
 ];
@@ -272,10 +272,10 @@ const SEED={
     {id:"rc6",name:"Mensal",interval:"monthly",days:[]},
   ],
   services:[],
-  taskTemplates:[
-  ],
-  tasks:[
-  ],
+  taskTemplates:[],
+  tasks:[],
+  chatMessages:[],
+  notifications:[],
 };
 
 /* ===========================================
@@ -435,6 +435,8 @@ function useSharedData() {
         if (!p.recurrences || !Array.isArray(p.recurrences)) p.recurrences = SEED.recurrences;
         if (!p.taskTemplates || !Array.isArray(p.taskTemplates)) p.taskTemplates = [];
         if (!p.services || !Array.isArray(p.services)) p.services = [];
+        if (!p.chatMessages || !Array.isArray(p.chatMessages)) p.chatMessages = [];
+        if (!p.notifications || !Array.isArray(p.notifications)) p.notifications = [];
         if (!p.archiveDays) p.archiveDays = 30;
         if (!p.recStatus) p.recStatus={};
         // MIGRAÇÃO: converter tarefas recorrentes antigas em tarefas reais
@@ -543,6 +545,8 @@ function useSharedData() {
           if (!p.recurrences || !Array.isArray(p.recurrences)) p.recurrences = SEED.recurrences;
           if (!p.taskTemplates || !Array.isArray(p.taskTemplates)) p.taskTemplates = [];
           if (!p.services || !Array.isArray(p.services)) p.services = [];
+          if (!p.chatMessages || !Array.isArray(p.chatMessages)) p.chatMessages = [];
+          if (!p.notifications || !Array.isArray(p.notifications)) p.notifications = [];
           if (!p.archiveDays) p.archiveDays = 30;
           p.tasks = (p.tasks || []).map(t => ({
             id: t.id||"",
@@ -1306,7 +1310,13 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
             ))}
           </div>
           <div style={{display:"flex",gap:8}}>
-            <input value={commentTxt} onChange={e=>setCommentTxt(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&addComment()} placeholder="Adicionar comentário... (Enter para enviar)" style={{flex:1,padding:"7px 12px",borderRadius:9,fontSize:12,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit"}} onFocus={e=>e.target.style.borderColor="#6366f1"} onBlur={e=>e.target.style.borderColor="#e5e7eb"}/>
+            <MentionInput
+              value={commentTxt}
+              onChange={setCommentTxt}
+              onSubmit={addComment}
+              collaborators={data.collaborators}
+              placeholder="Comentário... @nome para mencionar (Enter envia)"
+            />
             <Btn onClick={addComment} sz="sm" disabled={!commentTxt.trim()}>💬</Btn>
           </div>
         </Fld>
@@ -2952,6 +2962,313 @@ function Dashboard({ data }) {
 
 
 
+
+/* ===========================================
+   MENTION INPUT — @autocomplete */
+function MentionInput({value,onChange,onSubmit,collaborators,placeholder}){
+  const [show,setShow]=useState(false);
+  const [query,setQuery]=useState("");
+  const [sel,setSel]=useState(0);
+  const inputRef=useRef(null);
+  const atPosRef=useRef(-1);
+
+  const matches=useMemo(()=>{
+    if(!query&&!show) return [];
+    return collaborators.filter(u=>u.name.toLowerCase().includes(query.toLowerCase())).slice(0,6);
+  },[query,collaborators,show]);
+
+  useEffect(()=>setSel(0),[matches]);
+
+  const handleChange=(e)=>{
+    const v=e.target.value;
+    onChange(v);
+    const caret=e.target.selectionStart;
+    // Find the last @ before caret
+    const before=v.slice(0,caret);
+    const atIdx=before.lastIndexOf("@");
+    if(atIdx>=0){
+      const afterAt=before.slice(atIdx+1);
+      if(!/\s/.test(afterAt)){
+        atPosRef.current=atIdx;
+        setQuery(afterAt);
+        setShow(true);
+        return;
+      }
+    }
+    setShow(false);
+    setQuery("");
+  };
+
+  const pick=(collab)=>{
+    const v=value;
+    const before=v.slice(0,atPosRef.current);
+    const caret=inputRef.current?.selectionStart||v.length;
+    const after=v.slice(caret);
+    const newVal=before+"@"+collab.name+" "+after;
+    onChange(newVal);
+    setShow(false);setQuery("");
+    setTimeout(()=>inputRef.current?.focus(),0);
+  };
+
+  const handleKey=(e)=>{
+    if(show&&matches.length>0){
+      if(e.key==="ArrowDown"){e.preventDefault();setSel(s=>Math.min(s+1,matches.length-1));return;}
+      if(e.key==="ArrowUp"){e.preventDefault();setSel(s=>Math.max(s-1,0));return;}
+      if(e.key==="Tab"||e.key==="Enter"&&show){e.preventDefault();if(matches[sel])pick(matches[sel]);return;}
+      if(e.key==="Escape"){setShow(false);return;}
+    }
+    if(e.key==="Enter"&&!e.shiftKey&&!show){e.preventDefault();onSubmit();}
+  };
+
+  return(
+    <div style={{position:"relative",flex:1}}>
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={handleChange}
+        onKeyDown={handleKey}
+        onBlur={()=>setTimeout(()=>setShow(false),150)}
+        placeholder={placeholder||"Mensagem... @nome para mencionar"}
+        style={{width:"100%",padding:"7px 12px",borderRadius:9,fontSize:12,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}
+        onFocus={e=>e.target.style.borderColor="#6366f1"}
+      />
+      {show&&matches.length>0&&(
+        <div style={{position:"absolute",bottom:"100%",left:0,marginBottom:4,background:"#fff",borderRadius:10,boxShadow:"0 8px 24px rgba(0,0,0,.15)",border:"1px solid #e2e8f0",zIndex:500,minWidth:200,overflow:"hidden"}}>
+          {matches.map((u,i)=>(
+            <div key={u.id} onMouseDown={()=>pick(u)}
+              style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",cursor:"pointer",background:i===sel?"#eef2ff":"transparent",transition:"background .1s"}}
+              onMouseEnter={()=>setSel(i)}
+            >
+              <Av initials={u.initials} color={u.color} size={24}/>
+              <div>
+                <div style={{fontSize:12,fontWeight:700,color:"#0f172a"}}>{u.name}</div>
+                <div style={{fontSize:10,color:"#94a3b8"}}>{u.role}</div>
+              </div>
+            </div>
+          ))}
+          <div style={{padding:"4px 12px 6px",fontSize:10,color:"#94a3b8",borderTop:"1px solid #f1f5f9"}}>Tab ou Enter para selecionar</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Helper: render text with @mentions highlighted */
+function RichText({text,collaborators}){
+  if(!text) return null;
+  const parts=text.split(/(@[\w\s]+?)(?=\s|$|@)/g);
+  return(
+    <span>
+      {parts.map((p,i)=>{
+        if(p.startsWith("@")){
+          const name=p.slice(1).trim();
+          const u=collaborators.find(c=>c.name.toLowerCase()===name.toLowerCase());
+          return <span key={i} style={{color:u?u.color:"#6366f1",fontWeight:700,background:u?u.color+"15":"#eef2ff",borderRadius:4,padding:"0 3px"}}>{p}</span>;
+        }
+        return <span key={i}>{p}</span>;
+      })}
+    </span>
+  );
+}
+
+/* ===========================================
+   NOTIFICATION BELL */
+function NotificationBell({notifications,onRead,onReadAll,onNavigate,currentUserId}){
+  const [open,setOpen]=useState(false);
+  const mine=notifications.filter(n=>n.toId===currentUserId);
+  const unread=mine.filter(n=>!n.read).length;
+  return(
+    <div style={{position:"relative"}}>
+      <button onClick={()=>setOpen(o=>!o)} title="Notificações" style={{width:34,height:34,borderRadius:"50%",border:`1.5px solid ${unread>0?"#ef4444":"#e2e8f0"}`,background:unread>0?"#fef2f2":"var(--bg3)",color:unread>0?"#ef4444":"#64748b",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",position:"relative",transition:"all .2s"}}>
+        🔔
+        {unread>0&&<span style={{position:"absolute",top:-4,right:-4,width:18,height:18,borderRadius:"50%",background:"#ef4444",color:"#fff",fontSize:10,fontWeight:900,display:"flex",alignItems:"center",justifyContent:"center",border:"2px solid #fff"}}>{unread>9?"9+":unread}</span>}
+      </button>
+      {open&&(
+        <div onClick={e=>e.stopPropagation()} style={{position:"absolute",right:0,top:"calc(100% + 8px)",width:320,background:"var(--bg2)",borderRadius:14,boxShadow:"0 16px 48px rgba(0,0,0,.18)",border:"1px solid var(--border)",zIndex:400,overflow:"hidden",animation:"popIn .18s ease"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderBottom:"1px solid var(--border)"}}>
+            <span style={{fontSize:13,fontWeight:800,color:"#0f172a"}}>🔔 Notificações</span>
+            {unread>0&&<button onClick={()=>{onReadAll(currentUserId);}} style={{fontSize:11,color:"#6366f1",fontWeight:700,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit"}}>Marcar todas lidas</button>}
+          </div>
+          <div style={{maxHeight:360,overflowY:"auto"}}>
+            {mine.length===0&&<div style={{padding:"24px",textAlign:"center",fontSize:13,color:"#94a3b8"}}>Nenhuma notificação</div>}
+            {mine.slice().reverse().map(n=>(
+              <div key={n.id} onClick={()=>{onRead(n.id);if(n.page)onNavigate(n.page);setOpen(false);}}
+                style={{padding:"11px 16px",borderBottom:"1px solid var(--border)",cursor:"pointer",background:n.read?"transparent":"#eef2ff",display:"flex",gap:10,alignItems:"flex-start",transition:"background .1s"}}
+                onMouseEnter={e=>e.currentTarget.style.background=n.read?"#f8fafc":"#e0e7ff"}
+                onMouseLeave={e=>e.currentTarget.style.background=n.read?"transparent":"#eef2ff"}
+              >
+                <span style={{fontSize:18,flexShrink:0}}>{n.icon||"🔔"}</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:12,fontWeight:n.read?500:700,color:"#0f172a",lineHeight:1.4}}>{n.text}</div>
+                  <div style={{fontSize:10,color:"#94a3b8",marginTop:2}}>{new Date(n.createdAt).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}</div>
+                </div>
+                {!n.read&&<span style={{width:8,height:8,borderRadius:"50%",background:"#6366f1",flexShrink:0,marginTop:4}}/>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ===========================================
+   CHAT PAGE */
+function ChatPage({data,setData,currentUser,currentUserId,myCollab}){
+  // All sectors the current user belongs to, or all if admin
+  const mySectors=myCollab
+    ? (toArr(myCollab.sectors).length>0?toArr(myCollab.sectors):(myCollab.sector?[myCollab.sector]:[]))
+    : data.sectors.map(s=>s.id);
+  const availSectors=data.sectors.filter(s=>mySectors.length===0||mySectors.includes(s.id)||!myCollab);
+  const [activeSector,setActiveSector]=useState(()=>availSectors[0]?.id||"");
+  const [msg,setMsg]=useState("");
+  const bottomRef=useRef(null);
+
+  const messages=(data.chatMessages||[]).filter(m=>m.sectorId===activeSector);
+
+  useEffect(()=>{
+    bottomRef.current?.scrollIntoView({behavior:"smooth"});
+  },[messages.length,activeSector]);
+
+  const sendMsg=()=>{
+    if(!msg.trim()) return;
+    const text=msg.trim();
+    // extract mentions
+    const mentionNames=[];
+    const re=/@([\w\s]+?)(?=\s|$|@)/g;
+    let m;
+    while((m=re.exec(text))!==null) mentionNames.push(m[1].trim());
+
+    const newMsg={
+      id:uid(),
+      sectorId:activeSector,
+      author:currentUser,
+      authorId:currentUserId||null,
+      text,
+      createdAt:new Date().toISOString(),
+    };
+
+    // Build notifications for mentioned users
+    const newNotifs=[];
+    mentionNames.forEach(name=>{
+      const u=data.collaborators.find(x=>x.name.toLowerCase()===name.toLowerCase());
+      if(u&&u.id!==currentUserId){
+        newNotifs.push({
+          id:uid(),
+          toId:u.id,
+          icon:"💬",
+          text:`${currentUser} mencionou você no chat: "${text.slice(0,60)}${text.length>60?"...":""}"`,
+          page:"chat",
+          createdAt:new Date().toISOString(),
+          read:false,
+        });
+      }
+    });
+
+    setData(d=>({...d,
+      chatMessages:[...(d.chatMessages||[]),newMsg],
+      notifications:[...(d.notifications||[]),...newNotifs],
+    }));
+    setMsg("");
+  };
+
+  const sector=data.sectors.find(s=>s.id===activeSector);
+
+  return(
+    <div style={{display:"flex",gap:0,height:"calc(100vh - 140px)",minHeight:400,borderRadius:16,overflow:"hidden",border:"1px solid var(--border)",boxShadow:"0 2px 8px rgba(0,0,0,.06)"}}>
+      {/* Sidebar de setores */}
+      <div style={{width:200,background:"var(--bg2)",borderRight:"1px solid var(--border)",display:"flex",flexDirection:"column",flexShrink:0}}>
+        <div style={{padding:"14px 14px 10px",borderBottom:"1px solid var(--border)"}}>
+          <div style={{fontSize:12,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".06em"}}>Canais</div>
+        </div>
+        <div style={{flex:1,overflowY:"auto",padding:"8px 8px"}}>
+          {availSectors.length===0&&<div style={{padding:12,fontSize:12,color:"#94a3b8"}}>Nenhum setor disponível</div>}
+          {availSectors.map(s=>{
+            const unread=(data.chatMessages||[]).filter(m=>m.sectorId===s.id).length;
+            const active=activeSector===s.id;
+            return(
+              <button key={s.id} onClick={()=>setActiveSector(s.id)}
+                style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"9px 10px",borderRadius:9,border:"none",background:active?s.color+"18":"transparent",cursor:"pointer",fontFamily:"inherit",textAlign:"left",marginBottom:2,transition:"background .12s"}}
+                onMouseEnter={e=>{if(!active)e.currentTarget.style.background="rgba(0,0,0,.04)";}}
+                onMouseLeave={e=>{if(!active)e.currentTarget.style.background="transparent";}}
+              >
+                <span style={{width:8,height:8,borderRadius:"50%",background:s.color,flexShrink:0}}/>
+                <span style={{fontSize:13,fontWeight:active?800:500,color:active?s.color:"#374151",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</span>
+                {unread>0&&<span style={{fontSize:10,fontWeight:700,color:"#94a3b8"}}>{unread}</span>}
+              </button>
+            );
+          })}
+        </div>
+        {/* Who's online hint */}
+        <div style={{padding:"10px 14px",borderTop:"1px solid var(--border)"}}>
+          <div style={{fontSize:10,color:"#94a3b8",fontWeight:600}}>Logado como</div>
+          <div style={{fontSize:12,fontWeight:700,color:"#374151",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{currentUser}</div>
+        </div>
+      </div>
+
+      {/* Área de mensagens */}
+      <div style={{flex:1,display:"flex",flexDirection:"column",background:"var(--bg3)",minWidth:0}}>
+        {/* Header do canal */}
+        <div style={{padding:"12px 18px",background:"var(--bg2)",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",gap:10}}>
+          {sector&&<span style={{width:10,height:10,borderRadius:"50%",background:sector.color,flexShrink:0}}/>}
+          <span style={{fontSize:14,fontWeight:800,color:"#0f172a"}}>{sector?.name||"Selecione um canal"}</span>
+          <span style={{fontSize:12,color:"#94a3b8",marginLeft:4}}>{messages.length} mensagem{messages.length!==1?"ns":""}</span>
+        </div>
+
+        {/* Mensagens */}
+        <div style={{flex:1,overflowY:"auto",padding:"16px 18px",display:"flex",flexDirection:"column",gap:2}}>
+          {messages.length===0&&(
+            <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:8,color:"#94a3b8"}}>
+              <span style={{fontSize:32}}>💬</span>
+              <span style={{fontSize:13,fontWeight:600}}>Nenhuma mensagem ainda</span>
+              <span style={{fontSize:12}}>Seja o primeiro a escrever no #{sector?.name}</span>
+            </div>
+          )}
+          {messages.map((m,i)=>{
+            const isMe=m.authorId===currentUserId||m.author===currentUser;
+            const prev=messages[i-1];
+            const sameAuthor=prev&&prev.author===m.author&&(new Date(m.createdAt)-new Date(prev.createdAt))<120000;
+            const u=data.collaborators.find(x=>x.id===m.authorId||x.name===m.author);
+            return(
+              <div key={m.id} style={{display:"flex",gap:8,alignItems:"flex-end",flexDirection:isMe?"row-reverse":"row",marginTop:sameAuthor?1:10}}>
+                {!isMe&&!sameAuthor&&<Av initials={u?.initials||(m.author.slice(0,2).toUpperCase())} color={u?.color||"#6366f1"} size={30}/>}
+                {!isMe&&sameAuthor&&<div style={{width:30,flexShrink:0}}/>}
+                <div style={{maxWidth:"72%"}}>
+                  {!sameAuthor&&<div style={{fontSize:11,fontWeight:700,color:u?.color||"#6366f1",marginBottom:3,textAlign:isMe?"right":"left"}}>{isMe?"Você":m.author}</div>}
+                  <div style={{padding:"8px 12px",borderRadius:isMe?"14px 14px 4px 14px":"14px 14px 14px 4px",background:isMe?"linear-gradient(135deg,#6366f1,#8b5cf6)":"var(--bg2)",color:isMe?"#fff":"#0f172a",fontSize:13,lineHeight:1.5,boxShadow:"0 1px 3px rgba(0,0,0,.08)",border:isMe?"none":"1px solid var(--border)"}}>
+                    <RichText text={m.text} collaborators={data.collaborators}/>
+                  </div>
+                  <div style={{fontSize:10,color:"#94a3b8",marginTop:2,textAlign:isMe?"right":"left"}}>
+                    {new Date(m.createdAt).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          <div ref={bottomRef}/>
+        </div>
+
+        {/* Input de mensagem */}
+        <div style={{padding:"12px 18px",background:"var(--bg2)",borderTop:"1px solid var(--border)",display:"flex",gap:8,alignItems:"flex-end"}}>
+          {!activeSector
+            ?<div style={{flex:1,fontSize:13,color:"#94a3b8",padding:"8px 0"}}>Selecione um canal para enviar mensagens</div>
+            :<>
+              <MentionInput
+                value={msg}
+                onChange={setMsg}
+                onSubmit={sendMsg}
+                collaborators={data.collaborators}
+                placeholder={`Mensagem em #${sector?.name||"canal"}... @nome para mencionar`}
+              />
+              <Btn onClick={sendMsg} disabled={!msg.trim()}>Enviar</Btn>
+            </>
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ===========================================
    BUSCA GLOBAL - Cmd+K / Ctrl+K */
 function GlobalSearch({data,onEdit,onNavigate,onClose}){
@@ -3226,6 +3543,20 @@ function App(){
 
   const saveTask=(updated)=>{
     const isNew=!data.tasks.find(t=>t.id===updated.id);
+    // Detect new @mentions in comments and notify
+    const prevComments=data.tasks.find(t=>t.id===updated.id)?.comments||[];
+    const newComments=(updated.comments||[]).filter(nc=>!prevComments.find(pc=>pc.id===nc.id));
+    newComments.forEach(comment=>{
+      const mentionRe=/@([\w ]+?)(?=\s|$|@)/g;
+      let match;
+      while((match=mentionRe.exec(comment.text))!==null){
+        const name=match[1].trim();
+        const mentioned=data.collaborators.find(u=>u.name.toLowerCase()===name.toLowerCase());
+        if(mentioned&&mentioned.id!==myCollabId){
+          addNotification({toId:mentioned.id,icon:"💬",text:`${userName} mencionou você: "${comment.text.slice(0,60)}"`,page:"kanban"});
+        }
+      }
+    });
     const base={
       ...updated,
       assignees: Array.isArray(updated.assignees)?updated.assignees:[],
@@ -3305,6 +3636,17 @@ function App(){
     toast(`→ ${LABELS[cur]}!`,"ok");
   };
 
+  // Notificações
+  const addNotification=(notif)=>{
+    setData(d=>({...d,notifications:[...(d.notifications||[]),{id:uid(),createdAt:new Date().toISOString(),read:false,...notif}]}));
+  };
+  const markNotifRead=(id)=>{
+    setData(d=>({...d,notifications:(d.notifications||[]).map(n=>n.id===id?{...n,read:true}:n)}));
+  };
+  const markAllNotifRead=(userId)=>{
+    setData(d=>({...d,notifications:(d.notifications||[]).map(n=>n.toId===userId?{...n,read:true}:n)}));
+  };
+
   // Drag & drop entre colunas do Kanban
   const dragStatusChange=(taskId,newStatus)=>{
     const lk=getLock(taskId);
@@ -3362,13 +3704,21 @@ function App(){
               {!sideCol&&<div className="sb-section-lbl" style={{fontSize:9,fontWeight:800,color:"#334155",textTransform:"uppercase",letterSpacing:".1em",padding:"8px 10px 4px"}}>{group.label}</div>}
               {group.items.map(item=>{
                 const active=page===item.id;
+                // Badge for chat: count unread notifications pointing to chat page
+                const chatUnread=item.id==="chat"&&myCollabId
+                  ?(data.notifications||[]).filter(n=>n.toId===myCollabId&&!n.read&&n.page==="chat").length
+                  :0;
                 return(
                   <button key={item.id} className="nav-btn" onClick={()=>setPage(item.id)} title={sideCol?item.label:""} style={{width:"100%",display:"flex",alignItems:"center",gap:sideCol?0:10,padding:sideCol?"10px":"9px 10px",borderRadius:9,border:"none",cursor:"pointer",background:active?"rgba(99,102,241,.2)":"transparent",color:active?"#818cf8":"#64748b",fontSize:13,fontWeight:active?800:600,textAlign:"left",fontFamily:"inherit",transition:"all .12s",marginBottom:2,justifyContent:sideCol?"center":"flex-start"}}
                     onMouseEnter={e=>!active&&(e.currentTarget.style.background="rgba(255,255,255,.04)")}
                     onMouseLeave={e=>!active&&(e.currentTarget.style.background="transparent")}
                   >
-                    <span className="nb-icon" style={{fontSize:15,width:sideCol?20:18,textAlign:"center",flexShrink:0}}>{item.icon}</span>
+                    <span className="nb-icon" style={{fontSize:15,width:sideCol?20:18,textAlign:"center",flexShrink:0,position:"relative"}}>
+                      {item.icon}
+                      {chatUnread>0&&<span style={{position:"absolute",top:-5,right:-6,width:14,height:14,borderRadius:"50%",background:"#ef4444",color:"#fff",fontSize:8,fontWeight:900,display:"flex",alignItems:"center",justifyContent:"center",border:"1.5px solid #0f172a"}}>{chatUnread>9?"9+":chatUnread}</span>}
+                    </span>
                     {!sideCol&&item.label}
+                    {!sideCol&&chatUnread>0&&!active&&<span style={{marginLeft:"auto",padding:"1px 6px",borderRadius:10,background:"#ef4444",color:"#fff",fontSize:9,fontWeight:800}}>{chatUnread}</span>}
                     {!sideCol&&active&&<span className="nb-dot" style={{marginLeft:"auto",width:6,height:6,borderRadius:"50%",background:"#818cf8"}}/>}
                   </button>
                 );
@@ -3416,6 +3766,14 @@ function App(){
                 <span style={{fontSize:12,fontWeight:700,color:"#ef4444"}}>{overdueCount} atrasada{overdueCount>1?"s":""}</span>
               </div>
             )}
+            {/* Notificações */}
+            <NotificationBell
+              notifications={data.notifications||[]}
+              onRead={markNotifRead}
+              onReadAll={markAllNotifRead}
+              onNavigate={setPage}
+              currentUserId={myCollabId}
+            />
             {/* Busca Global */}
             <button onClick={()=>setShowSearch(true)} title="Busca global (Ctrl+K)" aria-label="Abrir busca global" style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:10,border:"1.5px solid #e2e8f0",background:"var(--bg3)",color:"#64748b",cursor:"pointer",fontSize:12,fontWeight:600,fontFamily:"inherit",transition:"all .15s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor="#6366f1";e.currentTarget.style.color="#6366f1";}} onMouseLeave={e=>{e.currentTarget.style.borderColor="#e2e8f0";e.currentTarget.style.color="#64748b";}}>
               🔍 <span style={{fontSize:11}}>Buscar</span><kbd style={{fontSize:9,padding:"1px 5px",borderRadius:4,background:"#e2e8f0",fontFamily:"monospace",marginLeft:2}}>⌘K</kbd>
@@ -3455,6 +3813,7 @@ function App(){
         {page==="colaboradores" && <CollaboratorsPage data={data} setData={setData}/>}
         {page==="marcadores"    && <LabelsPage data={data} setData={setData}/>}
         {page==="recorrencias"  && <RecurrencesPage data={data} setData={setData}/>}
+        {page==="chat"          && <ChatPage data={data} setData={setData} currentUser={userName} currentUserId={myCollabId} myCollab={myCollab}/>}
         {page==="arquivadas"    && <ArchivedPage data={data} setData={setData} toast={toast}/>}
         {page==="configuracoes" && <ConfigPage data={data} setData={setData} toast={toast} deduplicateTasks={deduplicateTasks}/>}
       </main>

@@ -2715,6 +2715,34 @@ function App(){
   const [taskModal,setTM]   = useState({open:false,task:null,defStatus:"todo",lockInfo:null});
   const [sideCol,setSideCol]= useState(false);
 
+  // Refs para acesso em callbacks sem re-registro de listeners
+  const taskModalRef = useRef(taskModal);
+  useEffect(()=>{ taskModalRef.current = taskModal; },[taskModal]);
+
+  // Escuta erros de save do Supabase e exibe toast (antes dos returns condicionais)
+  useEffect(()=>{
+    const handler=(e)=>toast(`⚠️ Erro ao salvar: ${e.detail}`,"err",5000);
+    window.addEventListener("mdtec_save_error",handler);
+    return()=>window.removeEventListener("mdtec_save_error",handler);
+  },[]);
+
+  // Atalhos de teclado globais (antes dos returns condicionais)
+  useEffect(()=>{
+    const handler=(e)=>{
+      if(["INPUT","TEXTAREA","SELECT"].includes(e.target.tagName)) return;
+      if(e.metaKey||e.ctrlKey||e.altKey) return;
+      const tm=taskModalRef.current;
+      if(e.key==="n"||e.key==="N"){e.preventDefault();setTM({open:true,task:null,defStatus:"todo",lockInfo:null});}
+      else if(e.key==="Escape"){if(tm.open) setTM(m=>({...m,open:false,lockInfo:null}));}
+      else if(e.key==="k"||e.key==="K"){setPage("kanban");}
+      else if(e.key==="l"||e.key==="L"){setPage("lista");}
+      else if(e.key==="c"||e.key==="C"){setPage("calendario");}
+      else if(e.key==="d"||e.key==="D"){setPage("dashboard");}
+    };
+    window.addEventListener("keydown",handler);
+    return()=>window.removeEventListener("keydown",handler);
+  },[]);
+
   // Enquanto verifica sessão
   if(authLoading) return(
     <div style={{minHeight:"100dvh",display:"flex",alignItems:"center",justifyContent:"center",background:"#0f172a"}}>
@@ -2737,13 +2765,6 @@ function App(){
       </div>
     </div>
   );
-
-  // Escuta erros de save do Supabase e exibe toast
-  useEffect(()=>{
-    const handler=(e)=>toast(`⚠️ Erro ao salvar: ${e.detail}`,"err",5000);
-    window.addEventListener("mdtec_save_error",handler);
-    return()=>window.removeEventListener("mdtec_save_error",handler);
-  },[toast]);
 
   const userName = user.user_metadata?.name || user.email?.split("@")[0] || "Usuário";
   // Encontrar colaborador vinculado ao email logado
@@ -2779,22 +2800,6 @@ function App(){
     if(taskModal.task) release(taskModal.task.id);
     setTM(m=>({...m,open:false,lockInfo:null}));
   };
-
-  // Atalhos de teclado globais (após openNew e closeTask estarem definidos)
-  useEffect(()=>{
-    const handler=(e)=>{
-      if(["INPUT","TEXTAREA","SELECT"].includes(e.target.tagName)) return;
-      if(e.metaKey||e.ctrlKey||e.altKey) return;
-      if(e.key==="n"||e.key==="N"){e.preventDefault();openNew();}
-      else if(e.key==="Escape"){if(taskModal.open) closeTask();}
-      else if(e.key==="k"||e.key==="K"){setPage("kanban");}
-      else if(e.key==="l"||e.key==="L"){setPage("lista");}
-      else if(e.key==="c"||e.key==="C"){setPage("calendario");}
-      else if(e.key==="d"||e.key==="D"){setPage("dashboard");}
-    };
-    window.addEventListener("keydown",handler);
-    return()=>window.removeEventListener("keydown",handler);
-  },[taskModal.open]);
 
   const forceLock=()=>{
     if(taskModal.task){ forceAcquire(taskModal.task.id); setTM(m=>({...m,lockInfo:null})); toast("✅ Você assumiu a edição.","ok"); }

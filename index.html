@@ -3,6 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+<meta name="theme-color" content="#6366f1"/>
+<meta name="description" content="MdTec Gestão - Sistema de gerenciamento de tarefas"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <title>MdTec Gestão</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%236366f1'/><text y='.88em' x='50%' text-anchor='middle' font-size='65' font-weight='900' fill='white'>M</text></svg>"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
@@ -144,7 +148,7 @@ const USER_KEY="mdtec_v6_user";
 const LOCK_TTL=22000; // lock expires after 22s without heartbeat
 const SESSION_ID=Math.random().toString(36).slice(2,10); // unique per tab
 
-const uid=()=>`${Date.now().toString(36)}${Math.random().toString(36).slice(2,6)}`;
+const uid=()=>crypto.randomUUID?crypto.randomUUID():`${Date.now().toString(36)}${Math.random().toString(36).slice(2,6)}`;
 const todayStr=()=>new Date().toISOString().slice(0,10);
 const fmtDate=d=>d?new Date(d+"T12:00:00").toLocaleDateString("pt-BR"):"-";
 const isLate=t=>t.dueDate&&new Date(t.dueDate+"T23:59:59")<new Date()&&t.status!=="done";
@@ -175,7 +179,7 @@ const RINTS=[
   {value:"yearly",label:"Anual"}
 ];
 const NAV_GROUPS=[
-  {label:"Visualizações",items:[{id:"dashboard",icon:"✦",label:"Dashboard"},{id:"kanban",icon:"⊞",label:"Kanban"},{id:"lista",icon:"☰",label:"Lista"},{id:"calendario",icon:"📅",label:"Calendário"},{id:"tabela",icon:"▦",label:"Tabela"},{id:"arquivadas",icon:"📦",label:"Arquivadas"}]},
+  {label:"Visualizações",items:[{id:"dashboard",icon:"✦",label:"Dashboard"},{id:"kanban",icon:"⊞",label:"Kanban"},{id:"lista",icon:"☰",label:"Lista"},{id:"calendario",icon:"📅",label:"Calendário"},{id:"tabela",icon:"▦",label:"Tabela"},{id:"minhas",icon:"👤",label:"Minhas Tarefas"},{id:"arquivadas",icon:"📦",label:"Arquivadas"}]},
   {label:"Cadastros",items:[{id:"modelos",icon:"◧",label:"Modelos"},{id:"empresas",icon:"⬡",label:"Empresas"},{id:"setores",icon:"◫",label:"Setores"},{id:"colaboradores",icon:"◉",label:"Colaboradores"},{id:"marcadores",icon:"◈",label:"Marcadores"},{id:"recorrencias",icon:"↻",label:"Recorrências"},{id:"servicos",icon:"S",label:"Serviços"}]},
   {label:"Sistema",items:[{id:"configuracoes",icon:"⚙",label:"Configurações"}]},
 ];
@@ -330,6 +334,8 @@ function useAuth() {
       }
     } catch(e){
       if(e.message === "Email ou senha incorretos.") throw e;
+      // Erro de rede ou outro problema - propaga para o usuário
+      console.warn("Erro ao buscar colaboradores:", e.message);
     }
     // 2. Fallback Supabase Auth (admin sem collab cadastrado)
     const { error } = await sb.auth.signInWithPassword({ email, password });
@@ -486,7 +492,6 @@ function useSharedData() {
           if (!p.recurrences || !Array.isArray(p.recurrences)) p.recurrences = SEED.recurrences;
           if (!p.taskTemplates || !Array.isArray(p.taskTemplates)) p.taskTemplates = [];
           if (!p.services || !Array.isArray(p.services)) p.services = [];
-        if (!p.services || !Array.isArray(p.services)) p.services = [];
           if (!p.archiveDays) p.archiveDays = 30;
           p.tasks = (p.tasks || []).map(t => ({
             id: t.id||"",
@@ -526,8 +531,11 @@ function useSharedData() {
       pendingSave.current = setTimeout(() => {
         sb.from("app_data").upsert({ id: 1, payload: next })
           .then(({ error }) => {
-            if(error) console.error("Supabase save error:", error);
-            else console.log("Saved to Supabase");
+            if(error) {
+              console.error("Supabase save error:", error);
+              // Dispara evento customizado para o App exibir toast de erro
+              window.dispatchEvent(new CustomEvent("mdtec_save_error", { detail: error.message }));
+            }
           });
       }, 300);
       return next;
@@ -707,7 +715,7 @@ function ArchivedPage({data,setData,toast}){
 }
 
 
-function ConfigPage({data,setData,toast}){
+function ConfigPage({data,setData,toast,deduplicateTasks}){
   const [days,setDays]=useState(data.archiveDays||30);
   const save=()=>{
     setData(d=>({...d,archiveDays:Number(days)}));
@@ -754,6 +762,26 @@ function ConfigPage({data,setData,toast}){
         <div style={{marginTop:16,padding:"10px 14px",borderRadius:9,background:"#f8fafc",border:"1px solid #f1f5f9",fontSize:12,color:"#64748b"}}>
           Configuração atual: tarefas concluídas há mais de <strong>{data.archiveDays||30} dias</strong> são arquivadas.
           {archived>0&&<span style={{marginLeft:8,color:"#6366f1",fontWeight:700}}>{archived} tarefa{archived!==1?"s":""} arquivada{archived!==1?"s":""}.</span>}
+        </div>
+      </div>
+
+      <div style={{background:"#fff",borderRadius:16,padding:24,border:"1px solid #f1f5f9",marginBottom:16,boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
+        <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:4}}>🔁 Tarefas duplicadas</h3>
+        <p style={{fontSize:13,color:"#64748b",marginBottom:14,lineHeight:1.5}}>
+          Se serviços recorrentes foram vinculados por engano mais de uma vez, use esta opção para remover tarefas duplicadas (mesmo título + empresa + data).
+        </p>
+        <Btn onClick={()=>{ deduplicateTasks(); }} v="ghost">🧹 Remover duplicatas</Btn>
+      </div>
+
+      <div style={{background:"#fff",borderRadius:16,padding:24,border:"1px solid #f1f5f9",marginBottom:16,boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
+        <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:4}}>⌨️ Atalhos de teclado</h3>
+        <div style={{display:"grid",gridTemplateColumns:"auto 1fr",gap:"6px 16px",fontSize:13,color:"#374151"}}>
+          {[["N","Nova tarefa"],["D","Dashboard"],["K","Kanban"],["L","Lista"],["C","Calendário"],["Esc","Fechar modal"]].map(([k,desc])=>(
+            <React.Fragment key={k}>
+              <kbd style={{padding:"2px 7px",borderRadius:5,background:"#f1f5f9",border:"1px solid #e2e8f0",fontFamily:"monospace",fontSize:12,fontWeight:700,color:"#6366f1",whiteSpace:"nowrap"}}>{k}</kbd>
+              <span style={{color:"#64748b"}}>{desc}</span>
+            </React.Fragment>
+          ))}
         </div>
       </div>
 
@@ -1174,7 +1202,7 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
       </Fld>
 
       <Fld label="Dependências">
-        <DepPicker tasks={data.tasks} selfId={f.id} selected={f.dependencies} onChange={v=>!blocked&&setF(x=>({...x,dependencies:v}))} blocked={blocked}/>
+        <DepPicker tasks={data.tasks} selfId={f.id} selected={f.dependencies} onChange={v=>!blocked&&sf(x=>({...x,dependencies:v}))} blocked={blocked}/>
       </Fld>
 
       <Fld label="Checklist">
@@ -1638,7 +1666,14 @@ function CompaniesPage({ data, setData }) {
       setData(d=>{
         let tasks=[...d.tasks];
         svcs.forEach(svc=>{
-          const existsAny=tasks.some(t=>t.company===coId&&t._serviceId===svc.id);
+          // Busca todas as tarefas ativas (não arquivadas) já vinculadas a este serviço+empresa
+          const existingDates=new Set(
+            tasks
+              .filter(t=>t.company===coId&&t._serviceId===svc.id&&t.status!=="archived")
+              .map(t=>t.dueDate||"_noduedate")
+          );
+          // Só gera se não houver NENHUMA tarefa ativa já vinculada
+          const existsAny=existingDates.size>0;
           if(!existsAny){
             const rec=data.recurrences.find(r=>r.id===svc.recurrence);
             const base={
@@ -1686,7 +1721,7 @@ function CompaniesPage({ data, setData }) {
             }
           }
         });
-        return {...d,tasks};;
+        return {...d,tasks};
       });
     }
     setOpen(false);
@@ -2647,7 +2682,7 @@ function Dashboard({ data }) {
 
       {/* Por setor */}
       {bySector.length>0&&(
-        <div style={{background:"#fff",borderRadius:14,padding:20,border:"1px solid #f1f5f9",boxShadow:"0 1px 4444rgba(0,0,0,.05)"}}>
+        <div style={{background:"#fff",borderRadius:14,padding:20,border:"1px solid #f1f5f9",boxShadow:"0 1px 4px rgba(0,0,0,.05)",marginBottom:24}}>
           <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:16}}>◫ Tarefas por Setor - {MS[fMonth]}/{fYear}</h3>
           <div style={{display:"flex",flexWrap:"wrap",gap:10}}>
             {bySector.map(s=>(
@@ -2704,6 +2739,30 @@ function App(){
     </div>
   );
 
+  // Atalhos de teclado globais
+  useEffect(()=>{
+    const handler=(e)=>{
+      // Não ativar quando digitando em inputs/textarea
+      if(["INPUT","TEXTAREA","SELECT"].includes(e.target.tagName)) return;
+      if(e.metaKey||e.ctrlKey||e.altKey) return;
+      if(e.key==="n"||e.key==="N"){e.preventDefault();openNew();}
+      else if(e.key==="Escape"){if(taskModal.open) closeTask();}
+      else if(e.key==="k"||e.key==="K"){setPage("kanban");}
+      else if(e.key==="l"||e.key==="L"){setPage("lista");}
+      else if(e.key==="c"||e.key==="C"){setPage("calendario");}
+      else if(e.key==="d"||e.key==="D"){setPage("dashboard");}
+    };
+    window.addEventListener("keydown",handler);
+    return()=>window.removeEventListener("keydown",handler);
+  },[taskModal.open, openNew, closeTask]);
+
+  // Escuta erros de save do Supabase e exibe toast
+  useEffect(()=>{
+    const handler=(e)=>toast(`⚠️ Erro ao salvar: ${e.detail}`,"err",5000);
+    window.addEventListener("mdtec_save_error",handler);
+    return()=>window.removeEventListener("mdtec_save_error",handler);
+  },[toast]);
+
   const userName = user.user_metadata?.name || user.email?.split("@")[0] || "Usuário";
   // Encontrar colaborador vinculado ao email logado
   // Detectar colaborador pelo email do usuário logado
@@ -2715,8 +2774,6 @@ function App(){
     ? (!myCollab || myCollab.accessLevel==="admin")
     : (myCollab?.accessLevel==="admin");
   const myCollabId = myCollab?.id || user._collabId || null;
-  // Debug
-  console.log("[ACCESS] email:", user.email, "isAdmin:", isAdmin, "myCollabId:", myCollabId, "collab:", myCollab?.name);
   // Filtrar tarefas para o usuário atual
   const visibleTasks = isAdmin
     ? data.tasks
@@ -2899,13 +2956,13 @@ function App(){
   const importData=()=>{const i=document.createElement("input");i.type="file";i.accept=".json";i.onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{try{const p=JSON.parse(ev.target.result);if(p.tasks&&p.companies){setData(p);toast("Dados importados!","ok");}else toast("Arquivo inválido.","err");}catch{toast("Erro ao importar.","err");}};r.readAsText(f);};i.click();};
   const resetData=()=>{ askDelete("Todos os dados serão apagados e substituídos pelos dados iniciais!", ()=>{setData(SEED);toast("Dados restaurados.","warn");}); };
 
-  const overdueCount=data.tasks.filter(t=>isLate(t)).length;
+  const overdueCount=data.tasks.filter(t=>t.status!=="archived"&&isLate(t)).length;
   const doingCount  =data.tasks.filter(t=>t.status==="doing").length;
   const curPage     =NAV_GROUPS.flatMap(g=>g.items).find(i=>i.id===page);
 
   return(
     <div className="shell" style={{minHeight:"100dvh",width:"100%"}}>
-      {}
+      {/* Sidebar */}
       <aside className={`sidebar${sideCol?" slim":""}`}>
         <div className="sb-logo" style={{padding:sideCol?"14px 12px":"20px 16px",borderBottom:"1px solid rgba(255,255,255,.06)"}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
@@ -2954,15 +3011,15 @@ function App(){
                 <div style={{fontSize:11,fontWeight:700,color:"#f8fafc",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{userName}</div>
                 <div style={{fontSize:9,color:"#475569",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.email}</div>
               </div>
-              <button onClick={signOut} title="Sair" style={{background:"none",border:"none",cursor:"pointer",color:"#475569",fontSize:14,padding:2,flexShrink:0}} onMouseEnter={e=>e.currentTarget.style.color="#f87171"} onMouseLeave={e=>e.currentTarget.style.color="#475569"}>⎋</button>
+              <button onClick={signOut} aria-label="Sair" title="Sair" style={{background:"none",border:"none",cursor:"pointer",color:"#475569",fontSize:14,padding:2,flexShrink:0}} onMouseEnter={e=>e.currentTarget.style.color="#f87171"} onMouseLeave={e=>e.currentTarget.style.color="#475569"}>⎋</button>
             </div>
           )}
-          {!sideCol&&<button onClick={openNew} style={{width:"100%",padding:"10px 0",borderRadius:10,border:"none",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 4px 14px rgba(99,102,241,.4)",transition:"filter .15s",marginBottom:8}} onMouseEnter={e=>e.currentTarget.style.filter="brightness(.9)"} onMouseLeave={e=>e.currentTarget.style.filter="brightness(1)"}>+ Nova Tarefa</button>}
+          {!sideCol&&<button onClick={openNew} style={{width:"100%",padding:"10px 0",borderRadius:10,border:"none",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 4px 14px rgba(99,102,241,.4)",transition:"filter .15s",marginBottom:8,display:"flex",alignItems:"center",justifyContent:"center",gap:8}} onMouseEnter={e=>e.currentTarget.style.filter="brightness(.9)"} onMouseLeave={e=>e.currentTarget.style.filter="brightness(1)"}><span>+ Nova Tarefa</span><kbd style={{fontSize:9,padding:"1px 5px",borderRadius:4,background:"rgba(255,255,255,.2)",fontFamily:"monospace",fontWeight:700}}>N</kbd></button>}
           {!sideCol&&(
             <div style={{display:"flex",gap:4,marginBottom:8}}>
-              <button onClick={exportData} title="Exportar JSON" style={{flex:1,padding:"5px",borderRadius:6,border:"1px solid rgba(255,255,255,.07)",background:"transparent",color:"#475569",cursor:"pointer",fontSize:10,fontFamily:"inherit"}} onMouseEnter={e=>e.currentTarget.style.color="#94a3b8"} onMouseLeave={e=>e.currentTarget.style.color="#475569"}>⬇ Export</button>
-              <button onClick={importData} title="Importar JSON" style={{flex:1,padding:"5px",borderRadius:6,border:"1px solid rgba(255,255,255,.07)",background:"transparent",color:"#475569",cursor:"pointer",fontSize:10,fontFamily:"inherit"}} onMouseEnter={e=>e.currentTarget.style.color="#94a3b8"} onMouseLeave={e=>e.currentTarget.style.color="#475569"}>⬆ Import</button>
-              <button onClick={resetData} title="Restaurar dados" style={{padding:"5px 8px",borderRadius:6,border:"1px solid rgba(239,68,68,.18)",background:"transparent",color:"#475569",cursor:"pointer",fontSize:10,fontFamily:"inherit"}} onMouseEnter={e=>e.currentTarget.style.color="#f87171"} onMouseLeave={e=>e.currentTarget.style.color="#475569"}>⟳</button>
+              <button onClick={exportData} aria-label="Exportar dados como JSON" title="Exportar JSON" style={{flex:1,padding:"5px",borderRadius:6,border:"1px solid rgba(255,255,255,.07)",background:"transparent",color:"#475569",cursor:"pointer",fontSize:10,fontFamily:"inherit"}} onMouseEnter={e=>e.currentTarget.style.color="#94a3b8"} onMouseLeave={e=>e.currentTarget.style.color="#475569"}>⬇ Export</button>
+              <button onClick={importData} aria-label="Importar dados de arquivo JSON" title="Importar JSON" style={{flex:1,padding:"5px",borderRadius:6,border:"1px solid rgba(255,255,255,.07)",background:"transparent",color:"#475569",cursor:"pointer",fontSize:10,fontFamily:"inherit"}} onMouseEnter={e=>e.currentTarget.style.color="#94a3b8"} onMouseLeave={e=>e.currentTarget.style.color="#475569"}>⬆ Import</button>
+              <button onClick={resetData} aria-label="Restaurar dados padrão" title="Restaurar dados" style={{padding:"5px 8px",borderRadius:6,border:"1px solid rgba(239,68,68,.18)",background:"transparent",color:"#475569",cursor:"pointer",fontSize:10,fontFamily:"inherit"}} onMouseEnter={e=>e.currentTarget.style.color="#f87171"} onMouseLeave={e=>e.currentTarget.style.color="#475569"}>⟳</button>
             </div>
           )}
           <button onClick={()=>setSideCol(s=>!s)} style={{width:"100%",padding:"7px",borderRadius:8,border:"1px solid rgba(255,255,255,.06)",background:"transparent",color:"#475569",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit",gap:4}} onMouseEnter={e=>e.currentTarget.style.color="#94a3b8"} onMouseLeave={e=>e.currentTarget.style.color="#475569"}>
@@ -2971,7 +3028,7 @@ function App(){
         </div>
       </aside>
 
-      {}
+      {/* Conteúdo principal */}
       <main className="main-content">
         <div className="topbar" style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:28,gap:12}}>
           <div>
@@ -2992,6 +3049,7 @@ function App(){
         {page==="dashboard"     && <Dashboard data={dataForUser}/>}
         {page==="kanban"        && <KanbanView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onAdd={openNew} onComplete={quickComplete}/>}
         {page==="lista"         && <ListView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete}/>}
+        {page==="minhas"        && <ListView data={{...dataForUser, tasks: (myCollabId ? dataForUser.tasks.filter(t=>t.assignees?.includes(myCollabId)) : dataForUser.tasks).filter(t=>t.status!=="archived")}} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete}/>}
         {page==="calendario"    && <CalView data={dataForUser} onEdit={openEdit}/>}
         {page==="tabela"        && <GridView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete}/>}
         {page==="servicos"      && <ServicosPage data={data} setData={setData}/>}
@@ -3002,10 +3060,10 @@ function App(){
         {page==="marcadores"    && <LabelsPage data={data} setData={setData}/>}
         {page==="recorrencias"  && <RecurrencesPage data={data} setData={setData}/>}
         {page==="arquivadas"    && <ArchivedPage data={data} setData={setData} toast={toast}/>}
-        {page==="configuracoes" && <ConfigPage data={data} setData={setData} toast={toast}/>}
+        {page==="configuracoes" && <ConfigPage data={data} setData={setData} toast={toast} deduplicateTasks={deduplicateTasks}/>}
       </main>
 
-      {}
+      {/* Modal de tarefa */}
       <Modal open={taskModal.open} onClose={closeTask}
         title={taskModal.task&&data.tasks.find(t=>t.id===taskModal.task?.id)?"✎ Editar Tarefa":"✦ Nova Tarefa"}
         width={650}

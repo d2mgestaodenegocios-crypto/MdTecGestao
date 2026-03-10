@@ -13,7 +13,55 @@
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;-webkit-text-size-adjust:100%;touch-action:manipulation}
-body{font-family:'Plus Jakarta Sans',system-ui,sans-serif;background:#f1f5f9;color:#0f172a;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+
+/* CSS variables for theming */
+:root{
+  --bg:#f1f5f9;--bg2:#fff;--bg3:#f8fafc;--bg4:#f9fafb;
+  --text:#0f172a;--text2:#374151;--text3:#64748b;--text4:#94a3b8;
+  --border:#f1f5f9;--border2:#e2e8f0;--border3:#e5e7eb;
+  --input-bg:#fff;--input-text:#0f172a;--input-border:#e5e7eb;
+  --card-shadow:0 1px 4px rgba(0,0,0,.05);
+}
+body.dark{
+  --bg:#0f172a;--bg2:#1e293b;--bg3:#1e293b;--bg4:#1e293b;
+  --text:#f1f5f9;--text2:#cbd5e1;--text3:#94a3b8;--text4:#64748b;
+  --border:#334155;--border2:#334155;--border3:#334155;
+  --input-bg:#0f172a;--input-text:#e2e8f0;--input-border:#334155;
+  --card-shadow:0 1px 4px rgba(0,0,0,.25);
+}
+
+body{font-family:'Plus Jakarta Sans',system-ui,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;overflow-x:hidden;transition:background .25s,color .25s}
+
+/* Dark mode — main areas */
+body.dark .main-content{background:var(--bg)!important}
+
+/* Inputs */
+body.dark input:not([type=checkbox]):not([type=radio]),
+body.dark textarea,
+body.dark select{background:var(--input-bg)!important;color:var(--input-text)!important;border-color:var(--input-border)!important}
+body.dark input::placeholder,body.dark textarea::placeholder{color:#475569!important}
+
+/* Modal */
+body.dark .modal-overlay{background:rgba(0,0,0,.75)!important}
+body.dark .modal-box{background:var(--bg2)!important;border-color:var(--border)!important}
+
+/* Filter bar */
+body.dark .fbar{background:var(--bg2)!important;border-color:var(--border)!important}
+body.dark .fbar input,body.dark .fbar select{background:var(--input-bg)!important;color:var(--input-text)!important;border-color:var(--input-border)!important}
+
+/* Table rows */
+body.dark .tbl-head{background:var(--bg3)!important;border-color:var(--border)!important}
+body.dark .tbl-row{border-color:var(--border)!important}
+body.dark .tbl-row:hover{background:rgba(99,102,241,.08)!important}
+
+/* Global search */
+body.dark .gs-box{background:var(--bg2)!important;border-color:var(--border)!important}
+
+/* Buttons ghost in dark */
+body.dark button[style*="background:#f8fafc"],
+body.dark button[style*="background:#f1f5f9"]{background:var(--bg3)!important;color:var(--text3)!important;border-color:var(--border)!important}
+
+@keyframes darkModeIn{from{opacity:0}to{opacity:1}}
 #root{display:flex;min-height:100dvh}
 ::-webkit-scrollbar{width:4px;height:4px}
 ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:4px}
@@ -575,7 +623,7 @@ function LoginScreen({ onLogin }) {
           <h1 style={{fontSize:26,fontWeight:900,color:"#f8fafc",letterSpacing:"-.02em"}}>MdTec Gestão</h1>
           <p style={{fontSize:13,color:"#94a3b8",marginTop:4}}>Sistema de gerenciamento de tarefas</p>
         </div>
-        <div style={{background:"#fff",borderRadius:20,padding:"28px 24px",boxShadow:"0 32px 80px rgba(0,0,0,.4)"}}>
+        <div style={{background:"var(--bg2)",borderRadius:20,padding:"28px 24px",boxShadow:"0 32px 80px rgba(0,0,0,.4)"}}>
           <div style={{display:"flex",flexDirection:"column",gap:16}}>
             <div>
               <label style={{fontSize:12,fontWeight:700,color:"#374151",display:"block",marginBottom:6}}>Email</label>
@@ -616,7 +664,7 @@ function ConfirmDelete({open,onClose,onConfirm,title,word="EXCLUIR"}){
   const ok=typed.trim().toUpperCase()===word.toUpperCase();
   return(
     <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.65)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}>
-      <div style={{background:"#fff",borderRadius:18,width:"100%",maxWidth:430,boxShadow:"0 32px 80px rgba(0,0,0,.3)",animation:"popIn .2s ease",overflow:"hidden"}}>
+      <div style={{background:"var(--bg2)",borderRadius:18,width:"100%",maxWidth:430,boxShadow:"0 32px 80px rgba(0,0,0,.3)",animation:"popIn .2s ease",overflow:"hidden"}}>
         <div style={{background:"#fef2f2",padding:"18px 22px 14px",borderBottom:"1px solid #fecaca",display:"flex",alignItems:"center",gap:12}}>
           <div style={{width:42,height:42,borderRadius:10,background:"#ef4444",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>🗑</div>
           <div>
@@ -634,7 +682,7 @@ function ConfirmDelete({open,onClose,onConfirm,title,word="EXCLUIR"}){
             style={{width:"100%",padding:"10px 14px",borderRadius:9,fontSize:14,fontWeight:700,letterSpacing:2,border:"2px solid "+(ok?"#22c55e":"#e5e7eb"),outline:"none",fontFamily:"inherit",textTransform:"uppercase",color:"#0f172a",transition:"border .15s",background:ok?"#f0fdf4":"#fff"}}
           />
           <div style={{display:"flex",gap:10,marginTop:16,justifyContent:"flex-end"}}>
-            <button onClick={onClose} style={{padding:"8px 18px",borderRadius:9,border:"2px solid #e5e7eb",background:"#fff",color:"#374151",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Cancelar</button>
+            <button onClick={onClose} style={{padding:"8px 18px",borderRadius:9,border:"2px solid #e5e7eb",background:"var(--bg2)",color:"#374151",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Cancelar</button>
             <button onClick={onConfirm} disabled={!ok} style={{padding:"8px 18px",borderRadius:9,border:"none",background:ok?"#ef4444":"#fca5a5",color:"#fff",fontSize:13,fontWeight:700,cursor:ok?"pointer":"not-allowed",fontFamily:"inherit",transition:"all .15s"}}>
               {ok?"Sim, excluir":"Digite para confirmar"}
             </button>
@@ -689,7 +737,7 @@ function ArchivedPage({data,setData,toast}){
             const co=data.companies.find(c=>c.id===t.company);
             const asg=data.collaborators.filter(c=>t.assignees?.includes(c.id));
             return(
-              <div key={t.id} style={{background:"#fff",borderRadius:12,padding:"12px 16px",border:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:12,opacity:0.85}}>
+              <div key={t.id} style={{background:"var(--bg2)",borderRadius:12,padding:"12px 16px",border:"1px solid var(--border)",display:"flex",alignItems:"center",gap:12,opacity:0.85}}>
                 <div style={{width:8,height:8,borderRadius:"50%",background:"#94a3b8",flexShrink:0}}/>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:13,fontWeight:700,color:"#64748b",textDecoration:"line-through",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</div>
@@ -737,13 +785,13 @@ function ConfigPage({data,setData,toast,deduplicateTasks}){
     }));
     setTimeout(()=>toast(count>0?`📦 ${count} tarefa(s) arquivada(s)!`:"Nenhuma tarefa para arquivar.","ok"),100);
   };
-  const iSt={padding:"9px 12px",borderRadius:9,fontSize:14,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",color:"#111",background:"#fff",width:"100%"};
+  const iSt={padding:"9px 12px",borderRadius:9,fontSize:14,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",color:"#111",background:"var(--bg2)",width:"100%"};
 
   return(
     <div style={{maxWidth:560}}>
       <PH title="Configurações" icon="⚙"/>
 
-      <div style={{background:"#fff",borderRadius:16,padding:24,border:"1px solid #f1f5f9",marginBottom:16,boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
+      <div style={{background:"var(--bg2)",borderRadius:16,padding:24,border:"1px solid var(--border)",marginBottom:16,boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
         <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:4}}>📦 Arquivamento automático</h3>
         <p style={{fontSize:13,color:"#64748b",marginBottom:18,lineHeight:1.5}}>
           Tarefas com status <strong>Concluído</strong> serão arquivadas automaticamente após o número de dias definido abaixo. Elas ficam visíveis na página <strong>Arquivadas</strong> e podem ser restauradas a qualquer momento.
@@ -758,13 +806,13 @@ function ConfigPage({data,setData,toast,deduplicateTasks}){
             <Btn onClick={runArchive} v="ghost">📦 Arquivar agora</Btn>
           </div>
         </div>
-        <div style={{marginTop:16,padding:"10px 14px",borderRadius:9,background:"#f8fafc",border:"1px solid #f1f5f9",fontSize:12,color:"#64748b"}}>
+        <div style={{marginTop:16,padding:"10px 14px",borderRadius:9,background:"var(--bg3)",border:"1px solid var(--border)",fontSize:12,color:"#64748b"}}>
           Configuração atual: tarefas concluídas há mais de <strong>{data.archiveDays||30} dias</strong> são arquivadas.
           {archived>0&&<span style={{marginLeft:8,color:"#6366f1",fontWeight:700}}>{archived} tarefa{archived!==1?"s":""} arquivada{archived!==1?"s":""}.</span>}
         </div>
       </div>
 
-      <div style={{background:"#fff",borderRadius:16,padding:24,border:"1px solid #f1f5f9",marginBottom:16,boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
+      <div style={{background:"var(--bg2)",borderRadius:16,padding:24,border:"1px solid var(--border)",marginBottom:16,boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
         <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:4}}>🔁 Tarefas duplicadas</h3>
         <p style={{fontSize:13,color:"#64748b",marginBottom:14,lineHeight:1.5}}>
           Se serviços recorrentes foram vinculados por engano mais de uma vez, use esta opção para remover tarefas duplicadas (mesmo título + empresa + data).
@@ -772,19 +820,28 @@ function ConfigPage({data,setData,toast,deduplicateTasks}){
         <Btn onClick={()=>{ deduplicateTasks(); }} v="ghost">🧹 Remover duplicatas</Btn>
       </div>
 
-      <div style={{background:"#fff",borderRadius:16,padding:24,border:"1px solid #f1f5f9",marginBottom:16,boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
-        <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:4}}>⌨️ Atalhos de teclado</h3>
-        <div style={{display:"grid",gridTemplateColumns:"auto 1fr",gap:"6px 16px",fontSize:13,color:"#374151"}}>
-          {[["N","Nova tarefa"],["D","Dashboard"],["K","Kanban"],["L","Lista"],["C","Calendário"],["Esc","Fechar modal"]].map(([k,desc])=>(
+      <div style={{background:"var(--bg2)",borderRadius:16,padding:24,border:"1px solid var(--border)",marginBottom:16,boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
+        <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:12}}>⌨️ Atalhos de teclado</h3>
+        <div style={{display:"grid",gridTemplateColumns:"auto 1fr",gap:"8px 20px",fontSize:13,color:"#374151"}}>
+          {[
+            ["N","Nova tarefa"],
+            ["D","Dashboard"],
+            ["K","Kanban"],
+            ["L","Lista"],
+            ["C","Calendário"],
+            ["Esc","Fechar modal / fechar busca"],
+            ["⌘K / Ctrl+K","Busca global — tarefas e páginas"],
+            ["🌙 (botão)","Alternar tema claro / escuro"],
+          ].map(([k,desc])=>(
             <React.Fragment key={k}>
-              <kbd style={{padding:"2px 7px",borderRadius:5,background:"#f1f5f9",border:"1px solid #e2e8f0",fontFamily:"monospace",fontSize:12,fontWeight:700,color:"#6366f1",whiteSpace:"nowrap"}}>{k}</kbd>
-              <span style={{color:"#64748b"}}>{desc}</span>
+              <kbd style={{padding:"2px 9px",borderRadius:6,background:"linear-gradient(180deg,#f8fafc,#f1f5f9)",border:"1px solid #e2e8f0",boxShadow:"0 1px 2px rgba(0,0,0,.06)",fontFamily:"monospace",fontSize:12,fontWeight:700,color:"#6366f1",whiteSpace:"nowrap",display:"inline-flex",alignItems:"center"}}>{k}</kbd>
+              <span style={{color:"#64748b",alignSelf:"center"}}>{desc}</span>
             </React.Fragment>
           ))}
         </div>
       </div>
 
-      <div style={{background:"#fff",borderRadius:16,padding:24,border:"1px solid #f1f5f9",boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
+      <div style={{background:"var(--bg2)",borderRadius:16,padding:24,border:"1px solid var(--border)",boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
         <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:4}}>ℹ️ Sobre o sistema</h3>
         <p style={{fontSize:13,color:"#64748b",lineHeight:1.6}}>
           <strong>MdTec Gestão</strong> — Sistema de gerenciamento de tarefas.<br/>
@@ -946,7 +1003,7 @@ function Fld({label,hint,children}){
   return<div style={{display:"flex",flexDirection:"column",gap:5}}>{label&&<label style={{fontSize:12,fontWeight:700,color:"#374151"}}>{label}{hint&&<span style={{fontSize:11,fontWeight:400,color:"#94a3b8",marginLeft:4}}>{hint}</span>}</label>}{children}</div>;
 }
 
-const iSt=(focused)=>({padding:"8px 12px",borderRadius:9,fontSize:13,border:`2px solid ${focused?"#6366f1":"#e5e7eb"}`,outline:"none",fontFamily:"inherit",color:"#111",background:"#fff",transition:"border .15s",width:"100%"});
+const iSt=(focused)=>({padding:"8px 12px",borderRadius:9,fontSize:13,border:`2px solid ${focused?"#6366f1":"#e5e7eb"}`,outline:"none",fontFamily:"inherit",color:"#111",background:"var(--bg2)",transition:"border .15s",width:"100%"});
 
 function Inp({label,value,onChange,placeholder,type="text",hint,disabled}){
   const [f,sf]=useState(false);
@@ -974,8 +1031,8 @@ function Modal({open,onClose,title,children,width=630}){
   if(!open)return null;
   return(
     <div className="modal-backdrop" onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(3px)"}}>
-      <div className="modal-box" style={{background:"#fff",borderRadius:18,width:"100%",maxWidth:width,maxHeight:"92dvh",overflow:"auto",boxShadow:"0 32px 80px rgba(0,0,0,.22)",animation:"popIn .22s cubic-bezier(.34,1.56,.64,1)"}}>
-        <div style={{padding:"15px 20px",borderBottom:"1px solid #f3f4f6",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,background:"#fff",zIndex:1,borderRadius:"18px 18px 0 0"}}>
+      <div className="modal-box" style={{background:"var(--bg2)",borderRadius:18,width:"100%",maxWidth:width,maxHeight:"92dvh",overflow:"auto",boxShadow:"0 32px 80px rgba(0,0,0,.22)",animation:"popIn .22s cubic-bezier(.34,1.56,.64,1)"}}>
+        <div style={{padding:"15px 20px",borderBottom:"1px solid #f3f4f6",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,background:"var(--bg2)",zIndex:1,borderRadius:"18px 18px 0 0"}}>
           <h3 style={{fontSize:15,fontWeight:800,color:"#0f172a"}}>{title}</h3>
           <button onClick={onClose} style={{background:"#f1f5f9",border:"none",borderRadius:"50%",width:30,height:30,fontSize:18,cursor:"pointer",color:"#64748b",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>×</button>
         </div>
@@ -1122,7 +1179,7 @@ function DepPicker({tasks,selfId,selected,onChange,blocked}){
             style={{width:"100%",padding:"7px 12px",borderRadius:9,fontSize:12,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}
           />
           {open&&q.trim()&&(
-            <div style={{position:"absolute",top:"100%",left:0,right:0,background:"#fff",border:"1.5px solid #e5e7eb",borderRadius:9,boxShadow:"0 8px 24px rgba(0,0,0,.1)",zIndex:999,maxHeight:200,overflowY:"auto",marginTop:3}}>
+            <div style={{position:"absolute",top:"100%",left:0,right:0,background:"var(--bg2)",border:"1.5px solid #e5e7eb",borderRadius:9,boxShadow:"0 8px 24px rgba(0,0,0,.1)",zIndex:999,maxHeight:200,overflowY:"auto",marginTop:3}}>
               {filtered.length===0
                 ?<div style={{padding:"10px 14px",fontSize:12,color:"#94a3b8"}}>Nenhuma tarefa encontrada</div>
                 :filtered.map(t=>{
@@ -1150,15 +1207,22 @@ function DepPicker({tasks,selfId,selected,onChange,blocked}){
   );
 }
 
-function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,onForce}){
-  const blank={id:uid(),title:"",description:"",status:defStatus,priority:"media",company:"",sector:"",assignees:[],labels:[],dueDate:"",checklist:[],dependencies:[],recurrence:"",createdAt:todayStr()};
-  const [f,sf]=useState(task?sanitizeTask(task):blank);
+function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,onForce,currentUser}){
+  const blank={id:uid(),title:"",description:"",status:defStatus,priority:"media",company:"",sector:"",assignees:[],labels:[],dueDate:"",checklist:[],dependencies:[],recurrence:"",createdAt:todayStr(),comments:[]};
+  const [f,sf]=useState(task?{...sanitizeTask(task),comments:task.comments||[]}:blank);
   const [ckTxt,sCk]=useState("");
+  const [commentTxt,setCommentTxt]=useState("");
   const set=(k,v)=>sf(p=>({...p,[k]:v}));
   const tog=(k,id)=>set(k,f[k].includes(id)?f[k].filter(x=>x!==id):[...f[k],id]);
   const fC=data.collaborators.filter(c=>{if(!f.company) return true;const cos=toArr(c.companies).length>0?toArr(c.companies):(c.company?[c.company]:[]);return cos.length===0||cos.includes(f.company);});
   const fS=data.sectors.filter(s=>{if(!f.company) return true;const cos=toArr(s.companies).length>0?toArr(s.companies):(s.company?[s.company]:[]);return cos.length===0||cos.includes(f.company);});
   const addCk=()=>{if(!ckTxt.trim())return;set("checklist",[...f.checklist,{id:uid(),text:ckTxt.trim(),done:false}]);sCk("");};
+  const addComment=()=>{
+    if(!commentTxt.trim())return;
+    const comment={id:uid(),text:commentTxt.trim(),author:currentUser||"Usuário",createdAt:new Date().toISOString()};
+    set("comments",[...(f.comments||[]),comment]);
+    setCommentTxt("");
+  };
   const blocked=!!lockInfo;
 
   return(
@@ -1220,6 +1284,30 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
         </div>
       </Fld>
 
+      {/* Comentários */}
+      {task&&(
+        <Fld label={`Comentários${(f.comments||[]).length>0?` (${f.comments.length})`:"" }`}>
+          <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:8,maxHeight:200,overflowY:"auto"}}>
+            {(f.comments||[]).length===0&&<div style={{fontSize:12,color:"#94a3b8",fontStyle:"italic"}}>Nenhum comentário ainda. Seja o primeiro!</div>}
+            {(f.comments||[]).map(c=>(
+              <div key={c.id} style={{padding:"8px 12px",borderRadius:10,background:"var(--bg3)",border:"1px solid var(--border)"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                  <div style={{width:22,height:22,borderRadius:"50%",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,color:"#fff",fontWeight:800,flexShrink:0}}>{c.author.slice(0,2).toUpperCase()}</div>
+                  <span style={{fontSize:11,fontWeight:700,color:"#374151"}}>{c.author}</span>
+                  <span style={{fontSize:10,color:"#94a3b8",marginLeft:"auto"}}>{new Date(c.createdAt).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}</span>
+                  {c.author===(currentUser||"Usuário")&&<button onClick={()=>set("comments",(f.comments||[]).filter(x=>x.id!==c.id))} style={{background:"none",border:"none",cursor:"pointer",color:"#cbd5e1",fontSize:13,padding:"0 2px",lineHeight:1}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#cbd5e1"}>×</button>}
+                </div>
+                <p style={{fontSize:12,color:"#374151",lineHeight:1.5,margin:0}}>{c.text}</p>
+              </div>
+            ))}
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <input value={commentTxt} onChange={e=>setCommentTxt(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&addComment()} placeholder="Adicionar comentário... (Enter para enviar)" style={{flex:1,padding:"7px 12px",borderRadius:9,fontSize:12,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit"}} onFocus={e=>e.target.style.borderColor="#6366f1"} onBlur={e=>e.target.style.borderColor="#e5e7eb"}/>
+            <Btn onClick={addComment} sz="sm" disabled={!commentTxt.trim()}>💬</Btn>
+          </div>
+        </Fld>
+      )}
+
       <div style={{display:"flex",gap:10,justifyContent:"space-between",paddingTop:10,borderTop:"1px solid #f3f4f6",flexWrap:"wrap",alignItems:"center"}}>
         <div>
           {task&&onDelete&&<Btn onClick={()=>onDelete(f.id)} v="danger" disabled={blocked}>🗑 Excluir Tarefa</Btn>}
@@ -1254,11 +1342,11 @@ function applyFilters(tasks,f){
 }
 
 function FBar({data,filters,setF,showMonth=true}){
-  const ss={padding:"6px 9px",borderRadius:8,fontSize:12,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",background:"#fff"};
+  const ss={padding:"6px 9px",borderRadius:8,fontSize:12,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",background:"var(--bg2)"};
   const sf=(k,v)=>setF(p=>({...p,[k]:v}));
   const any=Object.values(filters).some(x=>x!=null&&x!=="");
   return(
-    <div className="fbar" style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:16,padding:"10px 12px",background:"#f8fafc",borderRadius:12,border:"1px solid #f1f5f9",alignItems:"center"}}>
+    <div className="fbar" style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:16,padding:"10px 12px",background:"var(--bg3)",borderRadius:12,border:"1px solid var(--border)",alignItems:"center"}}>
       <input value={filters.search||""} onChange={e=>sf("search",e.target.value)} placeholder="🔍 Buscar..." style={{...ss,minWidth:140,flex:"1 1 130px"}}/>
       <select style={ss} value={filters.status||""} onChange={e=>sf("status",e.target.value)}><option value="">Status</option>{STS.map(s=><option key={s.id} value={s.id}>{s.l}</option>)}</select>
       <select style={ss} value={filters.priority||""} onChange={e=>sf("priority",e.target.value)}><option value="">Prioridade</option>{Object.entries(PRI).map(([k,v])=><option key={k} value={k}>{v.l}</option>)}</select>
@@ -1380,15 +1468,38 @@ function TCard({task,data,onEdit,onDelete,onComplete}){
 }
 
 /* ===========================================
-   KANBAN VIEW */
-function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
-  const [kanbanFilter,setKanbanFilter]=useState("week"); // "week"|"overdue"|"today"|"all"
+   KANBAN VIEW - with Drag & Drop */
+function KanbanView({data,onEdit,onDelete,onAdd,onComplete,onStatusChange}){
+  const [kanbanFilter,setKanbanFilter]=useState("week");
+  const [dragging,setDragging]=useState(null); // {taskId}
+  const [dragOver,setDragOver]=useState(null); // {colId}
   const today=todayStr();
   const btnStyle=(active)=>({
     padding:"4px 14px",borderRadius:20,border:"1.5px solid "+(active?"#6366f1":"#e2e8f0"),
     background:active?"#6366f1":"#f8fafc",color:active?"#fff":"#64748b",
     fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .15s"
   });
+
+  const handleDragStart=(e,task)=>{
+    setDragging(task);
+    e.dataTransfer.effectAllowed="move";
+    e.dataTransfer.setData("text/plain",task.id);
+  };
+  const handleDragOver=(e,colId)=>{
+    e.preventDefault();
+    e.dataTransfer.dropEffect="move";
+    setDragOver(colId);
+  };
+  const handleDrop=(e,colId)=>{
+    e.preventDefault();
+    if(dragging&&dragging.status!==colId){
+      onStatusChange(dragging.id, colId);
+    }
+    setDragging(null);
+    setDragOver(null);
+  };
+  const handleDragEnd=()=>{setDragging(null);setDragOver(null);};
+
   return(
     <div>
       <div style={{display:"flex",gap:6,marginBottom:14,alignItems:"center",flexWrap:"wrap"}}>
@@ -1397,6 +1508,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
         <button style={btnStyle(kanbanFilter==="overdue")} onClick={()=>setKanbanFilter("overdue")}>🔴 Vencidas</button>
         <button style={btnStyle(kanbanFilter==="today")} onClick={()=>setKanbanFilter("today")}>🟡 Vence hoje</button>
         <button style={btnStyle(kanbanFilter==="all")} onClick={()=>setKanbanFilter("all")}>☰ Todas</button>
+        <span style={{fontSize:11,color:"#94a3b8",marginLeft:4}}>💡 Arraste os cards entre colunas</span>
       </div>
     <div className="kanban-wrap" style={{display:"flex",gap:14,overflowX:"auto",paddingBottom:20,alignItems:"flex-start"}}>
       {STS.filter(st=>st.id!=="archived").map(st=>{
@@ -1412,13 +1524,17 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
           const isDueToday=t.dueDate===today;
           if(kanbanFilter==="overdue") return isOverdue;
           if(kanbanFilter==="today") return isDueToday;
-          // week: vencidas + hoje + esta semana
           return isOverdue||isDueToday||(due>=wkStart&&due<=wkEnd);
         });
         tasks.sort((a,b)=>(a.dueDate||"").localeCompare(b.dueDate||""));
+        const isDropTarget=dragOver===st.id;
         return(
-          <div key={st.id} className="kanban-col" style={{flexShrink:0,width:268}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 12px",borderRadius:10,background:st.bg,border:`1.5px solid ${st.c}33`,marginBottom:10}}>
+          <div key={st.id} className="kanban-col" style={{flexShrink:0,width:268}}
+            onDragOver={e=>handleDragOver(e,st.id)}
+            onDrop={e=>handleDrop(e,st.id)}
+            onDragLeave={()=>setDragOver(null)}
+          >
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 12px",borderRadius:10,background:isDropTarget?st.c+"28":st.bg,border:`1.5px solid ${st.c}${isDropTarget?"":"33"}`,marginBottom:10,transition:"all .15s"}}>
               <div style={{display:"flex",alignItems:"center",gap:7}}>
                 <span style={{width:9,height:9,borderRadius:"50%",background:st.c,display:"inline-block"}}/>
                 <span style={{fontSize:12,fontWeight:800,color:st.c}}>{st.l}</span>
@@ -1426,9 +1542,19 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete}){
               </div>
               <button onClick={()=>onAdd(st.id)} style={{background:st.c+"20",border:"none",borderRadius:7,width:24,height:24,cursor:"pointer",color:st.c,fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
             </div>
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {tasks.map(t=><TCard key={t.id} task={t} data={data} onEdit={onEdit} onDelete={onDelete} onComplete={onComplete}/>)}
-              {tasks.length===0&&<div style={{padding:18,textAlign:"center",fontSize:12,color:"#cbd5e1",border:"2px dashed #f1f5f9",borderRadius:10}}>Sem tarefas</div>}
+            <div style={{display:"flex",flexDirection:"column",gap:8,minHeight:isDropTarget?60:0,padding:isDropTarget?"4px":0,borderRadius:10,border:isDropTarget?`2px dashed ${st.c}`:"2px dashed transparent",transition:"all .15s"}}>
+              {tasks.map(t=>(
+                <div key={t.id}
+                  draggable
+                  onDragStart={e=>handleDragStart(e,t)}
+                  onDragEnd={handleDragEnd}
+                  style={{opacity:dragging?.id===t.id?.5:1,transition:"opacity .15s",cursor:"grab"}}
+                >
+                  <TCard task={t} data={data} onEdit={onEdit} onDelete={onDelete} onComplete={onComplete}/>
+                </div>
+              ))}
+              {tasks.length===0&&!isDropTarget&&<div style={{padding:18,textAlign:"center",fontSize:12,color:"#cbd5e1",border:"2px dashed #f1f5f9",borderRadius:10}}>Sem tarefas</div>}
+              {isDropTarget&&<div style={{padding:18,textAlign:"center",fontSize:12,color:st.c,fontWeight:700,borderRadius:10}}>Soltar aqui →</div>}
             </div>
           </div>
         );
@@ -1446,8 +1572,8 @@ function ListView({data,onEdit,onDelete,onComplete}){
     <div>
       <FBar data={data} filters={fl} setF={sfl}/>
       <div style={{overflowX:"auto"}}>
-        <div style={{minWidth:780,borderRadius:14,border:"1px solid #f1f5f9",overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,.05)",background:"#fff"}}>
-          <div style={{display:"grid",gridTemplateColumns:COL,padding:"9px 16px",background:"#f8fafc",borderBottom:"2px solid #f1f5f9",gap:8,fontSize:10,fontWeight:800,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".05em",alignItems:"center"}}>
+        <div style={{minWidth:780,borderRadius:14,border:"1px solid var(--border)",overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,.05)",background:"var(--bg2)"}}>
+          <div style={{display:"grid",gridTemplateColumns:COL,padding:"9px 16px",background:"var(--bg3)",borderBottom:"2px solid var(--border)",gap:8,fontSize:10,fontWeight:800,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".05em",alignItems:"center"}}>
             <div/><div>Tarefa</div><div>Status</div><div>Prior.</div><div>Empresa</div><div>Setor</div><div>Resp.</div><div>Venc.</div><div/>
           </div>
           {tasks.length===0&&<div style={{padding:"38px 20px",textAlign:"center",color:"#94a3b8",fontSize:14}}>Nenhuma tarefa encontrada.</div>}
@@ -1555,7 +1681,7 @@ function CalView({data,onEdit}){
                 const asg=data.collaborators.filter(x=>t.assignees.includes(x.id)).slice(0,2);
                 const lbs=data.labels.filter(x=>t.labels.includes(x.id)).slice(0,2);
                 return(
-                  <div key={t.id} onClick={()=>onEdit(t)} style={{marginBottom:3,borderRadius:6,border:"1.5px solid "+st.c+"33",background:"#fff",cursor:"pointer",overflow:"hidden"}}>
+                  <div key={t.id} onClick={()=>onEdit(t)} style={{marginBottom:3,borderRadius:6,border:"1.5px solid "+st.c+"33",background:"var(--bg2)",cursor:"pointer",overflow:"hidden"}}>
                     <div style={{background:st.c,height:2}}/>
                     <div style={{padding:"2px 4px"}}>
                       <div style={{fontSize:9,fontWeight:800,color:"#0f172a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</div>
@@ -1588,8 +1714,8 @@ function GridView({data,onEdit,onDelete,onComplete}){
     <div>
       <FBar data={data} filters={fl} setF={sfl}/>
       <div className="scroll-x">
-        <div style={{borderRadius:14,border:"1px solid #f1f5f9",overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,.05)",background:"#fff"}}>
-          <div className="tbl-head" style={{display:"grid",gridTemplateColumns:"12px minmax(160px,2fr) 110px 82px minmax(120px,1.3fr) minmax(90px,1fr) minmax(140px,1.4fr) 86px minmax(80px,110px) 52px",padding:"10px 16px",background:"#f8fafc",borderBottom:"2px solid #f1f5f9",gap:8,alignItems:"center"}}>
+        <div style={{borderRadius:14,border:"1px solid var(--border)",overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,.05)",background:"var(--bg2)"}}>
+          <div className="tbl-head" style={{display:"grid",gridTemplateColumns:"12px minmax(160px,2fr) 110px 82px minmax(120px,1.3fr) minmax(90px,1fr) minmax(140px,1.4fr) 86px minmax(80px,110px) 52px",padding:"10px 16px",background:"var(--bg3)",borderBottom:"2px solid var(--border)",gap:8,alignItems:"center"}}>
             <div/>
             <SH f="title" l="Tarefa"/>
             <SH f="status" l="Status"/>
@@ -1738,7 +1864,7 @@ function CompaniesPage({ data, setData }) {
           const sectors=data.sectors.filter(s=>toArr(s.companies).includes(c.id)||s.company===c.id);
           const svcs=data.services.filter(s=>toArr(c.services).includes(s.id));
           return (
-            <div key={c.id} style={{background:"#fff",borderRadius:16,padding:20,border:"1px solid #f1f5f9",boxShadow:"0 2px 8px rgba(0,0,0,.06)"}}>
+            <div key={c.id} style={{background:"var(--bg2)",borderRadius:16,padding:20,border:"1px solid var(--border)",boxShadow:"0 2px 8px rgba(0,0,0,.06)"}}>
               <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:14}}>
                 <div style={{width:52,height:52,borderRadius:14,background:c.color+"18",border:"2px solid "+c.color+"44",display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,fontWeight:900,color:c.color}}>{c.logo}</div>
                 <div style={{flex:1,minWidth:0}}>
@@ -1750,7 +1876,7 @@ function CompaniesPage({ data, setData }) {
               </div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}}>
                 {[{v:collabs.length,l:"Colab."},{v:tasks.length,l:"Tarefas"},{v:sectors.length,l:"Setores"}].map(({v,l})=>(
-                  <div key={l} style={{textAlign:"center",background:"#f8fafc",borderRadius:9,padding:"8px 4px"}}>
+                  <div key={l} style={{textAlign:"center",background:"var(--bg3)",borderRadius:9,padding:"8px 4px"}}>
                     <div style={{fontSize:18,fontWeight:900,color:c.color}}>{v}</div>
                     <div style={{fontSize:10,color:"#94a3b8",fontWeight:600}}>{l}</div>
                   </div>
@@ -1846,7 +1972,7 @@ function SectorsPage({ data, setData }) {
           const collabs=data.collaborators.filter(u=>{const us=toArr(u.sectors).length>0?toArr(u.sectors):(u.sector?[u.sector]:[]);return us.includes(s.id);});
           const tasks=data.tasks.filter(t=>t.sector===s.id);
           return (
-            <div key={s.id} style={{background:"#fff",borderRadius:14,padding:18,border:"1px solid #f1f5f9",boxShadow:"0 1px 4px rgba(0,0,0,.06)"}}>
+            <div key={s.id} style={{background:"var(--bg2)",borderRadius:14,padding:18,border:"1px solid var(--border)",boxShadow:"0 1px 4px rgba(0,0,0,.06)"}}>
               <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
                 <div style={{width:38,height:38,borderRadius:10,background:s.color+"18",border:`2px solid ${s.c}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:17}}>◫</div>
                 <div>
@@ -1855,11 +1981,11 @@ function SectorsPage({ data, setData }) {
                 </div>
               </div>
               <div style={{display:"flex",gap:8,marginBottom:14}}>
-                <div style={{flex:1,textAlign:"center",background:"#f8fafc",borderRadius:8,padding:"6px 4px"}}>
+                <div style={{flex:1,textAlign:"center",background:"var(--bg3)",borderRadius:8,padding:"6px 4px"}}>
                   <div style={{fontSize:16,fontWeight:800,color:s.color}}>{collabs.length}</div>
                   <div style={{fontSize:10,color:"#94a3b8"}}>Colab.</div>
                 </div>
-                <div style={{flex:1,textAlign:"center",background:"#f8fafc",borderRadius:8,padding:"6px 4px"}}>
+                <div style={{flex:1,textAlign:"center",background:"var(--bg3)",borderRadius:8,padding:"6px 4px"}}>
                   <div style={{fontSize:16,fontWeight:800,color:s.color}}>{tasks.length}</div>
                   <div style={{fontSize:10,color:"#94a3b8"}}>Tarefas</div>
                 </div>
@@ -1963,7 +2089,7 @@ function CollaboratorsPage({ data, setData }) {
           const tasks=data.tasks.filter(t=>t.assignees.includes(u.id));
           const doing=tasks.filter(t=>t.status==="doing").length;
           return (
-            <div key={u.id} style={{background:"#fff",borderRadius:14,padding:18,border:"1px solid #f1f5f9",boxShadow:"0 1px 4px rgba(0,0,0,.06)",textAlign:"center"}}>
+            <div key={u.id} style={{background:"var(--bg2)",borderRadius:14,padding:18,border:"1px solid var(--border)",boxShadow:"0 1px 4px rgba(0,0,0,.06)",textAlign:"center"}}>
               <div style={{display:"flex",justifyContent:"center",marginBottom:12}}>
                 <Av initials={u.initials} color={u.color} size={54}/>
               </div>
@@ -1980,11 +2106,11 @@ function CollaboratorsPage({ data, setData }) {
                 {(()=>{const uCos=toArr(u.companies).length>0?toArr(u.companies):(u.company?[u.company]:[]);const cos=data.companies.filter(c=>uCos.includes(c.id));return cos.length>0?cos.map(c=><Chip key={c.id} label={c.name} color={c.color}/>):<Chip label="Todas as empresas" color="#94a3b8"/>;})()}
               </div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:12}}>
-                <div style={{background:"#f8fafc",borderRadius:8,padding:"6px"}}>
+                <div style={{background:"var(--bg3)",borderRadius:8,padding:"6px"}}>
                   <div style={{fontSize:16,fontWeight:800,color:"#6366f1"}}>{tasks.length}</div>
                   <div style={{fontSize:10,color:"#94a3b8"}}>Tarefas</div>
                 </div>
-                <div style={{background:"#f8fafc",borderRadius:8,padding:"6px"}}>
+                <div style={{background:"var(--bg3)",borderRadius:8,padding:"6px"}}>
                   <div style={{fontSize:16,fontWeight:800,color:"#f59e0b"}}>{doing}</div>
                   <div style={{fontSize:10,color:"#94a3b8"}}>Em andamento</div>
                 </div>
@@ -2050,11 +2176,11 @@ function CollaboratorsPage({ data, setData }) {
       {/* Modal credenciais criadas */}
       {createdCreds&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <div style={{background:"#fff",borderRadius:16,padding:28,maxWidth:420,width:"100%",boxShadow:"0 24px 64px rgba(0,0,0,.2)"}}>
+          <div style={{background:"var(--bg2)",borderRadius:16,padding:28,maxWidth:420,width:"100%",boxShadow:"0 24px 64px rgba(0,0,0,.2)"}}>
             <div style={{fontSize:32,textAlign:"center",marginBottom:8}}>✅</div>
             <div style={{fontSize:16,fontWeight:900,color:"#0f172a",textAlign:"center",marginBottom:4}}>Usuário criado com sucesso!</div>
             <div style={{fontSize:13,color:"#64748b",textAlign:"center",marginBottom:20}}>Guarde ou envie as credenciais abaixo</div>
-            <div style={{background:"#f8fafc",borderRadius:10,padding:16,marginBottom:12,border:"1px solid #e2e8f0"}}>
+            <div style={{background:"var(--bg3)",borderRadius:10,padding:16,marginBottom:12,border:"1px solid #e2e8f0"}}>
               <div style={{fontSize:12,color:"#64748b",marginBottom:2}}>Nome</div>
               <div style={{fontSize:14,fontWeight:700,color:"#0f172a",marginBottom:10}}>{createdCreds.name}</div>
               <div style={{fontSize:12,color:"#64748b",marginBottom:2}}>Email (login)</div>
@@ -2094,7 +2220,7 @@ Equipe MdTec`);
                 ✉️ Enviar email
               </button>
             </div>
-            <button onClick={()=>setCreatedCreds(null)} style={{width:"100%",padding:"8px 0",borderRadius:9,border:"1px solid #e2e8f0",background:"#f8fafc",color:"#64748b",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
+            <button onClick={()=>setCreatedCreds(null)} style={{width:"100%",padding:"8px 0",borderRadius:9,border:"1px solid #e2e8f0",background:"var(--bg3)",color:"#64748b",fontWeight:600,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
               Fechar
             </button>
           </div>
@@ -2188,7 +2314,7 @@ function RecurrencesPage({ data, setData }) {
           const used=data.tasks.filter(t=>t.recurrence===r.id).length;
           const desc=describeRec(r);
           return (
-            <div key={r.id} style={{background:"#fff",border:"1px solid #f1f5f9",borderRadius:14,padding:18,boxShadow:"0 1px 4px rgba(0,0,0,.06)"}}>
+            <div key={r.id} style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:14,padding:18,boxShadow:"0 1px 4px rgba(0,0,0,.06)"}}>
               <div style={{fontSize:26,marginBottom:8}}>↻</div>
               <div style={{fontWeight:800,fontSize:14,color:"#0f172a",marginBottom:4}}>{r.name}</div>
               <div style={{fontSize:12,color:"#64748b",marginBottom:4}}>{desc}</div>
@@ -2290,7 +2416,7 @@ function ServicosPage({ data, setData }) {
           const lbs=data.labels.filter(l=>toArr(s.labels).includes(l.id));
           const pri=PRI[s.priority]||PRI.media;
           return (
-            <div key={s.id} style={{background:"#fff",borderRadius:14,padding:18,border:"1px solid #f1f5f9",boxShadow:"0 2px 8px rgba(0,0,0,.06)"}}>
+            <div key={s.id} style={{background:"var(--bg2)",borderRadius:14,padding:18,border:"1px solid var(--border)",boxShadow:"0 2px 8px rgba(0,0,0,.06)"}}>
               <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:12}}>
                 <div style={{width:42,height:42,borderRadius:10,background:(s.color||"#6366f1")+"18",border:"2px solid "+(s.color||"#6366f1")+"44",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:900,color:s.color||"#6366f1",flexShrink:0}}>S</div>
                 <div style={{flex:1,minWidth:0}}>
@@ -2366,8 +2492,8 @@ function ServicosPage({ data, setData }) {
           <div style={{display:"flex",flexDirection:"column",gap:5,maxHeight:320,overflowY:"auto"}}>
             {toArr(form.checklist).length===0&&<div style={{padding:"24px",textAlign:"center",color:"#cbd5e1",fontSize:13,border:"2px dashed #f1f5f9",borderRadius:10}}>Nenhum item ainda. Adicione acima.</div>}
             {toArr(form.checklist).map((ck,idx)=>(
-              <div key={ck.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:9,background:"#f9fafb",border:"1px solid #f3f4f6"}}>
-                <span style={{width:22,height:22,borderRadius:6,border:"2px solid #e5e7eb",background:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:"#94a3b8",flexShrink:0}}>{idx+1}</span>
+              <div key={ck.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:9,background:"var(--bg4)",border:"1px solid #f3f4f6"}}>
+                <span style={{width:22,height:22,borderRadius:6,border:"2px solid #e5e7eb",background:"var(--bg2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:"#94a3b8",flexShrink:0}}>{idx+1}</span>
                 <span style={{flex:1,fontSize:13,color:"#374151"}}>{ck.text}</span>
                 <button onClick={()=>set("checklist",toArr(form.checklist).filter(x=>x.id!==ck.id))} style={{background:"none",border:"none",cursor:"pointer",color:"#cbd5e1",fontSize:18,lineHeight:1,padding:"0 3px",fontFamily:"inherit"}}>x</button>
               </div>
@@ -2381,7 +2507,7 @@ function ServicosPage({ data, setData }) {
               <Inp label="Mes de inicio" value={form.mesInicio||""} onChange={v=>set("mesInicio",v)} type="month" hint="Mes em que a recorrencia mensal inicia"/>
               <Inp label="Vencimento padrao" value={form.defaultDue||""} onChange={v=>set("defaultDue",v)} type="date" hint="Data de vencimento da primeira ocorrencia"/>
             </div>
-          <div style={{padding:"14px",background:"#f8fafc",borderRadius:10,fontSize:12,color:"#64748b",lineHeight:1.7}}>
+          <div style={{padding:"14px",background:"var(--bg3)",borderRadius:10,fontSize:12,color:"#64748b",lineHeight:1.7}}>
             <strong style={{color:"#0f172a",display:"block",marginBottom:6}}>Como funciona:</strong>
             1. Cadastre o servico preenchendo todas as abas (Geral, Responsaveis, Checklist, Recorrencia).<br/>
             2. Va em Empresas, abra a aba Servicos e marque este servico.<br/>
@@ -2425,7 +2551,7 @@ function TemplatesPage({ data, setData, onUseTemplate }) {
           const labels=data.labels.filter(l=>t.labels.includes(l.id));
           const rec=t.recurrence?data.recurrences.find(r=>r.id===t.recurrence):null;
           return (
-            <div key={t.id} style={{background:"#fff",borderRadius:16,padding:20,border:"1px solid #f1f5f9",boxShadow:"0 2px 8px rgba(0,0,0,.06)"}}>
+            <div key={t.id} style={{background:"var(--bg2)",borderRadius:16,padding:20,border:"1px solid var(--border)",boxShadow:"0 2px 8px rgba(0,0,0,.06)"}}>
               <div style={{display:"flex",gap:5,marginBottom:10,flexWrap:"wrap"}}>
                 {labels.map(l=><Chip key={l.id} label={l.name} color={l.color}/>)}
                 {rec&&<span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:20,background:"#f0fdf4",color:"#14b8a6"}}>↻ {rec.name}</span>}
@@ -2469,7 +2595,7 @@ function TemplatesPage({ data, setData, onUseTemplate }) {
               <Btn onClick={addCk} sz="sm">+</Btn>
             </div>
             {form.checklist.map((c,i)=>(
-              <div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",borderRadius:8,background:"#f9fafb",marginBottom:4}}>
+              <div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",borderRadius:8,background:"var(--bg4)",marginBottom:4}}>
                 <span style={{flex:1,fontSize:13}}>{c}</span>
                 <button onClick={()=>setForm(f=>({...f,checklist:f.checklist.filter((_,j)=>j!==i)}))} style={{background:"none",border:"none",cursor:"pointer",color:"#cbd5e1",fontSize:16}}>×</button>
               </div>
@@ -2549,12 +2675,53 @@ function Dashboard({ data }) {
     return {...s,total:tasks.length,done:tasks.filter(t=>t.status==="done").length};
   }).filter(s=>s.total>0),[filteredTasks,data.sectors]);
 
-  const maxTasks = Math.max(1,...byCompany.map(c=>c.total),...byCollaborator.map(u=>u.total));
+  // Burndown - tarefas concluídas por dia nos últimos 14 dias
+  const burndown = useMemo(()=>{
+    const days=[];
+    for(let i=13;i>=0;i--){
+      const d=new Date();d.setDate(d.getDate()-i);d.setHours(0,0,0,0);
+      const ds=d.toISOString().slice(0,10);
+      const done=data.tasks.filter(t=>t.completedAt&&t.completedAt.slice(0,10)===ds&&(coFilter?t.company===coFilter:true)).length;
+      days.push({date:ds,done,label:d.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})});
+    }
+    return days;
+  },[data.tasks,coFilter]);
+
+  const maxBurndown=Math.max(1,...burndown.map(d=>d.done));
+
+  // Heatmap - tarefas concluídas por dia nos últimos 12 semanas
+  const heatmap = useMemo(()=>{
+    const map={};
+    data.tasks.forEach(t=>{
+      if(t.completedAt&&(coFilter?t.company===coFilter:true)){
+        const d=t.completedAt.slice(0,10);
+        map[d]=(map[d]||0)+1;
+      }
+    });
+    const weeks=[];
+    const now=new Date();now.setHours(0,0,0,0);
+    const start=new Date(now);start.setDate(now.getDate()-83); // 12 semanas
+    // alinhar ao domingo
+    start.setDate(start.getDate()-start.getDay());
+    for(let w=0;w<12;w++){
+      const week=[];
+      for(let d=0;d<7;d++){
+        const dt=new Date(start);dt.setDate(start.getDate()+w*7+d);
+        const ds=dt.toISOString().slice(0,10);
+        week.push({date:ds,count:map[ds]||0,future:dt>now});
+      }
+      weeks.push(week);
+    }
+    return weeks;
+  },[data.tasks,coFilter]);
+
+  const maxHeat=Math.max(1,...heatmap.flat().map(d=>d.count));
+  const heatColor=(c)=>{if(c===0)return"#f1f5f9";const p=c/maxHeat;if(p<.25)return"#bbf7d0";if(p<.5)return"#4ade80";if(p<.75)return"#16a34a";return"#14532d";};
 
   return (
     <div>
       {/* Filtros de período */}
-      <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:24,padding:"14px 18px",background:"#fff",borderRadius:14,border:"1px solid #f1f5f9",boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
+      <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:24,padding:"14px 18px",background:"var(--bg2)",borderRadius:14,border:"1px solid var(--border)",boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
         <span style={{fontSize:13,fontWeight:700,color:"#64748b"}}>📊 Período:</span>
         <div style={{display:"flex",gap:4,background:"#f1f5f9",borderRadius:8,padding:3}}>
           {[["month","Mensal"],["year","Anual"]].map(([v,l])=>(
@@ -2562,14 +2729,14 @@ function Dashboard({ data }) {
           ))}
         </div>
         {viewMode==="month" && (
-          <select value={fMonth} onChange={e=>setFMonth(Number(e.target.value))} style={{padding:"6px 10px",borderRadius:8,fontSize:13,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",background:"#fff"}}>
+          <select value={fMonth} onChange={e=>setFMonth(Number(e.target.value))} style={{padding:"6px 10px",borderRadius:8,fontSize:13,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",background:"var(--bg2)"}}>
             {MS.map((m,i)=><option key={i} value={i}>{m}</option>)}
           </select>
         )}
-        <select value={fYear} onChange={e=>setFYear(Number(e.target.value))} style={{padding:"6px 10px",borderRadius:8,fontSize:13,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",background:"#fff"}}>
+        <select value={fYear} onChange={e=>setFYear(Number(e.target.value))} style={{padding:"6px 10px",borderRadius:8,fontSize:13,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",background:"var(--bg2)"}}>
           {[2024,2025,2026,2027,2028].map(y=><option key={y} value={y}>{y}</option>)}
         </select>
-        <select value={coFilter} onChange={e=>setCoFilter(e.target.value)} style={{padding:"6px 10px",borderRadius:8,fontSize:13,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",background:"#fff"}}>
+        <select value={coFilter} onChange={e=>setCoFilter(e.target.value)} style={{padding:"6px 10px",borderRadius:8,fontSize:13,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",background:"var(--bg2)"}}>
           <option value="">Todas as empresas</option>
           {data.companies.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
@@ -2588,7 +2755,7 @@ function Dashboard({ data }) {
           {l:"Concluídas",   v:stats.byStatus.done,    c:"#22c55e"},
           {l:"Atrasadas",    v:stats.overdue,           c:"#ef4444"},
         ].map(({l,v,c})=>(
-          <div key={l} style={{background:"#fff",borderRadius:14,padding:"16px 18px",border:"1px solid #f1f5f9",boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
+          <div key={l} style={{background:"var(--bg2)",borderRadius:14,padding:"16px 18px",border:"1px solid var(--border)",boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
             <div style={{fontSize:30,fontWeight:900,color:c,lineHeight:1}}>{v}</div>
             <div style={{fontSize:12,fontWeight:700,color:"#64748b",marginTop:4}}>{l}</div>
           </div>
@@ -2596,7 +2763,7 @@ function Dashboard({ data }) {
       </div>
 
       {/* Status bar */}
-      <div style={{background:"#fff",borderRadius:14,padding:20,border:"1px solid #f1f5f9",boxShadow:"0 1px 4px rgba(0,0,0,.05)",marginBottom:24}}>
+      <div style={{background:"var(--bg2)",borderRadius:14,padding:20,border:"1px solid var(--border)",boxShadow:"0 1px 4px rgba(0,0,0,.05)",marginBottom:24}}>
         <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:16}}>Status das Tarefas - {MS[fMonth]}/{fYear}</h3>
         {STS.map(s=>{
           const cnt=stats.byStatus[s.id]||0;
@@ -2616,7 +2783,7 @@ function Dashboard({ data }) {
       </div>
 
       {/* Por empresa */}
-      <div style={{background:"#fff",borderRadius:14,padding:20,border:"1px solid #f1f5f9",boxShadow:"0 1px 4px rgba(0,0,0,.05)",marginBottom:24}}>
+      <div style={{background:"var(--bg2)",borderRadius:14,padding:20,border:"1px solid var(--border)",boxShadow:"0 1px 4px rgba(0,0,0,.05)",marginBottom:24}}>
         <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:18}}>📊 Tarefas por Empresa - {MS[fMonth]}/{fYear}</h3>
         {byCompany.length===0&&<p style={{color:"#94a3b8",fontSize:13}}>Nenhuma tarefa no período.</p>}
         {byCompany.map(c=>(
@@ -2644,11 +2811,11 @@ function Dashboard({ data }) {
 
       {/* Por colaborador */}
       {byCollaborator.length>0&&(
-        <div style={{background:"#fff",borderRadius:14,padding:20,border:"1px solid #f1f5f9",boxShadow:"0 1px 4px rgba(0,0,0,.05)",marginBottom:24}}>
+        <div style={{background:"var(--bg2)",borderRadius:14,padding:20,border:"1px solid var(--border)",boxShadow:"0 1px 4px rgba(0,0,0,.05)",marginBottom:24}}>
           <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:18}}>👥 Tarefas por Colaborador - {MS[fMonth]}/{fYear}</h3>
           <div className="dash-collabs" style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12}}>
             {byCollaborator.map(u=>(
-              <div key={u.id} style={{background:"#f8fafc",borderRadius:12,padding:"14px 16px",border:"1px solid #f1f5f9"}}>
+              <div key={u.id} style={{background:"var(--bg3)",borderRadius:12,padding:"14px 16px",border:"1px solid var(--border)"}}>
                 <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
                   <Av initials={u.initials} color={u.color} size={36}/>
                   <div>
@@ -2657,15 +2824,15 @@ function Dashboard({ data }) {
                   </div>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4,marginBottom:8}}>
-                  <div style={{textAlign:"center",background:"#fff",borderRadius:7,padding:"5px 3px"}}>
+                  <div style={{textAlign:"center",background:"var(--bg2)",borderRadius:7,padding:"5px 3px"}}>
                     <div style={{fontSize:16,fontWeight:800,color:"#6366f1"}}>{u.total}</div>
                     <div style={{fontSize:9,color:"#94a3b8"}}>Total</div>
                   </div>
-                  <div style={{textAlign:"center",background:"#fff",borderRadius:7,padding:"5px 3px"}}>
+                  <div style={{textAlign:"center",background:"var(--bg2)",borderRadius:7,padding:"5px 3px"}}>
                     <div style={{fontSize:16,fontWeight:800,color:"#22c55e"}}>{u.done}</div>
                     <div style={{fontSize:9,color:"#94a3b8"}}>Feitas</div>
                   </div>
-                  <div style={{textAlign:"center",background:"#fff",borderRadius:7,padding:"5px 3px"}}>
+                  <div style={{textAlign:"center",background:"var(--bg2)",borderRadius:7,padding:"5px 3px"}}>
                     <div style={{fontSize:16,fontWeight:800,color:u.overdue>0?"#ef4444":"#94a3b8"}}>{u.overdue}</div>
                     <div style={{fontSize:9,color:"#94a3b8"}}>Atraso</div>
                   </div>
@@ -2681,7 +2848,7 @@ function Dashboard({ data }) {
 
       {/* Por setor */}
       {bySector.length>0&&(
-        <div style={{background:"#fff",borderRadius:14,padding:20,border:"1px solid #f1f5f9",boxShadow:"0 1px 4px rgba(0,0,0,.05)",marginBottom:24}}>
+        <div style={{background:"var(--bg2)",borderRadius:14,padding:20,border:"1px solid var(--border)",boxShadow:"0 1px 4px rgba(0,0,0,.05)",marginBottom:24}}>
           <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:16}}>◫ Tarefas por Setor - {MS[fMonth]}/{fYear}</h3>
           <div style={{display:"flex",flexWrap:"wrap",gap:10}}>
             {bySector.map(s=>(
@@ -2695,12 +2862,147 @@ function Dashboard({ data }) {
           </div>
         </div>
       )}
+
+      {/* Burndown - últimos 14 dias */}
+      <div style={{background:"var(--bg2)",borderRadius:14,padding:20,border:"1px solid var(--border)",boxShadow:"0 1px 4px rgba(0,0,0,.05)",marginBottom:24}}>
+        <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:16}}>📈 Tarefas Concluídas — Últimos 14 dias</h3>
+        {burndown.every(d=>d.done===0)
+          ?<p style={{color:"#94a3b8",fontSize:13}}>Nenhuma tarefa concluída no período. Conclua tarefas para ver o gráfico.</p>
+          :<div style={{display:"flex",alignItems:"flex-end",gap:3,height:90,paddingBottom:20,position:"relative"}}>
+            {burndown.map((d)=>(
+              <div key={d.date} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2,height:"100%",justifyContent:"flex-end"}}>
+                {d.done>0&&<div style={{fontSize:9,fontWeight:800,color:"#6366f1"}}>{d.done}</div>}
+                <div title={`${d.label}: ${d.done} concluída${d.done!==1?"s":""}`} style={{width:"100%",borderRadius:"3px 3px 0 0",background:d.done>0?"linear-gradient(180deg,#818cf8,#6366f1)":"#f1f5f9",height:`${Math.max((d.done/maxBurndown)*60,d.done>0?6:2)}px`,transition:"height .5s ease",cursor:"default"}} onMouseEnter={e=>e.currentTarget.style.filter="brightness(1.15)"} onMouseLeave={e=>e.currentTarget.style.filter=""}/>
+                <div style={{fontSize:8,color:"#94a3b8",fontWeight:600,whiteSpace:"nowrap",transform:"rotate(-35deg)",transformOrigin:"top center",marginTop:3}}>{d.label}</div>
+              </div>
+            ))}
+          </div>
+        }
+      </div>
+
+      {/* Heatmap de produtividade */}
+      <div style={{background:"var(--bg2)",borderRadius:14,padding:20,border:"1px solid var(--border)",boxShadow:"0 1px 4px rgba(0,0,0,.05)",marginBottom:24,overflowX:"auto"}}>
+        <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:14}}>🗓 Mapa de Produtividade — Últimas 12 semanas</h3>
+        <div style={{display:"flex",gap:3,alignItems:"flex-start"}}>
+          <div style={{display:"flex",flexDirection:"column",gap:3,marginRight:4,paddingTop:0}}>
+            {["D","S","T","Q","Q","S","S"].map((d,i)=><div key={i} style={{width:12,height:12,fontSize:8,color:"#94a3b8",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700}}>{d}</div>)}
+          </div>
+          {heatmap.map((week,wi)=>(
+            <div key={wi} style={{display:"flex",flexDirection:"column",gap:3}}>
+              {week.map(d=>(
+                <div key={d.date} title={`${d.date}: ${d.count} tarefa${d.count!==1?"s":""} concluída${d.count!==1?"s":""}`}
+                  style={{width:12,height:12,borderRadius:2,background:d.future?"transparent":heatColor(d.count),border:d.future?"none":"1px solid rgba(0,0,0,.06)",transition:"transform .1s",cursor:"default"}}
+                  onMouseEnter={e=>e.currentTarget.style.transform="scale(1.5)"}
+                  onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:5,marginTop:10,fontSize:11,color:"#94a3b8"}}>
+          <span>Menos</span>
+          {["#f1f5f9","#bbf7d0","#4ade80","#16a34a","#14532d"].map(c=><div key={c} style={{width:10,height:10,borderRadius:2,background:c,border:"1px solid rgba(0,0,0,.06)"}}/>)}
+          <span>Mais</span>
+        </div>
+      </div>
     </div>
   );
 }
 
 
 
+
+/* ===========================================
+   BUSCA GLOBAL - Cmd+K / Ctrl+K */
+function GlobalSearch({data,onEdit,onNavigate,onClose}){
+  const [q,setQ]=useState("");
+  const inputRef=useRef(null);
+  useEffect(()=>{if(inputRef.current)inputRef.current.focus();},[]);
+
+  const results=useMemo(()=>{
+    if(!q.trim()) return [];
+    const ql=q.toLowerCase();
+    const tasks=data.tasks.filter(t=>t.status!=="archived"&&(t.title.toLowerCase().includes(ql)||t.description?.toLowerCase().includes(ql))).slice(0,6).map(t=>({type:"task",item:t}));
+    const pages=[
+      {id:"dashboard",label:"Dashboard",icon:"✦"},{id:"kanban",label:"Kanban",icon:"⊞"},
+      {id:"lista",label:"Lista",icon:"☰"},{id:"calendario",label:"Calendário",icon:"📅"},
+      {id:"tabela",label:"Tabela",icon:"▦"},{id:"colaboradores",label:"Colaboradores",icon:"◉"},
+      {id:"empresas",label:"Empresas",icon:"⬡"},{id:"configuracoes",label:"Configurações",icon:"⚙"},
+    ].filter(p=>p.label.toLowerCase().includes(ql)).slice(0,3).map(p=>({type:"page",item:p}));
+    return [...pages,...tasks];
+  },[q,data.tasks]);
+
+  const [sel,setSel]=useState(0);
+  useEffect(()=>setSel(0),[results]);
+
+  const go=(r)=>{
+    if(r.type==="task"){onEdit(r.item);}
+    else if(r.type==="page"){onNavigate(r.item.id);}
+    onClose();
+  };
+
+  const handleKey=(e)=>{
+    if(e.key==="ArrowDown"){e.preventDefault();setSel(s=>Math.min(s+1,results.length-1));}
+    else if(e.key==="ArrowUp"){e.preventDefault();setSel(s=>Math.max(s-1,0));}
+    else if(e.key==="Enter"&&results[sel]){go(results[sel]);}
+    else if(e.key==="Escape"){onClose();}
+  };
+
+  const co=(task)=>data.companies.find(c=>c.id===task.company);
+  const st=(task)=>STS.find(s=>s.id===task.status)||STS[0];
+
+  return(
+    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.6)",zIndex:9000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:"15vh",backdropFilter:"blur(4px)"}}>
+      <div style={{background:"var(--bg2)",borderRadius:18,width:"100%",maxWidth:560,boxShadow:"0 32px 80px rgba(0,0,0,.3)",overflow:"hidden",animation:"popIn .18s ease"}}>
+        <div style={{display:"flex",alignItems:"center",gap:12,padding:"14px 18px",borderBottom:"1px solid var(--border)"}}>
+          <span style={{fontSize:18,color:"#94a3b8"}}>🔍</span>
+          <input ref={inputRef} value={q} onChange={e=>setQ(e.target.value)} onKeyDown={handleKey} placeholder="Buscar tarefas, páginas..." style={{flex:1,border:"none",outline:"none",fontSize:15,fontFamily:"inherit",color:"#0f172a",background:"transparent"}}/>
+          <kbd style={{padding:"2px 7px",borderRadius:5,background:"#f1f5f9",border:"1px solid #e2e8f0",fontSize:11,fontFamily:"monospace",color:"#64748b"}}>Esc</kbd>
+        </div>
+        {q.trim()===""&&(
+          <div style={{padding:"20px 18px",fontSize:13,color:"#94a3b8",textAlign:"center"}}>Digite para buscar tarefas ou navegar entre páginas</div>
+        )}
+        {q.trim()!=""&&results.length===0&&(
+          <div style={{padding:"20px 18px",fontSize:13,color:"#94a3b8",textAlign:"center"}}>Nenhum resultado para "{q}"</div>
+        )}
+        {results.length>0&&(
+          <div style={{maxHeight:360,overflowY:"auto"}}>
+            {results.map((r,i)=>(
+              <div key={r.type+r.item.id} onClick={()=>go(r)}
+                style={{padding:"10px 18px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,background:i===sel?"#eef2ff":"transparent",borderBottom:"1px solid #f8fafc",transition:"background .1s"}}
+                onMouseEnter={()=>setSel(i)}
+              >
+                {r.type==="page"&&(
+                  <>
+                    <span style={{fontSize:16,width:28,textAlign:"center"}}>{r.item.icon}</span>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:13,fontWeight:700,color:"#0f172a"}}>{r.item.label}</div>
+                      <div style={{fontSize:11,color:"#94a3b8"}}>Página</div>
+                    </div>
+                    <span style={{fontSize:11,color:"#94a3b8"}}>→</span>
+                  </>
+                )}
+                {r.type==="task"&&(()=>{const c=co(r.item);const s=st(r.item);return(
+                  <>
+                    <span style={{width:8,height:8,borderRadius:"50%",background:s.c,flexShrink:0}}/>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:700,color:"#0f172a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.item.title}</div>
+                      <div style={{fontSize:11,color:"#94a3b8"}}>{s.l}{c?` · ${c.name}`:""}</div>
+                    </div>
+                    {r.item.dueDate&&<span style={{fontSize:11,color:"#94a3b8",whiteSpace:"nowrap"}}>{fmtDate(r.item.dueDate)}</span>}
+                  </>
+                );})()}
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{padding:"8px 18px",borderTop:"1px solid #f1f5f9",display:"flex",gap:12,fontSize:11,color:"#94a3b8"}}>
+          <span>↑↓ navegar</span><span>↵ abrir</span><span>Esc fechar</span>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /* ===========================================
    APP ROOT */
@@ -2714,10 +3016,18 @@ function App(){
   const [page,setPage]      = useState("dashboard");
   const [taskModal,setTM]   = useState({open:false,task:null,defStatus:"todo",lockInfo:null});
   const [sideCol,setSideCol]= useState(false);
+  const [darkMode,setDarkMode] = useState(()=>localStorage.getItem("mdtec_dark")==="1");
+  const [showSearch,setShowSearch] = useState(false);
 
   // Refs para acesso em callbacks sem re-registro de listeners
   const taskModalRef = useRef(taskModal);
   useEffect(()=>{ taskModalRef.current = taskModal; },[taskModal]);
+
+  // Dark mode sync
+  useEffect(()=>{
+    document.body.classList.toggle("dark",darkMode);
+    localStorage.setItem("mdtec_dark",darkMode?"1":"0");
+  },[darkMode]);
 
   // Escuta erros de save do Supabase e exibe toast (antes dos returns condicionais)
   useEffect(()=>{
@@ -2729,11 +3039,13 @@ function App(){
   // Atalhos de teclado globais (antes dos returns condicionais)
   useEffect(()=>{
     const handler=(e)=>{
+      // Cmd+K / Ctrl+K → busca global
+      if((e.metaKey||e.ctrlKey)&&(e.key==="k"||e.key==="K")){e.preventDefault();setShowSearch(s=>!s);return;}
       if(["INPUT","TEXTAREA","SELECT"].includes(e.target.tagName)) return;
       if(e.metaKey||e.ctrlKey||e.altKey) return;
       const tm=taskModalRef.current;
       if(e.key==="n"||e.key==="N"){e.preventDefault();setTM({open:true,task:null,defStatus:"todo",lockInfo:null});}
-      else if(e.key==="Escape"){if(tm.open) setTM(m=>({...m,open:false,lockInfo:null}));}
+      else if(e.key==="Escape"){if(tm.open) setTM(m=>({...m,open:false,lockInfo:null}));else setShowSearch(false);}
       else if(e.key==="k"||e.key==="K"){setPage("kanban");}
       else if(e.key==="l"||e.key==="L"){setPage("lista");}
       else if(e.key==="c"||e.key==="C"){setPage("calendario");}
@@ -2946,6 +3258,18 @@ function App(){
     toast(`→ ${LABELS[cur]}!`,"ok");
   };
 
+  // Drag & drop entre colunas do Kanban
+  const dragStatusChange=(taskId,newStatus)=>{
+    const lk=getLock(taskId);
+    if(lk){toast(`🔒 ${lk.user} está editando.`,"lock",4000);return;}
+    const statusLabel=STS.find(s=>s.id===newStatus)?.l||newStatus;
+    setData(d=>({...d,tasks:d.tasks.map(t=>t.id===taskId?{
+      ...t,status:newStatus,
+      completedAt:newStatus==="done"?todayStr():(t.completedAt&&newStatus!=="done"?null:t.completedAt),
+    }:t)}));
+    toast(`→ ${statusLabel}!`,"ok");
+  };
+
   const useTemplate=(tpl)=>{
     const nt={id:uid(),title:tpl.name,description:tpl.description,status:"todo",priority:"media",
       company:"",sector:"",assignees:[],labels:tpl.labels,dueDate:"",
@@ -3045,12 +3369,18 @@ function App(){
                 <span style={{fontSize:12,fontWeight:700,color:"#ef4444"}}>{overdueCount} atrasada{overdueCount>1?"s":""}</span>
               </div>
             )}
+            {/* Busca Global */}
+            <button onClick={()=>setShowSearch(true)} title="Busca global (Ctrl+K)" aria-label="Abrir busca global" style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:10,border:"1.5px solid #e2e8f0",background:"var(--bg3)",color:"#64748b",cursor:"pointer",fontSize:12,fontWeight:600,fontFamily:"inherit",transition:"all .15s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor="#6366f1";e.currentTarget.style.color="#6366f1";}} onMouseLeave={e=>{e.currentTarget.style.borderColor="#e2e8f0";e.currentTarget.style.color="#64748b";}}>
+              🔍 <span style={{fontSize:11}}>Buscar</span><kbd style={{fontSize:9,padding:"1px 5px",borderRadius:4,background:"#e2e8f0",fontFamily:"monospace",marginLeft:2}}>⌘K</kbd>
+            </button>
+            {/* Dark Mode */}
+            <button onClick={()=>setDarkMode(d=>!d)} title={darkMode?"Modo claro":"Modo escuro"} aria-label="Alternar tema" style={{width:34,height:34,borderRadius:"50%",border:"1.5px solid #e2e8f0",background:darkMode?"#1e293b":"#f8fafc",color:darkMode?"#f59e0b":"#64748b",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .2s"}}>{darkMode?"☀️":"🌙"}</button>
             {["kanban","lista","tabela","calendario"].includes(page)&&<Btn onClick={openNew}>+ Nova Tarefa</Btn>}
           </div>
         </div>
 
         {page==="dashboard"     && <Dashboard data={dataForUser}/>}
-        {page==="kanban"        && <KanbanView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onAdd={openNew} onComplete={quickComplete}/>}
+        {page==="kanban"        && <KanbanView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onAdd={openNew} onComplete={quickComplete} onStatusChange={dragStatusChange}/>}
         {page==="lista"         && <ListView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete}/>}
         {page==="minhas"        && <ListView data={{...dataForUser, tasks: (myCollabId ? dataForUser.tasks.filter(t=>t.assignees?.includes(myCollabId)) : dataForUser.tasks).filter(t=>t.status!=="archived")}} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete}/>}
         {page==="calendario"    && <CalView data={dataForUser} onEdit={openEdit}/>}
@@ -3082,12 +3412,14 @@ function App(){
             onDelete={deleteTask}
             lockInfo={taskModal.lockInfo}
             onForce={forceLock}
+            currentUser={userName}
           />
         )}
       </Modal>
 
       {deleteModal}
       <Toasts list={toasts}/>
+      {showSearch&&<GlobalSearch data={dataForUser} onEdit={(task)=>{openEdit(task);}} onNavigate={(p)=>setPage(p)} onClose={()=>setShowSearch(false)}/>}
     </div>
   );
 }

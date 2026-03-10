@@ -14,7 +14,11 @@
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;-webkit-text-size-adjust:100%;touch-action:manipulation}
 
-/* CSS variables for theming */
+/* Modo foco — kanban em tela cheia */
+.focus-mode .sidebar{display:none!important}
+.focus-mode .topbar{display:none!important}
+.focus-mode .main-content{padding:14px 16px!important}
+@media(max-width:768px){.focus-mode .bottom-nav{display:none!important}}
 :root{
   --bg:#f1f5f9;--bg2:#fff;--bg3:#f8fafc;--bg4:#f9fafb;
   --text:#0f172a;--text2:#374151;--text3:#64748b;--text4:#94a3b8;
@@ -1469,14 +1473,23 @@ function TCard({task,data,onEdit,onDelete,onComplete}){
 
 /* ===========================================
    KANBAN VIEW - with Drag & Drop */
-function KanbanView({data,onEdit,onDelete,onAdd,onComplete,onStatusChange}){
+function KanbanView({data,onEdit,onDelete,onAdd,onComplete,onStatusChange,myCollabId,myCollab}){
   const [kanbanFilter,setKanbanFilter]=useState("week");
-  const [dragging,setDragging]=useState(null); // {taskId}
-  const [dragOver,setDragOver]=useState(null); // {colId}
+  const [ownerFilter,setOwnerFilter]=useState("all"); // "all" | "mine" | "sector"
+  const [dragging,setDragging]=useState(null);
+  const [dragOver,setDragOver]=useState(null);
   const today=todayStr();
-  const btnStyle=(active)=>({
-    padding:"4px 14px",borderRadius:20,border:"1.5px solid "+(active?"#6366f1":"#e2e8f0"),
-    background:active?"#6366f1":"#f8fafc",color:active?"#fff":"#64748b",
+
+  // Setores do colaborador logado (suporta múltiplos setores)
+  const mySectors=myCollab
+    ? (toArr(myCollab.sectors).length>0 ? toArr(myCollab.sectors) : (myCollab.sector ? [myCollab.sector] : []))
+    : [];
+
+  const btnStyle=(active,color="#6366f1")=>({
+    padding:"4px 13px",borderRadius:20,
+    border:"1.5px solid "+(active?color:"#e2e8f0"),
+    background:active?color:"var(--bg3)",
+    color:active?"#fff":"#64748b",
     fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .15s"
   });
 
@@ -1492,33 +1505,51 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete,onStatusChange}){
   };
   const handleDrop=(e,colId)=>{
     e.preventDefault();
-    if(dragging&&dragging.status!==colId){
-      onStatusChange(dragging.id, colId);
-    }
-    setDragging(null);
-    setDragOver(null);
+    if(dragging&&dragging.status!==colId) onStatusChange(dragging.id, colId);
+    setDragging(null);setDragOver(null);
   };
   const handleDragEnd=()=>{setDragging(null);setDragOver(null);};
 
   return(
     <div>
-      <div style={{display:"flex",gap:6,marginBottom:14,alignItems:"center",flexWrap:"wrap"}}>
-        <span style={{fontSize:12,fontWeight:700,color:"#64748b",marginRight:2}}>Mostrar:</span>
-        <button style={btnStyle(kanbanFilter==="week")} onClick={()=>setKanbanFilter("week")}>📅 Esta semana</button>
-        <button style={btnStyle(kanbanFilter==="overdue")} onClick={()=>setKanbanFilter("overdue")}>🔴 Vencidas</button>
-        <button style={btnStyle(kanbanFilter==="today")} onClick={()=>setKanbanFilter("today")}>🟡 Vence hoje</button>
-        <button style={btnStyle(kanbanFilter==="all")} onClick={()=>setKanbanFilter("all")}>☰ Todas</button>
-        <span style={{fontSize:11,color:"#94a3b8",marginLeft:4}}>💡 Arraste os cards entre colunas</span>
+      {/* Filtro de período */}
+      <div style={{display:"flex",gap:5,marginBottom:8,alignItems:"center",flexWrap:"wrap"}}>
+        <span style={{fontSize:12,fontWeight:700,color:"#64748b",marginRight:2}}>📅 Período:</span>
+        {[["week","Esta semana"],["today","🟡 Hoje"],["overdue","🔴 Vencidas"],["all","☰ Todas"]].map(([v,l])=>(
+          <button key={v} style={btnStyle(kanbanFilter===v)} onClick={()=>setKanbanFilter(v)}>{l}</button>
+        ))}
       </div>
+
+      {/* Filtro de responsável / setor */}
+      <div style={{display:"flex",gap:5,marginBottom:14,alignItems:"center",flexWrap:"wrap"}}>
+        <span style={{fontSize:12,fontWeight:700,color:"#64748b",marginRight:2}}>👤 Ver:</span>
+        <button style={btnStyle(ownerFilter==="all","#64748b")} onClick={()=>setOwnerFilter("all")}>Todas as tarefas</button>
+        {myCollabId&&<button style={btnStyle(ownerFilter==="mine","#8b5cf6")} onClick={()=>setOwnerFilter("mine")}>⭐ Minhas tarefas</button>}
+        {mySectors.length>0&&<button style={btnStyle(ownerFilter==="sector","#14b8a6")} onClick={()=>setOwnerFilter("sector")}>🏢 Meu setor</button>}
+        <span style={{fontSize:11,color:"#94a3b8",marginLeft:"auto"}}>💡 Arraste para mover</span>
+      </div>
+
     <div className="kanban-wrap" style={{display:"flex",gap:14,overflowX:"auto",paddingBottom:20,alignItems:"flex-start"}}>
       {STS.filter(st=>st.id!=="archived").map(st=>{
         const now=new Date();
         const wkStart=new Date(now);wkStart.setDate(now.getDate()-now.getDay());wkStart.setHours(0,0,0,0);
         const wkEnd=new Date(wkStart);wkEnd.setDate(wkStart.getDate()+6);wkEnd.setHours(23,59,59,999);
+
         const tasks=data.tasks.filter(t=>{
           if(t.status!==st.id||t.status==="archived") return false;
+
+          // Filtro de responsável/setor
+          if(ownerFilter==="mine"){
+            if(!myCollabId||!toArr(t.assignees).includes(myCollabId)) return false;
+          } else if(ownerFilter==="sector"){
+            const inSector=mySectors.length>0&&mySectors.includes(t.sector);
+            const isMine=myCollabId&&toArr(t.assignees).includes(myCollabId);
+            if(!inSector&&!isMine) return false;
+          }
+
+          // Filtro de período
           if(kanbanFilter==="all") return true;
-          if(!t.dueDate) return kanbanFilter==="week"||kanbanFilter==="all";
+          if(!t.dueDate) return kanbanFilter==="week";
           const due=new Date(t.dueDate+"T12:00:00");
           const isOverdue=due<now&&t.dueDate!==today;
           const isDueToday=t.dueDate===today;
@@ -1545,15 +1576,23 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete,onStatusChange}){
             <div style={{display:"flex",flexDirection:"column",gap:8,minHeight:isDropTarget?60:0,padding:isDropTarget?"4px":0,borderRadius:10,border:isDropTarget?`2px dashed ${st.c}`:"2px dashed transparent",transition:"all .15s"}}>
               {tasks.map(t=>(
                 <div key={t.id}
-                  draggable
+                  draggable="true"
                   onDragStart={e=>handleDragStart(e,t)}
                   onDragEnd={handleDragEnd}
-                  style={{opacity:dragging?.id===t.id?.5:1,transition:"opacity .15s",cursor:"grab"}}
+                  style={{opacity:dragging?.id===t.id?.5:1,transition:"opacity .15s"}}
+                  onMouseDown={e=>{
+                    if(e.target.closest&&e.target.closest("button")) e.currentTarget.setAttribute("draggable","false");
+                  }}
+                  onMouseUp={e=>e.currentTarget.setAttribute("draggable","true")}
                 >
                   <TCard task={t} data={data} onEdit={onEdit} onDelete={onDelete} onComplete={onComplete}/>
                 </div>
               ))}
-              {tasks.length===0&&!isDropTarget&&<div style={{padding:18,textAlign:"center",fontSize:12,color:"#cbd5e1",border:"2px dashed #f1f5f9",borderRadius:10}}>Sem tarefas</div>}
+              {tasks.length===0&&!isDropTarget&&(
+                <div style={{padding:18,textAlign:"center",fontSize:12,color:"#cbd5e1",border:"2px dashed var(--border)",borderRadius:10}}>
+                  {ownerFilter==="mine"?"Nenhuma tarefa sua aqui":ownerFilter==="sector"?"Nenhuma tarefa do setor":"Sem tarefas"}
+                </div>
+              )}
               {isDropTarget&&<div style={{padding:18,textAlign:"center",fontSize:12,color:st.c,fontWeight:700,borderRadius:10}}>Soltar aqui →</div>}
             </div>
           </div>
@@ -1563,6 +1602,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete,onStatusChange}){
     </div>
   );
 }
+
 function ListView({data,onEdit,onDelete,onComplete}){
   const [fl,sfl]=useState({});
   const tasks=applyFilters(data.tasks.filter(t=>t.status!=="archived"),fl);
@@ -3018,6 +3058,7 @@ function App(){
   const [sideCol,setSideCol]= useState(false);
   const [darkMode,setDarkMode] = useState(()=>localStorage.getItem("mdtec_dark")==="1");
   const [showSearch,setShowSearch] = useState(false);
+  const [focusMode,setFocusMode] = useState(false);
 
   // Refs para acesso em callbacks sem re-registro de listeners
   const taskModalRef = useRef(taskModal);
@@ -3028,6 +3069,12 @@ function App(){
     document.body.classList.toggle("dark",darkMode);
     localStorage.setItem("mdtec_dark",darkMode?"1":"0");
   },[darkMode]);
+
+  // Focus mode sync
+  useEffect(()=>{
+    const shell=document.querySelector(".shell");
+    if(shell) shell.classList.toggle("focus-mode",focusMode&&page==="kanban");
+  },[focusMode,page]);
 
   // Escuta erros de save do Supabase e exibe toast (antes dos returns condicionais)
   useEffect(()=>{
@@ -3375,12 +3422,28 @@ function App(){
             </button>
             {/* Dark Mode */}
             <button onClick={()=>setDarkMode(d=>!d)} title={darkMode?"Modo claro":"Modo escuro"} aria-label="Alternar tema" style={{width:34,height:34,borderRadius:"50%",border:"1.5px solid #e2e8f0",background:darkMode?"#1e293b":"#f8fafc",color:darkMode?"#f59e0b":"#64748b",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .2s"}}>{darkMode?"☀️":"🌙"}</button>
+            {/* Modo Foco — só no Kanban */}
+            {page==="kanban"&&<button onClick={()=>setFocusMode(f=>!f)} title={focusMode?"Sair do modo foco":"Modo foco (Kanban em tela cheia)"} aria-label="Modo foco" style={{width:34,height:34,borderRadius:"50%",border:`1.5px solid ${focusMode?"#6366f1":"#e2e8f0"}`,background:focusMode?"#6366f1":"#f8fafc",color:focusMode?"#fff":"#64748b",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .2s",fontWeight:900}} title={focusMode?"Sair do foco ✕":"⛶ Modo foco"}>{focusMode?"✕":"⛶"}</button>}
             {["kanban","lista","tabela","calendario"].includes(page)&&<Btn onClick={openNew}>+ Nova Tarefa</Btn>}
           </div>
         </div>
 
         {page==="dashboard"     && <Dashboard data={dataForUser}/>}
-        {page==="kanban"        && <KanbanView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onAdd={openNew} onComplete={quickComplete} onStatusChange={dragStatusChange}/>}
+        {page==="kanban"        && <>
+          {focusMode&&(
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,padding:"10px 16px",background:"var(--bg2)",borderRadius:12,border:"1px solid var(--border)",boxShadow:"0 2px 8px rgba(0,0,0,.08)"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{width:28,height:28,borderRadius:8,background:"linear-gradient(135deg,#6366f1,#8b5cf6)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,color:"#fff",fontWeight:900}}>M</div>
+                <span style={{fontSize:14,fontWeight:800,color:"#0f172a"}}>Modo Foco — Kanban</span>
+              </div>
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <Btn onClick={openNew} sz="sm">+ Nova Tarefa</Btn>
+                <button onClick={()=>setFocusMode(false)} style={{padding:"5px 12px",borderRadius:8,border:"1.5px solid #e2e8f0",background:"var(--bg3)",color:"#64748b",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit"}} onMouseEnter={e=>{e.currentTarget.style.borderColor="#ef4444";e.currentTarget.style.color="#ef4444";}} onMouseLeave={e=>{e.currentTarget.style.borderColor="#e2e8f0";e.currentTarget.style.color="#64748b";}}>✕ Sair do foco</button>
+              </div>
+            </div>
+          )}
+          <KanbanView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onAdd={openNew} onComplete={quickComplete} onStatusChange={dragStatusChange} myCollabId={myCollabId} myCollab={myCollab}/>
+        </>}
         {page==="lista"         && <ListView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete}/>}
         {page==="minhas"        && <ListView data={{...dataForUser, tasks: (myCollabId ? dataForUser.tasks.filter(t=>t.assignees?.includes(myCollabId)) : dataForUser.tasks).filter(t=>t.status!=="archived")}} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete}/>}
         {page==="calendario"    && <CalView data={dataForUser} onEdit={openEdit}/>}

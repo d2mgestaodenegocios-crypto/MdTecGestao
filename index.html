@@ -5,8 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
 <meta name="theme-color" content="#6366f1"/>
 <meta name="description" content="MdTec Gestão - Sistema de gerenciamento de tarefas"/>
-<meta name="apple-mobile-web-app-capable" content="yes"/>
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="mobile-web-app-capable" content="yes"/>
 <title>MdTec Gestão</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%236366f1'/><text y='.88em' x='50%' text-anchor='middle' font-size='65' font-weight='900' fill='white'>M</text></svg>"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
@@ -2739,23 +2738,6 @@ function App(){
     </div>
   );
 
-  // Atalhos de teclado globais
-  useEffect(()=>{
-    const handler=(e)=>{
-      // Não ativar quando digitando em inputs/textarea
-      if(["INPUT","TEXTAREA","SELECT"].includes(e.target.tagName)) return;
-      if(e.metaKey||e.ctrlKey||e.altKey) return;
-      if(e.key==="n"||e.key==="N"){e.preventDefault();openNew();}
-      else if(e.key==="Escape"){if(taskModal.open) closeTask();}
-      else if(e.key==="k"||e.key==="K"){setPage("kanban");}
-      else if(e.key==="l"||e.key==="L"){setPage("lista");}
-      else if(e.key==="c"||e.key==="C"){setPage("calendario");}
-      else if(e.key==="d"||e.key==="D"){setPage("dashboard");}
-    };
-    window.addEventListener("keydown",handler);
-    return()=>window.removeEventListener("keydown",handler);
-  },[taskModal.open, openNew, closeTask]);
-
   // Escuta erros de save do Supabase e exibe toast
   useEffect(()=>{
     const handler=(e)=>toast(`⚠️ Erro ao salvar: ${e.detail}`,"err",5000);
@@ -2797,6 +2779,22 @@ function App(){
     if(taskModal.task) release(taskModal.task.id);
     setTM(m=>({...m,open:false,lockInfo:null}));
   };
+
+  // Atalhos de teclado globais (após openNew e closeTask estarem definidos)
+  useEffect(()=>{
+    const handler=(e)=>{
+      if(["INPUT","TEXTAREA","SELECT"].includes(e.target.tagName)) return;
+      if(e.metaKey||e.ctrlKey||e.altKey) return;
+      if(e.key==="n"||e.key==="N"){e.preventDefault();openNew();}
+      else if(e.key==="Escape"){if(taskModal.open) closeTask();}
+      else if(e.key==="k"||e.key==="K"){setPage("kanban");}
+      else if(e.key==="l"||e.key==="L"){setPage("lista");}
+      else if(e.key==="c"||e.key==="C"){setPage("calendario");}
+      else if(e.key==="d"||e.key==="D"){setPage("dashboard");}
+    };
+    window.addEventListener("keydown",handler);
+    return()=>window.removeEventListener("keydown",handler);
+  },[taskModal.open]);
 
   const forceLock=()=>{
     if(taskModal.task){ forceAcquire(taskModal.task.id); setTM(m=>({...m,lockInfo:null})); toast("✅ Você assumiu a edição.","ok"); }

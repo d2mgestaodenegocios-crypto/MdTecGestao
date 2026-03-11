@@ -238,7 +238,7 @@ const NAV_GROUPS=[
 /* -- Seed Data -- */
 const SEED={
   version:6,
-  archiveDays:30,
+  archiveDays:7,
   companies:[
     {id:"co1",name:"MdTec Solutions",color:"#6366f1",logo:"MT",tributacao:"Lucro Presumido",cnpj:"12.345.678/0001-90"},
     {id:"co2",name:"TechStart Ltda",color:"#14b8a6",logo:"TS",tributacao:"Simples Nacional",cnpj:"98.765.432/0001-10"},
@@ -437,7 +437,7 @@ function useSharedData() {
         if (!p.services || !Array.isArray(p.services)) p.services = [];
         if (!p.chatMessages || !Array.isArray(p.chatMessages)) p.chatMessages = [];
         if (!p.notifications || !Array.isArray(p.notifications)) p.notifications = [];
-        if (!p.archiveDays) p.archiveDays = 30;
+        if (!p.archiveDays) p.archiveDays = 7;
         if (!p.recStatus) p.recStatus={};
         // MIGRAÇÃO: converter tarefas recorrentes antigas em tarefas reais
         if(!p._migrated_v3){
@@ -547,7 +547,7 @@ function useSharedData() {
           if (!p.services || !Array.isArray(p.services)) p.services = [];
           if (!p.chatMessages || !Array.isArray(p.chatMessages)) p.chatMessages = [];
           if (!p.notifications || !Array.isArray(p.notifications)) p.notifications = [];
-          if (!p.archiveDays) p.archiveDays = 30;
+          if (!p.archiveDays) p.archiveDays = 7;
           p.tasks = (p.tasks || []).map(t => ({
             id: t.id||"",
             title: t.title||"",
@@ -737,7 +737,7 @@ function ArchivedPage({data,setData,toast}){
         <div style={{textAlign:"center",padding:"60px 20px",color:"#94a3b8"}}>
           <div style={{fontSize:48,marginBottom:12}}>📦</div>
           <div style={{fontSize:16,fontWeight:700,marginBottom:6}}>Nenhuma tarefa arquivada</div>
-          <div style={{fontSize:13}}>Tarefas concluídas há mais de {data.archiveDays||30} dias aparecerão aqui automaticamente.</div>
+          <div style={{fontSize:13}}>Tarefas concluídas há mais de {data.archiveDays||7} dias aparecerão aqui automaticamente.</div>
         </div>
       ):(
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -802,7 +802,7 @@ function ConfigPage({data,setData,toast,deduplicateTasks}){
       <div style={{background:"var(--bg2)",borderRadius:16,padding:24,border:"1px solid var(--border)",marginBottom:16,boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
         <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:4}}>📦 Arquivamento automático</h3>
         <p style={{fontSize:13,color:"#64748b",marginBottom:18,lineHeight:1.5}}>
-          Tarefas com status <strong>Concluído</strong> serão arquivadas automaticamente após o número de dias definido abaixo. Elas ficam visíveis na página <strong>Arquivadas</strong> e podem ser restauradas a qualquer momento.
+          Tarefas com status <strong>Concluído</strong> são arquivadas automaticamente após <strong>{data.archiveDays||7} dias</strong> (padrão: 7 dias). Você também pode arquivar qualquer tarefa manualmente pelo botão 📦 no card do Kanban. Tarefas arquivadas ficam visíveis na página <strong>Arquivadas</strong> e podem ser restauradas.
         </p>
         <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
           <div style={{flex:"0 0 180px"}}>
@@ -815,7 +815,7 @@ function ConfigPage({data,setData,toast,deduplicateTasks}){
           </div>
         </div>
         <div style={{marginTop:16,padding:"10px 14px",borderRadius:9,background:"var(--bg3)",border:"1px solid var(--border)",fontSize:12,color:"#64748b"}}>
-          Configuração atual: tarefas concluídas há mais de <strong>{data.archiveDays||30} dias</strong> são arquivadas.
+          Configuração atual: tarefas concluídas há mais de <strong>{data.archiveDays||7} dias</strong> são arquivadas automaticamente ao abrir o sistema.
           {archived>0&&<span style={{marginLeft:8,color:"#6366f1",fontWeight:700}}>{archived} tarefa{archived!==1?"s":""} arquivada{archived!==1?"s":""}.</span>}
         </div>
       </div>
@@ -1379,7 +1379,7 @@ function FBar({data,filters,setF,showMonth=true}){
 
 /* ===========================================
    TASK CARD  - with ✓ Quick Complete button */
-function TCard({task,data,onEdit,onDelete,onComplete}){
+function TCard({task,data,onEdit,onDelete,onComplete,onArchive}){
   const assignees=data.collaborators.filter(c=>task.assignees.includes(c.id));
   const labels=data.labels.filter(l=>task.labels.includes(l.id));
   const rec=task.recurrence?data.recurrences.find(r=>r.id===task.recurrence):null;
@@ -1474,7 +1474,8 @@ function TCard({task,data,onEdit,onDelete,onComplete}){
         </div>
       )}
 
-      <div style={{display:"flex",justifyContent:"flex-end",alignItems:"center"}}>
+      <div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",gap:4}}>
+        {onArchive&&<button onClick={e=>{e.stopPropagation();onArchive(task.id);}} title="Arquivar tarefa" style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#e2e8f0",padding:"2px 4px",borderRadius:5,transition:"color .15s"}} onMouseEnter={e=>e.currentTarget.style.color="#f59e0b"} onMouseLeave={e=>e.currentTarget.style.color="#e2e8f0"}>📦</button>}
         <button onClick={e=>{e.stopPropagation();onDelete(task.id);}} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#e2e8f0",padding:"2px 4px",borderRadius:5,transition:"color .15s"}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#e2e8f0"}>🗑</button>
       </div>
     </div>
@@ -1483,7 +1484,7 @@ function TCard({task,data,onEdit,onDelete,onComplete}){
 
 /* ===========================================
    KANBAN VIEW - with Drag & Drop */
-function KanbanView({data,onEdit,onDelete,onAdd,onComplete,onStatusChange,myCollabId,myCollab}){
+function KanbanView({data,onEdit,onDelete,onAdd,onComplete,onStatusChange,myCollabId,myCollab,onArchive}){
   const [kanbanFilter,setKanbanFilter]=useState("week");
   const [ownerFilter,setOwnerFilter]=useState("all"); // "all" | "mine" | "sector"
   const [dragging,setDragging]=useState(null);
@@ -1584,20 +1585,23 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete,onStatusChange,myColl
               <button onClick={()=>onAdd(st.id)} style={{background:st.c+"20",border:"none",borderRadius:7,width:24,height:24,cursor:"pointer",color:st.c,fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:8,minHeight:isDropTarget?60:0,padding:isDropTarget?"4px":0,borderRadius:10,border:isDropTarget?`2px dashed ${st.c}`:"2px dashed transparent",transition:"all .15s"}}>
-              {tasks.map(t=>(
+              {tasks.map(t=>{
+                const isDraggingThis=dragging?.id===t.id;
+                return(
                 <div key={t.id}
                   draggable="true"
-                  onDragStart={e=>handleDragStart(e,t)}
-                  onDragEnd={handleDragEnd}
-                  style={{opacity:dragging?.id===t.id?.5:1,transition:"opacity .15s"}}
-                  onMouseDown={e=>{
-                    if(e.target.closest&&e.target.closest("button")) e.currentTarget.setAttribute("draggable","false");
+                  onDragStart={e=>{
+                    // Block drag if initiated from inside a button
+                    if(e.target.closest("button")){e.preventDefault();return;}
+                    handleDragStart(e,t);
                   }}
-                  onMouseUp={e=>e.currentTarget.setAttribute("draggable","true")}
+                  onDragEnd={handleDragEnd}
+                  style={{opacity:isDraggingThis?.4:1,transition:"opacity .15s",cursor:"grab",userSelect:"none"}}
                 >
-                  <TCard task={t} data={data} onEdit={onEdit} onDelete={onDelete} onComplete={onComplete}/>
+                  <TCard task={t} data={data} onEdit={onEdit} onDelete={onDelete} onComplete={onComplete} onArchive={onArchive}/>
                 </div>
-              ))}
+                );
+              })}
               {tasks.length===0&&!isDropTarget&&(
                 <div style={{padding:18,textAlign:"center",fontSize:12,color:"#cbd5e1",border:"2px dashed var(--border)",borderRadius:10}}>
                   {ownerFilter==="mine"?"Nenhuma tarefa sua aqui":ownerFilter==="sector"?"Nenhuma tarefa do setor":"Sem tarefas"}
@@ -3600,8 +3604,29 @@ function App(){
     });
   };
 
-  // Auto-archive completed tasks older than archiveDays
-  // Auto-archive handled manually via Config page
+  // Arquivar tarefa manualmente
+  const archiveTask=(id)=>{
+    setData(d=>({...d,tasks:d.tasks.map(t=>t.id===id?{...t,status:"archived",archivedAt:todayStr()}:t)}));
+    toast("📦 Tarefa arquivada.","ok");
+  };
+
+  // Auto-archive: tarefas concluídas há mais de archiveDays (padrão 7) dias
+  useEffect(()=>{
+    if(!synced) return;
+    const days=data.archiveDays||7;
+    const cutoff=new Date();
+    cutoff.setDate(cutoff.getDate()-days);
+    const toArchive=data.tasks.filter(t=>{
+      if(t.status!=="done") return false;
+      const dt=new Date((t.completedAt||t.createdAt||"2000-01-01")+"T12:00:00");
+      return dt<cutoff;
+    });
+    if(toArchive.length===0) return;
+    const ids=new Set(toArchive.map(t=>t.id));
+    setData(d=>({...d,tasks:d.tasks.map(t=>ids.has(t.id)?{...t,status:"archived",archivedAt:todayStr()}:t)}));
+    toast(`📦 ${toArchive.length} tarefa${toArchive.length>1?"s arquivadas automaticamente":"arquivada automaticamente"}.`,"ok");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[synced]);
 
   
   const deduplicateTasks=()=>{
@@ -3800,7 +3825,7 @@ function App(){
               </div>
             </div>
           )}
-          <KanbanView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onAdd={openNew} onComplete={quickComplete} onStatusChange={dragStatusChange} myCollabId={myCollabId} myCollab={myCollab}/>
+          <KanbanView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onAdd={openNew} onComplete={quickComplete} onStatusChange={dragStatusChange} myCollabId={myCollabId} myCollab={myCollab} onArchive={archiveTask}/>
         </>}
         {page==="lista"         && <ListView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete}/>}
         {page==="minhas"        && <ListView data={{...dataForUser, tasks: (myCollabId ? dataForUser.tasks.filter(t=>t.assignees?.includes(myCollabId)) : dataForUser.tasks).filter(t=>t.status!=="archived")}} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete}/>}

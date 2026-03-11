@@ -2858,8 +2858,7 @@ function ServicosPage({ data, setData }) {
                 <Btn onClick={()=>openEdit(s)} v="ghost" sz="sm" xs={{flex:1,justifyContent:"center"}}>✎ Editar</Btn>
                 {usedBy.length>0&&(
                   <Btn onClick={()=>{
-                    const co=usedBy.length===1?usedBy[0]:usedBy[window.prompt(usedBy.map((c,i)=>`${i+1}. ${c.name}`).join("
-"))-1];
+                    const co=usedBy.length===1?usedBy[0]:usedBy[window.prompt(usedBy.map((c,i)=>`${i+1}. ${c.name}`).join("\n"))-1];
                     if(!co) return;
                     const n=gerarTarefas(s,co.id);
                     showToast(n>0?`↻ ${n} tarefa(s) gerada(s) para ${co.name}!`:"Nenhuma tarefa nova gerada.","ok");

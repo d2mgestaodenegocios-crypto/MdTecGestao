@@ -2542,28 +2542,14 @@ function CollaboratorsPage({ data, setData }) {
             </div>
             <div style={{display:"flex",gap:8,marginBottom:8}}>
               <button onClick={()=>{
-                const txt=`MdTec Gestão - Acesso
-Nome: ${createdCreds.name}
-Email: ${createdCreds.email}
-Senha: ${createdCreds.password}
-Acesse: ${window.location.href}`;
+                const txt="MdTec Gestão - Acesso\nNome: "+createdCreds.name+"\nEmail: "+createdCreds.email+"\nSenha: "+createdCreds.password+"\nAcesse: "+window.location.href;
                 navigator.clipboard?.writeText(txt).then(()=>alert("Credenciais copiadas!"));
               }} style={{flex:1,padding:"9px 0",borderRadius:9,border:"1.5px solid #6366f1",background:"#eef2ff",color:"#6366f1",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
                 📋 Copiar
               </button>
               <button onClick={()=>{
                 const sub=encodeURIComponent("Seu acesso ao MdTec Gestão");
-                const body=encodeURIComponent(`Olá ${createdCreds.name},
-
-Seu acesso foi criado:
-
-Email: ${createdCreds.email}
-Senha: ${createdCreds.password}
-
-Acesse: ${window.location.href}
-
-Atenciosamente,
-Equipe MdTec`);
+                const body=encodeURIComponent("Olá "+createdCreds.name+",\n\nSeu acesso foi criado:\n\nEmail: "+createdCreds.email+"\nSenha: "+createdCreds.password+"\n\nAcesse: "+window.location.href+"\n\nAtenciosamente,\nEquipe MdTec");
                 window.open(`mailto:${createdCreds.email}?subject=${sub}&body=${body}`);
               }} style={{flex:1,padding:"9px 0",borderRadius:9,border:"none",background:"#6366f1",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
                 ✉️ Enviar email
@@ -2782,10 +2768,8 @@ function ServicosPage({ data, setData }) {
   const duplicarParaEmpresa=(svc)=>{
     const opts=data.companies.filter(co=>!toArr(co.services).includes(svc.id));
     if(opts.length===0){showToast("Este serviço já está em todas as empresas.","warn");return;}
-    const names=opts.map((co,i)=>`${i+1}. ${co.name}`).join("
-");
-    const idx=window.prompt(`Escolha a empresa (número):
-${names}`);
+    const names=opts.map((co,i)=>(i+1)+". "+co.name).join("\n");
+    const idx=window.prompt("Escolha a empresa (número):\n"+names);
     const n=parseInt(idx)-1;
     if(isNaN(n)||!opts[n]) return;
     const co=opts[n];

@@ -176,6 +176,8 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
   .g3{grid-template-columns:1fr!important}
   .g-sectors,.g-collabs,.g-labels,.g-recs{grid-template-columns:1fr!important}
 }
+  .drag-handle{cursor:grab!important;pointer-events:all!important;}
+  .drag-handle:active{cursor:grabbing!important;}
 </style>
 </head>
 <body>
@@ -1379,12 +1381,11 @@ function FBar({data,filters,setF,showMonth=true}){
 
 /* ===========================================
    TASK CARD  - with ✓ Quick Complete button */
-function TCard({task,data,onEdit,onDelete,onComplete,onArchive}){
+function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isDragging,ghost}){
+  const cardRef=useRef(null);
   const assignees=data.collaborators.filter(c=>task.assignees.includes(c.id));
   const labels=data.labels.filter(l=>task.labels.includes(l.id));
   const rec=task.recurrence?data.recurrences.find(r=>r.id===task.recurrence):null;
-
-  // Tag dia da semana para tarefas de grupo recorrente
   const DOW_NAMES=["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
   const DOW_COLORS=["#f59e0b","#6366f1","#14b8a6","#8b5cf6","#f97316","#22c55e","#ec4899"];
   const dowTag=(()=>{
@@ -1403,97 +1404,157 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive}){
   const done=task.status==="done";
   const p=PRI[task.priority]||PRI.media;
 
+  // Track pointer-down on handle to start drag; click anywhere else opens modal
+  const dragTriggered=useRef(false);
+  const handleHandlePointerDown=(e)=>{
+    e.stopPropagation();
+    dragTriggered.current=true;
+    if(onPointerDown) onPointerDown(e,cardRef.current);
+  };
+  const handleCardClick=(e)=>{
+    if(dragTriggered.current){dragTriggered.current=false;return;}
+    if(e.target.closest("button")) return;
+    if(onEdit) onEdit(task);
+  };
+
   return(
     <div
-      style={{background:done?"#f8fffe":"#fff",borderRadius:13,padding:14,
-        boxShadow:done?"0 1px 3px rgba(0,0,0,.05),0 0 0 1.5px #bbf7d0":"0 1px 3px rgba(0,0,0,.07),0 0 0 1px rgba(0,0,0,.05)",
-        cursor:"pointer",transition:"box-shadow .15s,transform .15s",position:"relative",
+      ref={cardRef}
+      onClick={handleCardClick}
+      style={{
+        background:ghost?"#fff":done?"#f8fffe":"#fff",
+        borderRadius:13,
+        boxShadow:isDragging
+          ?"none"
+          :done?"0 1px 3px rgba(0,0,0,.05),0 0 0 1.5px #bbf7d0"
+          :"0 1px 3px rgba(0,0,0,.07),0 0 0 1px rgba(0,0,0,.05)",
+        cursor:isDragging?"grabbing":"pointer",
+        transition:"box-shadow .15s,transform .15s,opacity .15s",
+        position:"relative",
         borderLeft:`3px solid ${done?"#22c55e":over?"#ef4444":"transparent"}`,
+        opacity:isDragging?.3:1,
+        display:"flex",
+        flexDirection:"row",
+        overflow:"hidden",
+        userSelect:"none",
       }}
-      onMouseEnter={e=>{e.currentTarget.style.boxShadow="0 8px 24px rgba(0,0,0,.1),0 0 0 1.5px rgba(99,102,241,.45)";e.currentTarget.style.transform="translateY(-2px)";}}
-      onMouseLeave={e=>{e.currentTarget.style.boxShadow=done?"0 1px 3px rgba(0,0,0,.05),0 0 0 1.5px #bbf7d0":"0 1px 3px rgba(0,0,0,.07),0 0 0 1px rgba(0,0,0,.05)";e.currentTarget.style.transform="none";}}
-      onClick={()=>onEdit(task)}
+      onMouseEnter={e=>{
+        if(isDragging||ghost) return;
+        e.currentTarget.style.boxShadow="0 8px 24px rgba(0,0,0,.1),0 0 0 1.5px rgba(99,102,241,.45)";
+        e.currentTarget.style.transform="translateY(-2px)";
+      }}
+      onMouseLeave={e=>{
+        e.currentTarget.style.boxShadow=done?"0 1px 3px rgba(0,0,0,.05),0 0 0 1.5px #bbf7d0":"0 1px 3px rgba(0,0,0,.07),0 0 0 1px rgba(0,0,0,.05)";
+        e.currentTarget.style.transform="none";
+      }}
     >
-      {/* -- QUICK COMPLETE - 1 click, top right, outside card content -- */}
-      <QCBtn status={task.status} onClick={()=>onComplete(task)} size={26} absolute={true}/>
-
-      {dowTag&&(
-        <div style={{display:"inline-flex",alignItems:"center",gap:5,marginBottom:8,padding:"3px 10px 3px 8px",borderRadius:20,background:dowTag.isToday?"linear-gradient(90deg,#f59e0b,#d97706)":dowTag.color+"22",border:`1.5px solid ${dowTag.color}`,alignSelf:"flex-start"}}>
-          <span style={{width:7,height:7,borderRadius:"50%",background:dowTag.color,flexShrink:0}}/>
-          <span style={{fontSize:11,fontWeight:900,color:dowTag.isToday?"#fff":dowTag.color,letterSpacing:".04em"}}>{dowTag.label}</span>
-          {dowTag.isToday&&<span style={{fontSize:10,color:"#fff",fontWeight:700,marginLeft:2}}>· hoje</span>}
-        </div>
-      )}
-      {labels.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8,paddingRight:36}}>{labels.map(l=><Chip key={l.id} label={l.name} color={l.color}/>)}</div>}
-
-      <div style={{fontSize:13,fontWeight:800,color:done?"#94a3b8":"#0f172a",marginBottom:6,lineHeight:1.4,paddingRight:36,textDecoration:done?"line-through":"none"}}>
-        {task.title}
-      </div>
-
-      {task.description&&<p style={{fontSize:12,color:"#94a3b8",marginBottom:10,lineHeight:1.5}}>{task.description.length>70?task.description.slice(0,70)+"…":task.description}</p>}
-
-      {/* Empresa + Setor em destaque */}
-      {company&&(
-        <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,padding:"5px 9px",borderRadius:8,background:company.color+"12",border:`1px solid ${company.color}30`}}>
-          <span style={{fontSize:12,fontWeight:900,color:company.color}}>{company.logo}</span>
-          <span style={{fontSize:12,fontWeight:800,color:company.color,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{company.name}</span>
-          {sector&&<span style={{fontSize:10,fontWeight:700,padding:"1px 7px",borderRadius:10,background:sector.color+"22",color:sector.color,whiteSpace:"nowrap"}}>{sector.name}</span>}
-        </div>
-      )}
-
-      {/* Responsáveis em destaque */}
-      {assignees.length>0&&(
-        <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,flexWrap:"wrap"}}>
-          <span style={{fontSize:10,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".05em"}}>Resp.</span>
-          {assignees.slice(0,3).map(u=>(
-            <div key={u.id} style={{display:"flex",alignItems:"center",gap:4,padding:"2px 8px 2px 3px",borderRadius:20,background:u.color+"15",border:`1.5px solid ${u.color}40`}}>
-              <Av initials={u.initials} color={u.color} size={18}/>
-              <span style={{fontSize:11,fontWeight:700,color:u.color,maxWidth:80,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name||u.initials||"?"}</span>
-            </div>
+      {/* ── Drag handle strip ─────────────────── */}
+      {!ghost&&onPointerDown&&(
+        <div
+          onPointerDown={handleHandlePointerDown}
+          title="Arrastar card"
+          style={{
+            width:18,flexShrink:0,
+            display:"flex",flexDirection:"column",
+            alignItems:"center",justifyContent:"center",
+            gap:3,padding:"0 2px",
+            background:"transparent",
+            cursor:"grab",
+            borderRight:"1px solid #f1f5f9",
+            transition:"background .15s",
+          }}
+          onMouseEnter={e=>e.currentTarget.style.background="#f1f5f9"}
+          onMouseLeave={e=>e.currentTarget.style.background="transparent"}
+        >
+          {[0,1,2,3,4,5].map(i=>(
+            <div key={i} style={{width:3,height:3,borderRadius:"50%",background:"#cbd5e1"}}/>
           ))}
-          {assignees.length>3&&<span style={{fontSize:11,color:"#94a3b8",fontWeight:700}}>+{assignees.length-3}</span>}
         </div>
       )}
 
-      <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:8}}>
-        <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:700,background:p.bg,color:p.t}}><span style={{display:"inline-block",width:5,height:5,borderRadius:"50%",background:p.d,marginRight:4,verticalAlign:"middle"}}/>{p.l}</span>
-        {task.dueDate&&<span style={{fontSize:11,color:over?"#ef4444":"#94a3b8",fontWeight:over?800:400}}>📅 {fmtDate(task.dueDate)}</span>}
-        {rec&&<span style={{fontSize:11,color:"#14b8a6",fontWeight:700}}>↻ {rec.name}</span>}
-        {task.dependencies?.length>0&&<span style={{fontSize:11,color:"#f59e0b",fontWeight:700}}>⬡ {task.dependencies.length}</span>}
-      </div>
+      {/* ── Card content ──────────────────────── */}
+      <div style={{flex:1,padding:"12px 14px",minWidth:0}}>
+        <QCBtn status={task.status} onClick={()=>onComplete&&onComplete(task)} size={26} absolute={true}/>
 
-      {prog!==null&&(
-        <div style={{marginBottom:8}}>
-          <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-            <span style={{fontSize:10,color:"#94a3b8"}}>Checklist</span>
-            <span style={{fontSize:10,fontWeight:700,color:"#64748b"}}>{ckDone}/{ckTot}</span>
+        {dowTag&&(
+          <div style={{display:"inline-flex",alignItems:"center",gap:5,marginBottom:8,padding:"3px 10px 3px 8px",borderRadius:20,background:dowTag.isToday?"linear-gradient(90deg,#f59e0b,#d97706)":dowTag.color+"22",border:`1.5px solid ${dowTag.color}`,alignSelf:"flex-start"}}>
+            <span style={{width:7,height:7,borderRadius:"50%",background:dowTag.color,flexShrink:0}}/>
+            <span style={{fontSize:11,fontWeight:900,color:dowTag.isToday?"#fff":dowTag.color,letterSpacing:".04em"}}>{dowTag.label}</span>
+            {dowTag.isToday&&<span style={{fontSize:10,color:"#fff",fontWeight:700,marginLeft:2}}>· hoje</span>}
           </div>
-          <div style={{height:4,borderRadius:3,background:"#f1f5f9",overflow:"hidden"}}>
-            <div style={{width:`${prog}%`,height:"100%",background:prog===100?"#22c55e":"#6366f1",borderRadius:3,transition:"width .4s"}}/>
-          </div>
+        )}
+        {labels.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8,paddingRight:36}}>{labels.map(l=><Chip key={l.id} label={l.name} color={l.color}/>)}</div>}
+
+        <div style={{fontSize:13,fontWeight:800,color:done?"#94a3b8":"#0f172a",marginBottom:6,lineHeight:1.4,paddingRight:36,textDecoration:done?"line-through":"none"}}>
+          {task.title}
         </div>
-      )}
 
-      <div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",gap:4}}>
-        {onArchive&&<button onClick={e=>{e.stopPropagation();onArchive(task.id);}} title="Arquivar tarefa" style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#e2e8f0",padding:"2px 4px",borderRadius:5,transition:"color .15s"}} onMouseEnter={e=>e.currentTarget.style.color="#f59e0b"} onMouseLeave={e=>e.currentTarget.style.color="#e2e8f0"}>📦</button>}
-        <button onClick={e=>{e.stopPropagation();onDelete(task.id);}} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#e2e8f0",padding:"2px 4px",borderRadius:5,transition:"color .15s"}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#e2e8f0"}>🗑</button>
+        {task.description&&<p style={{fontSize:12,color:"#94a3b8",marginBottom:10,lineHeight:1.5}}>{task.description.length>70?task.description.slice(0,70)+"…":task.description}</p>}
+
+        {company&&(
+          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,padding:"5px 9px",borderRadius:8,background:company.color+"12",border:`1px solid ${company.color}30`}}>
+            <span style={{fontSize:12,fontWeight:900,color:company.color}}>{company.logo}</span>
+            <span style={{fontSize:12,fontWeight:800,color:company.color,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{company.name}</span>
+            {sector&&<span style={{fontSize:10,fontWeight:700,padding:"1px 7px",borderRadius:10,background:sector.color+"22",color:sector.color,whiteSpace:"nowrap"}}>{sector.name}</span>}
+          </div>
+        )}
+
+        {assignees.length>0&&(
+          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,flexWrap:"wrap"}}>
+            <span style={{fontSize:10,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".05em"}}>Resp.</span>
+            {assignees.slice(0,3).map(u=>(
+              <div key={u.id} style={{display:"flex",alignItems:"center",gap:4,padding:"2px 8px 2px 3px",borderRadius:20,background:u.color+"15",border:`1.5px solid ${u.color}40`}}>
+                <Av initials={u.initials} color={u.color} size={18}/>
+                <span style={{fontSize:11,fontWeight:700,color:u.color,maxWidth:80,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name||u.initials||"?"}</span>
+              </div>
+            ))}
+            {assignees.length>3&&<span style={{fontSize:11,color:"#94a3b8",fontWeight:700}}>+{assignees.length-3}</span>}
+          </div>
+        )}
+
+        <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:8}}>
+          <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:700,background:p.bg,color:p.t}}><span style={{display:"inline-block",width:5,height:5,borderRadius:"50%",background:p.d,marginRight:4,verticalAlign:"middle"}}/>{p.l}</span>
+          {task.dueDate&&<span style={{fontSize:11,color:over?"#ef4444":"#94a3b8",fontWeight:over?800:400}}>📅 {fmtDate(task.dueDate)}</span>}
+          {rec&&<span style={{fontSize:11,color:"#14b8a6",fontWeight:700}}>↻ {rec.name}</span>}
+          {task.dependencies?.length>0&&<span style={{fontSize:11,color:"#f59e0b",fontWeight:700}}>⬡ {task.dependencies.length}</span>}
+        </div>
+
+        {prog!==null&&(
+          <div style={{marginBottom:8}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+              <span style={{fontSize:10,color:"#94a3b8"}}>Checklist</span>
+              <span style={{fontSize:10,fontWeight:700,color:"#64748b"}}>{ckDone}/{ckTot}</span>
+            </div>
+            <div style={{height:4,borderRadius:3,background:"#f1f5f9",overflow:"hidden"}}>
+              <div style={{width:`${prog}%`,height:"100%",background:prog===100?"#22c55e":"#6366f1",borderRadius:3,transition:"width .4s"}}/>
+            </div>
+          </div>
+        )}
+
+        {!ghost&&(
+          <div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",gap:4}}>
+            {onArchive&&<button onClick={e=>{e.stopPropagation();onArchive(task.id);}} title="Arquivar" style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#e2e8f0",padding:"2px 4px",borderRadius:5,transition:"color .15s"}} onMouseEnter={e=>e.currentTarget.style.color="#f59e0b"} onMouseLeave={e=>e.currentTarget.style.color="#e2e8f0"}>📦</button>}
+            {onDelete&&<button onClick={e=>{e.stopPropagation();onDelete(task.id);}} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#e2e8f0",padding:"2px 4px",borderRadius:5,transition:"color .15s"}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#e2e8f0"}>🗑</button>}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
 /* ===========================================
-   KANBAN VIEW - with Drag & Drop */
+   KANBAN VIEW - Drag & Drop com pointer events */
 function KanbanView({data,onEdit,onDelete,onAdd,onComplete,onStatusChange,myCollabId,myCollab,onArchive}){
   const [kanbanFilter,setKanbanFilter]=useState("week");
-  const [ownerFilter,setOwnerFilter]=useState("all"); // "all" | "mine" | "sector"
-  const [dragging,setDragging]=useState(null);
-  const [dragOver,setDragOver]=useState(null);
+  const [ownerFilter,setOwnerFilter]=useState("all");
+  const [dragging,setDragging]=useState(null);   // {task, x, y, offX, offY}
+  const [dragOver,setDragOver]=useState(null);   // colId
+  const ghostRef=useRef(null);
+  const colRefs=useRef({});
   const today=todayStr();
 
-  // Setores do colaborador logado (suporta múltiplos setores)
   const mySectors=myCollab
-    ? (toArr(myCollab.sectors).length>0 ? toArr(myCollab.sectors) : (myCollab.sector ? [myCollab.sector] : []))
+    ? (toArr(myCollab.sectors).length>0?toArr(myCollab.sectors):(myCollab.sector?[myCollab.sector]:[]))
     : [];
 
   const btnStyle=(active,color="#6366f1")=>({
@@ -1504,25 +1565,48 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete,onStatusChange,myColl
     fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .15s"
   });
 
-  const handleDragStart=(e,task)=>{
-    setDragging(task);
-    e.dataTransfer.effectAllowed="move";
-    e.dataTransfer.setData("text/plain",task.id);
-  };
-  const handleDragOver=(e,colId)=>{
+  // ── Pointer-based drag ──────────────────────────────────────────
+  const startDrag=(e,task,cardEl)=>{
+    if(e.button!==0) return;
     e.preventDefault();
-    e.dataTransfer.dropEffect="move";
-    setDragOver(colId);
+    const rect=cardEl.getBoundingClientRect();
+    const offX=e.clientX-rect.left;
+    const offY=e.clientY-rect.top;
+    const width=rect.width;
+    const height=rect.height;
+    setDragging({task,x:e.clientX-offX,y:e.clientY-offY,offX,offY,width,height,cardEl});
+    document.body.style.userSelect="none";
+    document.body.style.cursor="grabbing";
   };
-  const handleDrop=(e,colId)=>{
-    e.preventDefault();
-    if(dragging&&dragging.status!==colId) onStatusChange(dragging.id, colId);
-    setDragging(null);setDragOver(null);
-  };
-  const handleDragEnd=()=>{setDragging(null);setDragOver(null);};
+
+  useEffect(()=>{
+    if(!dragging) return;
+    const onMove=(e)=>{
+      const nx=e.clientX-dragging.offX;
+      const ny=e.clientY-dragging.offY;
+      setDragging(d=>({...d,x:nx,y:ny}));
+      // Hit-test columns
+      let hit=null;
+      Object.entries(colRefs.current).forEach(([colId,el])=>{
+        if(!el) return;
+        const r=el.getBoundingClientRect();
+        if(e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom) hit=colId;
+      });
+      setDragOver(hit);
+    };
+    const onUp=()=>{
+      if(dragOver&&dragging.task.status!==dragOver) onStatusChange(dragging.task.id,dragOver);
+      setDragging(null);setDragOver(null);
+      document.body.style.userSelect="";
+      document.body.style.cursor="";
+    };
+    window.addEventListener("pointermove",onMove);
+    window.addEventListener("pointerup",onUp);
+    return()=>{window.removeEventListener("pointermove",onMove);window.removeEventListener("pointerup",onUp);};
+  },[dragging,dragOver,onStatusChange]);
 
   return(
-    <div>
+    <div style={{position:"relative"}}>
       {/* Filtro de período */}
       <div style={{display:"flex",gap:5,marginBottom:8,alignItems:"center",flexWrap:"wrap"}}>
         <span style={{fontSize:12,fontWeight:700,color:"#64748b",marginRight:2}}>📅 Período:</span>
@@ -1530,89 +1614,110 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete,onStatusChange,myColl
           <button key={v} style={btnStyle(kanbanFilter===v)} onClick={()=>setKanbanFilter(v)}>{l}</button>
         ))}
       </div>
-
-      {/* Filtro de responsável / setor */}
       <div style={{display:"flex",gap:5,marginBottom:14,alignItems:"center",flexWrap:"wrap"}}>
         <span style={{fontSize:12,fontWeight:700,color:"#64748b",marginRight:2}}>👤 Ver:</span>
         <button style={btnStyle(ownerFilter==="all","#64748b")} onClick={()=>setOwnerFilter("all")}>Todas as tarefas</button>
-        {myCollabId&&<button style={btnStyle(ownerFilter==="mine","#8b5cf6")} onClick={()=>setOwnerFilter("mine")}>⭐ Minhas tarefas</button>}
+        {myCollabId&&<button style={btnStyle(ownerFilter==="mine","#8b5cf6")} onClick={()=>setOwnerFilter("mine")}>⭐ Minhas</button>}
         {mySectors.length>0&&<button style={btnStyle(ownerFilter==="sector","#14b8a6")} onClick={()=>setOwnerFilter("sector")}>🏢 Meu setor</button>}
-        <span style={{fontSize:11,color:"#94a3b8",marginLeft:"auto"}}>💡 Arraste para mover</span>
+        <span style={{fontSize:11,color:"#94a3b8",marginLeft:"auto"}}>⠿ Segure e arraste o card para mover</span>
       </div>
 
-    <div className="kanban-wrap" style={{display:"flex",gap:14,overflowX:"auto",paddingBottom:20,alignItems:"flex-start"}}>
-      {STS.filter(st=>st.id!=="archived").map(st=>{
-        const now=new Date();
-        const wkStart=new Date(now);wkStart.setDate(now.getDate()-now.getDay());wkStart.setHours(0,0,0,0);
-        const wkEnd=new Date(wkStart);wkEnd.setDate(wkStart.getDate()+6);wkEnd.setHours(23,59,59,999);
-
-        const tasks=data.tasks.filter(t=>{
-          if(t.status!==st.id||t.status==="archived") return false;
-
-          // Filtro de responsável/setor
-          if(ownerFilter==="mine"){
-            if(!myCollabId||!toArr(t.assignees).includes(myCollabId)) return false;
-          } else if(ownerFilter==="sector"){
-            const inSector=mySectors.length>0&&mySectors.includes(t.sector);
-            const isMine=myCollabId&&toArr(t.assignees).includes(myCollabId);
-            if(!inSector&&!isMine) return false;
-          }
-
-          // Filtro de período
-          if(kanbanFilter==="all") return true;
-          if(!t.dueDate) return kanbanFilter==="week";
-          const due=new Date(t.dueDate+"T12:00:00");
-          const isOverdue=due<now&&t.dueDate!==today;
-          const isDueToday=t.dueDate===today;
-          if(kanbanFilter==="overdue") return isOverdue;
-          if(kanbanFilter==="today") return isDueToday;
-          return isOverdue||isDueToday||(due>=wkStart&&due<=wkEnd);
-        });
-        tasks.sort((a,b)=>(a.dueDate||"").localeCompare(b.dueDate||""));
-        const isDropTarget=dragOver===st.id;
-        return(
-          <div key={st.id} className="kanban-col" style={{flexShrink:0,width:268}}
-            onDragOver={e=>handleDragOver(e,st.id)}
-            onDrop={e=>handleDrop(e,st.id)}
-            onDragLeave={()=>setDragOver(null)}
-          >
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 12px",borderRadius:10,background:isDropTarget?st.c+"28":st.bg,border:`1.5px solid ${st.c}${isDropTarget?"":"33"}`,marginBottom:10,transition:"all .15s"}}>
-              <div style={{display:"flex",alignItems:"center",gap:7}}>
-                <span style={{width:9,height:9,borderRadius:"50%",background:st.c,display:"inline-block"}}/>
-                <span style={{fontSize:12,fontWeight:800,color:st.c}}>{st.l}</span>
-                <span style={{fontSize:11,fontWeight:800,color:st.c,background:st.c+"28",borderRadius:10,padding:"1px 7px"}}>{tasks.length}</span>
+      <div className="kanban-wrap" style={{display:"flex",gap:14,overflowX:"auto",paddingBottom:20,alignItems:"flex-start"}}>
+        {STS.filter(st=>st.id!=="archived").map(st=>{
+          const now=new Date();
+          const wkStart=new Date(now);wkStart.setDate(now.getDate()-now.getDay());wkStart.setHours(0,0,0,0);
+          const wkEnd=new Date(wkStart);wkEnd.setDate(wkStart.getDate()+6);wkEnd.setHours(23,59,59,999);
+          const tasks=data.tasks.filter(t=>{
+            if(t.status!==st.id||t.status==="archived") return false;
+            if(ownerFilter==="mine"){if(!myCollabId||!toArr(t.assignees).includes(myCollabId)) return false;}
+            else if(ownerFilter==="sector"){
+              const inSector=mySectors.length>0&&mySectors.includes(t.sector);
+              const isMine=myCollabId&&toArr(t.assignees).includes(myCollabId);
+              if(!inSector&&!isMine) return false;
+            }
+            if(kanbanFilter==="all") return true;
+            if(!t.dueDate) return kanbanFilter==="week";
+            const due=new Date(t.dueDate+"T12:00:00");
+            const isOverdue=due<now&&t.dueDate!==today;
+            const isDueToday=t.dueDate===today;
+            if(kanbanFilter==="overdue") return isOverdue;
+            if(kanbanFilter==="today") return isDueToday;
+            return isOverdue||isDueToday||(due>=wkStart&&due<=wkEnd);
+          });
+          tasks.sort((a,b)=>(a.dueDate||"").localeCompare(b.dueDate||""));
+          const isDropTarget=dragOver===st.id;
+          return(
+            <div key={st.id} className="kanban-col" style={{flexShrink:0,width:268}}
+              ref={el=>colRefs.current[st.id]=el}
+            >
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 12px",borderRadius:10,
+                background:isDropTarget?st.c+"28":st.bg,
+                border:`1.5px solid ${isDropTarget?st.c:st.c+"33"}`,
+                marginBottom:10,transition:"all .2s",
+                boxShadow:isDropTarget?`0 0 0 3px ${st.c}44`:"none",
+              }}>
+                <div style={{display:"flex",alignItems:"center",gap:7}}>
+                  <span style={{width:9,height:9,borderRadius:"50%",background:st.c,display:"inline-block"}}/>
+                  <span style={{fontSize:12,fontWeight:800,color:st.c}}>{st.l}</span>
+                  <span style={{fontSize:11,fontWeight:800,color:st.c,background:st.c+"28",borderRadius:10,padding:"1px 7px"}}>{tasks.length}</span>
+                </div>
+                <button onClick={()=>onAdd(st.id)} style={{background:st.c+"20",border:"none",borderRadius:7,width:24,height:24,cursor:"pointer",color:st.c,fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
               </div>
-              <button onClick={()=>onAdd(st.id)} style={{background:st.c+"20",border:"none",borderRadius:7,width:24,height:24,cursor:"pointer",color:st.c,fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
+              <div style={{display:"flex",flexDirection:"column",gap:8,minHeight:80,
+                padding:isDropTarget?"6px":"2px",
+                borderRadius:12,
+                border:isDropTarget?`2px dashed ${st.c}`:"2px dashed transparent",
+                background:isDropTarget?st.c+"08":"transparent",
+                transition:"all .2s",
+              }}>
+                {tasks.map(t=>(
+                  <TCard key={t.id} task={t} data={data}
+                    isDragging={dragging?.task?.id===t.id}
+                    onPointerDown={(e,el)=>startDrag(e,t,el)}
+                    onEdit={onEdit} onDelete={onDelete}
+                    onComplete={onComplete} onArchive={onArchive}
+                  />
+                ))}
+                {tasks.length===0&&(
+                  <div style={{padding:18,textAlign:"center",fontSize:12,color:isDropTarget?st.c:"#cbd5e1",
+                    fontWeight:isDropTarget?700:400,
+                    border:`2px dashed ${isDropTarget?st.c:"var(--border)"}`,
+                    borderRadius:10,transition:"all .2s",
+                  }}>
+                    {isDropTarget?"Soltar aqui →":ownerFilter==="mine"?"Nenhuma tarefa sua":ownerFilter==="sector"?"Nenhuma do setor":"Sem tarefas"}
+                  </div>
+                )}
+                {isDropTarget&&tasks.length>0&&(
+                  <div style={{padding:10,textAlign:"center",fontSize:12,color:st.c,fontWeight:700,borderRadius:10,border:`2px dashed ${st.c}`,background:st.c+"10"}}>
+                    Soltar aqui →
+                  </div>
+                )}
+              </div>
             </div>
-            <div style={{display:"flex",flexDirection:"column",gap:8,minHeight:isDropTarget?60:0,padding:isDropTarget?"4px":0,borderRadius:10,border:isDropTarget?`2px dashed ${st.c}`:"2px dashed transparent",transition:"all .15s"}}>
-              {tasks.map(t=>{
-                const isDraggingThis=dragging?.id===t.id;
-                return(
-                <div key={t.id}
-                  draggable="true"
-                  onDragStart={e=>{
-                    // Block drag if initiated from inside a button
-                    if(e.target.closest("button")){e.preventDefault();return;}
-                    handleDragStart(e,t);
-                  }}
-                  onDragEnd={handleDragEnd}
-                  style={{opacity:isDraggingThis?.4:1,transition:"opacity .15s",cursor:"grab",userSelect:"none"}}
-                >
-                  <TCard task={t} data={data} onEdit={onEdit} onDelete={onDelete} onComplete={onComplete} onArchive={onArchive}/>
-                </div>
-                );
-              })}
-              {tasks.length===0&&!isDropTarget&&(
-                <div style={{padding:18,textAlign:"center",fontSize:12,color:"#cbd5e1",border:"2px dashed var(--border)",borderRadius:10}}>
-                  {ownerFilter==="mine"?"Nenhuma tarefa sua aqui":ownerFilter==="sector"?"Nenhuma tarefa do setor":"Sem tarefas"}
-                </div>
-              )}
-              {isDropTarget&&<div style={{padding:18,textAlign:"center",fontSize:12,color:st.c,fontWeight:700,borderRadius:10}}>Soltar aqui →</div>}
-            </div>
-          </div>
-        );
-      })}
-    </div>
+          );
+        })}
+      </div>
+
+      {/* Ghost card que segue o cursor */}
+      {dragging&&(
+        <div ref={ghostRef} style={{
+          position:"fixed",
+          left:dragging.x,top:dragging.y,
+          width:dragging.width,
+          pointerEvents:"none",
+          zIndex:9999,
+          opacity:.88,
+          transform:"rotate(2deg) scale(1.03)",
+          boxShadow:"0 20px 60px rgba(0,0,0,.25)",
+          borderRadius:13,
+          transition:"transform .1s",
+        }}>
+          <TCard task={dragging.task} data={data} isDragging={false}
+            onEdit={()=>{}} onDelete={()=>{}} onComplete={()=>{}} onArchive={null}
+            ghost={true}
+          />
+        </div>
+      )}
     </div>
   );
 }

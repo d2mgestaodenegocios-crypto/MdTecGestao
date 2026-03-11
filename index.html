@@ -3423,6 +3423,31 @@ function App(){
     return()=>window.removeEventListener("keydown",handler);
   },[]);
 
+  // Arquivar tarefa manualmente
+  const archiveTask=(id)=>{
+    setData(d=>({...d,tasks:d.tasks.map(t=>t.id===id?{...t,status:"archived",archivedAt:todayStr()}:t)}));
+    toast("📦 Tarefa arquivada.","ok");
+  };
+
+  // Auto-archive: tarefas concluídas há mais de archiveDays (padrão 7) dias
+  // DEVE ficar ANTES dos early returns (regra dos hooks React)
+  useEffect(()=>{
+    if(!synced) return;
+    const days=data.archiveDays||7;
+    const cutoff=new Date();
+    cutoff.setDate(cutoff.getDate()-days);
+    const ids=[];
+    data.tasks.forEach(t=>{
+      if(t.status!=="done") return;
+      const dt=new Date((t.completedAt||t.createdAt||"2000-01-01")+"T12:00:00");
+      if(dt<cutoff) ids.push(t.id);
+    });
+    if(ids.length===0) return;
+    const idSet=new Set(ids);
+    setData(d=>({...d,tasks:d.tasks.map(t=>idSet.has(t.id)?{...t,status:"archived",archivedAt:todayStr()}:t)}));
+    toast(`📦 ${ids.length} tarefa${ids.length>1?"s arquivadas automaticamente":"arquivada automaticamente"}.`,"ok");
+  },[synced]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Enquanto verifica sessão
   if(authLoading) return(
     <div style={{minHeight:"100dvh",display:"flex",alignItems:"center",justifyContent:"center",background:"#0f172a"}}>
@@ -3604,31 +3629,6 @@ function App(){
     });
   };
 
-  // Arquivar tarefa manualmente
-  const archiveTask=(id)=>{
-    setData(d=>({...d,tasks:d.tasks.map(t=>t.id===id?{...t,status:"archived",archivedAt:todayStr()}:t)}));
-    toast("📦 Tarefa arquivada.","ok");
-  };
-
-  // Auto-archive: tarefas concluídas há mais de archiveDays (padrão 7) dias
-  useEffect(()=>{
-    if(!synced) return;
-    const days=data.archiveDays||7;
-    const cutoff=new Date();
-    cutoff.setDate(cutoff.getDate()-days);
-    const toArchive=data.tasks.filter(t=>{
-      if(t.status!=="done") return false;
-      const dt=new Date((t.completedAt||t.createdAt||"2000-01-01")+"T12:00:00");
-      return dt<cutoff;
-    });
-    if(toArchive.length===0) return;
-    const ids=new Set(toArchive.map(t=>t.id));
-    setData(d=>({...d,tasks:d.tasks.map(t=>ids.has(t.id)?{...t,status:"archived",archivedAt:todayStr()}:t)}));
-    toast(`📦 ${toArchive.length} tarefa${toArchive.length>1?"s arquivadas automaticamente":"arquivada automaticamente"}.`,"ok");
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[synced]);
-
-  
   const deduplicateTasks=()=>{
     const seen=new Set();
     const deduped=data.tasks.filter(t=>{

@@ -211,13 +211,20 @@ const TRIBS=["Simples Nacional","Lucro Presumido","Lucro Real","MEI","Lucro Arbi
 const WDAYS=[{id:0,s:"Dom",l:"Domingo"},{id:1,s:"Seg",l:"Segunda"},{id:2,s:"Ter",l:"Terça"},{id:3,s:"Qua",l:"Quarta"},{id:4,s:"Qui",l:"Quinta"},{id:5,s:"Sex",l:"Sexta"},{id:6,s:"Sáb",l:"Sábado"}];
 const MN=["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
 const MS=["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
-const STS=[
-  {id:"backlog",l:"Backlog",c:"#64748b",bg:"#f8fafc"},
-  {id:"todo",l:"A Fazer",c:"#6366f1",bg:"#eef2ff"},
-  {id:"doing",l:"Em Andamento",c:"#f59e0b",bg:"#fffbeb"},
-  {id:"review",l:"Em Revisão",c:"#8b5cf6",bg:"#f5f3ff"},
-  {id:"done",l:"Concluído",c:"#22c55e",bg:"#f0fdf4"}
+const BASE_STS=[
+  {id:"backlog",l:"Backlog",c:"#64748b",bg:"#f8fafc",fixed:true,order:0},
+  {id:"todo",l:"A Fazer",c:"#6366f1",bg:"#eef2ff",fixed:true,order:1},
+  {id:"doing",l:"Em Andamento",c:"#f59e0b",bg:"#fffbeb",fixed:true,order:2},
+  {id:"review",l:"Em Revisão",c:"#8b5cf6",bg:"#f5f3ff",fixed:true,order:3},
+  {id:"done",l:"Concluído",c:"#22c55e",bg:"#f0fdf4",fixed:true,order:99}
 ];
+// STS is kept as the base for parts of the app that don't need custom statuses
+const STS=BASE_STS;
+// Returns full status list including custom statuses (custom inserted before "done")
+function getFullSTS(customStatuses){
+  const customs=(customStatuses||[]).slice(0,2).map((s,i)=>({...s,order:4+i,fixed:false}));
+  return [...BASE_STS.filter(s=>s.id!=="done"),...customs,BASE_STS.find(s=>s.id==="done")];
+}
 const PRI={
   alta:{l:"Alta",bg:"#fef2f2",t:"#ef4444",d:"#ef4444"},
   media:{l:"Média",bg:"#fffbeb",t:"#f59e0b",d:"#f59e0b"},
@@ -234,14 +241,29 @@ const RINTS=[
   {value:"yearly",label:"Anual"},
 ];
 const NAV_GROUPS=[
-  {label:"Visualizações",items:[{id:"dashboard",icon:"✦",label:"Dashboard"},{id:"kanban",icon:"⊞",label:"Kanban"},{id:"lista",icon:"☰",label:"Lista"},{id:"calendario",icon:"📅",label:"Calendário"},{id:"tabela",icon:"▦",label:"Tabela"},{id:"minhas",icon:"👤",label:"Minhas Tarefas"},{id:"chat",icon:"💬",label:"Chat"},{id:"arquivadas",icon:"📦",label:"Arquivadas"}]},
+  {label:"Visualizações",items:[{id:"dashboard",icon:"✦",label:"Dashboard"},{id:"kanban",icon:"⊞",label:"Kanban"},{id:"lista",icon:"☰",label:"Lista"},{id:"calendario",icon:"📅",label:"Calendário"},{id:"tabela",icon:"▦",label:"Tabela"},{id:"hoje",icon:"🌅",label:"Hoje"},{id:"minhas",icon:"👤",label:"Minhas Tarefas"},{id:"chat",icon:"💬",label:"Chat"},{id:"arquivadas",icon:"📦",label:"Arquivadas"}]},
   {label:"Cadastros",items:[{id:"modelos",icon:"◧",label:"Modelos"},{id:"empresas",icon:"⬡",label:"Empresas"},{id:"setores",icon:"◫",label:"Setores"},{id:"colaboradores",icon:"◉",label:"Colaboradores"},{id:"marcadores",icon:"◈",label:"Marcadores"},{id:"recorrencias",icon:"↻",label:"Recorrências"},{id:"painel-rec",icon:"⊹",label:"Painel Recorrências"},{id:"servicos",icon:"S",label:"Serviços"}]},
   {label:"Sistema",items:[{id:"configuracoes",icon:"⚙",label:"Configurações"}]},
 ];
 
+// Task companies helpers (supports both legacy .company string and new .companies array)
+function taskCompanies(task){
+  if(Array.isArray(task.companies)&&task.companies.length>0) return task.companies;
+  if(task.company) return [task.company];
+  return [];
+}
+function taskHasCompany(task,coId){
+  return taskCompanies(task).includes(coId);
+}
+// Normalize a task to use .companies array
+function normalizeTaskCompanies(task){
+  if(Array.isArray(task.companies)) return task;
+  return {...task,companies:task.company?[task.company]:[]};
+}
+
 /* -- Seed Data -- */
 const SEED={
-  version:6,
+  version:7,
   archiveDays:7,
   companies:[
     {id:"co1",name:"MdTec Solutions",color:"#6366f1",logo:"MT",tributacao:"Lucro Presumido",cnpj:"12.345.678/0001-90"},
@@ -280,6 +302,7 @@ const SEED={
   tasks:[],
   chatMessages:[],
   notifications:[],
+  customStatuses:[],
 };
 
 /* ===========================================
@@ -438,6 +461,7 @@ function useSharedData() {
         if (!p.labels || !Array.isArray(p.labels)) p.labels = SEED.labels;
         if (!p.recurrences || !Array.isArray(p.recurrences)) p.recurrences = SEED.recurrences;
         if (!p.taskTemplates || !Array.isArray(p.taskTemplates)) p.taskTemplates = [];
+        if (!p.customStatuses) p.customStatuses = [];
         if (!p.services || !Array.isArray(p.services)) p.services = [];
         if (!p.chatMessages || !Array.isArray(p.chatMessages)) p.chatMessages = [];
         if (!p.notifications || !Array.isArray(p.notifications)) p.notifications = [];
@@ -548,6 +572,7 @@ function useSharedData() {
           if (!p.labels || !Array.isArray(p.labels)) p.labels = SEED.labels;
           if (!p.recurrences || !Array.isArray(p.recurrences)) p.recurrences = SEED.recurrences;
           if (!p.taskTemplates || !Array.isArray(p.taskTemplates)) p.taskTemplates = [];
+        if (!p.customStatuses) p.customStatuses = [];
           if (!p.services || !Array.isArray(p.services)) p.services = [];
           if (!p.chatMessages || !Array.isArray(p.chatMessages)) p.chatMessages = [];
           if (!p.notifications || !Array.isArray(p.notifications)) p.notifications = [];
@@ -746,7 +771,7 @@ function ArchivedPage({data,setData,toast}){
       ):(
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
           {archived.map(t=>{
-            const co=data.companies.find(c=>c.id===t.company);
+            const co=(taskCompanies(t).map(id=>data.companies.find(c=>c.id===id)).filter(Boolean))[0]||null;
             const asg=data.collaborators.filter(c=>t.assignees?.includes(c.id));
             return(
               <div key={t.id} style={{background:"var(--bg2)",borderRadius:12,padding:"12px 16px",border:"1px solid var(--border)",display:"flex",alignItems:"center",gap:12,opacity:0.85}}>
@@ -830,6 +855,51 @@ function ConfigPage({data,setData,toast,deduplicateTasks}){
           Se serviços recorrentes foram vinculados por engano mais de uma vez, use esta opção para remover tarefas duplicadas (mesmo título + empresa + data).
         </p>
         <Btn onClick={()=>{ deduplicateTasks(); }} v="ghost">🧹 Remover duplicatas</Btn>
+      </div>
+
+      {/* Custom Status Editor */}
+      <div style={{background:"var(--bg2)",borderRadius:16,padding:24,border:"1px solid var(--border)",marginBottom:16,boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
+        <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:4}}>⊞ Status extras do Kanban</h3>
+        <p style={{fontSize:13,color:"#64748b",marginBottom:16,lineHeight:1.5}}>
+          Adicione até <strong>2 colunas extras</strong> no Kanban, inseridas entre "Em Revisão" e "Concluído". Dê um nome e escolha uma cor.
+        </p>
+        {(data.customStatuses||[]).length<2&&(
+          <Btn onClick={()=>{
+            const name=window.prompt("Nome da nova coluna (ex: Aguardando, Validação):");
+            if(!name?.trim()) return;
+            const id="cst_"+uid().slice(0,8);
+            const colors=["#06b6d4","#d946ef","#84cc16","#f97316","#0ea5e9"];
+            const col=colors[(data.customStatuses||[]).length%colors.length];
+            setData(d=>({...d,customStatuses:[...(d.customStatuses||[]),{id,l:name.trim(),c:col,bg:col+"18"}]}));
+            toast(`✦ Coluna "${name.trim()}" adicionada!`,"ok");
+          }} sz="sm" xs={{marginBottom:12}}>+ Nova coluna</Btn>
+        )}
+        {(data.customStatuses||[]).length===0&&(
+          <p style={{fontSize:12,color:"#94a3b8",fontStyle:"italic"}}>Nenhuma coluna extra. Os 5 status padrão (Backlog, A Fazer, Em Andamento, Em Revisão, Concluído) são usados.</p>
+        )}
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {(data.customStatuses||[]).map((cs,idx)=>(
+            <div key={cs.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:10,border:"1px solid var(--border)",background:"var(--bg3)"}}>
+              <div style={{width:12,height:12,borderRadius:"50%",background:cs.c,flexShrink:0,border:"2px solid "+cs.c+"66"}}/>
+              <input value={cs.l} onChange={e=>setData(d=>({...d,customStatuses:d.customStatuses.map((s,i)=>i===idx?{...s,l:e.target.value}:s)}))}
+                style={{flex:1,padding:"5px 8px",borderRadius:7,border:"1.5px solid #e2e8f0",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)"}}/>
+              <input type="color" value={cs.c} onChange={e=>{const v=e.target.value;setData(d=>({...d,customStatuses:d.customStatuses.map((s,i)=>i===idx?{...s,c:v,bg:v+"18"}:s)}));}}
+                style={{width:30,height:30,borderRadius:6,border:"none",cursor:"pointer",padding:2}}/>
+              <button onClick={()=>{
+                if(!window.confirm(`Remover coluna "${cs.l}"? As tarefas nesta coluna voltarão para "A Fazer".`)) return;
+                setData(d=>({
+                  ...d,
+                  customStatuses:d.customStatuses.filter(s=>s.id!==cs.id),
+                  tasks:d.tasks.map(t=>t.status===cs.id?{...t,status:"todo"}:t)
+                }));
+                toast(`Coluna "${cs.l}" removida.`,"ok");
+              }} style={{background:"none",border:"none",cursor:"pointer",color:"#cbd5e1",fontSize:18,padding:"0 4px",transition:"color .1s"}}
+                onMouseEnter={e=>e.currentTarget.style.color="#ef4444"}
+                onMouseLeave={e=>e.currentTarget.style.color="#cbd5e1"}
+              >✕</button>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div style={{background:"var(--bg2)",borderRadius:16,padding:24,border:"1px solid var(--border)",marginBottom:16,boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
@@ -1220,7 +1290,7 @@ function DepPicker({tasks,selfId,selected,onChange,blocked}){
 }
 
 function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,onForce,currentUser}){
-  const blank={id:uid(),title:"",description:"",status:defStatus,priority:"media",company:"",sector:"",assignees:[],labels:[],dueDate:"",checklist:[],dependencies:[],recurrence:"",createdAt:todayStr(),comments:[]};
+  const blank={id:uid(),title:"",description:"",status:defStatus,priority:"media",company:"",companies:[],sector:"",assignees:[],labels:[],dueDate:"",dueTime:"",slaHours:"",checklist:[],dependencies:[],recurrence:"",createdAt:todayStr(),comments:[],history:[]};
   const [f,sf]=useState(task?{...sanitizeTask(task),comments:task.comments||[]}:blank);
   const [ckTxt,sCk]=useState("");
   const [commentTxt,setCommentTxt]=useState("");
@@ -1245,13 +1315,35 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
       <Txt label="Descrição" value={f.description} onChange={v=>set("description",v)} placeholder="Detalhes da tarefa..." disabled={blocked}/>
 
       <div className="g3">
-        <Sel label="Status" value={f.status} onChange={v=>set("status",v)} options={STS.filter(s=>s.id!=="archived").map(s=>({value:s.id,label:s.l}))} disabled={blocked}/>
+        <Sel label="Status" value={f.status} onChange={v=>set("status",v)} options={getFullSTS(data.customStatuses).filter(s=>s.id!=="archived").map(s=>({value:s.id,label:s.l}))} disabled={blocked}/>
         <Sel label="Prioridade" value={f.priority} onChange={v=>set("priority",v)} options={Object.entries(PRI).map(([k,v])=>({value:k,label:v.l}))} disabled={blocked}/>
         <Inp label="Data Limite" value={f.dueDate} onChange={v=>set("dueDate",v)} type="date" disabled={blocked}/>
       </div>
+      <div className="g2">
+        <Inp label="Hora limite (SLA)" value={f.dueTime||""} onChange={v=>set("dueTime",v)} type="time" hint="Hora do prazo final no dia" disabled={blocked}/>
+        <Inp label="SLA (horas)" value={f.slaHours||""} onChange={v=>set("slaHours",v)} type="number" hint="Ex: 4 = prazo de 4h a partir de criação" disabled={blocked}/>
+      </div>
 
       <div className="g2">
-        <Sel label="Empresa" value={f.company} onChange={v=>{set("company",v);set("sector","");set("assignees",[]);}} placeholder="Selecionar..." options={data.companies.map(c=>({value:c.id,label:c.name}))} disabled={blocked}/>
+        <Fld label="Empresas">
+          <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+            {data.companies.map(co=>{
+              const coms=toArr(f.companies||[]).length>0?toArr(f.companies):(f.company?[f.company]:[]);
+              const sel=coms.includes(co.id);
+              return(
+                <button key={co.id} onClick={()=>{
+                  if(blocked) return;
+                  const cur=toArr(f.companies||[]).length>0?toArr(f.companies):(f.company?[f.company]:[]);
+                  const next=sel?cur.filter(x=>x!==co.id):[...cur,co.id];
+                  set("companies",next);set("company",next[0]||"");set("sector","");set("assignees",[]);
+                }} style={{display:"flex",alignItems:"center",gap:5,padding:"4px 11px",borderRadius:20,border:`2px solid ${sel?co.color:"#e5e7eb"}`,background:sel?co.color+"18":"#f9fafb",color:sel?co.color:"#6b7280",cursor:blocked?"not-allowed":"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit",transition:"all .12s",opacity:blocked?.7:1}}>
+                  <span style={{width:8,height:8,borderRadius:"50%",background:co.color,display:"inline-block"}}/>
+                  {co.name}
+                </button>
+              );
+            })}
+          </div>
+        </Fld>
         <Sel label="Setor" value={f.sector} onChange={v=>{set("sector",v);set("assignees",[]);}} placeholder="Selecionar..." options={fS.map(s=>({value:s.id,label:s.name}))} disabled={blocked}/>
       </div>
 
@@ -1286,13 +1378,23 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
           <Btn onClick={addCk} sz="sm" disabled={blocked}>+ Add</Btn>
         </div>
         <div style={{display:"flex",flexDirection:"column",gap:4}}>
-          {f.checklist.map(c=>(
-            <div key={c.id} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 10px",borderRadius:8,background:c.done?"#f0fdf4":"#f9fafb",border:"1px solid #f3f4f6"}}>
-              <input type="checkbox" checked={c.done} disabled={blocked} onChange={()=>!blocked&&set("checklist",f.checklist.map(x=>x.id===c.id?{...x,done:!x.done}:x))} style={{accentColor:"#22c55e",width:15,height:15,flexShrink:0,cursor:blocked?"not-allowed":"pointer"}}/>
-              <span style={{flex:1,fontSize:13,color:c.done?"#9ca3af":"#374151",textDecoration:c.done?"line-through":"none"}}>{c.text}</span>
-              {!blocked&&<button onClick={()=>set("checklist",f.checklist.filter(x=>x.id!==c.id))} style={{background:"none",border:"none",cursor:"pointer",color:"#cbd5e1",fontSize:16,lineHeight:1,padding:"0 2px"}}>×</button>}
+          {f.checklist.map(ck=>{
+            const ckAsgn=data.collaborators.find(u=>u.id===ck.assignee);
+            return(
+            <div key={ck.id} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:8,background:ck.done?"#f0fdf4":"#f9fafb",border:"1px solid #f3f4f6",flexWrap:"wrap"}}>
+              <input type="checkbox" checked={ck.done} disabled={blocked} onChange={()=>!blocked&&set("checklist",f.checklist.map(x=>x.id===ck.id?{...x,done:!x.done}:x))} style={{accentColor:"#22c55e",width:15,height:15,flexShrink:0,cursor:blocked?"not-allowed":"pointer"}}/>
+              <span style={{flex:1,fontSize:13,color:ck.done?"#9ca3af":"#374151",textDecoration:ck.done?"line-through":"none",minWidth:80}}>{ck.text}</span>
+              {/* Subtask assignee picker */}
+              {!blocked&&<select value={ck.assignee||""} onChange={e=>set("checklist",f.checklist.map(x=>x.id===ck.id?{...x,assignee:e.target.value||null}:x))}
+                style={{fontSize:11,borderRadius:6,border:"1px solid #e2e8f0",padding:"2px 5px",background:"var(--bg2)",color:"#64748b",fontFamily:"inherit",maxWidth:110}}>
+                <option value="">— responsável</option>
+                {data.collaborators.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
+              </select>}
+              {ckAsgn&&<div title={ckAsgn.name}><Av initials={ckAsgn.initials} color={ckAsgn.color} size={20}/></div>}
+              {!blocked&&<button onClick={()=>set("checklist",f.checklist.filter(x=>x.id!==ck.id))} style={{background:"none",border:"none",cursor:"pointer",color:"#cbd5e1",fontSize:16,lineHeight:1,padding:"0 2px"}}>×</button>}
             </div>
-          ))}
+            );
+          })}
         </div>
       </Fld>
 
@@ -1326,6 +1428,23 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
         </Fld>
       )}
 
+      {/* Histórico de alterações */}
+      {task&&toArr(f.history).length>0&&(
+        <Fld label={`Histórico (${toArr(f.history).length})`}>
+          <div style={{maxHeight:180,overflowY:"auto",display:"flex",flexDirection:"column",gap:4}}>
+            {[...toArr(f.history)].reverse().map((h,i)=>(
+              <div key={i} style={{padding:"6px 10px",borderRadius:7,background:"var(--bg3)",border:"1px solid var(--border)",fontSize:11}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
+                  <span style={{fontWeight:700,color:"#6366f1"}}>{h.user}</span>
+                  <span style={{color:"#94a3b8"}}>{h.at?new Date(h.at).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):""}</span>
+                </div>
+                <div style={{color:"#64748b",lineHeight:1.5}}>{h.changes}</div>
+              </div>
+            ))}
+          </div>
+        </Fld>
+      )}
+
       <div style={{display:"flex",gap:10,justifyContent:"space-between",paddingTop:10,borderTop:"1px solid #f3f4f6",flexWrap:"wrap",alignItems:"center"}}>
         <div>
           {task&&onDelete&&<Btn onClick={()=>onDelete(f.id)} v="danger" disabled={blocked}>🗑 Excluir Tarefa</Btn>}
@@ -1349,7 +1468,7 @@ function applyFilters(tasks,f){
     if(f.search&&!t.title.toLowerCase().includes(f.search.toLowerCase()))return false;
     if(f.status&&t.status!==f.status)return false;
     if(f.priority&&t.priority!==f.priority)return false;
-    if(f.company&&t.company!==f.company)return false;
+    if(f.company&&!taskHasCompany(t,f.company))return false;
     if(f.sector&&t.sector!==f.sector)return false;
     if(f.label&&!t.labels.includes(f.label))return false;
     if(f.assignee&&!t.assignees.includes(f.assignee))return false;
@@ -1404,6 +1523,12 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
   const prog=ckTot>0?Math.round((ckDone/ckTot)*100):null;
   const over=isLate(task);
   const done=task.status==="done";
+  // SLA urgency: if slaHours set, check if creation + slaHours < now
+  const slaUrgent=task.slaHours&&!done&&(()=>{
+    const created=new Date(task.createdAt||"2000-01-01T00:00:00");
+    const deadline=new Date(created.getTime()+Number(task.slaHours)*3600000);
+    return deadline<new Date();
+  })();
   const p=PRI[task.priority]||PRI.media;
 
   // Track pointer-down on handle to start drag; click anywhere else opens modal
@@ -1516,7 +1641,9 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
 
         <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:8}}>
           <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:700,background:p.bg,color:p.t}}><span style={{display:"inline-block",width:5,height:5,borderRadius:"50%",background:p.d,marginRight:4,verticalAlign:"middle"}}/>{p.l}</span>
-          {task.dueDate&&<span style={{fontSize:11,color:over?"#ef4444":"#94a3b8",fontWeight:over?800:400}}>📅 {fmtDate(task.dueDate)}</span>}
+          {task.dueDate&&<span style={{fontSize:11,color:over?"#ef4444":"#94a3b8",fontWeight:over?800:400}}>📅 {fmtDate(task.dueDate)}{task.dueTime?` ${task.dueTime}`:""}</span>}
+          {slaUrgent&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#fef3c7",color:"#b45309",fontWeight:800,animation:"pulse 1.5s infinite"}}>⏱ SLA</span>}
+          {task.slaHours&&!slaUrgent&&!done&&<span style={{fontSize:10,color:"#f59e0b",fontWeight:700}}>⏱ {task.slaHours}h</span>}
           {rec&&<span style={{fontSize:11,color:"#14b8a6",fontWeight:700}}>↻ {rec.name}</span>}
           {task.dependencies?.length>0&&<span style={{fontSize:11,color:"#f59e0b",fontWeight:700}}>⬡ {task.dependencies.length}</span>}
         </div>
@@ -1546,6 +1673,38 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
 
 /* ===========================================
    KANBAN VIEW - Drag & Drop com pointer events */
+function QuickCreateBar({data,onAdd}){
+  const [title,setTitle]=useState("");
+  const [company,setCompany]=useState("");
+  const [date,setDate]=useState("");
+  const [show,setShow]=useState(false);
+  const inp=useRef(null);
+  const submit=()=>{
+    if(!title.trim()) return;
+    onAdd({title:title.trim(),company,dueDate:date,status:"todo",priority:"media"});
+    setTitle("");setDate("");setShow(false);
+  };
+  if(!show) return(
+    <button onClick={()=>{setShow(true);setTimeout(()=>inp.current?.focus(),50);}}
+      style={{display:"flex",alignItems:"center",gap:7,padding:"8px 14px",borderRadius:10,border:"1.5px dashed #c7d2fe",background:"#eef2ff",cursor:"pointer",fontSize:12,fontWeight:700,color:"#6366f1",marginBottom:14,fontFamily:"inherit",transition:"all .15s"}}
+      onMouseEnter={e=>e.currentTarget.style.background="#e0e7ff"}
+      onMouseLeave={e=>e.currentTarget.style.background="#eef2ff"}
+    >✦ Criar tarefa rápida</button>
+  );
+  return(
+    <div style={{display:"flex",gap:8,marginBottom:14,padding:"10px 12px",background:"#eef2ff",borderRadius:12,border:"1.5px solid #c7d2fe",flexWrap:"wrap",alignItems:"center"}}>
+      <input ref={inp} value={title} onChange={e=>setTitle(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()} placeholder="Título da tarefa... (Enter para criar)" style={{flex:"1 1 180px",padding:"7px 11px",borderRadius:8,border:"2px solid #c7d2fe",outline:"none",fontSize:13,fontFamily:"inherit",background:"#fff"}}/>
+      <select value={company} onChange={e=>setCompany(e.target.value)} style={{padding:"7px 10px",borderRadius:8,border:"2px solid #c7d2fe",fontSize:12,fontFamily:"inherit",background:"#fff",color:company?"#0f172a":"#94a3b8"}}>
+        <option value="">Empresa...</option>
+        {data.companies.map(co=><option key={co.id} value={co.id}>{co.name}</option>)}
+      </select>
+      <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{padding:"7px 10px",borderRadius:8,border:"2px solid #c7d2fe",fontSize:12,fontFamily:"inherit",background:"#fff"}}/>
+      <Btn onClick={submit} disabled={!title.trim()} sz="sm">✦ Criar</Btn>
+      <button onClick={()=>setShow(false)} style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:18,padding:"0 4px"}}>✕</button>
+    </div>
+  );
+}
+
 function KanbanView({data,onEdit,onDelete,onAdd,onComplete,onStatusChange,myCollabId,myCollab,onArchive}){
   const [kanbanFilter,setKanbanFilter]=useState("week");
   const [ownerFilter,setOwnerFilter]=useState("all");
@@ -1609,6 +1768,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete,onStatusChange,myColl
 
   return(
     <div style={{position:"relative"}}>
+      <QuickCreateBar data={data} onAdd={onAdd}/>
       {/* Filtro de período */}
       <div style={{display:"flex",gap:5,marginBottom:8,alignItems:"center",flexWrap:"wrap"}}>
         <span style={{fontSize:12,fontWeight:700,color:"#64748b",marginRight:2}}>📅 Período:</span>
@@ -1625,7 +1785,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete,onStatusChange,myColl
       </div>
 
       <div className="kanban-wrap" style={{display:"flex",gap:14,overflowX:"auto",paddingBottom:20,alignItems:"flex-start"}}>
-        {STS.filter(st=>st.id!=="archived").map(st=>{
+        {getFullSTS(data.customStatuses).filter(st=>st.id!=="archived").map(st=>{
           const now=new Date();
           const wkStart=new Date(now);wkStart.setDate(now.getDate()-now.getDay());wkStart.setHours(0,0,0,0);
           const wkEnd=new Date(wkStart);wkEnd.setDate(wkStart.getDate()+6);wkEnd.setHours(23,59,59,999);
@@ -1731,6 +1891,9 @@ function ListView({data,onEdit,onDelete,onComplete}){
   const cellSt={overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0};
   return(
     <div>
+      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:8}}>
+        <Btn onClick={()=>exportTasksCSV(tasks,data)} v="ghost" sz="sm" xs={{fontSize:11,color:"#64748b"}}>⬇ Exportar CSV</Btn>
+      </div>
       <FBar data={data} filters={fl} setF={sfl}/>
       <div style={{overflowX:"auto"}}>
         <div style={{minWidth:780,borderRadius:14,border:"1px solid var(--border)",overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,.05)",background:"var(--bg2)"}}>
@@ -1739,7 +1902,7 @@ function ListView({data,onEdit,onDelete,onComplete}){
           </div>
           {tasks.length===0&&<div style={{padding:"38px 20px",textAlign:"center",color:"#94a3b8",fontSize:14}}>Nenhuma tarefa encontrada.</div>}
           {tasks.map((t,i)=>{
-            const co=data.companies.find(c=>c.id===t.company);
+            const co=(taskCompanies(t).map(id=>data.companies.find(c=>c.id===id)).filter(Boolean))[0]||null;
             const sec=data.sectors.find(s=>s.id===t.sector);
             const asg=toArr(t.assignees);
             const asgs=data.collaborators.filter(c=>asg.includes(c.id));
@@ -1782,10 +1945,12 @@ function ListView({data,onEdit,onDelete,onComplete}){
 
 /* ===========================================
    CALENDAR VIEW */
-function CalView({data,onEdit}){
+function CalView({data,onEdit,onReschedule}){
   const now=new Date();
   const [m,sm]=useState(now.getMonth());
   const [y,sy]=useState(now.getFullYear());
+  const [dragTask,setDragTask]=useState(null);
+  const [dragOver,setDragOver]=useState(null);
   const wD=["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
   const dim=new Date(y,m+1,0).getDate(),fd=new Date(y,m,1).getDay();
   const tbd=useMemo(()=>{
@@ -1834,19 +1999,42 @@ function CalView({data,onEdit}){
           const isT=day===now.getDate()&&m===now.getMonth()&&y===now.getFullYear();
           const tasks=tbd[day]||[];
           return(
-            <div key={day} style={{minHeight:78,padding:5,borderRadius:9,background:isT?"#eef2ff":"#fafafa",border:`1.5px solid ${isT?"#6366f1":"#f1f5f9"}`}}>
+            <div key={day}
+              onDragOver={e=>{e.preventDefault();setDragOver(day);}}
+              onDragLeave={()=>setDragOver(null)}
+              onDrop={e=>{
+                e.preventDefault();setDragOver(null);
+                if(!dragTask||dragTask._recurring) return;
+                const newDate=`${y}-${String(m+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+                if(onReschedule) onReschedule(dragTask.id,newDate);
+                setDragTask(null);
+              }}
+              style={{minHeight:78,padding:5,borderRadius:9,
+                background:dragOver===day?"#eef2ff":isT?"#f0f4ff":"#fafafa",
+                border:`1.5px solid ${dragOver===day?"#6366f1":isT?"#6366f1":"#f1f5f9"}`,
+                transition:"background .1s,border .1s"
+              }}>
               <div style={{fontSize:11,fontWeight:800,width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:"50%",background:isT?"#6366f1":"transparent",color:isT?"#fff":"#374151",marginBottom:3}}>{day}</div>
               {tasks.slice(0,3).map(t=>{
                 const st=STS.find(s=>s.id===t.status)||STS[0];
-                const co=data.companies.find(x=>x.id===t.company);
+                const co=(taskCompanies(t).map(id=>data.companies.find(x=>x.id===id)).filter(Boolean))[0]||null;
                 const asg=data.collaborators.filter(x=>t.assignees.includes(x.id)).slice(0,2);
                 const lbs=data.labels.filter(x=>t.labels.includes(x.id)).slice(0,2);
+                const over=isLate(t);
                 return(
-                  <div key={t.id} onClick={()=>onEdit(t)} style={{marginBottom:3,borderRadius:6,border:"1.5px solid "+st.c+"33",background:"var(--bg2)",cursor:"pointer",overflow:"hidden"}}>
+                  <div key={t.id}
+                    draggable={!t._recurring}
+                    onDragStart={e=>{setDragTask(t);e.dataTransfer.effectAllowed="move";}}
+                    onDragEnd={()=>setDragTask(null)}
+                    onClick={()=>onEdit(t)}
+                    style={{marginBottom:3,borderRadius:6,border:"1.5px solid "+st.c+"33",background:"var(--bg2)",cursor:t._recurring?"pointer":"grab",overflow:"hidden",opacity:dragTask?.id===t.id?.45:1,outline:over?"1.5px solid #ef444488":"none"}}>
                     <div style={{background:st.c,height:2}}/>
                     <div style={{padding:"2px 4px"}}>
-                      <div style={{fontSize:9,fontWeight:800,color:"#0f172a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</div>
-                      {co&&<div style={{fontSize:8,color:co.color,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{co.logo||co.name.slice(0,2)} {co.name}</div>}
+                      <div style={{fontSize:9,fontWeight:800,color:over?"#ef4444":"#0f172a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</div>
+                      {taskCos.length>0&&<div style={{display:"flex",gap:2,flexWrap:"wrap"}}>
+                    {taskCos.slice(0,3).map(cx=><span key={cx.id} style={{fontSize:8,color:cx.color,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cx.logo||cx.name.slice(0,2)}</span>)}
+                    {taskCos.length>3&&<span style={{fontSize:8,color:"#94a3b8"}}>+{taskCos.length-3}</span>}
+                  </div>}
                       {asg.length>0&&<div style={{display:"flex",gap:2,marginTop:1}}>{asg.map(u=><span key={u.id} style={{fontSize:7,fontWeight:700,padding:"1px 4px",borderRadius:4,background:u.color+"22",color:u.color}}>{u.initials||u.name.slice(0,2)}</span>)}</div>}
                       {lbs.length>0&&<div style={{display:"flex",gap:2,marginTop:1,flexWrap:"wrap"}}>{lbs.map(l=><span key={l.id} style={{fontSize:7,fontWeight:700,padding:"1px 4px",borderRadius:4,background:l.color+"22",color:l.color}}>{l.name}</span>)}</div>}
                     </div>
@@ -1891,7 +2079,7 @@ function GridView({data,onEdit,onDelete,onComplete}){
           {sorted.length===0&&<div style={{padding:"38px 20px",textAlign:"center",color:"#94a3b8"}}>Nenhum resultado.</div>}
           {sorted.map((t,i)=>{
             const st=STS.find(s=>s.id===t.status)||STS[0];
-            const co=data.companies.find(c=>c.id===t.company);
+            const co=(taskCompanies(t).map(id=>data.companies.find(c=>c.id===id)).filter(Boolean))[0]||null;
             const sec=data.sectors.find(s=>s.id===t.sector);
             const asg=data.collaborators.filter(c=>toArr(t.assignees).includes(c.id));
             const ckd=toArr(t.checklist).filter(c=>c.done).length,ckt=toArr(t.checklist).length;
@@ -2721,7 +2909,7 @@ ${names}`);
               {svcTasks.length===0&&<div style={{color:"#94a3b8",fontSize:13,padding:"20px 0"}}>Nenhuma tarefa ativa.</div>}
               {svcTasks.sort((a,b)=>(a.dueDate||"").localeCompare(b.dueDate||"")).map(t=>{
                 const st=STS.find(x=>x.id===t.status)||STS[0];
-                const co=data.companies.find(c=>c.id===t.company);
+                const co=(taskCompanies(t).map(id=>data.companies.find(c=>c.id===id)).filter(Boolean))[0]||null;
                 const over=isLate(t);
                 return(
                   <div key={t.id} style={{padding:"10px 12px",borderRadius:10,border:"1px solid var(--border)",background:"var(--bg3)",display:"flex",flexDirection:"column",gap:4}}>
@@ -2756,7 +2944,7 @@ ${names}`);
           <Txt label="Descrição / Instruções" value={form.description} onChange={v=>set("description",v)} placeholder="Descreva o serviço e instruções para execução..." rows={3}/>
           <div className="g2">
             <Sel label="Prioridade" value={form.priority} onChange={v=>set("priority",v)} options={Object.entries(PRI).map(([k,v])=>({value:k,label:v.l}))}/>
-            <Sel label="Status inicial" value={form.status} onChange={v=>set("status",v)} options={STS.filter(s=>s.id!=="archived").map(s=>({value:s.id,label:s.l}))}/>
+            <Sel label="Status inicial" value={form.status} onChange={v=>set("status",v)} options={getFullSTS(data.customStatuses).filter(s=>s.id!=="archived").map(s=>({value:s.id,label:s.l}))}/>
           </div>
           <Sel label="Setor padrão" value={form.sector||""} onChange={v=>set("sector",v)} placeholder="Nenhum" options={data.sectors.map(s=>({value:s.id,label:s.name}))}/>
           <Fld label="Marcadores padrão">
@@ -2922,11 +3110,12 @@ function Dashboard({ data }) {
   // mNames alias removed - using MS constant
 
   const [viewMode, setViewMode] = useState("month"); // month | year
+  const [dashTab, setDashTab] = useState("overview"); // overview | colaboradores | setores
 
   const filteredTasks = useMemo(()=>{
     return data.tasks.filter(t=>{
       if(t.status==="archived") return false;
-      if(coFilter && t.company!==coFilter) return false;
+      if(coFilter && !taskHasCompany(t,coFilter)) return false;
       const dateStr = t.createdAt || t.dueDate || "";
       if(!dateStr) return true; // show tasks without date
       const d = new Date(dateStr+"T12:00:00");
@@ -2950,7 +3139,7 @@ function Dashboard({ data }) {
 
   // Por empresa
   const byCompany = useMemo(()=>data.companies.map(c=>{
-    const tasks=filteredTasks.filter(t=>t.company===c.id);
+    const tasks=filteredTasks.filter(t=>taskHasCompany(t,c.id));
     const done=tasks.filter(t=>t.status==="done").length;
     const doing=tasks.filter(t=>t.status==="doing").length;
     const overdue=tasks.filter(t=>isLate(t)).length;
@@ -2990,7 +3179,7 @@ function Dashboard({ data }) {
   const heatmap = useMemo(()=>{
     const map={};
     data.tasks.forEach(t=>{
-      if(t.completedAt&&(coFilter?t.company===coFilter:true)){
+      if(t.completedAt&&(coFilter?taskHasCompany(t,coFilter):true)){
         const d=t.completedAt.slice(0,10);
         map[d]=(map[d]||0)+1;
       }
@@ -3041,6 +3230,79 @@ function Dashboard({ data }) {
           Exibindo {viewMode==="year"?fYear:`${MS[fMonth]} / ${fYear}`} - {filteredTasks.length} tarefa{filteredTasks.length!==1?"s":""}
         </span>
       </div>
+
+      {/* Tab switcher */}
+      <div style={{display:"flex",gap:6,marginBottom:20}}>
+        {[["overview","📊 Visão Geral"],["colaboradores","👥 Por Colaborador"],["setores","◫ Por Setor"]].map(([v,l])=>(
+          <button key={v} onClick={()=>setDashTab(v)} style={{padding:"7px 16px",borderRadius:10,border:"1.5px solid "+(dashTab===v?"#6366f1":"var(--border)"),background:dashTab===v?"#6366f1":"var(--bg3)",color:dashTab===v?"#fff":"#64748b",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .15s"}}>{l}</button>
+        ))}
+      </div>
+
+      {/* KPIs — only in overview */}
+      {dashTab==="colaboradores"&&(
+        <div>
+          <h3 style={{fontSize:14,fontWeight:800,color:"var(--text)",marginBottom:16}}>Carga de trabalho por colaborador</h3>
+          {byCollaborator.length===0&&<p style={{color:"#94a3b8",fontSize:13}}>Nenhum dado para o período selecionado.</p>}
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {[...byCollaborator].sort((a,b)=>b.total-a.total).map(u=>{
+              const pct=u.total>0?Math.round((u.done/u.total)*100):0;
+              return(
+                <div key={u.id} style={{background:"var(--bg2)",borderRadius:12,padding:"14px 18px",border:"1px solid var(--border)",display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+                  <Av initials={u.initials} color={u.color} size={38}/>
+                  <div style={{flex:1,minWidth:140}}>
+                    <div style={{fontWeight:800,fontSize:13,color:"var(--text)",marginBottom:6}}>{u.name}</div>
+                    <div style={{height:8,borderRadius:4,background:"#f1f5f9",overflow:"hidden",marginBottom:4}}>
+                      <div style={{width:`${pct}%`,height:"100%",background:pct===100?"#22c55e":"#6366f1",borderRadius:4,transition:"width .5s"}}/>
+                    </div>
+                    <div style={{display:"flex",gap:10,fontSize:11,color:"#64748b",flexWrap:"wrap"}}>
+                      <span>Total: <strong style={{color:"var(--text)"}}>{u.total}</strong></span>
+                      <span style={{color:"#22c55e"}}>✓ {u.done} concluídas</span>
+                      <span style={{color:"#f59e0b"}}>⏳ {u.doing} em andamento</span>
+                      {u.overdue>0&&<span style={{color:"#ef4444",fontWeight:700}}>⚠ {u.overdue} atrasadas</span>}
+                      <span style={{fontWeight:700,color:pct>80?"#22c55e":pct>50?"#f59e0b":"#ef4444"}}>{pct}% concluído</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {dashTab==="setores"&&(
+        <div>
+          <h3 style={{fontSize:14,fontWeight:800,color:"var(--text)",marginBottom:16}}>Desempenho por setor</h3>
+          {bySector.length===0&&<p style={{color:"#94a3b8",fontSize:13}}>Nenhum dado para o período selecionado.</p>}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:12}}>
+            {[...bySector].sort((a,b)=>b.total-a.total).map(s=>{
+              const pct=s.total>0?Math.round((s.done/s.total)*100):0;
+              const secTasks=filteredTasks.filter(t=>t.sector===s.id);
+              const over=secTasks.filter(t=>isLate(t)).length;
+              const doing=secTasks.filter(t=>t.status==="doing").length;
+              return(
+                <div key={s.id} style={{background:"var(--bg2)",borderRadius:12,padding:"16px",border:`1px solid ${over>0?"#fecaca":"var(--border)"}`,boxShadow:"0 1px 4px rgba(0,0,0,.04)"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                    <div style={{width:10,height:10,borderRadius:"50%",background:s.color||"#6366f1"}}/>
+                    <span style={{fontWeight:800,fontSize:13,color:"var(--text)"}}>{s.name}</span>
+                    <span style={{fontSize:11,fontWeight:700,marginLeft:"auto",color:"#64748b"}}>{s.total} tarefa{s.total!==1?"s":""}</span>
+                  </div>
+                  <div style={{height:8,borderRadius:4,background:"#f1f5f9",overflow:"hidden",marginBottom:8}}>
+                    <div style={{width:`${pct}%`,height:"100%",background:s.color||"#6366f1",borderRadius:4,transition:"width .5s"}}/>
+                  </div>
+                  <div style={{display:"flex",gap:8,fontSize:11,flexWrap:"wrap"}}>
+                    <span style={{color:"#22c55e"}}>✓{s.done}</span>
+                    <span style={{color:"#f59e0b"}}>⏳{doing}</span>
+                    {over>0&&<span style={{color:"#ef4444",fontWeight:700}}>⚠{over}</span>}
+                    <span style={{marginLeft:"auto",fontWeight:800,color:pct>80?"#22c55e":pct>50?"#f59e0b":"#ef4444"}}>{pct}%</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {dashTab==="overview"&&<>
 
       {/* KPIs */}
       <div className="dash-kpis" style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:12,marginBottom:24}}>
@@ -3203,6 +3465,7 @@ function Dashboard({ data }) {
         </div>
       </div>
     </div>
+    </>} {/* end dashTab===overview */}
   );
 }
 
@@ -3640,6 +3903,127 @@ function PainelRecorrencias({data,setData,onEdit,toast}){
 
 /* ===========================================
    BUSCA GLOBAL - Cmd+K / Ctrl+K */
+
+/* ===========================================
+   HOJE PAGE */
+function HojePage({data,myCollabId,onEdit,onDelete,onComplete,onAdd}){
+  const today=todayStr();
+  const tasks=data.tasks.filter(t=>{
+    if(t.status==="archived"||t.status==="done") return false;
+    if(!t.dueDate) return false;
+    return t.dueDate<=today;
+  }).sort((a,b)=>{
+    // atrasadas primeiro, depois hoje; dentro de cada grupo por prioridade
+    const priOrder={critica:0,alta:1,media:2,baixa:3};
+    if(a.dueDate!==b.dueDate) return a.dueDate.localeCompare(b.dueDate);
+    return (priOrder[a.priority]||2)-(priOrder[b.priority]||2);
+  });
+
+  const overdue=tasks.filter(t=>t.dueDate<today);
+  const dueToday=tasks.filter(t=>t.dueDate===today);
+
+  const SectionHeader=({label,count,color})=>(
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,marginTop:20}}>
+      <div style={{width:10,height:10,borderRadius:"50%",background:color}}/>
+      <span style={{fontSize:13,fontWeight:800,color:"var(--text)"}}>{label}</span>
+      <span style={{fontSize:11,fontWeight:700,padding:"1px 8px",borderRadius:20,background:color+"18",color}}>{count}</span>
+    </div>
+  );
+
+  const Row=({task})=>{
+    const taskCos=taskCompanies(task).map(id=>data.companies.find(x=>x.id===id)).filter(Boolean);
+  const co=taskCos[0]||null; // primary company for color/icon
+    const asg=data.collaborators.filter(x=>toArr(task.assignees).includes(x.id));
+    const st=STS.find(x=>x.id===task.status)||STS[0];
+    const p=PRI[task.priority]||PRI.media;
+    const ckDone=toArr(task.checklist).filter(c=>c.done).length;
+    const ckTot=toArr(task.checklist).length;
+    const isOver=task.dueDate<today;
+    return(
+      <div onClick={()=>onEdit(task)} style={{display:"flex",gap:12,padding:"12px 16px",borderRadius:12,background:"var(--bg2)",border:`1px solid ${isOver?"#fecaca":"var(--border)"}`,cursor:"pointer",alignItems:"center",transition:"background .1s",marginBottom:7}}
+        onMouseEnter={e=>e.currentTarget.style.background="var(--bg3)"}
+        onMouseLeave={e=>e.currentTarget.style.background="var(--bg2)"}
+      >
+        <QCBtn status={task.status} onClick={e=>{e.stopPropagation();onComplete(task);}} size={28} absolute={false}/>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontWeight:800,fontSize:13,color:"var(--text)",marginBottom:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{task.title}</div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+            {co&&<span style={{fontSize:11,color:co.color,fontWeight:700}}>{co.logo} {co.name}</span>}
+            <span style={{fontSize:10,padding:"1px 6px",borderRadius:10,background:p.bg,color:p.t,fontWeight:700}}>{p.l}</span>
+            <span style={{fontSize:10,padding:"1px 6px",borderRadius:10,background:st.c+"18",color:st.c,fontWeight:700}}>{st.l}</span>
+            {ckTot>0&&<span style={{fontSize:10,color:"#94a3b8"}}>☑ {ckDone}/{ckTot}</span>}
+          </div>
+        </div>
+        <div style={{display:"flex",gap:4,alignItems:"center",flexShrink:0}}>
+          {asg.map(u=><Av key={u.id} initials={u.initials} color={u.color} size={24} title={u.name}/>)}
+          <span style={{fontSize:11,fontWeight:800,color:isOver?"#ef4444":"#6366f1",minWidth:50,textAlign:"right"}}>{fmtDate(task.dueDate)}</span>
+        </div>
+      </div>
+    );
+  };
+
+  return(
+    <div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+        <h2 style={{fontSize:18,fontWeight:900,color:"var(--text)",margin:0}}>🌅 Hoje — {new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"2-digit",month:"long"})}</h2>
+        <Btn onClick={()=>onAdd({dueDate:today})} sz="sm">+ Nova tarefa</Btn>
+      </div>
+      <p style={{fontSize:13,color:"#64748b",marginBottom:16}}>Tarefas com vencimento hoje ou atrasadas.</p>
+
+      {tasks.length===0&&(
+        <div style={{padding:"60px 0",textAlign:"center",color:"#94a3b8",fontSize:14,border:"2px dashed var(--border)",borderRadius:16}}>
+          <div style={{fontSize:40,marginBottom:12}}>🎉</div>
+          <div style={{fontWeight:800,color:"var(--text)",marginBottom:4}}>Tudo em dia!</div>
+          <div>Nenhuma tarefa vencida ou com vencimento hoje.</div>
+        </div>
+      )}
+
+      {overdue.length>0&&(
+        <>
+          <SectionHeader label="Atrasadas" count={overdue.length} color="#ef4444"/>
+          {overdue.map(t=><Row key={t.id} task={t}/>)}
+        </>
+      )}
+      {dueToday.length>0&&(
+        <>
+          <SectionHeader label="Vence hoje" count={dueToday.length} color="#f59e0b"/>
+          {dueToday.map(t=><Row key={t.id} task={t}/>)}
+        </>
+      )}
+    </div>
+  );
+}
+
+
+/* ===========================================
+   CSV EXPORT */
+function exportTasksCSV(tasks,data){
+  const coName=id=>data.companies.find(c=>c.id===id)?.name||"";
+  const coNames=ids=>toArr(ids).map(id=>data.companies.find(c=>c.id===id)?.name||"").filter(Boolean).join("; ");
+  const secName=id=>data.sectors.find(s=>s.id===id)?.name||"";
+  const asgNames=ids=>toArr(ids).map(id=>data.collaborators.find(u=>u.id===id)?.name||"").filter(Boolean).join("; ");
+  const lblNames=ids=>toArr(ids).map(id=>data.labels.find(l=>l.id===id)?.name||"").filter(Boolean).join("; ");
+  const stLabel=id=>STS.find(s=>s.id===id)?.l||id;
+  const priLabel=id=>PRI[id]?.l||id;
+  const esc=v=>`"${String(v||"").replace(/"/g,'""')}"`;
+  const headers=["ID","Título","Status","Prioridade","Empresa","Setor","Responsáveis","Marcadores","Vencimento","Hora","SLA(h)","Criado em","Concluído em","Checklist concluído","Checklist total","Série recorrente"];
+  const rows=tasks.map(t=>[
+    t.id,t.title,stLabel(t.status),priLabel(t.priority),
+    coNames(taskCompanies(t)),secName(t.sector),asgNames(t.assignees),lblNames(t.labels),
+    t.dueDate||"",t.dueTime||"",t.slaHours||"",
+    t.createdAt||"",t.completedAt||"",
+    toArr(t.checklist).filter(x=>x.done).length,
+    toArr(t.checklist).length,
+    t._recGroup?"Sim":"Não"
+  ].map(esc).join(","));
+  const csv=[headers.map(esc).join(","),...rows].join("\n");
+  const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;a.download=`mdtec_tarefas_${todayStr()}.csv`;a.click();
+  URL.revokeObjectURL(url);
+}
+
 function GlobalSearch({data,onEdit,onNavigate,onClose}){
   const [q,setQ]=useState("");
   const inputRef=useRef(null);
@@ -3812,6 +4196,30 @@ function App(){
     setData(d=>({...d,tasks:d.tasks.map(t=>idSet.has(t.id)?{...t,status:"archived",archivedAt:todayStr()}:t)}));
     toast(`📦 ${ids.length} tarefa${ids.length>1?"s arquivadas automaticamente":"arquivada automaticamente"}.`,"ok");
   },[synced]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Alertar tarefas atrasadas via sino ao carregar
+  useEffect(()=>{
+    if(!synced||!myCollabId) return;
+    const today=todayStr();
+    const overdueMine=data.tasks.filter(t=>
+      t.status!=="done"&&t.status!=="archived"&&
+      t.dueDate&&t.dueDate<today&&
+      toArr(t.assignees).includes(myCollabId)
+    );
+    if(overdueMine.length===0) return;
+    // Only add if not already notified today
+    const alreadyToday=(data.notifications||[]).some(n=>
+      n.toId===myCollabId&&n.icon==="⚠️"&&(n.createdAt||"").slice(0,10)===today
+    );
+    if(alreadyToday) return;
+    const txt=overdueMine.length===1
+      ?`Tarefa atrasada: "${overdueMine[0].title}"`
+      :`${overdueMine.length} tarefas atrasadas aguardando atenção`;
+    setData(d=>({...d,notifications:[...(d.notifications||[]),{
+      id:uid(),toId:myCollabId,icon:"⚠️",text:txt,page:"hoje",
+      createdAt:new Date().toISOString(),read:false
+    }]}));
+  },[synced,myCollabId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-renovação: quando um grupo recorrente (_recGroup) não tem tarefas futuras
   // gera mais 4 semanas para ele — roda ao sincronizar
@@ -4060,7 +4468,12 @@ function App(){
       labels: Array.isArray(updated.labels)?updated.labels:[],
       checklist: Array.isArray(updated.checklist)?updated.checklist:[],
       dependencies: Array.isArray(updated.dependencies)?updated.dependencies:[],
-      completedAt:updated.status==="done"&&!updated.completedAt?todayStr():updated.completedAt
+      completedAt:updated.status==="done"&&!updated.completedAt?todayStr():updated.completedAt,
+      // Normalize companies: always keep array + primary company alias
+      companies: Array.isArray(updated.companies)&&updated.companies.length>0
+        ? updated.companies
+        : (updated.company?[updated.company]:[]),
+      company: (Array.isArray(updated.companies)&&updated.companies[0])||updated.company||"",
     };
 
     // Se nova tarefa com recorrência: gerar cópias reais independentes
@@ -4109,9 +4522,26 @@ function App(){
       }
     }
 
+    // Build history entry for edits
+    let taskWithHistory=base;
+    if(!isNew){
+      const prev=data.tasks.find(t=>t.id===base.id);
+      if(prev){
+        const diffs=[];
+        if(prev.title!==base.title) diffs.push(`Título: "${prev.title}" → "${base.title}"`);
+        if(prev.status!==base.status){const sl=s=>STS.find(x=>x.id===s)?.l||s;diffs.push(`Status: ${sl(prev.status)} → ${sl(base.status)}`);}
+        if(prev.priority!==base.priority){const pl=p=>PRI[p]?.l||p;diffs.push(`Prioridade: ${pl(prev.priority)} → ${pl(base.priority)}`);}
+        if(prev.dueDate!==base.dueDate) diffs.push(`Prazo: ${prev.dueDate||"—"} → ${base.dueDate||"—"}`);
+        if(prev.dueTime!==base.dueTime&&base.dueTime) diffs.push(`Hora: ${base.dueTime}`);
+        if(diffs.length>0){
+          const entry={user:userName||"Usuário",at:new Date().toISOString(),changes:diffs.join(" · ")};
+          taskWithHistory={...base,history:[...toArr(base.history),entry]};
+        }
+      }
+    }
     setData(d=>{
-      const ex=d.tasks.find(t=>t.id===base.id);
-      return {...d,tasks:ex?d.tasks.map(t=>t.id===base.id?base:t):[...d.tasks,base]};
+      const ex=d.tasks.find(t=>t.id===taskWithHistory.id);
+      return {...d,tasks:ex?d.tasks.map(t=>t.id===taskWithHistory.id?taskWithHistory:t):[...d.tasks,taskWithHistory]};
     });
     if(taskModal.task) release(taskModal.task.id);
     setTM(m=>({...m,open:false}));
@@ -4144,8 +4574,11 @@ function App(){
   const quickComplete=(task)=>{
     const lk=getLock(task.id);
     if(lk){toast(`🔒 ${lk.user} está editando. Aguarde.`,"lock",4000);return;}
-    const CYCLE={todo:"doing",doing:"review",review:"done",done:"todo"};
-    const LABELS={todo:"Em Análise",doing:"Revisão",review:"Concluído",done:"A Fazer"};
+    // Build cycle from full STS (respects custom statuses)
+    const fullSTS=getFullSTS(data.customStatuses).filter(s=>s.id!=="backlog"&&s.id!=="archived");
+    const cycleArr=fullSTS.sort((a,b)=>a.order-b.order).map(s=>s.id);
+    const CYCLE=Object.fromEntries(cycleArr.map((id,i)=>[id,cycleArr[(i+1)%cycleArr.length]]));
+    const LABELS=Object.fromEntries(fullSTS.map(s=>[s.id,s.l]));
     const cur=task.status||"todo";
     const next=CYCLE[cur]||"doing";
     // Se é tarefa recorrente e vai para "done", perguntar se é só hoje ou toda a série
@@ -4202,7 +4635,7 @@ function App(){
 
   const useTemplate=(tpl)=>{
     const nt={id:uid(),title:tpl.name,description:tpl.description,status:"todo",priority:"media",
-      company:"",sector:"",assignees:[],labels:tpl.labels,dueDate:"",
+      company:"",companies:[],sector:"",assignees:[],labels:tpl.labels,dueDate:"",
       checklist:tpl.checklist.map(text=>({id:uid(),text,done:false})),
       dependencies:[],recurrence:tpl.recurrence||"",createdAt:todayStr()};
     setTM({open:true,task:nt,defStatus:"todo",lockInfo:null});
@@ -4344,8 +4777,9 @@ function App(){
           <KanbanView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onAdd={openNew} onComplete={quickComplete} onStatusChange={dragStatusChange} myCollabId={myCollabId} myCollab={myCollab} onArchive={archiveTask}/>
         </>}
         {page==="lista"         && <ListView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete}/>}
+        {page==="hoje"          && <HojePage data={dataForUser} myCollabId={myCollabId} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete} onAdd={openNew}/>}
         {page==="minhas"        && <ListView data={{...dataForUser, tasks: (myCollabId ? dataForUser.tasks.filter(t=>t.assignees?.includes(myCollabId)) : dataForUser.tasks).filter(t=>t.status!=="archived")}} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete}/>}
-        {page==="calendario"    && <CalView data={dataForUser} onEdit={openEdit}/>}
+        {page==="calendario"    && <CalView data={dataForUser} onEdit={openEdit} onReschedule={(id,date)=>{setData(d=>({...d,tasks:d.tasks.map(t=>t.id===id?{...t,dueDate:date}:t)}));toast(`📅 Reagendado para ${date}.`,'ok');}}/>}
         {page==="tabela"        && <GridView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete}/>}
         {page==="servicos"      && <ServicosPage data={data} setData={setData}/>}
         {page==="modelos"       && <TemplatesPage data={data} setData={setData} onUseTemplate={useTemplate}/>}

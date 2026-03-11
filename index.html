@@ -227,13 +227,15 @@ const RINTS=[
   {value:"custom_days",label:"Dias específicos da semana"},
   {value:"daily",label:"Diária"},
   {value:"weekly",label:"Semanal"},
-  {value:"biweekly",label:"Quinzenal"},
+  {value:"biweekly",label:"Quinzenal (a cada 2 semanas)"},
   {value:"monthly",label:"Mensal"},
-  {value:"yearly",label:"Anual"}
+  {value:"lastday",label:"Último dia do mês"},
+  {value:"quarterly",label:"Trimestral (a cada 3 meses)"},
+  {value:"yearly",label:"Anual"},
 ];
 const NAV_GROUPS=[
   {label:"Visualizações",items:[{id:"dashboard",icon:"✦",label:"Dashboard"},{id:"kanban",icon:"⊞",label:"Kanban"},{id:"lista",icon:"☰",label:"Lista"},{id:"calendario",icon:"📅",label:"Calendário"},{id:"tabela",icon:"▦",label:"Tabela"},{id:"minhas",icon:"👤",label:"Minhas Tarefas"},{id:"chat",icon:"💬",label:"Chat"},{id:"arquivadas",icon:"📦",label:"Arquivadas"}]},
-  {label:"Cadastros",items:[{id:"modelos",icon:"◧",label:"Modelos"},{id:"empresas",icon:"⬡",label:"Empresas"},{id:"setores",icon:"◫",label:"Setores"},{id:"colaboradores",icon:"◉",label:"Colaboradores"},{id:"marcadores",icon:"◈",label:"Marcadores"},{id:"recorrencias",icon:"↻",label:"Recorrências"},{id:"servicos",icon:"S",label:"Serviços"}]},
+  {label:"Cadastros",items:[{id:"modelos",icon:"◧",label:"Modelos"},{id:"empresas",icon:"⬡",label:"Empresas"},{id:"setores",icon:"◫",label:"Setores"},{id:"colaboradores",icon:"◉",label:"Colaboradores"},{id:"marcadores",icon:"◈",label:"Marcadores"},{id:"recorrencias",icon:"↻",label:"Recorrências"},{id:"painel-rec",icon:"⊹",label:"Painel Recorrências"},{id:"servicos",icon:"S",label:"Serviços"}]},
   {label:"Sistema",items:[{id:"configuracoes",icon:"⚙",label:"Configurações"}]},
 ];
 
@@ -2522,33 +2524,102 @@ function ServicosPage({ data, setData }) {
   const [form,setForm]=useState(blankSvc);
   const [tab,setTab]=useState("geral");
   const [ckTxt,setCkTxt]=useState("");
+  const [viewSvc,setViewSvc]=useState(null); // serviço cujas tarefas estão sendo visualizadas
+  const [toast2,setToast2]=useState(null);
+  const showToast=(msg,t="ok")=>{setToast2({msg,t});setTimeout(()=>setToast2(null),3000);};
+
   const openNew=()=>{setEditing(null);setForm(blankSvc);setTab("geral");setCkTxt("");setOpen(true);};
   const openEdit=(s)=>{setEditing(s);setForm({...blankSvc,...s,assignees:toArr(s.assignees),labels:toArr(s.labels),checklist:toArr(s.checklist)});setTab("geral");setCkTxt("");setOpen(true);};
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
   const tog=(k,id)=>setForm(f=>({...f,[k]:toArr(f[k]).includes(id)?toArr(f[k]).filter(x=>x!==id):[...toArr(f[k]),id]}));
   const addCk=()=>{if(!ckTxt.trim())return;set("checklist",[...toArr(form.checklist),{id:uid(),text:ckTxt.trim(),done:false}]);setCkTxt("");};
+  const {ask:askDel,modal:delModal}=useConfirmDelete();
+
+  // Gera tarefas para um serviço numa empresa específica
+  const gerarTarefas=(svc,coId)=>{
+    const rec=data.recurrences.find(r=>r.id===svc.recurrence);
+    const existing=data.tasks.filter(t=>t._serviceId===svc.id&&t.company===coId&&t.status!=="archived");
+    if(existing.length>0){
+      if(!window.confirm(`Já existem ${existing.length} tarefa(s) ativa(s) deste serviço para esta empresa. Gerar mais mesmo assim?`)) return 0;
+    }
+    const base={
+      id:uid(),title:svc.name,description:svc.description||"",
+      status:svc.status||"todo",priority:svc.priority||"media",
+      company:coId,sector:svc.sector||"",
+      assignees:toArr(svc.assignees),labels:toArr(svc.labels),
+      checklist:toArr(svc.checklist).map(ck=>({...ck,id:uid(),done:false})),
+      dependencies:[],recurrence:"",
+      dueDate:svc.defaultDue||"",
+      createdAt:todayStr(),completedAt:null,archivedAt:null,
+      _serviceId:svc.id,
+    };
+    const startDate=svc.mesInicio?new Date(svc.mesInicio+"-01T00:00:00"):new Date();
+    startDate.setHours(0,0,0,0);
+    const endDate=new Date(startDate);endDate.setMonth(startDate.getMonth()+3);
+    const tasks=[];
+    const gId=base.id;
+    const recId=svc.recurrence;
+    const push=(ds)=>tasks.push({...base,id:uid(),dueDate:ds,_recGroup:gId,_recurrenceId:recId,checklist:toArr(svc.checklist).map(ck=>({...ck,id:uid(),done:false}))});
+    if(rec){
+      if(rec.interval==="monthly"){
+        const td=svc.defaultDue?new Date(svc.defaultDue+"T12:00:00").getDate():1;
+        for(let m=0;m<4;m++){const d=new Date(startDate.getFullYear(),startDate.getMonth()+m,td);if(d>=startDate)push(d.toISOString().slice(0,10));}
+      } else if(rec.interval==="lastday"){
+        for(let m=0;m<4;m++){const d=new Date(startDate.getFullYear(),startDate.getMonth()+m+1,0);if(d>=startDate)push(d.toISOString().slice(0,10));}
+      } else if(rec.interval==="quarterly"){
+        for(let q=0;q<4;q++){const d=new Date(startDate.getFullYear(),startDate.getMonth()+q*3,svc.defaultDue?new Date(svc.defaultDue+"T12:00:00").getDate():1);if(d>=startDate)push(d.toISOString().slice(0,10));}
+      } else if(rec.interval==="custom_days"&&Array.isArray(rec.days)&&rec.days.length>0){
+        for(let d=new Date(startDate);d<=endDate;d.setDate(d.getDate()+1)){if(rec.days.includes(d.getDay()))push(d.toISOString().slice(0,10));}
+      } else if(rec.interval==="weekly"){
+        const tdow=svc.defaultDue?new Date(svc.defaultDue+"T12:00:00").getDay():1;
+        for(let d=new Date(startDate);d<=endDate;d.setDate(d.getDate()+1)){if(d.getDay()===tdow)push(d.toISOString().slice(0,10));}
+      } else if(rec.interval==="biweekly"){
+        const tdow=svc.defaultDue?new Date(svc.defaultDue+"T12:00:00").getDay():1;
+        let cnt=0;
+        for(let d=new Date(startDate);d<=endDate;d.setDate(d.getDate()+1)){if(d.getDay()===tdow){if(cnt%2===0)push(d.toISOString().slice(0,10));cnt++;}}
+      } else if(rec.interval==="daily"){
+        const ed28=new Date(startDate);ed28.setDate(startDate.getDate()+28);
+        for(let d=new Date(startDate);d<=ed28;d.setDate(d.getDate()+1))push(d.toISOString().slice(0,10));
+      } else if(rec.interval==="yearly"){
+        if(svc.defaultDue){const d=new Date(svc.defaultDue+"T12:00:00");push(new Date(startDate.getFullYear(),d.getMonth(),d.getDate()).toISOString().slice(0,10));}
+      }
+    } else {
+      tasks.push(base);
+    }
+    if(tasks.length>0) setData(d=>({...d,tasks:[...d.tasks,...tasks]}));
+    return tasks.length;
+  };
+
+  // Duplicar serviço para outra empresa
+  const duplicarParaEmpresa=(svc)=>{
+    const opts=data.companies.filter(co=>!toArr(co.services).includes(svc.id));
+    if(opts.length===0){showToast("Este serviço já está em todas as empresas.","warn");return;}
+    const names=opts.map((co,i)=>`${i+1}. ${co.name}`).join("
+");
+    const idx=window.prompt(`Escolha a empresa (número):
+${names}`);
+    const n=parseInt(idx)-1;
+    if(isNaN(n)||!opts[n]) return;
+    const co=opts[n];
+    // Vincular serviço à empresa
+    setData(d=>({...d,companies:d.companies.map(c=>c.id===co.id?{...c,services:[...toArr(c.services),svc.id]}:c)}));
+    // Gerar tarefas
+    const count=gerarTarefas(svc,co.id);
+    showToast(`✦ Serviço vinculado a ${co.name}. ${count} tarefa(s) gerada(s).`,"ok");
+  };
+
   const save=()=>{
     if(!form.name.trim())return;
     const svc={...form,checklist:toArr(form.checklist),assignees:toArr(form.assignees),labels:toArr(form.labels)};
     if(editing){
       setData(d=>{
-        // Atualizar o serviço
         const services=d.services.map(s=>s.id===editing.id?{...s,...svc}:s);
-        // Auto-atualizar tarefas vinculadas (mesmo _serviceId) que ainda estão pendentes
         const tasks=d.tasks.map(t=>{
           if(t._serviceId!==editing.id||t.status==="archived"||t.status==="done") return t;
-          return {
-            ...t,
-            title:svc.name,
-            description:svc.description||t.description,
-            priority:svc.priority||t.priority,
-            sector:svc.sector||t.sector,
-            assignees:toArr(svc.assignees).length>0?toArr(svc.assignees):t.assignees,
+          return {...t,title:svc.name,description:svc.description||t.description,priority:svc.priority||t.priority,
+            sector:svc.sector||t.sector,assignees:toArr(svc.assignees).length>0?toArr(svc.assignees):t.assignees,
             labels:toArr(svc.labels).length>0?toArr(svc.labels):t.labels,
-            dueDate:svc.defaultDue||t.dueDate,
-            checklist:t.checklist.every(c=>!c.done)
-              ?toArr(svc.checklist).map(ck=>({...ck,done:false}))
-              :t.checklist,
+            checklist:t.checklist.every(ck=>!ck.done)?toArr(svc.checklist).map(ck=>({...ck,done:false})):t.checklist,
           };
         });
         return {...d,services,tasks};
@@ -2557,70 +2628,138 @@ function ServicosPage({ data, setData }) {
       setData(d=>({...d,services:[...(d.services||[]),{id:uid(),...svc}]}));
     }
     setOpen(false);
-    toast(editing?"✦ Serviço e tarefas atualizados!":"✦ Serviço criado!","ok");
+    showToast(editing?"✦ Serviço e tarefas atualizados!":"✦ Serviço criado!","ok");
   };
-  const {ask:askDel,modal:delModal}=useConfirmDelete();
-  const del=(id)=>{const item=(data.services||[]).find(x=>x.id===id);askDel(`Servico: "${item?.name||""}"`,()=>setData(d=>({...d,services:d.services.filter(s=>s.id!==id)})));};
+
+  const del=(id)=>{const item=(data.services||[]).find(x=>x.id===id);askDel(`Serviço: "${item?.name||""}"`,()=>setData(d=>({...d,services:d.services.filter(s=>s.id!==id)})));};
   const tabSt=(t)=>({padding:"7px 16px",border:"none",borderRadius:9,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit",transition:"all .12s",background:tab===t?"#6366f1":"#f1f5f9",color:tab===t?"#fff":"#64748b"});
+
   return (
     <div>
-      <PH title="Servicos" icon="S" badge={(data.services||[]).length} action={<Btn onClick={openNew}>+ Novo Servico</Btn>}/>
-      <p style={{fontSize:13,color:"#64748b",marginBottom:16}}>Cada servico e um modelo completo de tarefa com checklist, responsaveis e recorrencia. Vincule a uma empresa para gerar tarefas automaticamente.</p>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14}}>
+      {toast2&&<div style={{position:"fixed",top:16,right:16,zIndex:9999,padding:"10px 18px",borderRadius:10,background:toast2.t==="ok"?"#22c55e":"#f59e0b",color:"#fff",fontWeight:700,fontSize:13,boxShadow:"0 4px 16px rgba(0,0,0,.2)"}}>{toast2.msg}</div>}
+      <PH title="Serviços" icon="S" badge={(data.services||[]).length} action={<Btn onClick={openNew}>+ Novo Serviço</Btn>}/>
+      <p style={{fontSize:13,color:"#64748b",marginBottom:16}}>Modelos de tarefa com checklist, responsáveis e recorrência. Vincule a empresas para gerar tarefas automaticamente.</p>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:14}}>
         {(data.services||[]).map(s=>{
           const rec=data.recurrences.find(r=>r.id===s.recurrence);
           const usedBy=data.companies.filter(c=>toArr(c.services).includes(s.id));
+          const activeTasks=data.tasks.filter(t=>t._serviceId===s.id&&t.status!=="archived");
+          const doneTasks=activeTasks.filter(t=>t.status==="done");
+          const pendTasks=activeTasks.filter(t=>t.status!=="done");
           const ck=toArr(s.checklist);
           const asg=data.collaborators.filter(c=>toArr(s.assignees).includes(c.id));
           const lbs=data.labels.filter(l=>toArr(s.labels).includes(l.id));
           const pri=PRI[s.priority]||PRI.media;
           return (
-            <div key={s.id} style={{background:"var(--bg2)",borderRadius:14,padding:18,border:"1px solid var(--border)",boxShadow:"0 2px 8px rgba(0,0,0,.06)"}}>
-              <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:12}}>
-                <div style={{width:42,height:42,borderRadius:10,background:(s.color||"#6366f1")+"18",border:"2px solid "+(s.color||"#6366f1")+"44",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:900,color:s.color||"#6366f1",flexShrink:0}}>S</div>
+            <div key={s.id} style={{background:"var(--bg2)",borderRadius:14,padding:18,border:"1px solid var(--border)",boxShadow:"0 2px 8px rgba(0,0,0,.06)",display:"flex",flexDirection:"column",gap:10}}>
+              {/* Header */}
+              <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+                <div style={{width:40,height:40,borderRadius:10,background:(s.color||"#6366f1")+"18",border:"2px solid "+(s.color||"#6366f1")+"44",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:900,color:s.color||"#6366f1",flexShrink:0}}>S</div>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontWeight:900,fontSize:14,color:"#0f172a",marginBottom:2}}>{s.name}</div>
+                  <div style={{fontWeight:900,fontSize:14,color:"var(--text)",marginBottom:2}}>{s.name}</div>
                   {s.description&&<div style={{fontSize:11,color:"#94a3b8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.description}</div>}
                 </div>
               </div>
-              <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:10}}>
+              {/* Badges */}
+              <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
                 <span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:pri.bg,color:pri.t,fontWeight:700}}>{pri.l}</span>
-                {rec&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#6366f118",color:"#6366f1",fontWeight:700}}>{rec.name}</span>}
+                {rec&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#6366f118",color:"#6366f1",fontWeight:700}}>↻ {rec.name}</span>}
                 {s.defaultDue&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#f59e0b18",color:"#f59e0b",fontWeight:700}}>{fmtDate(s.defaultDue)}</span>}
                 {lbs.map(l=><span key={l.id} style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:l.color+"18",color:l.color,fontWeight:700}}>{l.name}</span>)}
               </div>
-              {ck.length>0&&<div style={{marginBottom:10}}>
-                <div style={{height:4,borderRadius:2,background:"#f1f5f9",overflow:"hidden",marginBottom:4}}><div style={{width:"30%",height:"100%",background:"#6366f1",borderRadius:2}}/></div>
-                <div style={{fontSize:11,color:"#94a3b8",fontWeight:600}}>{ck.length} item{ck.length!==1?"s":""} no checklist</div>
-              </div>}
-              {asg.length>0&&<div style={{display:"flex",marginBottom:10}}>
-                {asg.slice(0,5).map((u,i)=><div key={u.id} style={{marginLeft:i>0?-7:0}}><Av initials={u.initials} color={u.color} size={26} title={u.name}/></div>)}
-                {asg.length>5&&<div style={{width:26,height:26,borderRadius:"50%",background:"#f1f5f9",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:"#94a3b8",marginLeft:-7}}>+{asg.length-5}</div>}
-              </div>}
-              {usedBy.length>0&&<div style={{fontSize:11,color:"#94a3b8",marginBottom:10}}>Empresas: {usedBy.map(c=>c.name).join(", ")}</div>}
-              <div style={{display:"flex",gap:8}}>
-                <Btn onClick={()=>openEdit(s)} v="ghost" sz="sm" xs={{flex:1,justifyContent:"center"}}>Editar</Btn>
-                <Btn onClick={()=>del(s.id)} v="danger" sz="sm">x</Btn>
+              {/* Contadores de tarefas */}
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                <button onClick={()=>setViewSvc(viewSvc?.id===s.id?null:s)} style={{display:"flex",alignItems:"center",gap:5,padding:"4px 10px",borderRadius:8,border:"1px solid #e2e8f0",background:"var(--bg3)",cursor:"pointer",fontSize:11,fontWeight:700,color:"#64748b",fontFamily:"inherit",transition:"all .15s"}}
+                  onMouseEnter={e=>e.currentTarget.style.borderColor="#6366f1"}
+                  onMouseLeave={e=>e.currentTarget.style.borderColor="#e2e8f0"}
+                >
+                  📋 {pendTasks.length} pendente{pendTasks.length!==1?"s":""}
+                  {doneTasks.length>0&&<span style={{color:"#22c55e",marginLeft:4}}>✓{doneTasks.length}</span>}
+                </button>
+                {usedBy.length>0&&<span style={{fontSize:11,color:"#94a3b8",padding:"4px 8px",borderRadius:8,background:"var(--bg3)",border:"1px solid var(--border)"}}>🏢 {usedBy.map(c=>c.name).join(", ")}</span>}
+              </div>
+              {ck.length>0&&<div style={{fontSize:11,color:"#94a3b8",fontWeight:600}}>☑ {ck.length} item{ck.length!==1?"s":""} no checklist</div>}
+              {asg.length>0&&<div style={{display:"flex"}}>{asg.slice(0,5).map((u,i)=><div key={u.id} style={{marginLeft:i>0?-7:0}}><Av initials={u.initials} color={u.color} size={26} title={u.name}/></div>)}{asg.length>5&&<div style={{width:26,height:26,borderRadius:"50%",background:"#f1f5f9",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:"#94a3b8",marginLeft:-7}}>+{asg.length-5}</div>}</div>}
+              {/* Ações */}
+              <div style={{display:"flex",gap:6,flexWrap:"wrap",paddingTop:4,borderTop:"1px solid var(--border)"}}>
+                <Btn onClick={()=>openEdit(s)} v="ghost" sz="sm" xs={{flex:1,justifyContent:"center"}}>✎ Editar</Btn>
+                {usedBy.length>0&&(
+                  <Btn onClick={()=>{
+                    const co=usedBy.length===1?usedBy[0]:usedBy[window.prompt(usedBy.map((c,i)=>`${i+1}. ${c.name}`).join("
+"))-1];
+                    if(!co) return;
+                    const n=gerarTarefas(s,co.id);
+                    showToast(n>0?`↻ ${n} tarefa(s) gerada(s) para ${co.name}!`:"Nenhuma tarefa nova gerada.","ok");
+                  }} sz="sm" v="ghost" xs={{color:"#6366f1",borderColor:"#6366f1"}}>↻ Gerar</Btn>
+                )}
+                <Btn onClick={()=>duplicarParaEmpresa(s)} sz="sm" v="ghost" xs={{fontSize:11}}>⊕ Empresa</Btn>
+                <Btn onClick={()=>del(s.id)} v="danger" sz="sm">✕</Btn>
               </div>
             </div>
           );
         })}
       </div>
-      <Modal open={open} onClose={()=>setOpen(false)} title={editing?"Editar Servico":"Novo Servico"} width={640}>
+
+      {/* Painel de tarefas ativas do serviço selecionado */}
+      {viewSvc&&(()=>{
+        const svcTasks=data.tasks.filter(t=>t._serviceId===viewSvc.id&&t.status!=="archived");
+        const byStatus={todo:svcTasks.filter(t=>t.status==="todo"),doing:svcTasks.filter(t=>t.status==="doing"),review:svcTasks.filter(t=>t.status==="review"),done:svcTasks.filter(t=>t.status==="done")};
+        return(
+          <div style={{marginTop:20,background:"var(--bg2)",borderRadius:14,padding:20,border:"1px solid var(--border)",boxShadow:"0 2px 8px rgba(0,0,0,.06)"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+              <h3 style={{fontSize:14,fontWeight:900,color:"var(--text)",margin:0}}>📋 Tarefas ativas — {viewSvc.name}</h3>
+              <button onClick={()=>setViewSvc(null)} style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:18,lineHeight:1}}>✕</button>
+            </div>
+            <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+              {Object.entries(byStatus).map(([st,ts])=>{
+                const s=STS.find(x=>x.id===st);
+                return <div key={st} style={{padding:"4px 12px",borderRadius:20,fontSize:12,fontWeight:700,background:s.c+"18",color:s.c}}>{s.l}: {ts.length}</div>;
+              })}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))",gap:8,maxHeight:340,overflowY:"auto"}}>
+              {svcTasks.length===0&&<div style={{color:"#94a3b8",fontSize:13,padding:"20px 0"}}>Nenhuma tarefa ativa.</div>}
+              {svcTasks.sort((a,b)=>(a.dueDate||"").localeCompare(b.dueDate||"")).map(t=>{
+                const st=STS.find(x=>x.id===t.status)||STS[0];
+                const co=data.companies.find(c=>c.id===t.company);
+                const over=isLate(t);
+                return(
+                  <div key={t.id} style={{padding:"10px 12px",borderRadius:10,border:"1px solid var(--border)",background:"var(--bg3)",display:"flex",flexDirection:"column",gap:4}}>
+                    <div style={{fontSize:12,fontWeight:800,color:"var(--text)",lineHeight:1.3}}>{t.title}</div>
+                    <div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
+                      <span style={{fontSize:10,padding:"1px 6px",borderRadius:10,background:st.c+"18",color:st.c,fontWeight:700}}>{st.l}</span>
+                      {t.dueDate&&<span style={{fontSize:10,color:over?"#ef4444":"#94a3b8",fontWeight:over?700:400}}>📅 {fmtDate(t.dueDate)}</span>}
+                      {co&&<span style={{fontSize:10,color:co.color,fontWeight:700}}>{co.logo}</span>}
+                    </div>
+                    {t.checklist?.length>0&&(
+                      <div style={{height:3,borderRadius:2,background:"#f1f5f9",overflow:"hidden"}}>
+                        <div style={{width:`${Math.round((t.checklist.filter(x=>x.done).length/t.checklist.length)*100)}%`,height:"100%",background:"#6366f1",borderRadius:2}}/>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Modal de edição */}
+      <Modal open={open} onClose={()=>setOpen(false)} title={editing?"Editar Serviço":"Novo Serviço"} width={640}>
         <div style={{display:"flex",gap:6,marginBottom:18,flexWrap:"wrap"}}>
-          {[["geral","Geral"],["responsaveis","Responsaveis"],["checklist","Checklist"],["config","Recorrencia"]].map(([t,l])=>(
+          {[["geral","Geral"],["responsaveis","Responsáveis"],["checklist","Checklist"],["config","Recorrência"]].map(([t,l])=>(
             <button key={t} style={tabSt(t)} onClick={()=>setTab(t)}>{l}</button>
           ))}
         </div>
         {tab==="geral"&&<div style={{display:"flex",flexDirection:"column",gap:13}}>
-          <Inp label="Nome do Servico *" value={form.name} onChange={v=>set("name",v)} placeholder="Ex: Folha de Pagamento"/>
-          <Txt label="Descricao / Instrucoes" value={form.description} onChange={v=>set("description",v)} placeholder="Descreva o servico e instrucoes para execucao..." rows={3}/>
+          <Inp label="Nome do Serviço *" value={form.name} onChange={v=>set("name",v)} placeholder="Ex: Folha de Pagamento"/>
+          <Txt label="Descrição / Instruções" value={form.description} onChange={v=>set("description",v)} placeholder="Descreva o serviço e instruções para execução..." rows={3}/>
           <div className="g2">
-            <Sel label="Prioridade padrao" value={form.priority} onChange={v=>set("priority",v)} options={Object.entries(PRI).map(([k,v])=>({value:k,label:v.l}))}/>
+            <Sel label="Prioridade" value={form.priority} onChange={v=>set("priority",v)} options={Object.entries(PRI).map(([k,v])=>({value:k,label:v.l}))}/>
             <Sel label="Status inicial" value={form.status} onChange={v=>set("status",v)} options={STS.filter(s=>s.id!=="archived").map(s=>({value:s.id,label:s.l}))}/>
           </div>
-          <Sel label="Setor padrao" value={form.sector||""} onChange={v=>set("sector",v)} placeholder="Nenhum" options={data.sectors.map(s=>({value:s.id,label:s.name}))}/>
-          <Fld label="Marcadores padrao">
+          <Sel label="Setor padrão" value={form.sector||""} onChange={v=>set("sector",v)} placeholder="Nenhum" options={data.sectors.map(s=>({value:s.id,label:s.name}))}/>
+          <Fld label="Marcadores padrão">
             <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
               {data.labels.map(l=>{const sel=toArr(form.labels).includes(l.id);return(
                 <button key={l.id} onClick={()=>tog("labels",l.id)} style={{padding:"3px 10px",borderRadius:20,cursor:"pointer",fontSize:12,fontWeight:700,border:"2px solid "+(sel?l.color:"#e5e7eb"),background:sel?l.color+"18":"#f9fafb",color:sel?l.color:"#6b7280",fontFamily:"inherit"}}>{l.name}</button>
@@ -2630,7 +2769,7 @@ function ServicosPage({ data, setData }) {
           <CPick value={form.color} onChange={v=>set("color",v)}/>
         </div>}
         {tab==="responsaveis"&&<div style={{display:"flex",flexDirection:"column",gap:14}}>
-          <p style={{fontSize:12,color:"#64748b"}}>Responsaveis padrao que serao atribuidos ao gerar a tarefa.</p>
+          <p style={{fontSize:12,color:"#64748b"}}>Responsáveis padrão que serão atribuídos ao gerar a tarefa.</p>
           {data.collaborators.length===0
             ?<p style={{fontSize:13,color:"#94a3b8"}}>Nenhum colaborador cadastrado.</p>
             :<div style={{display:"flex",flexWrap:"wrap",gap:8}}>
@@ -2643,40 +2782,39 @@ function ServicosPage({ data, setData }) {
           }
         </div>}
         {tab==="checklist"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
-          <p style={{fontSize:12,color:"#64748b"}}>Itens de checklist que toda tarefa gerada por este servico tera automaticamente.</p>
+          <p style={{fontSize:12,color:"#64748b"}}>Itens de checklist que toda tarefa gerada por este serviço terá.</p>
           <div style={{display:"flex",gap:8}}>
             <input value={ckTxt} onChange={e=>setCkTxt(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addCk()} placeholder="Novo item... (Enter para adicionar)" style={{flex:1,padding:"8px 13px",borderRadius:9,fontSize:13,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit"}}/>
             <Btn onClick={addCk} sz="sm">+ Add</Btn>
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:5,maxHeight:320,overflowY:"auto"}}>
-            {toArr(form.checklist).length===0&&<div style={{padding:"24px",textAlign:"center",color:"#cbd5e1",fontSize:13,border:"2px dashed #f1f5f9",borderRadius:10}}>Nenhum item ainda. Adicione acima.</div>}
+            {toArr(form.checklist).length===0&&<div style={{padding:"24px",textAlign:"center",color:"#cbd5e1",fontSize:13,border:"2px dashed #f1f5f9",borderRadius:10}}>Nenhum item ainda.</div>}
             {toArr(form.checklist).map((ck,idx)=>(
               <div key={ck.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:9,background:"var(--bg4)",border:"1px solid #f3f4f6"}}>
                 <span style={{width:22,height:22,borderRadius:6,border:"2px solid #e5e7eb",background:"var(--bg2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:"#94a3b8",flexShrink:0}}>{idx+1}</span>
                 <span style={{flex:1,fontSize:13,color:"#374151"}}>{ck.text}</span>
-                <button onClick={()=>set("checklist",toArr(form.checklist).filter(x=>x.id!==ck.id))} style={{background:"none",border:"none",cursor:"pointer",color:"#cbd5e1",fontSize:18,lineHeight:1,padding:"0 3px",fontFamily:"inherit"}}>x</button>
+                <button onClick={()=>set("checklist",toArr(form.checklist).filter(x=>x.id!==ck.id))} style={{background:"none",border:"none",cursor:"pointer",color:"#cbd5e1",fontSize:18,lineHeight:1,padding:"0 3px"}}>✕</button>
               </div>
             ))}
           </div>
-          {toArr(form.checklist).length>0&&<div style={{fontSize:12,color:"#6366f1",fontWeight:700}}>{toArr(form.checklist).length} item{toArr(form.checklist).length!==1?"s":""} no checklist</div>}
         </div>}
         {tab==="config"&&<div style={{display:"flex",flexDirection:"column",gap:14}}>
-          <Sel label="Recorrencia padrao" value={form.recurrence||""} onChange={v=>set("recurrence",v)} placeholder="Sem recorrencia" options={data.recurrences.map(r=>({value:r.id,label:r.name}))}/>
+          <Sel label="Recorrência padrão" value={form.recurrence||""} onChange={v=>set("recurrence",v)} placeholder="Sem recorrência" options={data.recurrences.map(r=>({value:r.id,label:r.name}))}/>
           <div className="g2">
-              <Inp label="Mes de inicio" value={form.mesInicio||""} onChange={v=>set("mesInicio",v)} type="month" hint="Mes em que a recorrencia mensal inicia"/>
-              <Inp label="Vencimento padrao" value={form.defaultDue||""} onChange={v=>set("defaultDue",v)} type="date" hint="Data de vencimento da primeira ocorrencia"/>
-            </div>
-          <div style={{padding:"14px",background:"var(--bg3)",borderRadius:10,fontSize:12,color:"#64748b",lineHeight:1.7}}>
-            <strong style={{color:"#0f172a",display:"block",marginBottom:6}}>Como funciona:</strong>
-            1. Cadastre o servico preenchendo todas as abas (Geral, Responsaveis, Checklist, Recorrencia).<br/>
-            2. Va em Empresas, abra a aba Servicos e marque este servico.<br/>
-            3. Ao salvar a empresa, a tarefa e criada automaticamente com todos os dados do modelo.<br/>
-            4. As proximas ocorrencias aparecem no Calendario e Kanban conforme a recorrencia.
+            <Inp label="Mês de início" value={form.mesInicio||""} onChange={v=>set("mesInicio",v)} type="month" hint="Mês em que a recorrência inicia"/>
+            <Inp label="Vencimento padrão" value={form.defaultDue||""} onChange={v=>set("defaultDue",v)} type="date" hint="Data de vencimento da primeira ocorrência"/>
+          </div>
+          <div style={{padding:"14px",background:"var(--bg3)",borderRadius:10,fontSize:12,color:"#64748b",lineHeight:1.7,border:"1px solid var(--border)"}}>
+            <strong style={{color:"var(--text)",display:"block",marginBottom:6}}>Como funciona:</strong>
+            1. Preencha todas as abas (Geral, Responsáveis, Checklist, Recorrência).<br/>
+            2. Vá em <strong>Empresas</strong>, abra a aba Serviços e marque este serviço — as tarefas são geradas automaticamente.<br/>
+            3. Ou use o botão <strong>↻ Gerar</strong> no card do serviço para gerar tarefas manualmente.<br/>
+            4. Use <strong>⊕ Empresa</strong> para vincular a uma nova empresa e já gerar as tarefas.
           </div>
         </div>}
         <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20,paddingTop:14,borderTop:"1px solid #f1f5f9"}}>
           <Btn onClick={()=>setOpen(false)} v="ghost">Cancelar</Btn>
-          <Btn onClick={save}>Salvar Servico</Btn>
+          <Btn onClick={save}>Salvar Serviço</Btn>
         </div>
       </Modal>
       {delModal}
@@ -3379,6 +3517,128 @@ function ChatPage({data,setData,currentUser,currentUserId,myCollab}){
 }
 
 /* ===========================================
+   PAINEL DE RECORRÊNCIAS */
+function PainelRecorrencias({data,setData,onEdit,toast}){
+  const [filter,setFilter]=useState("all"); // "all"|"active"|"paused"
+  const today=todayStr();
+
+  // Agrupar tarefas por _recGroup e descobrir metadados
+  const groups=useMemo(()=>{
+    const map={};
+    data.tasks.forEach(t=>{
+      if(!t._recGroup) return;
+      if(!map[t._recGroup]) map[t._recGroup]={id:t._recGroup,tasks:[],title:t.title,company:t.company,sector:t.sector,recurrenceId:t._recurrenceId||null,serviceId:t._serviceId||null};
+      map[t._recGroup].tasks.push(t);
+    });
+    return Object.values(map).map(g=>{
+      const active=g.tasks.filter(t=>t.status!=="archived"&&t.status!=="done");
+      const done=g.tasks.filter(t=>t.status==="done");
+      const archived=g.tasks.filter(t=>t.status==="archived");
+      const future=active.filter(t=>(t.dueDate||"")>=today).sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+      const overdue=active.filter(t=>t.dueDate&&t.dueDate<today);
+      const nextDue=future[0]?.dueDate||null;
+      const rec=g.recurrenceId?data.recurrences.find(r=>r.id===g.recurrenceId):null;
+      const svc=g.serviceId?data.services.find(s=>s.id===g.serviceId):null;
+      const co=data.companies.find(c=>c.id===g.company);
+      const paused=g.tasks.every(t=>t.status==="archived"||t.status==="done")||(active.length===0&&done.length>0);
+      return {...g,active,done,archived,future,overdue,nextDue,rec,svc,co,paused,totalTasks:g.tasks.length};
+    }).sort((a,b)=>(a.nextDue||"9999").localeCompare(b.nextDue||"9999"));
+  },[data.tasks,data.recurrences,data.services,data.companies,today]);
+
+  const filtered=groups.filter(g=>{
+    if(filter==="active") return !g.paused&&g.active.length>0;
+    if(filter==="paused") return g.paused;
+    return true;
+  });
+
+  const archiveGroup=(grpId)=>{
+    if(!window.confirm("Arquivar todas as tarefas futuras desta série?")) return;
+    setData(d=>({...d,tasks:d.tasks.map(t=>
+      t._recGroup===grpId&&t.status!=="done"&&t.status!=="archived"&&(t.dueDate||"")>=today
+        ?{...t,status:"archived",archivedAt:today}:t
+    )}));
+    toast("📦 Série arquivada.","ok");
+  };
+
+  const restoreGroup=(grpId)=>{
+    setData(d=>({...d,tasks:d.tasks.map(t=>
+      t._recGroup===grpId&&t.status==="archived"
+        ?{...t,status:"todo",archivedAt:null}:t
+    )}));
+    toast("↻ Série restaurada.","ok");
+  };
+
+  return(
+    <div>
+      <PH title="Painel de Recorrências" icon="⊹" badge={groups.length}/>
+      <p style={{fontSize:13,color:"#64748b",marginBottom:16}}>Visualize e gerencie todos os grupos de tarefas recorrentes. Pause ou reative séries inteiras.</p>
+
+      {/* Filtros */}
+      <div style={{display:"flex",gap:6,marginBottom:18,flexWrap:"wrap"}}>
+        {[["all","☰ Todos"],["active","▶ Ativos"],["paused","⏸ Pausados"]].map(([v,l])=>(
+          <button key={v} onClick={()=>setFilter(v)} style={{padding:"5px 14px",borderRadius:20,border:"1.5px solid "+(filter===v?"#6366f1":"#e2e8f0"),background:filter===v?"#6366f1":"var(--bg3)",color:filter===v?"#fff":"#64748b",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .15s"}}>{l}</button>
+        ))}
+        <span style={{fontSize:12,color:"#94a3b8",marginLeft:"auto",alignSelf:"center"}}>{filtered.length} série{filtered.length!==1?"s":""}</span>
+      </div>
+
+      {filtered.length===0&&<div style={{padding:"40px",textAlign:"center",color:"#94a3b8",fontSize:14,border:"2px dashed var(--border)",borderRadius:14}}>Nenhuma série recorrente encontrada.</div>}
+
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {filtered.map(g=>(
+          <div key={g.id} style={{background:"var(--bg2)",borderRadius:14,padding:"14px 18px",border:`1px solid ${g.overdue.length>0?"#fecaca":"var(--border)"}`,boxShadow:"0 1px 4px rgba(0,0,0,.05)",display:"flex",gap:14,alignItems:"flex-start",flexWrap:"wrap"}}>
+            {/* Indicador de status */}
+            <div style={{width:10,height:10,borderRadius:"50%",background:g.paused?"#94a3b8":g.overdue.length>0?"#ef4444":"#22c55e",flexShrink:0,marginTop:4}}/>
+
+            <div style={{flex:1,minWidth:200}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+                <span style={{fontSize:13,fontWeight:800,color:"var(--text)"}}>{g.title}</span>
+                {g.co&&<span style={{fontSize:11,color:g.co.color,fontWeight:700,background:g.co.color+"15",padding:"1px 7px",borderRadius:10}}>{g.co.logo} {g.co.name}</span>}
+                {g.rec&&<span style={{fontSize:11,color:"#6366f1",fontWeight:700,background:"#eef2ff",padding:"1px 7px",borderRadius:10}}>↻ {g.rec.name}</span>}
+                {g.svc&&<span style={{fontSize:11,color:"#14b8a6",fontWeight:700,background:"#f0fdfa",padding:"1px 7px",borderRadius:10}}>S {g.svc.name}</span>}
+                {g.paused&&<span style={{fontSize:10,color:"#94a3b8",fontWeight:700,background:"#f1f5f9",padding:"1px 7px",borderRadius:10}}>⏸ Pausado</span>}
+              </div>
+              <div style={{display:"flex",gap:10,flexWrap:"wrap",fontSize:12,color:"#64748b"}}>
+                <span>📋 {g.active.length} pendente{g.active.length!==1?"s":""}</span>
+                <span style={{color:"#22c55e"}}>✓ {g.done.length} concluída{g.done.length!==1?"s":""}</span>
+                {g.overdue.length>0&&<span style={{color:"#ef4444",fontWeight:700}}>⚠ {g.overdue.length} atrasada{g.overdue.length!==1?"s":""}</span>}
+                {g.nextDue&&<span style={{color:"#6366f1",fontWeight:700}}>Próxima: {fmtDate(g.nextDue)}</span>}
+              </div>
+              {/* Linha do tempo simplificada */}
+              {g.future.length>0&&(
+                <div style={{display:"flex",gap:4,marginTop:8,flexWrap:"wrap"}}>
+                  {g.future.slice(0,8).map(t=>{
+                    const st=STS.find(x=>x.id===t.status)||STS[0];
+                    return(
+                      <div key={t.id} title={`${fmtDate(t.dueDate)} — ${st.l}`} style={{width:28,height:28,borderRadius:7,background:st.c+"20",border:`1.5px solid ${st.c}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:st.c,cursor:"pointer",flexShrink:0}}
+                        onClick={()=>onEdit(t)}
+                      >
+                        {t.dueDate?.slice(8)}
+                      </div>
+                    );
+                  })}
+                  {g.future.length>8&&<div style={{width:28,height:28,borderRadius:7,background:"#f1f5f9",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:"#94a3b8"}}>+{g.future.length-8}</div>}
+                </div>
+              )}
+            </div>
+
+            {/* Ações */}
+            <div style={{display:"flex",gap:6,flexShrink:0,alignSelf:"flex-start"}}>
+              {!g.paused
+                ?<button onClick={()=>archiveGroup(g.id)} title="Pausar/arquivar série" style={{padding:"5px 12px",borderRadius:8,border:"1px solid #e2e8f0",background:"var(--bg3)",cursor:"pointer",fontSize:11,fontWeight:700,color:"#64748b",fontFamily:"inherit",transition:"all .15s"}}
+                  onMouseEnter={e=>e.currentTarget.style.color="#f59e0b"}
+                  onMouseLeave={e=>e.currentTarget.style.color="#64748b"}
+                >⏸ Pausar</button>
+                :<button onClick={()=>restoreGroup(g.id)} style={{padding:"5px 12px",borderRadius:8,border:"1px solid #22c55e",background:"#f0fdf4",cursor:"pointer",fontSize:11,fontWeight:700,color:"#22c55e",fontFamily:"inherit",transition:"all .15s"}}>▶ Reativar</button>
+              }
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ===========================================
    BUSCA GLOBAL - Cmd+K / Ctrl+K */
 function GlobalSearch({data,onEdit,onNavigate,onClose}){
   const [q,setQ]=useState("");
@@ -3553,7 +3813,93 @@ function App(){
     toast(`📦 ${ids.length} tarefa${ids.length>1?"s arquivadas automaticamente":"arquivada automaticamente"}.`,"ok");
   },[synced]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Enquanto verifica sessão
+  // Auto-renovação: quando um grupo recorrente (_recGroup) não tem tarefas futuras
+  // gera mais 4 semanas para ele — roda ao sincronizar
+  useEffect(()=>{
+    if(!synced) return;
+    const today=new Date(); today.setHours(0,0,0,0);
+    const horizon=new Date(today); horizon.setDate(today.getDate()+7); // renova quando restar ≤7 dias
+    // Mapear todos os _recGroup existentes com suas tarefas ativas
+    const groupMap={}; // recGroupId → {recurrence, tasks[], base tarefa}
+    data.tasks.forEach(t=>{
+      if(!t._recGroup||t.status==="archived") return;
+      if(!groupMap[t._recGroup]) groupMap[t._recGroup]={tasks:[],base:null};
+      groupMap[t._recGroup].tasks.push(t);
+    });
+    // Para cada grupo, verificar se tem tarefas futuras além do horizon
+    const toAdd=[];
+    Object.entries(groupMap).forEach(([grpId,grp])=>{
+      // Encontrar o serviço ou recorrência original
+      // Pegar tarefa de referência do grupo
+      const sample=grp.tasks[0];
+      if(!sample) return;
+      // Descobrir recorrência via _serviceId → serviço → recorrência
+      // OU via campo _recurrenceId se existir
+      const svc=sample._serviceId?data.services.find(s=>s.id===sample._serviceId):null;
+      const recId=svc?.recurrence||sample._recurrenceId||null;
+      if(!recId) return;
+      const rec=data.recurrences.find(r=>r.id===recId);
+      if(!rec) return;
+      // Verificar se a última tarefa pendente é antes do horizon
+      const futurePending=grp.tasks.filter(t=>{
+        if(t.status==="done"||t.status==="archived") return false;
+        if(!t.dueDate) return false;
+        return new Date(t.dueDate+"T12:00:00")>=today;
+      });
+      if(futurePending.length>0){
+        const lastDate=futurePending.map(t=>t.dueDate).sort().pop();
+        if(new Date(lastDate+"T12:00:00")>horizon) return; // ainda tem fôlego
+      }
+      // Precisa renovar — gerar próximas 4 semanas a partir de hoje
+      const end=new Date(today); end.setDate(today.getDate()+28);
+      const existingDates=new Set(grp.tasks.map(t=>t.dueDate||""));
+      const cleanCk=(sample.checklist||[]).map(c=>({...c,id:uid(),done:false}));
+      const base={...sample,status:"todo",completedAt:null,archivedAt:null,checklist:cleanCk};
+      if(rec.interval==="daily"){
+        for(let d=new Date(today);d<=end;d.setDate(d.getDate()+1)){
+          const ds=d.toISOString().slice(0,10);
+          if(!existingDates.has(ds)) toAdd.push({...base,id:uid(),dueDate:ds,createdAt:todayStr()});
+        }
+      } else if(rec.interval==="custom_days"&&Array.isArray(rec.days)&&rec.days.length>0){
+        for(let d=new Date(today);d<=end;d.setDate(d.getDate()+1)){
+          const ds=d.toISOString().slice(0,10);
+          if(rec.days.includes(d.getDay())&&!existingDates.has(ds)) toAdd.push({...base,id:uid(),dueDate:ds,createdAt:todayStr()});
+        }
+      } else if(rec.interval==="weekly"){
+        const tdow=sample.dueDate?new Date(sample.dueDate+"T12:00:00").getDay():today.getDay();
+        for(let d=new Date(today);d<=end;d.setDate(d.getDate()+1)){
+          const ds=d.toISOString().slice(0,10);
+          if(d.getDay()===tdow&&!existingDates.has(ds)) toAdd.push({...base,id:uid(),dueDate:ds,createdAt:todayStr()});
+        }
+      } else if(rec.interval==="biweekly"){
+        const tdow=sample.dueDate?new Date(sample.dueDate+"T12:00:00").getDay():today.getDay();
+        let cnt=0;
+        for(let d=new Date(today);d<=end;d.setDate(d.getDate()+1)){
+          if(d.getDay()===tdow){
+            const ds=d.toISOString().slice(0,10);
+            if(cnt%2===0&&!existingDates.has(ds)) toAdd.push({...base,id:uid(),dueDate:ds,createdAt:todayStr()});
+            cnt++;
+          }
+        }
+      } else if(rec.interval==="monthly"){
+        const targetDay=sample.dueDate?new Date(sample.dueDate+"T12:00:00").getDate():today.getDate();
+        for(let m=0;m<3;m++){
+          const d=new Date(today.getFullYear(),today.getMonth()+m,targetDay);
+          const ds=d.toISOString().slice(0,10);
+          if(d>=today&&!existingDates.has(ds)) toAdd.push({...base,id:uid(),dueDate:ds,createdAt:todayStr()});
+        }
+      } else if(rec.interval==="quarterly"){
+        for(let q=0;q<2;q++){
+          const d=new Date(today.getFullYear(),today.getMonth()+q*3,today.getDate());
+          const ds=d.toISOString().slice(0,10);
+          if(!existingDates.has(ds)) toAdd.push({...base,id:uid(),dueDate:ds,createdAt:todayStr()});
+        }
+      }
+    });
+    if(toAdd.length===0) return;
+    setData(d=>({...d,tasks:[...d.tasks,...toAdd]}));
+    toast(`↻ ${toAdd.length} tarefa${toAdd.length>1?"s recorrentes renovadas":"recorrente renovada"} automaticamente.`,"ok");
+  },[synced]); // eslint-disable-line react-hooks/exhaustive-deps
   if(authLoading) return(
     <div style={{minHeight:"100dvh",display:"flex",alignItems:"center",justifyContent:"center",background:"#0f172a"}}>
       <div style={{textAlign:"center"}}>
@@ -3665,6 +4011,23 @@ function App(){
           tasks.push({...base,id:uid(),dueDate:ds,recurrence:"",_recGroup:base.id,createdAt:todayStr(),status:"todo",completedAt:null,checklist:(base.checklist||[]).map(c=>({...c,done:false}))});
         }
       }
+    } else if(rec.interval==="lastday"){
+      // Último dia dos próximos 3 meses
+      for(let m=0;m<3;m++){
+        const d=new Date(today.getFullYear(),today.getMonth()+m+1,0); // dia 0 do mês seguinte = último dia do mês atual
+        if(d>=today){
+          const ds=d.toISOString().slice(0,10);
+          tasks.push({...base,id:uid(),dueDate:ds,recurrence:"",_recGroup:base.id,createdAt:todayStr(),status:"todo",completedAt:null,checklist:(base.checklist||[]).map(c=>({...c,done:false}))});
+        }
+      }
+    } else if(rec.interval==="quarterly"){
+      for(let q=0;q<4;q++){
+        const d=new Date(today.getFullYear(),today.getMonth()+q*3,base.dueDate?new Date(base.dueDate+"T12:00:00").getDate():today.getDate());
+        if(d>=today){
+          const ds=d.toISOString().slice(0,10);
+          tasks.push({...base,id:uid(),dueDate:ds,recurrence:"",_recGroup:base.id,createdAt:todayStr(),status:"todo",completedAt:null,checklist:(base.checklist||[]).map(c=>({...c,done:false}))});
+        }
+      }
     } else if(rec.interval==="yearly"){
       const d=base.dueDate?new Date(base.dueDate+"T12:00:00"):today;
       const next=new Date(today.getFullYear(),d.getMonth(),d.getDate());
@@ -3704,13 +4067,44 @@ function App(){
     if(isNew && base.recurrence){
       const rec=data.recurrences.find(r=>r.id===base.recurrence);
       if(rec){
-        const copies=generateRecurringTasks(base,rec);
+        const copies=generateRecurringTasks(base,rec).map(t=>({...t,_recurrenceId:rec.id}));
         if(copies.length>0){
           setData(d=>({...d,tasks:[...d.tasks,...copies]}));
           if(taskModal.task) release(taskModal.task.id);
           setTM(m=>({...m,open:false}));
           toast(`✦ ${copies.length} tarefas recorrentes criadas!`,"ok");
           return;
+        }
+      }
+    }
+
+    // Se editar uma tarefa de série recorrente, perguntar se propaga
+    if(!isNew && base._recGroup && !base.recurrence){
+      const series=data.tasks.filter(t=>
+        t._recGroup===base._recGroup &&
+        t.id!==base.id &&
+        t.status!=="done" && t.status!=="archived" &&
+        (t.dueDate||"")>=(todayStr())
+      );
+      if(series.length>0){
+        // Mostrar opção de propagar — usar um confirm simples por ora
+        const propagate=window.confirm(
+          `Esta tarefa pertence a uma série recorrente com ${series.length} ocorrência${series.length>1?"s":""}  futuras.\n\nDeseja aplicar as alterações de título, descrição, prioridade, setor e responsáveis a TODA A SÉRIE?`
+        );
+        if(propagate){
+          setData(d=>({...d,tasks:d.tasks.map(t=>{
+            if(t._recGroup!==base._recGroup||t.id===base.id||t.status==="done"||t.status==="archived") return t;
+            if((t.dueDate||"")<todayStr()) return t; // não altera passadas
+            return {...t,
+              title:base.title,
+              description:base.description,
+              priority:base.priority,
+              sector:base.sector,
+              assignees:[...base.assignees],
+              labels:[...base.labels],
+            };
+          })}));
+          toast(`↻ Série atualizada em ${series.length} tarefa${series.length>1?"s":""}.`,"ok");
         }
       }
     }
@@ -3754,6 +4148,23 @@ function App(){
     const LABELS={todo:"Em Análise",doing:"Revisão",review:"Concluído",done:"A Fazer"};
     const cur=task.status||"todo";
     const next=CYCLE[cur]||"doing";
+    // Se é tarefa recorrente e vai para "done", perguntar se é só hoje ou toda a série
+    if(next==="done" && task._recGroup){
+      const seriesFuture=data.tasks.filter(t=>
+        t._recGroup===task._recGroup && t.id!==task.id &&
+        t.status!=="done" && t.status!=="archived" &&
+        (t.dueDate||"")>=(todayStr())
+      );
+      if(seriesFuture.length>0){
+        // Só conclui esta — não altera as demais
+        setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{
+          ...t,status:"done",completedAt:todayStr(),
+          checklist:t.checklist.map(c=>({...c,done:true})),
+        }:t)}));
+        toast(`✓ Concluído (série continua com ${seriesFuture.length} ocorrência${seriesFuture.length>1?"s":""}).`,"ok");
+        return;
+      }
+    }
     setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{
       ...t,status:next,
       completedAt:next==="done"?todayStr():null,
@@ -3943,6 +4354,7 @@ function App(){
         {page==="colaboradores" && <CollaboratorsPage data={data} setData={setData}/>}
         {page==="marcadores"    && <LabelsPage data={data} setData={setData}/>}
         {page==="recorrencias"  && <RecurrencesPage data={data} setData={setData}/>}
+        {page==="painel-rec"    && <PainelRecorrencias data={data} setData={setData} onEdit={openEdit} toast={toast}/>}
         {page==="chat"          && <ChatPage data={data} setData={setData} currentUser={userName} currentUserId={myCollabId} myCollab={myCollab}/>}
         {page==="arquivadas"    && <ArchivedPage data={data} setData={setData} toast={toast}/>}
         {page==="configuracoes" && <ConfigPage data={data} setData={setData} toast={toast} deduplicateTasks={deduplicateTasks}/>}

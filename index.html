@@ -2628,6 +2628,7 @@ function CalView({data,onEdit,onReschedule}){
               {tasks.slice(0,3).map(t=>{
                 const st=STS.find(s=>s.id===t.status)||STS[0];
                 const co=(taskCompanies(t).map(id=>data.companies.find(x=>x.id===id)).filter(Boolean))[0]||null;
+                const taskCos=taskCompanies(t).map(id=>data.companies.find(x=>x.id===id)).filter(Boolean);
                 const asg=data.collaborators.filter(x=>t.assignees.includes(x.id)).slice(0,2);
                 const lbs=data.labels.filter(x=>t.labels.includes(x.id)).slice(0,2);
                 const over=isLate(t);

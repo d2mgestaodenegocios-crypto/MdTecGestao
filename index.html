@@ -919,6 +919,7 @@ function RelatorioPage({data,isAdmin}){
                   <div style={{display:"flex",gap:12,flexWrap:"wrap",fontSize:11,color:"#94a3b8",alignItems:"center"}}>
                     {t.dueDate&&<span style={{color:over?"#ef4444":"#64748b",fontWeight:700}}>📅 {fmtDate(t.dueDate)}{over?" ⚠ ATRASADA":""}</span>}
                     {asg.length>0&&<span>👤 {asg.map(u=>u.name).join(", ")}</span>}
+                    {asg.length===0&&t.status!=="done"&&<span style={{color:"#94a3b8",fontStyle:"italic"}}>👤 Sem responsável</span>}
                     {ckTot>0&&<span>☑ {ckDone}/{ckTot}</span>}
                     {t.valor&&<span style={{color:"#16a34a",fontWeight:700}}>💰 R$ {Number(t.valor).toLocaleString("pt-BR",{minimumFractionDigits:2})}</span>}
                   </div>
@@ -1464,6 +1465,9 @@ function sanitizeTask(t){
     recurrence: t.recurrence||"",
     dueDate: t.dueDate||"",
     createdAt: t.createdAt||todayStr(),
+    pinned: t.pinned===true,
+    valor: t.valor||"",
+    internalNote: t.internalNote||"",
   };
 }
 
@@ -1949,6 +1953,7 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
           {task.dueDate&&<span style={{fontSize:11,color:over?"#ef4444":"#94a3b8",fontWeight:over?800:400}}>📅 {fmtDate(task.dueDate)}{task.dueTime?` ${task.dueTime}`:""}</span>}
           {slaUrgent&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#fef3c7",color:"#b45309",fontWeight:800,animation:"pulse 1.5s infinite"}}>⏱ SLA</span>}
           {task.slaHours&&!slaUrgent&&!done&&<span style={{fontSize:10,color:"#f59e0b",fontWeight:700}}>⏱ {task.slaHours}h</span>}
+          {toArr(task.assignees).length===0&&!done&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#f1f5f9",color:"#94a3b8",fontWeight:700,border:"1px dashed #cbd5e1"}}>👤 Sem responsável</span>}
           {rec&&(()=>{
             // Find next occurrence: look for future tasks in same _recGroup
             const nextTask=task._recGroup
@@ -2106,6 +2111,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete,onStatusChange,myColl
           <button style={btnStyle(ownerFilter==="all","#64748b")} onClick={()=>setOwnerFilter("all")}>Todas as tarefas</button>
           {myCollabId&&<button style={btnStyle(ownerFilter==="mine","#8b5cf6")} onClick={()=>setOwnerFilter("mine")}>⭐ Minhas</button>}
           {mySectors.length>0&&<button style={btnStyle(ownerFilter==="sector","#14b8a6")} onClick={()=>setOwnerFilter("sector")}>🏢 Meu setor</button>}
+          <button style={btnStyle(ownerFilter==="unassigned","#94a3b8")} onClick={()=>setOwnerFilter("unassigned")}>👤 Sem responsável</button>
           <span style={{fontSize:11,color:"#94a3b8",marginLeft:"auto"}}>⠿ Segure e arraste o card para mover</span>
         </div>
       </div>
@@ -2118,6 +2124,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete,onStatusChange,myColl
           const tasks=data.tasks.filter(t=>{
             if(t.status!==st.id||t.status==="archived") return false;
             if(ownerFilter==="mine"){if(!myCollabId||!toArr(t.assignees).includes(myCollabId)) return false;}
+            else if(ownerFilter==="unassigned"){if(toArr(t.assignees).length>0) return false;}
             else if(ownerFilter==="sector"){
               const inSector=mySectors.length>0&&mySectors.includes(t.sector);
               const isMine=myCollabId&&toArr(t.assignees).includes(myCollabId);
@@ -2192,7 +2199,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete,onStatusChange,myColl
                     border:`2px dashed ${isDropTarget?st.c:"var(--border)"}`,
                     borderRadius:10,transition:"all .2s",
                   }}>
-                    {isDropTarget?"Soltar aqui →":ownerFilter==="mine"?"Nenhuma tarefa sua":ownerFilter==="sector"?"Nenhuma do setor":"Sem tarefas"}
+                    {isDropTarget?"Soltar aqui →":ownerFilter==="mine"?"Nenhuma tarefa sua":ownerFilter==="unassigned"?"Nenhuma sem responsável":ownerFilter==="sector"?"Nenhuma do setor":"Sem tarefas"}
                   </div>
                 )}
                 {isDropTarget&&tasks.length>0&&(
@@ -5109,9 +5116,14 @@ function App(){
 
   const userName = user.user_metadata?.name || user.email?.split("@")[0] || "Usuário";
   // Filtrar tarefas para o usuário atual
+  // Admin vê tudo; colaboradores veem tarefas próprias + tarefas sem responsável
   const visibleTasks = isAdmin
     ? data.tasks
-    : data.tasks.filter(t=>Array.isArray(t.assignees)&&t.assignees.includes(myCollabId));
+    : data.tasks.filter(t=>{
+        const assignees=toArr(t.assignees);
+        // Sem responsável OU inclui o usuário atual
+        return assignees.length===0 || assignees.includes(myCollabId);
+      });
   const dataForUser = isAdmin ? data : {...data, tasks: visibleTasks};
 
   const openNew=(status="todo")=>setTM({open:true,task:null,defStatus:status,lockInfo:null});

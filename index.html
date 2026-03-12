@@ -2903,38 +2903,46 @@ function CompaniesPage({ data, setData }) {
       </div>
       <Modal open={open} onClose={()=>setOpen(false)} title={editing?"Editar Empresa":"Nova Empresa"} width={520}>
         <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
-          {[["info","Dados"],["contato","Contato"],["servicos","Servicos"]].map(([t,l])=>(
+          {[["info","Dados"],["socios","👥 Sócios"],["contato","Contato"],["servicos","Serviços"]].map(([t,l])=>(
             <button key={t} style={tabSt(t)} onClick={()=>setTab(t)}>{l}</button>
           ))}
         </div>
         {tab==="info"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
           <div className="g2"><Inp label="Nome *" value={form.name} onChange={v=>setForm(f=>({...f,name:v}))} placeholder="Nome da empresa"/><Inp label="Sigla" value={form.logo} onChange={v=>setForm(f=>({...f,logo:v}))} placeholder="Ex: MT"/></div>
           <Inp label="CNPJ" value={form.cnpj} onChange={v=>setForm(f=>({...f,cnpj:v}))} placeholder="00.000.000/0001-00"/>
-          <Sel label="Tributacao" value={form.tributacao} onChange={v=>setForm(f=>({...f,tributacao:v}))} options={TRIBS.map(t=>({value:t,label:t}))}/>
-          <div className="g2">
-            <Inp label="Sócio Principal" value={form.socio} onChange={v=>setForm(f=>({...f,socio:v}))} placeholder="Nome completo do sócio"/>
-            <Inp label="CPF do Sócio" value={form.cpfSocio||""} onChange={v=>setForm(f=>({...f,cpfSocio:v}))} placeholder="000.000.000-00"/>
+          <Sel label="Tributação" value={form.tributacao} onChange={v=>setForm(f=>({...f,tributacao:v}))} options={TRIBS.map(t=>({value:t,label:t}))}/>
+          <Txt label="Observações" value={form.observacoes} onChange={v=>setForm(f=>({...f,observacoes:v}))} placeholder="Anotações sobre a empresa..."/>
+          <CPick value={form.color} onChange={v=>setForm(f=>({...f,color:v}))}/>
+        </div>}
+        {tab==="socios"&&<div style={{display:"flex",flexDirection:"column",gap:14}}>
+          {/* Sócio Principal */}
+          <div style={{padding:"14px 16px",borderRadius:12,border:"2px solid #e5e7eb",background:"#fafafa"}}>
+            <div style={{fontSize:12,fontWeight:800,color:"#374151",marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
+              <span style={{background:"#6366f1",color:"#fff",borderRadius:"50%",width:20,height:20,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:900}}>1</span>
+              Sócio Principal
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <Inp label="Nome completo" value={form.socio} onChange={v=>setForm(f=>({...f,socio:v}))} placeholder="Nome do sócio principal"/>
+              <Inp label="CPF" value={form.cpfSocio||""} onChange={v=>setForm(f=>({...f,cpfSocio:v}))} placeholder="000.000.000-00"/>
+            </div>
           </div>
           {/* Sócios adicionais */}
-          <Fld label={`Sócios Adicionais (${(form.socios||[]).length})`}>
+          <div>
+            <div style={{fontSize:12,fontWeight:800,color:"#374151",marginBottom:10}}>Sócios Adicionais</div>
             {(form.socios||[]).map((s,i)=>(
-              <div key={i} style={{display:"flex",gap:8,marginBottom:7,alignItems:"center"}}>
-                <input value={s.nome||""} onChange={e=>{const arr=[...(form.socios||[])];arr[i]={...arr[i],nome:e.target.value};setForm(f=>({...f,socios:arr}));}}
-                  placeholder="Nome do sócio" style={{flex:2,padding:"7px 10px",borderRadius:8,border:"1.5px solid #e5e7eb",fontSize:12,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}}
-                  onFocus={e=>e.target.style.borderColor="#6366f1"} onBlur={e=>e.target.style.borderColor="#e5e7eb"}/>
-                <input value={s.cpf||""} onChange={e=>{const arr=[...(form.socios||[])];arr[i]={...arr[i],cpf:e.target.value};setForm(f=>({...f,socios:arr}));}}
-                  placeholder="CPF" style={{flex:1,padding:"7px 10px",borderRadius:8,border:"1.5px solid #e5e7eb",fontSize:12,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}}
-                  onFocus={e=>e.target.style.borderColor="#6366f1"} onBlur={e=>e.target.style.borderColor="#e5e7eb"}/>
-                <input value={s.participacao||""} onChange={e=>{const arr=[...(form.socios||[])];arr[i]={...arr[i],participacao:e.target.value};setForm(f=>({...f,socios:arr}));}}
-                  placeholder="% part." style={{width:70,padding:"7px 8px",borderRadius:8,border:"1.5px solid #e5e7eb",fontSize:12,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}}
-                  onFocus={e=>e.target.style.borderColor="#6366f1"} onBlur={e=>e.target.style.borderColor="#e5e7eb"}/>
-                <button onClick={()=>setForm(f=>({...f,socios:(f.socios||[]).filter((_,j)=>j!==i)}))} style={{background:"#fef2f2",border:"none",borderRadius:6,width:28,height:28,cursor:"pointer",color:"#ef4444",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+              <div key={i} style={{display:"flex",flexDirection:"column",gap:8,marginBottom:12,padding:"12px 14px",borderRadius:10,border:"1.5px solid #e5e7eb",background:"#fff",position:"relative"}}>
+                <div style={{fontSize:11,fontWeight:800,color:"#6366f1",marginBottom:2}}>Sócio {i+2}</div>
+                <Inp label="Nome completo" value={s.nome||""} onChange={v=>{const arr=[...(form.socios||[])];arr[i]={...arr[i],nome:v};setForm(f=>({...f,socios:arr}));}} placeholder="Nome do sócio"/>
+                <div className="g2">
+                  <Inp label="CPF" value={s.cpf||""} onChange={v=>{const arr=[...(form.socios||[])];arr[i]={...arr[i],cpf:v};setForm(f=>({...f,socios:arr}));}} placeholder="000.000.000-00"/>
+                  <Inp label="Participação (%)" value={s.participacao||""} onChange={v=>{const arr=[...(form.socios||[])];arr[i]={...arr[i],participacao:v};setForm(f=>({...f,socios:arr}));}} placeholder="Ex: 25" type="number"/>
+                </div>
+                <button onClick={()=>setForm(f=>({...f,socios:(f.socios||[]).filter((_,j)=>j!==i)}))}
+                  style={{position:"absolute",top:10,right:10,background:"#fef2f2",border:"none",borderRadius:6,width:26,height:26,cursor:"pointer",color:"#ef4444",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
               </div>
             ))}
             <Btn onClick={()=>setForm(f=>({...f,socios:[...(f.socios||[]),{nome:"",cpf:"",participacao:""}]}))} v="ghost" sz="sm">+ Adicionar Sócio</Btn>
-          </Fld>
-          <Txt label="Observacoes" value={form.observacoes} onChange={v=>setForm(f=>({...f,observacoes:v}))} placeholder="Anotacoes sobre a empresa..."/>
-          <CPick value={form.color} onChange={v=>setForm(f=>({...f,color:v}))}/>
+          </div>
         </div>}
         {tab==="contato"&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
           <Inp label="E-mail (login)" value={form.email} onChange={v=>setForm(f=>({...f,email:v}))} placeholder="email@empresa.com"/>

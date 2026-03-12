@@ -2985,7 +2985,17 @@ function CompaniesPage({ data, setData }) {
               const existsAny=tasks.some(t=>t.company===coId&&t._serviceId===svc.id&&t.status!=="archived");
               if(existsAny){ltoast(`Serviço "${svc.name}" já tem tarefas geradas!`,"warn");return d;}
               const rec=d.recurrences.find(r=>r.id===svc.recurrence);
-              const competenciaTag=cfg.competencia?fmtComp(cfg.competencia):"";
+              // Competência: para cada tarefa, offset em meses a partir do início
+              // Ex: início=01/03/2026, comp_ini=2026-02 → tarefa de março=Fev/26, abril=Mar/26, ...
+              const calcComp=(dueDateStr)=>{
+                if(!cfg.competencia||!dueDateStr) return "";
+                const startRef=cfg.dataInicio?new Date(cfg.dataInicio+"T00:00:00"):new Date();
+                const due=new Date(dueDateStr+"T00:00:00");
+                const compBase=new Date(cfg.competencia+"-01T00:00:00");
+                const diffMonths=(due.getFullYear()-startRef.getFullYear())*12+(due.getMonth()-startRef.getMonth());
+                const compDate=new Date(compBase.getFullYear(),compBase.getMonth()+diffMonths,1);
+                return fmtComp(`${compDate.getFullYear()}-${String(compDate.getMonth()+1).padStart(2,"0")}`);
+              };
               const base={
                 id:uid(),title:svc.name,description:svc.description||"",
                 status:svc.status||"todo",priority:svc.priority||"media",
@@ -2998,7 +3008,7 @@ function CompaniesPage({ data, setData }) {
                 _serviceId:svc.id,
                 _dataInicio:cfg.dataInicio||"",
                 _dataFim:cfg.dataFim||"",
-                _competencia:competenciaTag,
+                _competencia:"",
               };
               const startDate=cfg.dataInicio?new Date(cfg.dataInicio+"T00:00:00"):(svc.mesInicio?new Date(svc.mesInicio+"-01T00:00:00"):new Date());
               startDate.setHours(0,0,0,0);
@@ -3007,37 +3017,29 @@ function CompaniesPage({ data, setData }) {
               const cleanCk=toArr(svc.checklist).map(ck=>({...ck,done:false}));
               const gId=base.id;
               let count=0;
-              // Gera competencia incremental por tarefa (mês a mês)
-              let compMonth=cfg.competencia?new Date(cfg.competencia+"-01T00:00:00"):null;
-              const makeTask=(extra)=>{
-                const compTag=compMonth?fmtComp(`${compMonth.getFullYear()}-${String(compMonth.getMonth()+1).padStart(2,"0")}`):"";
-                const t={...base,id:uid(),checklist:cleanCk,_recGroup:gId,_competencia:compTag,...extra};
-                if(compMonth) compMonth.setMonth(compMonth.getMonth()+1);
-                return t;
-              };
+              const makeTask=(dueDate)=>({...base,id:uid(),dueDate,checklist:cleanCk,_recGroup:gId,_competencia:calcComp(dueDate)});
               if(rec){
                 if(rec.interval==="monthly"||rec.interval==="yearly"){
                   const targetDay=cfg.dataInicio?new Date(cfg.dataInicio+"T12:00:00").getDate():(svc.defaultDue?new Date(svc.defaultDue+"T12:00:00").getDate():1);
                   for(let dd=new Date(startDate.getFullYear(),startDate.getMonth(),targetDay);dd<=endDate;dd.setMonth(dd.getMonth()+1)){
-                    tasks.push(makeTask({dueDate:dd.toISOString().slice(0,10)}));count++;
+                    tasks.push(makeTask(dd.toISOString().slice(0,10)));count++;
                   }
                 } else if(rec.interval==="custom_days"&&Array.isArray(rec.days)&&rec.days.length>0){
                   for(let dd=new Date(startDate);dd<=endDate;dd.setDate(dd.getDate()+1)){
-                    if(rec.days.includes(dd.getDay())){tasks.push(makeTask({dueDate:dd.toISOString().slice(0,10)}));count++;}
+                    if(rec.days.includes(dd.getDay())){tasks.push(makeTask(dd.toISOString().slice(0,10)));count++;}
                   }
                 } else if(rec.interval==="weekly"){
                   const tdow=cfg.dataInicio?new Date(cfg.dataInicio+"T12:00:00").getDay():(svc.defaultDue?new Date(svc.defaultDue+"T12:00:00").getDay():1);
                   for(let dd=new Date(startDate);dd<=endDate;dd.setDate(dd.getDate()+1)){
-                    if(dd.getDay()===tdow){tasks.push(makeTask({dueDate:dd.toISOString().slice(0,10)}));count++;}
+                    if(dd.getDay()===tdow){tasks.push(makeTask(dd.toISOString().slice(0,10)));count++;}
                   }
                 } else if(rec.interval==="daily"){
                   for(let dd=new Date(startDate);dd<=endDate;dd.setDate(dd.getDate()+1)){
-                    tasks.push(makeTask({dueDate:dd.toISOString().slice(0,10)}));count++;
+                    tasks.push(makeTask(dd.toISOString().slice(0,10)));count++;
                   }
-                } else {tasks.push(makeTask({dueDate:base.dueDate}));count++;}
-              } else {tasks.push(makeTask({dueDate:base.dueDate}));count++;}
-              // Salva config no state para persistir junto com empresa
-              setSvcConfig(prev=>({...prev,[svc.id]:getCfg(svc.id)}));
+                } else {tasks.push(makeTask(base.dueDate));count++;}
+              } else {tasks.push(makeTask(base.dueDate));count++;}
+              setSvcConfig(prev=>({...prev,[svc.id]:cfg}));
               ltoast(`✅ ${count} tarefa${count!==1?"s":""} gerada${count!==1?"s":""} para "${svc.name}"!`,"ok");
               return {...d,tasks};
             });
@@ -3616,32 +3618,33 @@ function ServicosPage({ data, setData }) {
     if(!form.name.trim())return;
     const svc={...form,checklist:toArr(form.checklist),assignees:toArr(form.assignees),labels:toArr(form.labels)};
     if(editing){
-      const affectedTasks=data.tasks.filter(t=>t._serviceId===editing.id&&t.status!=="archived"&&t.status!=="done");
-      const propagate=affectedTasks.length===0||window.confirm(
-        `Este serviço está vinculado a ${affectedTasks.length} tarefa(s) ativa(s).\n\nDeseja propagar as alterações (título, checklist, responsáveis, prioridade) para todas as tarefas pendentes?\n\nOK = Propagar | Cancelar = Salvar só o serviço`
-      );
       setData(d=>{
         const services=d.services.map(s=>s.id===editing.id?{...s,...svc}:s);
-        const tasks=propagate?d.tasks.map(t=>{
+        const tasks=d.tasks.map(t=>{
           if(t._serviceId!==editing.id||t.status==="archived"||t.status==="done") return t;
-          // Preserve checked items if checklist was modified; replace only undone items
           const newCk=toArr(svc.checklist).map(ck=>{
             const existing=t.checklist.find(x=>x.text===ck.text||x.id===ck.id);
             return existing?{...ck,done:existing.done}:{...ck,id:uid(),done:false};
           });
-          return {...t,title:svc.name,description:svc.description||t.description,priority:svc.priority||t.priority,
-            sector:svc.sector||t.sector,assignees:toArr(svc.assignees).length>0?toArr(svc.assignees):t.assignees,
+          return {...t,
+            title:svc.name,
+            description:svc.description||t.description,
+            priority:svc.priority||t.priority,
+            sector:svc.sector||t.sector,
+            assignees:toArr(svc.assignees).length>0?toArr(svc.assignees):t.assignees,
             labels:toArr(svc.labels).length>0?toArr(svc.labels):t.labels,
             checklist:newCk,
           };
-        }):d.tasks;
+        });
         return {...d,services,tasks};
       });
+      const affectedCount=data.tasks.filter(t=>t._serviceId===editing.id&&t.status!=="archived"&&t.status!=="done").length;
+      showToast(`✦ Serviço atualizado e propagado para ${affectedCount} tarefa${affectedCount!==1?"s":""}!`,"ok");
     } else {
       setData(d=>({...d,services:[...(d.services||[]),{id:uid(),...svc}]}));
+      showToast("✦ Serviço criado!","ok");
     }
     setOpen(false);
-    showToast(editing?"✦ Serviço e tarefas atualizados!":"✦ Serviço criado!","ok");
   };
 
   const del=(id)=>{const item=(data.services||[]).find(x=>x.id===id);askDel(`Serviço: "${item?.name||""}"`,()=>setData(d=>({...d,services:d.services.filter(s=>s.id!==id)})));};
@@ -5221,6 +5224,9 @@ function AuditoriaPage({data,setData}){
   const [tab,setTab]=useState("historico");
   const [filter,setFilter]=useState({user:"",action:"",dateFrom:"",dateTo:""});
   const [recDiag,setRecDiag]=useState(null);
+  // State for delete-from-date tool
+  const [delFrom,setDelFrom]=useState({serviceId:"",companyId:"",fromDate:"",status:"todo",preview:[],done:false});
+  const [delPreview,setDelPreview]=useState([]);
 
   // Collect all history entries across all tasks
   const allHistory=useMemo(()=>{
@@ -5306,7 +5312,7 @@ function AuditoriaPage({data,setData}){
       <p style={{fontSize:13,color:"#64748b",marginBottom:16}}>Rastreie alterações, diagnostique erros em recorrências e monitore ações do sistema.</p>
 
       <div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap"}}>
-        {[["historico","📋 Histórico de Alterações"],["recorrencias","🔄 Diagnóstico de Recorrências"],["sistema","⚙️ Integridade de Dados"]].map(([v,l])=>(
+        {[["historico","📋 Histórico de Alterações"],["recorrencias","🔄 Diagnóstico de Recorrências"],["excluir","🗑 Excluir Recorrentes"],["sistema","⚙️ Integridade de Dados"]].map(([v,l])=>(
           <button key={v} onClick={()=>setTab(v)} style={{padding:"7px 16px",borderRadius:9,border:"none",background:tab===v?"#6366f1":"var(--bg3)",color:tab===v?"#fff":"#64748b",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",transition:"all .15s"}}>{l}</button>
         ))}
       </div>
@@ -5402,6 +5408,109 @@ function AuditoriaPage({data,setData}){
           </div>
         </div>
       )}
+
+      {tab==="excluir"&&(()=>{
+        const allServices=data.services||[];
+        const allCompanies=data.companies||[];
+        // Filter tasks matching criteria
+        const getPreview=()=>{
+          return data.tasks.filter(t=>{
+            if(t.status==="archived") return false;
+            if(delFrom.serviceId&&t._serviceId!==delFrom.serviceId) return false;
+            if(delFrom.companyId&&t.company!==delFrom.companyId) return false;
+            if(delFrom.fromDate&&(!t.dueDate||t.dueDate<delFrom.fromDate)) return false;
+            if(delFrom.status==="pending"&&t.status==="done") return false;
+            if(delFrom.status==="todo"&&t.status!=="todo") return false;
+            if(!t._recGroup&&!t._serviceId) return false; // only recurrent tasks
+            return true;
+          });
+        };
+        const preview=getPreview();
+        const execDelete=()=>{
+          if(preview.length===0) return;
+          const ids=new Set(preview.map(t=>t.id));
+          setData(d=>({...d,tasks:d.tasks.filter(t=>!ids.has(t.id))}));
+          setDelFrom(f=>({...f,done:true}));
+        };
+        const recSvc=delFrom.serviceId?allServices.find(s=>s.id===delFrom.serviceId):null;
+        const recCo=delFrom.companyId?allCompanies.find(c=>c.id===delFrom.companyId):null;
+        return(
+          <div style={{display:"flex",flexDirection:"column",gap:16}}>
+            <div style={{padding:"14px 18px",borderRadius:12,background:"#fef9c3",border:"1.5px solid #fde047"}}>
+              <div style={{fontSize:13,fontWeight:800,color:"#854d0e",marginBottom:4}}>⚠️ Operação irreversível</div>
+              <div style={{fontSize:12,color:"#92400e"}}>As tarefas excluídas não poderão ser recuperadas. Use os filtros para ter certeza do escopo antes de confirmar.</div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <div>
+                <label style={{fontSize:12,fontWeight:700,color:"#374151",display:"block",marginBottom:5}}>Serviço (opcional)</label>
+                <select value={delFrom.serviceId} onChange={e=>setDelFrom(f=>({...f,serviceId:e.target.value,done:false}))}
+                  style={{width:"100%",padding:"8px 12px",borderRadius:9,border:"2px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}}>
+                  <option value="">Todos os serviços</option>
+                  {allServices.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{fontSize:12,fontWeight:700,color:"#374151",display:"block",marginBottom:5}}>Empresa (opcional)</label>
+                <select value={delFrom.companyId} onChange={e=>setDelFrom(f=>({...f,companyId:e.target.value,done:false}))}
+                  style={{width:"100%",padding:"8px 12px",borderRadius:9,border:"2px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}}>
+                  <option value="">Todas as empresas</option>
+                  {allCompanies.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{fontSize:12,fontWeight:700,color:"#374151",display:"block",marginBottom:5}}>📅 Excluir a partir de</label>
+                <input type="date" value={delFrom.fromDate} onChange={e=>setDelFrom(f=>({...f,fromDate:e.target.value,done:false}))}
+                  style={{width:"100%",padding:"8px 12px",borderRadius:9,border:"2px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",boxSizing:"border-box"}}/>
+              </div>
+              <div>
+                <label style={{fontSize:12,fontWeight:700,color:"#374151",display:"block",marginBottom:5}}>Quais tarefas</label>
+                <select value={delFrom.status} onChange={e=>setDelFrom(f=>({...f,status:e.target.value,done:false}))}
+                  style={{width:"100%",padding:"8px 12px",borderRadius:9,border:"2px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}}>
+                  <option value="all">Todas (inclusive concluídas)</option>
+                  <option value="pending">Apenas pendentes (não concluídas)</option>
+                  <option value="todo">Apenas "A fazer"</option>
+                </select>
+              </div>
+            </div>
+            {/* Preview */}
+            <div style={{background:"var(--bg2)",borderRadius:12,border:"1px solid var(--border)",overflow:"hidden"}}>
+              <div style={{padding:"10px 16px",background:preview.length>0?"#fef2f2":"#f8fafc",borderBottom:"1px solid var(--border)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span style={{fontSize:13,fontWeight:800,color:preview.length>0?"#dc2626":"#64748b"}}>
+                  {preview.length>0?`🗑 ${preview.length} tarefa${preview.length!==1?"s":""} serão excluídas`:"Nenhuma tarefa encontrada com estes critérios"}
+                </span>
+                {preview.length>0&&!delFrom.done&&(
+                  <button onClick={execDelete}
+                    style={{padding:"6px 16px",borderRadius:8,border:"none",background:"#dc2626",color:"#fff",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}
+                    onMouseEnter={e=>e.currentTarget.style.background="#b91c1c"}
+                    onMouseLeave={e=>e.currentTarget.style.background="#dc2626"}>
+                    🗑 Confirmar Exclusão
+                  </button>
+                )}
+                {delFrom.done&&<span style={{fontSize:12,fontWeight:800,color:"#22c55e"}}>✅ Excluídas com sucesso!</span>}
+              </div>
+              {preview.length>0&&(
+                <div style={{maxHeight:280,overflowY:"auto"}}>
+                  {preview.slice(0,50).map((t,i)=>{
+                    const co=data.companies.find(c=>c.id===t.company);
+                    const svc=allServices.find(s=>s.id===t._serviceId);
+                    return(
+                      <div key={t.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 16px",borderBottom:i<Math.min(preview.length,50)-1?"1px solid var(--border)":"none",fontSize:12}}>
+                        <span style={{color:"#dc2626",flexShrink:0}}>🗑</span>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontWeight:700,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</div>
+                          <div style={{color:"#94a3b8",fontSize:11}}>{co?.name||"—"}{svc?` · ${svc.name}`:""}{t._competencia?` · 🏷 ${t._competencia}`:""}</div>
+                        </div>
+                        <span style={{color:"#94a3b8",flexShrink:0,fontSize:11}}>{t.dueDate||"sem data"}</span>
+                      </div>
+                    );
+                  })}
+                  {preview.length>50&&<div style={{padding:"8px 16px",fontSize:11,color:"#94a3b8",textAlign:"center"}}>+ {preview.length-50} tarefas não exibidas</div>}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {tab==="sistema"&&(
         <div>

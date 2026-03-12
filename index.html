@@ -203,6 +203,41 @@ const LOCK_TTL=22000; // lock expires after 22s without heartbeat
 const SESSION_ID=Math.random().toString(36).slice(2,10); // unique per tab
 
 const uid=()=>crypto.randomUUID?crypto.randomUUID():`${Date.now().toString(36)}${Math.random().toString(36).slice(2,6)}`;
+
+// Normaliza uma tarefa do Supabase/storage, preservando TODOS os campos
+function normalizeTask(t){
+  return {
+    id: t.id||uid(),
+    title: t.title||"",
+    description: t.description||"",
+    status: t.status||"todo",
+    priority: t.priority||"media",
+    company: t.company||"",
+    sector: t.sector||"",
+    assignees: Array.isArray(t.assignees)?t.assignees:[],
+    labels: Array.isArray(t.labels)?t.labels:[],
+    checklist: Array.isArray(t.checklist)?t.checklist:[],
+    dependencies: Array.isArray(t.dependencies)?t.dependencies:[],
+    recurrence: t.recurrence||"",
+    mesRef: t.mesRef||"",
+    dueDate: t.dueDate||"",
+    dueTime: t.dueTime||"",
+    slaHours: t.slaHours||"",
+    createdAt: t.createdAt||"",
+    completedAt: t.completedAt||null,
+    archivedAt: t.archivedAt||null,
+    _copies: Array.isArray(t._copies)?t._copies:[],
+    _recGroup: t._recGroup||null,
+    _recurrenceId: t._recurrenceId||null,
+    comments: Array.isArray(t.comments)?t.comments:[],
+    history: Array.isArray(t.history)?t.history:[],
+    companies: Array.isArray(t.companies)&&t.companies.length>0?t.companies:(t.company?[t.company]:[]),
+    // Campos adicionados após lançamento — NUNCA omitir
+    pinned: t.pinned===true,
+    valor: t.valor||"",
+    internalNote: t.internalNote||"",
+  };
+}
 const todayStr=()=>new Date().toISOString().slice(0,10);
 const fmtDate=d=>d?new Date(d+"T12:00:00").toLocaleDateString("pt-BR"):"-";
 const isLate=t=>t.dueDate&&new Date(t.dueDate+"T23:59:59")<new Date()&&t.status!=="done";
@@ -520,27 +555,7 @@ function useSharedData() {
           p.tasks=[...resetChecklist.filter(t=>!t._parentId&&!t.recurrence),...generated];
           p._migrated_v3=true;
         }
-        p.tasks = (p.tasks || []).map(t => ({
-          id: t.id||uid(),
-          title: t.title||"",
-          description: t.description||"",
-          status: t.status||"todo",
-          priority: t.priority||"media",
-          company: t.company||"",
-          sector: t.sector||"",
-          assignees: toArr(t.assignees),
-          labels: toArr(t.labels),
-          checklist: toArr(t.checklist),
-          dependencies: toArr(t.dependencies),
-          recurrence: t.recurrence||"",
-          mesRef: t.mesRef||"",
-          dueDate: t.dueDate||"",
-          createdAt: t.createdAt||"",
-          completedAt: t.completedAt||null,
-          _copies: Array.isArray(t._copies)?[...t._copies]:[],
-          archivedAt: t.archivedAt||null,
-          _recGroup: t._recGroup||null,
-        }));
+        p.tasks = (p.tasks || []).map(normalizeTask);
         setRaw(p);
       } else {
         // First time - save seed data
@@ -580,27 +595,7 @@ function useSharedData() {
           if (!p.chatMessages || !Array.isArray(p.chatMessages)) p.chatMessages = [];
           if (!p.notifications || !Array.isArray(p.notifications)) p.notifications = [];
           if (!p.archiveDays) p.archiveDays = 7;
-          p.tasks = (p.tasks || []).map(t => ({
-            id: t.id||"",
-            title: t.title||"",
-            description: t.description||"",
-            status: t.status||"todo",
-            priority: t.priority||"media",
-            company: t.company||"",
-            sector: t.sector||"",
-            assignees: toArr(t.assignees),
-            labels: toArr(t.labels),
-            checklist: toArr(t.checklist),
-            dependencies: toArr(t.dependencies),
-            recurrence: t.recurrence||"",
-            mesRef: t.mesRef||"",
-            dueDate: t.dueDate||"",
-            createdAt: t.createdAt||"",
-            completedAt: t.completedAt||null,
-            _copies: Array.isArray(t._copies)?[...t._copies]:[],
-            archivedAt: t.archivedAt||null,
-            _recGroup: t._recGroup||null,
-            }));
+          p.tasks = (p.tasks || []).map(normalizeTask);
           setRaw(p);
         }
       })
@@ -2092,7 +2087,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete,onStatusChange,myColl
     <div style={{position:"relative"}}>
       {/* ── Cabeçalho fixo do Kanban ─────────────────────────── */}
       <div className="kanban-sticky-header" style={{
-        position:"sticky",top:0,zIndex:50,
+        position:"sticky",top:"var(--topbar-h,86px)",zIndex:50,
         margin:"-12px -28px 10px",padding:"10px 28px 10px",
         background:"var(--bg)",
         borderBottom:"1px solid var(--border)",
@@ -4901,7 +4896,19 @@ function App(){
   const [darkMode,setDarkMode] = useState(()=>localStorage.getItem("mdtec_dark")==="1");
   const [showSearch,setShowSearch] = useState(false);
   const [focusMode,setFocusMode] = useState(false);
-  const [pomodoroTask,setPomodoroTask] = useState(null); // {id, title}
+  const [pomodoroTask,setPomodoroTask] = useState(null);
+  const topbarRef = useRef(null);
+
+  // Keep --topbar-h CSS var in sync with actual topbar height
+  useEffect(()=>{
+    if(!topbarRef.current) return;
+    const obs=new ResizeObserver(()=>{
+      const h=topbarRef.current?.offsetHeight||86;
+      document.documentElement.style.setProperty("--topbar-h",h+"px");
+    });
+    obs.observe(topbarRef.current);
+    return ()=>obs.disconnect();
+  },[]);
 
   // Refs para acesso em callbacks sem re-registro de listeners
   const taskModalRef = useRef(taskModal);
@@ -5522,7 +5529,7 @@ function App(){
 
       {/* Conteúdo principal */}
       <main className="main-content">
-        <div className="topbar" style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:20,gap:12,position:"sticky",top:0,zIndex:55,background:"var(--bg)",padding:"16px 0 12px",margin:"0 0 12px",borderBottom:"1px solid var(--border)"}}>
+        <div ref={topbarRef} className="topbar" style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:20,gap:12,position:"sticky",top:0,zIndex:55,background:"var(--bg)",padding:"16px 0 12px",margin:"0 0 12px",borderBottom:"1px solid var(--border)"}}>
           <div>
             <h1 style={{fontSize:26,fontWeight:900,color:"#0f172a",lineHeight:1.1,letterSpacing:"-.02em"}}>{curPage?.icon} {curPage?.label}</h1>
             <p style={{fontSize:13,color:"#94a3b8",marginTop:4,fontWeight:500}}>{new Date().toLocaleDateString("pt-BR",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</p>

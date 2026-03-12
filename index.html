@@ -4342,6 +4342,12 @@ function App(){
     toast(`📦 ${ids.length} tarefa${ids.length>1?"s arquivadas automaticamente":"arquivada automaticamente"}.`,"ok");
   },[synced]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // myCollab e myCollabId calculados cedo para uso em hooks (user pode ser null aqui)
+  const myCollab = user ? data.collaborators.find(c=>
+    c.email && c.email.toLowerCase()===(user.email||"").toLowerCase()
+  ) : null;
+  const myCollabId = myCollab?.id || user?._collabId || null;
+
   // Alertar tarefas atrasadas via sino ao carregar
   useEffect(()=>{
     if(!synced||!myCollabId) return;
@@ -4476,16 +4482,11 @@ function App(){
   );
 
   const userName = user.user_metadata?.name || user.email?.split("@")[0] || "Usuário";
-  // Encontrar colaborador vinculado ao email logado
-  // Detectar colaborador pelo email do usuário logado
-  const myCollab = data.collaborators.find(c=>
-    c.email && c.email.toLowerCase()===(user.email||"").toLowerCase()
-  );
   // isAdmin: tem accessLevel admin OU é Supabase Auth (dono) OU não achou collab E é Supabase Auth
   const isAdmin = user._supabaseAuth
     ? (!myCollab || myCollab.accessLevel==="admin")
     : (myCollab?.accessLevel==="admin");
-  const myCollabId = myCollab?.id || user._collabId || null;
+  // myCollab e myCollabId já declarados antes dos hooks (acima)
   // Filtrar tarefas para o usuário atual
   const visibleTasks = isAdmin
     ? data.tasks

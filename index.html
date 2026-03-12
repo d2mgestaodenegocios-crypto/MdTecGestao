@@ -3287,7 +3287,7 @@ function Dashboard({ data }) {
         </div>
       )}
 
-      {dashTab==="overview"&&<>
+      {dashTab==="overview"&&<React.Fragment>
 
       {/* KPIs */}
       <div className="dash-kpis" style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:12,marginBottom:24}}>
@@ -3450,7 +3450,7 @@ function Dashboard({ data }) {
         </div>
       </div>
     </div>
-    </>} {/* end dashTab===overview */}
+      </React.Fragment>} {/* end dashTab===overview */}
     </div>
   );
 }

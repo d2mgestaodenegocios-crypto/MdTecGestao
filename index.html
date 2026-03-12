@@ -1569,6 +1569,14 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
       </div>
 
       <Inp label="💰 Valor / Honorário (R$)" value={f.valor||""} onChange={v=>set("valor",v)} type="number" hint="Valor associado a esta tarefa" disabled={blocked}/>
+      {(f._competencia||f._dataInicio||f._dataFim)&&(
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",padding:"10px 14px",borderRadius:10,background:"#faf5ff",border:"1.5px solid #ddd6fe"}}>
+          <span style={{fontSize:11,fontWeight:700,color:"#7c3aed",marginRight:4}}>Serviço recorrente:</span>
+          {f._competencia&&<span style={{fontSize:11,padding:"2px 10px",borderRadius:20,background:"#ede9fe",color:"#7c3aed",fontWeight:800,border:"1.5px solid #ddd6fe"}}>🏷 Competência: {f._competencia}</span>}
+          {f._dataInicio&&<span style={{fontSize:11,color:"#64748b",fontWeight:600}}>📅 Início: {f._dataInicio}</span>}
+          {f._dataFim&&<span style={{fontSize:11,color:"#64748b",fontWeight:600}}>📅 Fim: {f._dataFim}</span>}
+        </div>
+      )}
 
       <div className="g2">
         <Fld label="Empresas">
@@ -1986,6 +1994,7 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
             );
           })()}
           {task.dependencies?.length>0&&<span style={{fontSize:11,color:"#f59e0b",fontWeight:700}}>⬡ {task.dependencies.length}</span>}
+          {task._competencia&&<span style={{fontSize:11,padding:"2px 9px",borderRadius:20,background:"#f5f3ff",color:"#7c3aed",fontWeight:800,border:"1.5px solid #ddd6fe"}}>🏷 {task._competencia}</span>}
         </div>
 
         {prog!==null&&(
@@ -2776,12 +2785,15 @@ function CompaniesPage({ data, setData }) {
   const [editing,setEditing]=useState(null);
   const [form,setForm]=useState(blank);
   const [tab,setTab]=useState("info");
-  const openNew=()=>{setEditing(null);setForm(blank);setTab("info");setOpen(true);};
-  const openEdit=(c)=>{setEditing(c);setForm({...blank,...c,services:toArr(c.services),socios:toArr(c.socios)});setTab("info");setOpen(true);};
+  const [svcConfig,setSvcConfig]=useState({}); // {svcId:{dataInicio,dataFim,competencia}}
+  const [localToast,setLocalToast]=useState(null);
+  const ltoast=(msg,type="ok")=>{setLocalToast({msg,type});setTimeout(()=>setLocalToast(null),3000);};
+  const openNew=()=>{setEditing(null);setForm(blank);setSvcConfig({});setTab("info");setOpen(true);};
+  const openEdit=(c)=>{setEditing(c);setForm({...blank,...c,services:toArr(c.services),socios:toArr(c.socios)});setSvcConfig(c.svcConfig||{});setTab("info");setOpen(true);};
   const save=()=>{
     if(!form.name.trim())return;
     const logo=form.logo||form.name.slice(0,2).toUpperCase();
-    const co={...form,logo};
+    const co={...form,logo,svcConfig};
     let newId=null;
     if(editing){
       setData(d=>({...d,companies:d.companies.map(c=>c.id===editing.id?{...c,...co}:c)}));
@@ -2902,6 +2914,11 @@ function CompaniesPage({ data, setData }) {
         })}
       </div>
       <Modal open={open} onClose={()=>setOpen(false)} title={editing?"Editar Empresa":"Nova Empresa"} width={520}>
+        {localToast&&(
+          <div style={{marginBottom:10,padding:"9px 14px",borderRadius:9,background:localToast.type==="ok"?"#f0fdf4":localToast.type==="warn"?"#fffbeb":"#fef2f2",border:`1.5px solid ${localToast.type==="ok"?"#86efac":localToast.type==="warn"?"#fcd34d":"#fca5a5"}`,fontSize:12,fontWeight:700,color:localToast.type==="ok"?"#15803d":localToast.type==="warn"?"#92400e":"#b91c1c",display:"flex",alignItems:"center",gap:7}}>
+            {localToast.msg}
+          </div>
+        )}
         <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
           {[["info","Dados"],["socios","👥 Sócios"],["contato","Contato"],["servicos","Serviços"]].map(([t,l])=>(
             <button key={t} style={tabSt(t)} onClick={()=>setTab(t)}>{l}</button>
@@ -2949,28 +2966,157 @@ function CompaniesPage({ data, setData }) {
               <Sel label="Nível de Acesso" value={form.accessLevel||"user"} onChange={v=>setForm(f=>({...f,accessLevel:v}))} options={[{value:"admin",label:"🔑 Administrador"},{value:"user",label:"👤 Usuário"}]}/>
           <Inp label="Telefone" value={form.telefone} onChange={v=>setForm(f=>({...f,telefone:v}))} placeholder="(00) 00000-0000"/>
         </div>}
-        {tab==="servicos"&&<div style={{display:"flex",flexDirection:"column",gap:10}}>
-          <p style={{fontSize:12,color:"#64748b",marginBottom:4}}>Servicos contratados. Ao salvar, tarefas serao geradas automaticamente.</p>
-          {data.services.length===0&&<p style={{fontSize:13,color:"#94a3b8"}}>Nenhum servico cadastrado ainda.</p>}
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {data.services.map(s=>{
-              const sel=toArr(form.services).includes(s.id);
-              const rec=data.recurrences.find(r=>r.id===s.recurrence);
-              return(
-                <div key={s.id} onClick={()=>setForm(f=>({...f,services:sel?toArr(f.services).filter(x=>x!==s.id):[...toArr(f.services),s.id]}))} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:10,border:"2px solid "+(sel?"#6366f1":"#e5e7eb"),background:sel?"#eef2ff":"#fafafa",cursor:"pointer",transition:"all .1s"}}>
-                  <div style={{width:18,height:18,borderRadius:5,border:"2px solid "+(sel?"#6366f1":"#cbd5e1"),background:sel?"#6366f1":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                    {sel&&<span style={{color:"#fff",fontSize:11,fontWeight:900}}>v</span>}
+        {tab==="servicos"&&(()=>{
+          const coId=editing?editing.id:null;
+          const getCfg=(svcId)=>svcConfig[svcId]||{dataInicio:"",dataFim:"",competencia:""};
+          const setCfg=(svcId,key,val)=>setSvcConfig(prev=>({...prev,[svcId]:{...getCfg(svcId),[key]:val}}));
+          // Formata "YYYY-MM" → "Jan/2026"
+          const fmtComp=(ym)=>{
+            if(!ym)return"";
+            const [y,m]=ym.split("-");
+            const meses=["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+            return`${meses[parseInt(m)-1]}/${y}`;
+          };
+          const gerarInline=(svc)=>{
+            if(!coId){ltoast("Salve a empresa primeiro para gerar tarefas.","warn");return;}
+            const cfg=getCfg(svc.id);
+            setData(d=>{
+              let tasks=[...d.tasks];
+              const existsAny=tasks.some(t=>t.company===coId&&t._serviceId===svc.id&&t.status!=="archived");
+              if(existsAny){ltoast(`Serviço "${svc.name}" já tem tarefas geradas!`,"warn");return d;}
+              const rec=d.recurrences.find(r=>r.id===svc.recurrence);
+              const competenciaTag=cfg.competencia?fmtComp(cfg.competencia):"";
+              const base={
+                id:uid(),title:svc.name,description:svc.description||"",
+                status:svc.status||"todo",priority:svc.priority||"media",
+                company:coId,sector:svc.sector||"",
+                assignees:toArr(svc.assignees),labels:toArr(svc.labels),
+                checklist:toArr(svc.checklist).map(ck=>({...ck,done:false})),
+                dependencies:[],recurrence:"",
+                dueDate:cfg.dataInicio||svc.defaultDue||"",
+                createdAt:todayStr(),completedAt:null,archivedAt:null,
+                _serviceId:svc.id,
+                _dataInicio:cfg.dataInicio||"",
+                _dataFim:cfg.dataFim||"",
+                _competencia:competenciaTag,
+              };
+              const startDate=cfg.dataInicio?new Date(cfg.dataInicio+"T00:00:00"):(svc.mesInicio?new Date(svc.mesInicio+"-01T00:00:00"):new Date());
+              startDate.setHours(0,0,0,0);
+              const endDate=cfg.dataFim?new Date(cfg.dataFim+"T00:00:00"):new Date(startDate);
+              if(!cfg.dataFim) endDate.setMonth(startDate.getMonth()+3);
+              const cleanCk=toArr(svc.checklist).map(ck=>({...ck,done:false}));
+              const gId=base.id;
+              let count=0;
+              // Gera competencia incremental por tarefa (mês a mês)
+              let compMonth=cfg.competencia?new Date(cfg.competencia+"-01T00:00:00"):null;
+              const makeTask=(extra)=>{
+                const compTag=compMonth?fmtComp(`${compMonth.getFullYear()}-${String(compMonth.getMonth()+1).padStart(2,"0")}`):"";
+                const t={...base,id:uid(),checklist:cleanCk,_recGroup:gId,_competencia:compTag,...extra};
+                if(compMonth) compMonth.setMonth(compMonth.getMonth()+1);
+                return t;
+              };
+              if(rec){
+                if(rec.interval==="monthly"||rec.interval==="yearly"){
+                  const targetDay=cfg.dataInicio?new Date(cfg.dataInicio+"T12:00:00").getDate():(svc.defaultDue?new Date(svc.defaultDue+"T12:00:00").getDate():1);
+                  for(let dd=new Date(startDate.getFullYear(),startDate.getMonth(),targetDay);dd<=endDate;dd.setMonth(dd.getMonth()+1)){
+                    tasks.push(makeTask({dueDate:dd.toISOString().slice(0,10)}));count++;
+                  }
+                } else if(rec.interval==="custom_days"&&Array.isArray(rec.days)&&rec.days.length>0){
+                  for(let dd=new Date(startDate);dd<=endDate;dd.setDate(dd.getDate()+1)){
+                    if(rec.days.includes(dd.getDay())){tasks.push(makeTask({dueDate:dd.toISOString().slice(0,10)}));count++;}
+                  }
+                } else if(rec.interval==="weekly"){
+                  const tdow=cfg.dataInicio?new Date(cfg.dataInicio+"T12:00:00").getDay():(svc.defaultDue?new Date(svc.defaultDue+"T12:00:00").getDay():1);
+                  for(let dd=new Date(startDate);dd<=endDate;dd.setDate(dd.getDate()+1)){
+                    if(dd.getDay()===tdow){tasks.push(makeTask({dueDate:dd.toISOString().slice(0,10)}));count++;}
+                  }
+                } else if(rec.interval==="daily"){
+                  for(let dd=new Date(startDate);dd<=endDate;dd.setDate(dd.getDate()+1)){
+                    tasks.push(makeTask({dueDate:dd.toISOString().slice(0,10)}));count++;
+                  }
+                } else {tasks.push(makeTask({dueDate:base.dueDate}));count++;}
+              } else {tasks.push(makeTask({dueDate:base.dueDate}));count++;}
+              // Salva config no state para persistir junto com empresa
+              setSvcConfig(prev=>({...prev,[svc.id]:getCfg(svc.id)}));
+              ltoast(`✅ ${count} tarefa${count!==1?"s":""} gerada${count!==1?"s":""} para "${svc.name}"!`,"ok");
+              return {...d,tasks};
+            });
+          };
+          return(
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <p style={{fontSize:12,color:"#64748b",marginBottom:4}}>Configure as datas de cada serviço e clique em <strong>⚡ Gerar</strong> para criar as tarefas.</p>
+              {data.services.length===0&&<p style={{fontSize:13,color:"#94a3b8"}}>Nenhum serviço cadastrado ainda.</p>}
+              {data.services.map(s=>{
+                const sel=toArr(form.services).includes(s.id);
+                const rec=data.recurrences.find(r=>r.id===s.recurrence);
+                const jaGerado=coId&&data.tasks.some(t=>t.company===coId&&t._serviceId===s.id&&t.status!=="archived");
+                const qtd=coId?data.tasks.filter(t=>t.company===coId&&t._serviceId===s.id&&t.status!=="archived").length:0;
+                const cfg=getCfg(s.id);
+                return(
+                  <div key={s.id} style={{borderRadius:11,border:"2px solid "+(sel?"#6366f1":"#e5e7eb"),background:sel?"#eef2ff":"#fafafa",overflow:"hidden",transition:"all .1s"}}>
+                    {/* Linha principal */}
+                    <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",cursor:"pointer"}} onClick={()=>setForm(f=>({...f,services:sel?toArr(f.services).filter(x=>x!==s.id):[...toArr(f.services),s.id]}))}>
+                      <div style={{width:18,height:18,borderRadius:5,border:"2px solid "+(sel?"#6366f1":"#cbd5e1"),background:sel?"#6366f1":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                        {sel&&<span style={{color:"#fff",fontSize:11,fontWeight:900}}>✓</span>}
+                      </div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontWeight:700,fontSize:13,color:"#0f172a"}}>{s.name}</div>
+                        {s.description&&<div style={{fontSize:11,color:"#94a3b8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.description}</div>}
+                        <div style={{display:"flex",gap:8,marginTop:2,flexWrap:"wrap"}}>
+                          {rec&&<span style={{fontSize:10,color:"#6366f1",fontWeight:700}}>↻ {rec.name}</span>}
+                          {jaGerado&&<span style={{fontSize:10,color:"#22c55e",fontWeight:700}}>✅ {qtd} tarefa{qtd!==1?"s":""} gerada{qtd!==1?"s":""}</span>}
+                        </div>
+                      </div>
+                      {sel&&(
+                        <button
+                          onClick={e=>{e.stopPropagation();gerarInline(s);}}
+                          style={{flexShrink:0,padding:"5px 12px",borderRadius:8,border:"none",background:jaGerado?"#f1f5f9":"#6366f1",color:jaGerado?"#94a3b8":"#fff",fontWeight:800,fontSize:12,cursor:jaGerado?"not-allowed":"pointer",fontFamily:"inherit",transition:"all .15s"}}
+                          title={jaGerado?"Tarefas já geradas":"Gerar tarefas recorrentes agora"}
+                          onMouseEnter={e=>{if(!jaGerado)e.currentTarget.style.background="#4f46e5";}}
+                          onMouseLeave={e=>{if(!jaGerado)e.currentTarget.style.background="#6366f1";}}
+                        >{jaGerado?"✅ Gerado":"⚡ Gerar"}</button>
+                      )}
+                    </div>
+                    {/* Campos de configuração (só quando selecionado e não gerado) */}
+                    {sel&&!jaGerado&&(
+                      <div style={{padding:"0 14px 12px",display:"flex",flexDirection:"column",gap:8,borderTop:"1px solid #e0e7ff",background:"#f5f3ff"}}>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,paddingTop:10}}>
+                          <div>
+                            <label style={{fontSize:11,fontWeight:700,color:"#6366f1",display:"block",marginBottom:4}}>📅 Data Início</label>
+                            <input type="date" value={cfg.dataInicio} onChange={e=>setCfg(s.id,"dataInicio",e.target.value)}
+                              style={{width:"100%",padding:"6px 10px",borderRadius:7,border:"1.5px solid #c7d2fe",fontSize:12,fontFamily:"inherit",background:"#fff",outline:"none",color:"#0f172a",boxSizing:"border-box"}}
+                              onFocus={e=>e.target.style.borderColor="#6366f1"} onBlur={e=>e.target.style.borderColor="#c7d2fe"}/>
+                          </div>
+                          <div>
+                            <label style={{fontSize:11,fontWeight:700,color:"#6366f1",display:"block",marginBottom:4}}>📅 Data Fim</label>
+                            <input type="date" value={cfg.dataFim} onChange={e=>setCfg(s.id,"dataFim",e.target.value)}
+                              style={{width:"100%",padding:"6px 10px",borderRadius:7,border:"1.5px solid #c7d2fe",fontSize:12,fontFamily:"inherit",background:"#fff",outline:"none",color:"#0f172a",boxSizing:"border-box"}}
+                              onFocus={e=>e.target.style.borderColor="#6366f1"} onBlur={e=>e.target.style.borderColor="#c7d2fe"}/>
+                          </div>
+                        </div>
+                        <div>
+                          <label style={{fontSize:11,fontWeight:700,color:"#8b5cf6",display:"block",marginBottom:4}}>🏷 Competência inicial (mês/ano)</label>
+                          <input type="month" value={cfg.competencia} onChange={e=>setCfg(s.id,"competencia",e.target.value)}
+                            style={{width:"100%",padding:"6px 10px",borderRadius:7,border:"1.5px solid #ddd6fe",fontSize:12,fontFamily:"inherit",background:"#fff",outline:"none",color:"#0f172a",boxSizing:"border-box"}}
+                            onFocus={e=>e.target.style.borderColor="#8b5cf6"} onBlur={e=>e.target.style.borderColor="#ddd6fe"}/>
+                          {cfg.competencia&&<div style={{fontSize:10,color:"#8b5cf6",marginTop:3,fontWeight:700}}>Cada tarefa gerada terá a competência incrementada: {fmtComp(cfg.competencia)}, {fmtComp(`${cfg.competencia.split("-")[0]}-${String(parseInt(cfg.competencia.split("-")[1])+1).padStart(2,"0")}`)}, ...</div>}
+                        </div>
+                      </div>
+                    )}
+                    {/* Mostra config salva quando já gerado */}
+                    {sel&&jaGerado&&(cfg.dataInicio||cfg.competencia)&&(
+                      <div style={{padding:"6px 14px 10px",display:"flex",gap:12,flexWrap:"wrap",borderTop:"1px solid #dcfce7"}}>
+                        {cfg.dataInicio&&<span style={{fontSize:10,color:"#64748b"}}>📅 Início: <strong>{cfg.dataInicio}</strong></span>}
+                        {cfg.dataFim&&<span style={{fontSize:10,color:"#64748b"}}>📅 Fim: <strong>{cfg.dataFim}</strong></span>}
+                        {cfg.competencia&&<span style={{fontSize:10,color:"#8b5cf6",fontWeight:700}}>🏷 {fmtComp(cfg.competencia)}</span>}
+                      </div>
+                    )}
                   </div>
-                  <div style={{flex:1}}>
-                    <div style={{fontWeight:700,fontSize:13,color:"#0f172a"}}>{s.name}</div>
-                    {s.description&&<div style={{fontSize:11,color:"#94a3b8"}}>{s.description}</div>}
-                    {rec&&<div style={{fontSize:11,color:"#6366f1"}}>{rec.name}</div>}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>}
+                );
+              })}
+            </div>
+          );
+        })()}
         <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16,paddingTop:14,borderTop:"1px solid #f1f5f9"}}>
           <Btn onClick={()=>setOpen(false)} v="ghost">Cancelar</Btn>
           <Btn onClick={save}>Salvar</Btn>
@@ -5045,6 +5191,7 @@ function MinhasTarefasPage({data,onEdit,onDelete,onComplete}){
                     <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
                       <span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:pri.bg,color:pri.t,fontWeight:700,border:`1px solid ${pri.border}`,whiteSpace:"nowrap"}}>{pri.l}</span>
                       <span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:st.c+"18",color:st.c,fontWeight:700,whiteSpace:"nowrap"}}>{st.l}</span>
+                      {t._competencia&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:"#f5f3ff",color:"#7c3aed",fontWeight:800,border:"1.5px solid #ddd6fe",whiteSpace:"nowrap"}}>🏷 {t._competencia}</span>}
                       {ckTot>0&&<span style={{fontSize:10,color:"#64748b",whiteSpace:"nowrap"}}>☑ {ckDone}/{ckTot}</span>}
                       <div style={{display:"flex",gap:-4}}>
                         {asg.slice(0,3).map((u,i)=><div key={u.id} style={{marginLeft:i>0?-8:0}}><Av initials={u.initials} color={u.color} size={24} title={u.name}/></div>)}

@@ -91,7 +91,7 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
   box-shadow:4px 0 20px rgba(0,0,0,.18);z-index:60
 }
 .sidebar.slim{width:62px}
-.main-content{flex:1;padding:26px 28px;overflow-x:hidden;overflow-y:auto;min-width:0;animation:fadeIn .28s ease;height:100vh;box-sizing:border-box}
+.main-content{flex:1;padding:26px 28px;overflow-y:auto;min-width:0;animation:fadeIn .28s ease;height:100vh;box-sizing:border-box}
 
 
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
@@ -243,7 +243,7 @@ const RINTS=[
   {value:"yearly",label:"Anual"},
 ];
 const NAV_GROUPS=[
-  {label:"Visualizações",items:[{id:"dashboard",icon:"✦",label:"Dashboard"},{id:"kanban",icon:"⊞",label:"Kanban"},{id:"lista",icon:"☰",label:"Lista"},{id:"calendario",icon:"📅",label:"Calendário"},{id:"gantt",icon:"🗓",label:"Linha do Tempo"},{id:"tabela",icon:"▦",label:"Tabela"},{id:"hoje",icon:"🌅",label:"Hoje"},{id:"minhas",icon:"👤",label:"Minhas Tarefas"},{id:"chat",icon:"💬",label:"Chat"},{id:"arquivadas",icon:"📦",label:"Arquivadas"}]},
+  {label:"Visualizações",items:[{id:"dashboard",icon:"✦",label:"Dashboard"},{id:"kanban",icon:"⊞",label:"Kanban"},{id:"lista",icon:"☰",label:"Lista"},{id:"calendario",icon:"📅",label:"Calendário"},{id:"gantt",icon:"🗓",label:"Linha do Tempo"},{id:"tabela",icon:"▦",label:"Tabela"},{id:"hoje",icon:"🌅",label:"Hoje"},{id:"minhas",icon:"👤",label:"Minhas Tarefas"},{id:"arquivadas",icon:"📦",label:"Arquivadas"}]},
   {label:"Cadastros",items:[{id:"modelos",icon:"◧",label:"Modelos"},{id:"empresas",icon:"⬡",label:"Empresas"},{id:"setores",icon:"◫",label:"Setores"},{id:"colaboradores",icon:"◉",label:"Colaboradores"},{id:"marcadores",icon:"◈",label:"Marcadores"},{id:"recorrencias",icon:"↻",label:"Recorrências"},{id:"painel-rec",icon:"⊹",label:"Painel Recorrências"},{id:"servicos",icon:"S",label:"Serviços"}]},
   {label:"Relatórios",items:[{id:"relatorio",icon:"📧",label:"Relatório por Empresa"}]},
   {label:"Sistema",items:[{id:"configuracoes",icon:"⚙",label:"Configurações"}]},
@@ -2110,7 +2110,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete,onStatusChange,myColl
         </div>
       </div>
 
-      <div className="kanban-wrap" style={{display:"flex",gap:14,overflowX:"auto",paddingBottom:20,alignItems:"flex-start"}}>
+      <div className="kanban-wrap" style={{display:"flex",gap:14,overflowX:"auto",paddingBottom:20,paddingLeft:28,paddingRight:28,margin:"0 -28px",alignItems:"flex-start"}}>
         {getFullSTS(data.customStatuses).filter(st=>st.id!=="archived").map(st=>{
           const now=new Date();
           const wkStart=new Date(now);wkStart.setDate(now.getDate()-now.getDay());wkStart.setHours(0,0,0,0);
@@ -4033,39 +4033,59 @@ function Dashboard({ data }) {
         ))}
       </div>
 
-      {/* Por colaborador */}
+      {/* 🏅 Ranking de Colaboradores */}
       {byCollaborator.length>0&&(
         <div style={{background:"var(--bg2)",borderRadius:14,padding:20,border:"1px solid var(--border)",boxShadow:"0 1px 4px rgba(0,0,0,.05)",marginBottom:24}}>
-          <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:18}}>👥 Tarefas por Colaborador - {MS[fMonth]}/{fYear}</h3>
-          <div className="dash-collabs" style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12}}>
-            {byCollaborator.map(u=>(
-              <div key={u.id} style={{background:"var(--bg3)",borderRadius:12,padding:"14px 16px",border:"1px solid var(--border)"}}>
-                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
-                  <Av initials={u.initials} color={u.color} size={36}/>
-                  <div>
-                    <div style={{fontWeight:700,fontSize:13,color:"#0f172a"}}>{u.name}</div>
-                    <div style={{fontSize:11,color:"#94a3b8"}}>{u.role}</div>
+          <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:18}}>🏅 Ranking de Colaboradores — {MS[fMonth]}/{fYear}</h3>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {[...byCollaborator].sort((a,b)=>b.done-a.done).map((u,idx)=>{
+              const pct=u.total?Math.round((u.done/u.total)*100):0;
+              const medal=idx===0?"🥇":idx===1?"🥈":idx===2?"🥉":null;
+              const rankColor=idx===0?"#f59e0b":idx===1?"#94a3b8":idx===2?"#cd7c2f":"#e2e8f0";
+              const faturamento=filteredTasks.filter(t=>toArr(t.assignees).includes(u.id)&&t.status==="done"&&t.valor).reduce((a,t)=>a+Number(t.valor||0),0);
+              return(
+                <div key={u.id} style={{display:"flex",alignItems:"center",gap:14,padding:"12px 16px",borderRadius:12,background:idx<3?"var(--bg3)":"transparent",border:idx<3?`1.5px solid ${rankColor}44`:"1px solid transparent",transition:"background .15s"}}
+                  onMouseEnter={e=>e.currentTarget.style.background="var(--bg3)"}
+                  onMouseLeave={e=>e.currentTarget.style.background=idx<3?"var(--bg3)":"transparent"}
+                >
+                  {/* Rank */}
+                  <div style={{width:32,textAlign:"center",fontSize:medal?18:13,fontWeight:900,color:medal?undefined:"#cbd5e1",flexShrink:0}}>
+                    {medal||`${idx+1}`}
+                  </div>
+                  {/* Avatar */}
+                  <Av initials={u.initials} color={u.color} size={38}/>
+                  {/* Info */}
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:5}}>
+                      <span style={{fontSize:13,fontWeight:800,color:"#0f172a"}}>{u.name}</span>
+                      <span style={{fontSize:10,color:"#94a3b8",fontWeight:600}}>{u.role}</span>
+                      {faturamento>0&&<span style={{fontSize:10,padding:"1px 7px",borderRadius:10,background:"#f0fdf4",color:"#16a34a",fontWeight:700,border:"1px solid #bbf7d0",marginLeft:"auto"}}>💰 R$ {faturamento.toLocaleString("pt-BR",{minimumFractionDigits:2})}</span>}
+                    </div>
+                    {/* Progress bar */}
+                    <div style={{height:7,borderRadius:4,background:"#e2e8f0",overflow:"hidden"}}>
+                      <div style={{width:`${pct}%`,height:"100%",background:pct===100?"#22c55e":u.overdue>0?"#ef4444":u.color||"#6366f1",borderRadius:4,transition:"width .6s ease"}}/>
+                    </div>
+                  </div>
+                  {/* Stats */}
+                  <div style={{display:"flex",gap:14,flexShrink:0,textAlign:"center"}}>
+                    {[
+                      {v:u.done,  l:"Feitas", c:"#22c55e"},
+                      {v:u.doing, l:"Fazendo",c:"#f59e0b"},
+                      {v:u.total-u.done-u.doing,l:"Fila",c:"#6366f1"},
+                      {v:u.overdue,l:"Atraso",c:u.overdue>0?"#ef4444":"#94a3b8"},
+                    ].map(({v,l,c})=>(
+                      <div key={l}>
+                        <div style={{fontSize:18,fontWeight:900,color:c,lineHeight:1}}>{v}</div>
+                        <div style={{fontSize:9,color:"#94a3b8",fontWeight:700,marginTop:2}}>{l}</div>
+                      </div>
+                    ))}
+                    <div style={{width:38,height:38,borderRadius:"50%",border:`2.5px solid ${pct===100?"#22c55e":u.color||"#6366f1"}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                      <span style={{fontSize:11,fontWeight:900,color:pct===100?"#22c55e":u.color||"#6366f1"}}>{pct}%</span>
+                    </div>
                   </div>
                 </div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4,marginBottom:8}}>
-                  <div style={{textAlign:"center",background:"var(--bg2)",borderRadius:7,padding:"5px 3px"}}>
-                    <div style={{fontSize:16,fontWeight:800,color:"#6366f1"}}>{u.total}</div>
-                    <div style={{fontSize:9,color:"#94a3b8"}}>Total</div>
-                  </div>
-                  <div style={{textAlign:"center",background:"var(--bg2)",borderRadius:7,padding:"5px 3px"}}>
-                    <div style={{fontSize:16,fontWeight:800,color:"#22c55e"}}>{u.done}</div>
-                    <div style={{fontSize:9,color:"#94a3b8"}}>Feitas</div>
-                  </div>
-                  <div style={{textAlign:"center",background:"var(--bg2)",borderRadius:7,padding:"5px 3px"}}>
-                    <div style={{fontSize:16,fontWeight:800,color:u.overdue>0?"#ef4444":"#94a3b8"}}>{u.overdue}</div>
-                    <div style={{fontSize:9,color:"#94a3b8"}}>Atraso</div>
-                  </div>
-                </div>
-                <div style={{height:6,borderRadius:3,background:"#e2e8f0",overflow:"hidden"}}>
-                  <div style={{width:`${u.total?Math.round((u.done/u.total)*100):0}%`,height:"100%",background:"#22c55e",transition:"width .6s"}}/>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -4167,7 +4187,7 @@ function PomodoroTimer({taskTitle,onClose}){
   const circ=2*Math.PI*45;
 
   return(
-    <div style={{position:"fixed",bottom:90,right:20,zIndex:5000,background:"var(--bg2)",borderRadius:20,boxShadow:"0 20px 60px rgba(0,0,0,.25)",border:"1px solid var(--border)",width:260,overflow:"hidden",animation:"popIn .2s ease"}}>
+    <div style={{position:"fixed",bottom:90,right:90,zIndex:5000,background:"var(--bg2)",borderRadius:20,boxShadow:"0 20px 60px rgba(0,0,0,.25)",border:"1px solid var(--border)",width:260,overflow:"hidden",animation:"popIn .2s ease"}}>
       <div style={{background:`linear-gradient(135deg,${cur.color}22,${cur.color}08)`,padding:"14px 16px 10px",borderBottom:"1px solid var(--border)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
           <span style={{fontSize:12,fontWeight:800,color:cur.color}}>⏱ Pomodoro</span>
@@ -4354,7 +4374,10 @@ function NotificationBell({notifications,onRead,onReadAll,onNavigate,currentUser
 
 /* ===========================================
    CHAT PAGE */
-function ChatPage({data,setData,currentUser,currentUserId,myCollab}){
+function ChatWidget({data,setData,currentUser,currentUserId,myCollab,unreadCount}){
+  const [open,setOpen]=useState(false);
+  const [minimized,setMinimized]=useState(false);
+
   // All sectors the current user belongs to, or all if admin
   const mySectors=myCollab
     ? (toArr(myCollab.sectors).length>0?toArr(myCollab.sectors):(myCollab.sector?[myCollab.sector]:[]))
@@ -4367,144 +4390,155 @@ function ChatPage({data,setData,currentUser,currentUserId,myCollab}){
   const messages=(data.chatMessages||[]).filter(m=>m.sectorId===activeSector);
 
   useEffect(()=>{
-    bottomRef.current?.scrollIntoView({behavior:"smooth"});
-  },[messages.length,activeSector]);
+    if(open&&!minimized) bottomRef.current?.scrollIntoView({behavior:"smooth"});
+  },[messages.length,activeSector,open,minimized]);
+
+  // Mark chat notifications as read when opened
+  useEffect(()=>{
+    if(open) setData(d=>({...d,notifications:(d.notifications||[]).map(n=>n.page==="chat"&&n.toId===currentUserId?{...n,read:true}:n)}));
+  },[open]);
 
   const sendMsg=()=>{
     if(!msg.trim()) return;
     const text=msg.trim();
-    // extract mentions
     const mentionNames=[];
     const re=/@([\w\s]+?)(?=\s|$|@)/g;
     let m;
     while((m=re.exec(text))!==null) mentionNames.push(m[1].trim());
 
-    const newMsg={
-      id:uid(),
-      sectorId:activeSector,
-      author:currentUser,
-      authorId:currentUserId||null,
-      text,
-      createdAt:new Date().toISOString(),
-    };
+    const newMsg={id:uid(),sectorId:activeSector,author:currentUser,authorId:currentUserId||null,text,createdAt:new Date().toISOString()};
 
-    // Build notifications for mentioned users
     const newNotifs=[];
     mentionNames.forEach(name=>{
       const u=data.collaborators.find(x=>x.name.toLowerCase()===name.toLowerCase());
       if(u&&u.id!==currentUserId){
-        newNotifs.push({
-          id:uid(),
-          toId:u.id,
-          icon:"💬",
-          text:`${currentUser} mencionou você no chat: "${text.slice(0,60)}${text.length>60?"...":""}"`,
-          page:"chat",
-          createdAt:new Date().toISOString(),
-          read:false,
-        });
+        newNotifs.push({id:uid(),toId:u.id,icon:"💬",text:`${currentUser} mencionou você no chat: "${text.slice(0,60)}${text.length>60?"...":""}"`,page:"chat",createdAt:new Date().toISOString(),read:false});
       }
     });
 
-    setData(d=>({...d,
-      chatMessages:[...(d.chatMessages||[]),newMsg],
-      notifications:[...(d.notifications||[]),...newNotifs],
-    }));
+    setData(d=>({...d,chatMessages:[...(d.chatMessages||[]),newMsg],notifications:[...(d.notifications||[]),...newNotifs]}));
     setMsg("");
   };
 
   const sector=data.sectors.find(s=>s.id===activeSector);
+  const chatUnread=(data.notifications||[]).filter(n=>n.toId===currentUserId&&!n.read&&n.page==="chat").length;
 
   return(
-    <div style={{display:"flex",gap:0,height:"calc(100vh - 140px)",minHeight:400,borderRadius:16,overflow:"hidden",border:"1px solid var(--border)",boxShadow:"0 2px 8px rgba(0,0,0,.06)"}}>
-      {/* Sidebar de setores */}
-      <div style={{width:200,background:"var(--bg2)",borderRight:"1px solid var(--border)",display:"flex",flexDirection:"column",flexShrink:0}}>
-        <div style={{padding:"14px 14px 10px",borderBottom:"1px solid var(--border)"}}>
-          <div style={{fontSize:12,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".06em"}}>Canais</div>
-        </div>
-        <div style={{flex:1,overflowY:"auto",padding:"8px 8px"}}>
-          {availSectors.length===0&&<div style={{padding:12,fontSize:12,color:"#94a3b8"}}>Nenhum setor disponível</div>}
-          {availSectors.map(s=>{
-            const unread=(data.chatMessages||[]).filter(m=>m.sectorId===s.id).length;
-            const active=activeSector===s.id;
-            return(
-              <button key={s.id} onClick={()=>setActiveSector(s.id)}
-                style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"9px 10px",borderRadius:9,border:"none",background:active?s.color+"18":"transparent",cursor:"pointer",fontFamily:"inherit",textAlign:"left",marginBottom:2,transition:"background .12s"}}
-                onMouseEnter={e=>{if(!active)e.currentTarget.style.background="rgba(0,0,0,.04)";}}
-                onMouseLeave={e=>{if(!active)e.currentTarget.style.background="transparent";}}
-              >
-                <span style={{width:8,height:8,borderRadius:"50%",background:s.color,flexShrink:0}}/>
-                <span style={{fontSize:13,fontWeight:active?800:500,color:active?s.color:"#374151",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</span>
-                {unread>0&&<span style={{fontSize:10,fontWeight:700,color:"#94a3b8"}}>{unread}</span>}
-              </button>
-            );
-          })}
-        </div>
-        {/* Who's online hint */}
-        <div style={{padding:"10px 14px",borderTop:"1px solid var(--border)"}}>
-          <div style={{fontSize:10,color:"#94a3b8",fontWeight:600}}>Logado como</div>
-          <div style={{fontSize:12,fontWeight:700,color:"#374151",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{currentUser}</div>
-        </div>
-      </div>
+    <div style={{position:"fixed",bottom:24,right:24,zIndex:1000,display:"flex",flexDirection:"column",alignItems:"flex-end",gap:8,fontFamily:"inherit"}}>
 
-      {/* Área de mensagens */}
-      <div style={{flex:1,display:"flex",flexDirection:"column",background:"var(--bg3)",minWidth:0}}>
-        {/* Header do canal */}
-        <div style={{padding:"12px 18px",background:"var(--bg2)",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",gap:10}}>
-          {sector&&<span style={{width:10,height:10,borderRadius:"50%",background:sector.color,flexShrink:0}}/>}
-          <span style={{fontSize:14,fontWeight:800,color:"#0f172a"}}>{sector?.name||"Selecione um canal"}</span>
-          <span style={{fontSize:12,color:"#94a3b8",marginLeft:4}}>{messages.length} mensagem{messages.length!==1?"ns":""}</span>
-        </div>
+      {/* Expanded panel */}
+      {open&&(
+        <div style={{
+          width:380,height:minimized?0:480,
+          background:"var(--bg2)",
+          borderRadius:18,
+          border:"1px solid var(--border)",
+          boxShadow:"0 8px 40px rgba(0,0,0,.18)",
+          display:"flex",flexDirection:"column",
+          overflow:"hidden",
+          transition:"height .25s cubic-bezier(.4,0,.2,1)",
+          transformOrigin:"bottom right",
+        }}>
+          {/* Header */}
+          <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 16px",background:"linear-gradient(135deg,#1e1b4b,#312e81)",flexShrink:0,cursor:"pointer"}} onClick={()=>setMinimized(m=>!m)}>
+            <span style={{fontSize:16}}>💬</span>
+            <span style={{fontSize:13,fontWeight:800,color:"#fff",flex:1}}>Chat — {sector?.name||"Selecione um canal"}</span>
+            <span style={{fontSize:11,color:"#a5b4fc",marginRight:4}}>{messages.length} msg</span>
+            <button onClick={e=>{e.stopPropagation();setMinimized(m=>!m);}} style={{background:"none",border:"none",color:"#a5b4fc",cursor:"pointer",fontSize:14,padding:"2px 6px",borderRadius:6}} title={minimized?"Expandir":"Minimizar"}>{minimized?"▲":"▼"}</button>
+            <button onClick={e=>{e.stopPropagation();setOpen(false);}} style={{background:"none",border:"none",color:"#a5b4fc",cursor:"pointer",fontSize:16,padding:"2px 6px",borderRadius:6}} title="Fechar">×</button>
+          </div>
 
-        {/* Mensagens */}
-        <div style={{flex:1,overflowY:"auto",padding:"16px 18px",display:"flex",flexDirection:"column",gap:2}}>
-          {messages.length===0&&(
-            <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:8,color:"#94a3b8"}}>
-              <span style={{fontSize:32}}>💬</span>
-              <span style={{fontSize:13,fontWeight:600}}>Nenhuma mensagem ainda</span>
-              <span style={{fontSize:12}}>Seja o primeiro a escrever no #{sector?.name}</span>
+          {!minimized&&<>
+            {/* Channel tabs */}
+            <div style={{display:"flex",gap:0,overflowX:"auto",borderBottom:"1px solid var(--border)",background:"var(--bg3)",flexShrink:0}}>
+              {availSectors.map(s=>{
+                const active=activeSector===s.id;
+                const cnt=(data.chatMessages||[]).filter(m=>m.sectorId===s.id).length;
+                return(
+                  <button key={s.id} onClick={()=>setActiveSector(s.id)}
+                    style={{display:"flex",alignItems:"center",gap:5,padding:"8px 13px",border:"none",borderBottom:active?`2px solid ${s.color}`:"2px solid transparent",background:"transparent",cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",transition:"all .12s",flexShrink:0}}
+                    onMouseEnter={e=>{if(!active)e.currentTarget.style.background="rgba(0,0,0,.04)";}}
+                    onMouseLeave={e=>{if(!active)e.currentTarget.style.background="transparent";}}
+                  >
+                    <span style={{width:7,height:7,borderRadius:"50%",background:s.color,flexShrink:0}}/>
+                    <span style={{fontSize:12,fontWeight:active?800:500,color:active?s.color:"#64748b"}}>{s.name}</span>
+                    {cnt>0&&<span style={{fontSize:10,color:"#94a3b8"}}>{cnt}</span>}
+                  </button>
+                );
+              })}
             </div>
-          )}
-          {messages.map((m,i)=>{
-            const isMe=m.authorId===currentUserId||m.author===currentUser;
-            const prev=messages[i-1];
-            const sameAuthor=prev&&prev.author===m.author&&(new Date(m.createdAt)-new Date(prev.createdAt))<120000;
-            const u=data.collaborators.find(x=>x.id===m.authorId||x.name===m.author);
-            return(
-              <div key={m.id} style={{display:"flex",gap:8,alignItems:"flex-end",flexDirection:isMe?"row-reverse":"row",marginTop:sameAuthor?1:10}}>
-                {!isMe&&!sameAuthor&&<Av initials={u?.initials||(m.author.slice(0,2).toUpperCase())} color={u?.color||"#6366f1"} size={30}/>}
-                {!isMe&&sameAuthor&&<div style={{width:30,flexShrink:0}}/>}
-                <div style={{maxWidth:"72%"}}>
-                  {!sameAuthor&&<div style={{fontSize:11,fontWeight:700,color:u?.color||"#6366f1",marginBottom:3,textAlign:isMe?"right":"left"}}>{isMe?"Você":m.author}</div>}
-                  <div style={{padding:"8px 12px",borderRadius:isMe?"14px 14px 4px 14px":"14px 14px 14px 4px",background:isMe?"linear-gradient(135deg,#6366f1,#8b5cf6)":"var(--bg2)",color:isMe?"#fff":"#0f172a",fontSize:13,lineHeight:1.5,boxShadow:"0 1px 3px rgba(0,0,0,.08)",border:isMe?"none":"1px solid var(--border)"}}>
-                    <RichText text={m.text} collaborators={data.collaborators}/>
-                  </div>
-                  <div style={{fontSize:10,color:"#94a3b8",marginTop:2,textAlign:isMe?"right":"left"}}>
-                    {new Date(m.createdAt).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-          <div ref={bottomRef}/>
-        </div>
 
-        {/* Input de mensagem */}
-        <div style={{padding:"12px 18px",background:"var(--bg2)",borderTop:"1px solid var(--border)",display:"flex",gap:8,alignItems:"flex-end"}}>
-          {!activeSector
-            ?<div style={{flex:1,fontSize:13,color:"#94a3b8",padding:"8px 0"}}>Selecione um canal para enviar mensagens</div>
-            :<>
-              <MentionInput
-                value={msg}
-                onChange={setMsg}
-                onSubmit={sendMsg}
-                collaborators={data.collaborators}
-                placeholder={`Mensagem em #${sector?.name||"canal"}... @nome para mencionar`}
-              />
-              <Btn onClick={sendMsg} disabled={!msg.trim()}>Enviar</Btn>
-            </>
-          }
+            {/* Messages */}
+            <div style={{flex:1,overflowY:"auto",padding:"12px 14px",display:"flex",flexDirection:"column",gap:2,background:"var(--bg)"}}>
+              {messages.length===0&&(
+                <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:6,color:"#94a3b8",paddingTop:40}}>
+                  <span style={{fontSize:28}}>💬</span>
+                  <span style={{fontSize:12,fontWeight:600}}>Nenhuma mensagem</span>
+                  <span style={{fontSize:11}}>#{sector?.name} está em silêncio...</span>
+                </div>
+              )}
+              {messages.map((m,i)=>{
+                const isMe=m.authorId===currentUserId||m.author===currentUser;
+                const prev=messages[i-1];
+                const sameAuthor=prev&&prev.author===m.author&&(new Date(m.createdAt)-new Date(prev.createdAt))<120000;
+                const u=data.collaborators.find(x=>x.id===m.authorId||x.name===m.author);
+                return(
+                  <div key={m.id} style={{display:"flex",gap:7,alignItems:"flex-end",flexDirection:isMe?"row-reverse":"row",marginTop:sameAuthor?1:8}}>
+                    {!isMe&&!sameAuthor&&<Av initials={u?.initials||(m.author.slice(0,2).toUpperCase())} color={u?.color||"#6366f1"} size={26}/>}
+                    {!isMe&&sameAuthor&&<div style={{width:26,flexShrink:0}}/>}
+                    <div style={{maxWidth:"78%"}}>
+                      {!sameAuthor&&<div style={{fontSize:10,fontWeight:700,color:u?.color||"#6366f1",marginBottom:2,textAlign:isMe?"right":"left"}}>{isMe?"Você":m.author}</div>}
+                      <div style={{padding:"7px 11px",borderRadius:isMe?"13px 13px 3px 13px":"13px 13px 13px 3px",background:isMe?"linear-gradient(135deg,#6366f1,#8b5cf6)":"var(--bg2)",color:isMe?"#fff":"#0f172a",fontSize:12,lineHeight:1.5,boxShadow:"0 1px 3px rgba(0,0,0,.07)",border:isMe?"none":"1px solid var(--border)"}}>
+                        <RichText text={m.text} collaborators={data.collaborators}/>
+                      </div>
+                      <div style={{fontSize:9,color:"#94a3b8",marginTop:1,textAlign:isMe?"right":"left"}}>
+                        {new Date(m.createdAt).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              <div ref={bottomRef}/>
+            </div>
+
+            {/* Input */}
+            <div style={{padding:"10px 12px",background:"var(--bg2)",borderTop:"1px solid var(--border)",display:"flex",gap:7,alignItems:"flex-end",flexShrink:0}}>
+              {!activeSector
+                ?<div style={{flex:1,fontSize:12,color:"#94a3b8",padding:"6px 0"}}>Selecione um canal acima</div>
+                :<>
+                  <MentionInput value={msg} onChange={setMsg} onSubmit={sendMsg} collaborators={data.collaborators} placeholder={`#${sector?.name||"canal"}... @nome para mencionar`}/>
+                  <Btn onClick={sendMsg} disabled={!msg.trim()} sz="sm" xs={{padding:"7px 14px",flexShrink:0}}>↑</Btn>
+                </>
+              }
+            </div>
+          </>}
         </div>
-      </div>
+      )}
+
+      {/* FAB button */}
+      <button onClick={()=>{setOpen(o=>!o);setMinimized(false);}}
+        style={{
+          width:52,height:52,borderRadius:"50%",
+          background:open?"#1e1b4b":"linear-gradient(135deg,#6366f1,#8b5cf6)",
+          border:"none",cursor:"pointer",
+          boxShadow:"0 4px 16px rgba(99,102,241,.4)",
+          display:"flex",alignItems:"center",justifyContent:"center",
+          fontSize:22,color:"#fff",
+          transition:"all .2s",
+          transform:open?"rotate(15deg) scale(.95)":"scale(1)",
+          position:"relative",
+        }}
+        onMouseEnter={e=>e.currentTarget.style.transform=open?"rotate(15deg) scale(1)":"scale(1.08)"}
+        onMouseLeave={e=>e.currentTarget.style.transform=open?"rotate(15deg) scale(.95)":"scale(1)"}
+        title={open?"Fechar chat":"Abrir chat"}
+      >
+        {open?"✕":"💬"}
+        {!open&&chatUnread>0&&(
+          <span style={{position:"absolute",top:-3,right:-3,minWidth:18,height:18,borderRadius:9,background:"#ef4444",color:"#fff",fontSize:10,fontWeight:900,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 4px",border:"2px solid #fff",boxShadow:"0 1px 4px rgba(0,0,0,.2)"}}>
+            {chatUnread>9?"9+":chatUnread}
+          </span>
+        )}
+      </button>
     </div>
   );
 }
@@ -5428,9 +5462,7 @@ function App(){
               {group.items.map(item=>{
                 const active=page===item.id;
                 // Badge for chat: count unread notifications pointing to chat page
-                const chatUnread=item.id==="chat"&&myCollabId
-                  ?(data.notifications||[]).filter(n=>n.toId===myCollabId&&!n.read&&n.page==="chat").length
-                  :0;
+                const chatUnread=0;
                 return(
                   <button key={item.id} className="nav-btn" onClick={()=>setPage(item.id)} title={sideCol?item.label:""} style={{width:"100%",display:"flex",alignItems:"center",gap:sideCol?0:10,padding:sideCol?"10px":"9px 10px",borderRadius:9,border:"none",cursor:"pointer",background:active?"rgba(99,102,241,.2)":"transparent",color:active?"#818cf8":"#64748b",fontSize:13,fontWeight:active?800:600,textAlign:"left",fontFamily:"inherit",transition:"all .12s",marginBottom:2,justifyContent:sideCol?"center":"flex-start"}}
                     onMouseEnter={e=>!active&&(e.currentTarget.style.background="rgba(255,255,255,.04)")}
@@ -5540,7 +5572,6 @@ function App(){
         {page==="marcadores"    && <LabelsPage data={data} setData={setData}/>}
         {page==="recorrencias"  && <RecurrencesPage data={data} setData={setData}/>}
         {page==="painel-rec"    && <PainelRecorrencias data={data} setData={setData} onEdit={openEdit} toast={toast}/>}
-        {page==="chat"          && <ChatPage data={data} setData={setData} currentUser={userName} currentUserId={myCollabId} myCollab={myCollab}/>}
         {page==="arquivadas"    && <ArchivedPage data={data} setData={setData} toast={toast}/>}
         {page==="configuracoes" && <ConfigPage data={data} setData={setData} toast={toast} deduplicateTasks={deduplicateTasks}/>}
       </main>
@@ -5569,6 +5600,7 @@ function App(){
       {deleteModal}
       <Toasts list={toasts}/>
       {pomodoroTask&&<PomodoroTimer taskTitle={pomodoroTask.title} onClose={()=>setPomodoroTask(null)}/>}
+      <ChatWidget data={data} setData={setData} currentUser={userName} currentUserId={myCollabId} myCollab={myCollab}/>
       <MentionAlertBanner
         notifications={data.notifications||[]}
         currentUserId={myCollabId}

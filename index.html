@@ -244,6 +244,14 @@ const isLate=t=>t.dueDate&&new Date(t.dueDate+"T23:59:59")<new Date()&&t.status!
 
 const PALETTE=["#6366f1","#8b5cf6","#0ea5e9","#14b8a6","#22c55e","#84cc16","#f59e0b","#f97316","#f43f5e","#ec4899"];
 const TRIBS=["Simples Nacional","Lucro Presumido","Lucro Real","MEI","Lucro Arbitrado","Imune/Isento"];
+const TRIB_COLORS={
+  "Simples Nacional": {bg:"#dcfce7",text:"#15803d",border:"#86efac"},
+  "Lucro Presumido":  {bg:"#dbeafe",text:"#1d4ed8",border:"#93c5fd"},
+  "Lucro Real":       {bg:"#fef9c3",text:"#854d0e",border:"#fde047"},
+  "MEI":              {bg:"#fce7f3",text:"#9d174d",border:"#f9a8d4"},
+  "Lucro Arbitrado":  {bg:"#ede9fe",text:"#6d28d9",border:"#c4b5fd"},
+  "Imune/Isento":     {bg:"#f1f5f9",text:"#475569",border:"#cbd5e1"},
+};
 const WDAYS=[{id:0,s:"Dom",l:"Domingo"},{id:1,s:"Seg",l:"Segunda"},{id:2,s:"Ter",l:"Terça"},{id:3,s:"Qua",l:"Quarta"},{id:4,s:"Qui",l:"Quinta"},{id:5,s:"Sex",l:"Sexta"},{id:6,s:"Sáb",l:"Sábado"}];
 const MN=["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
 const MS=["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
@@ -280,7 +288,7 @@ const RINTS=[
 const NAV_GROUPS=[
   {label:"Visualizações",items:[{id:"dashboard",icon:"✦",label:"Dashboard"},{id:"kanban",icon:"⊞",label:"Kanban"},{id:"lista",icon:"☰",label:"Lista"},{id:"calendario",icon:"📅",label:"Calendário"},{id:"gantt",icon:"🗓",label:"Linha do Tempo"},{id:"tabela",icon:"▦",label:"Tabela"},{id:"hoje",icon:"🌅",label:"Hoje"},{id:"minhas",icon:"👤",label:"Minhas Tarefas"},{id:"arquivadas",icon:"📦",label:"Arquivadas"}]},
   {label:"Cadastros",items:[{id:"modelos",icon:"◧",label:"Modelos"},{id:"empresas",icon:"⬡",label:"Empresas"},{id:"setores",icon:"◫",label:"Setores"},{id:"colaboradores",icon:"◉",label:"Colaboradores"},{id:"marcadores",icon:"◈",label:"Marcadores"},{id:"recorrencias",icon:"↻",label:"Recorrências"},{id:"painel-rec",icon:"⊹",label:"Painel Recorrências"},{id:"servicos",icon:"S",label:"Serviços"}]},
-  {label:"Relatórios",items:[{id:"relatorio",icon:"📧",label:"Relatório por Empresa"}]},
+  {label:"Relatórios",items:[{id:"relatorio",icon:"📧",label:"Relatório por Empresa"},{id:"carga",icon:"⚖",label:"Carga de Trabalho"}]},
   {label:"Sistema",items:[{id:"auditoria",icon:"🛡",label:"Auditoria"},{id:"configuracoes",icon:"⚙",label:"Configurações"}]},
 ];
 
@@ -570,10 +578,15 @@ function useSharedData() {
     }
   }, []);
 
+  const pendingSave = useRef(null);
+  const myLastSave = useRef(null);   // timestamp da última vez que EU salvei
+  const isSavingRef = useRef(false); // true enquanto meu save está em trânsito
+
   useEffect(() => {
     load();
 
-    // Escuta mudanças em tempo real (Realtime)
+    // Escuta mudanças em tempo real (Realtime) — só aplica se vier de outro usuário
+    const myUser = localStorage.getItem(USER_KEY) || "";
     const channel = sb
       .channel("app_data_changes")
       .on("postgres_changes", {
@@ -582,21 +595,32 @@ function useSharedData() {
         table: "app_data",
         filter: "id=eq.1"
       }, (payload) => {
-        if (payload.new?.payload) {
-          const p = payload.new.payload;
-          if (!p.sectors || !Array.isArray(p.sectors)) p.sectors = SEED.sectors;
-          if (!p.collaborators || !Array.isArray(p.collaborators)) p.collaborators = SEED.collaborators;
-          if (!p.companies || !Array.isArray(p.companies)) p.companies = SEED.companies;
-          if (!p.labels || !Array.isArray(p.labels)) p.labels = SEED.labels;
-          if (!p.recurrences || !Array.isArray(p.recurrences)) p.recurrences = SEED.recurrences;
-          if (!p.taskTemplates || !Array.isArray(p.taskTemplates)) p.taskTemplates = [];
+        if (!payload.new?.payload) return;
+        const p = payload.new.payload;
+
+        // Se o timestamp bate com meu último save, ignoro (foi eu quem salvei)
+        if (p._savedAt && p._savedAt === myLastSave.current) return;
+        // Se o usuário que salvou sou eu e meu save ainda está em trânsito, ignoro
+        if (p._savedBy === myUser && isSavingRef.current) return;
+
+        // É uma atualização de outro colaborador — aplica e notifica
+        if (!p.sectors || !Array.isArray(p.sectors)) p.sectors = SEED.sectors;
+        if (!p.collaborators || !Array.isArray(p.collaborators)) p.collaborators = SEED.collaborators;
+        if (!p.companies || !Array.isArray(p.companies)) p.companies = SEED.companies;
+        if (!p.labels || !Array.isArray(p.labels)) p.labels = SEED.labels;
+        if (!p.recurrences || !Array.isArray(p.recurrences)) p.recurrences = SEED.recurrences;
+        if (!p.taskTemplates || !Array.isArray(p.taskTemplates)) p.taskTemplates = [];
         if (!p.customStatuses) p.customStatuses = [];
-          if (!p.services || !Array.isArray(p.services)) p.services = [];
-          if (!p.chatMessages || !Array.isArray(p.chatMessages)) p.chatMessages = [];
-          if (!p.notifications || !Array.isArray(p.notifications)) p.notifications = [];
-          if (!p.archiveDays) p.archiveDays = 7;
-          p.tasks = (p.tasks || []).map(normalizeTask);
-          setRaw(p);
+        if (!p.services || !Array.isArray(p.services)) p.services = [];
+        if (!p.chatMessages || !Array.isArray(p.chatMessages)) p.chatMessages = [];
+        if (!p.notifications || !Array.isArray(p.notifications)) p.notifications = [];
+        if (!p.archiveDays) p.archiveDays = 7;
+        if (!p.recStatus) p.recStatus = {};
+        p.tasks = (p.tasks || []).map(normalizeTask);
+        setRaw(p);
+        // Dispara evento para o App mostrar "atualizado por colaborador"
+        if(p._savedBy && p._savedBy !== myUser){
+          window.dispatchEvent(new CustomEvent("mdtec_collab_update", { detail: p._savedBy }));
         }
       })
       .subscribe();
@@ -604,22 +628,26 @@ function useSharedData() {
     return () => sb.removeChannel(channel);
   }, [load]);
 
-  const pendingSave = useRef(null);
   const setData = useCallback((updater) => {
     setRaw(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
-      // Debounced save to Supabase
+      // Cancela debounce anterior
       if(pendingSave.current) clearTimeout(pendingSave.current);
+      // Salva no Supabase rapidamente (100ms debounce para batching de cliques rápidos)
       pendingSave.current = setTimeout(() => {
-        sb.from("app_data").upsert({ id: 1, payload: next })
+        isSavingRef.current = true;
+        // Grava um timestamp no payload para identificar quem salvou
+        const toSave = {...next, _savedAt: Date.now(), _savedBy: localStorage.getItem(USER_KEY)||"" };
+        myLastSave.current = toSave._savedAt;
+        sb.from("app_data").upsert({ id: 1, payload: toSave })
           .then(({ error }) => {
+            isSavingRef.current = false;
             if(error) {
               console.error("Supabase save error:", error);
-              // Dispara evento customizado para o App exibir toast de erro
               window.dispatchEvent(new CustomEvent("mdtec_save_error", { detail: error.message }));
             }
           });
-      }, 300);
+      }, 100);
       return next;
     });
   }, []);
@@ -2911,8 +2939,8 @@ function CompaniesPage({ data, setData }) {
         if(viewMode==="lista") return(
           <div style={{background:"var(--bg2)",borderRadius:14,border:"1px solid var(--border)",overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
             {/* Cabeçalho */}
-            <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 100px 120px 90px",gap:0,padding:"8px 16px",background:"var(--bg3)",borderBottom:"2px solid var(--border)"}}>
-              {["Empresa","Tributação","Serviços","Tarefas","Responsáveis",""].map((h,i)=>(
+            <div style={{display:"grid",gridTemplateColumns:"2fr 1.1fr 1.1fr 1fr 90px 110px 90px",gap:0,padding:"8px 16px",background:"var(--bg3)",borderBottom:"2px solid var(--border)"}}>
+              {["Empresa","Tributação","Sócio(s)","Serviços","Tarefas","Responsáveis",""].map((h,i)=>(
                 <div key={i} style={{fontSize:10,fontWeight:800,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".05em",paddingRight:8}}>{h}</div>
               ))}
             </div>
@@ -2923,26 +2951,41 @@ function CompaniesPage({ data, setData }) {
               const tasksDone=tasks.filter(t=>t.status==="done").length;
               const tasksLate=tasks.filter(t=>isLate(t)).length;
               const svcs=data.services.filter(s=>toArr(c.services).includes(s.id));
-              const socios=[c.socio,...toArr(c.socios).map(s=>s.nome)].filter(Boolean);
+              const socios=[...(c.socio?[{nome:c.socio,cpf:c.cpfSocio,participacao:""}]:[]),...toArr(c.socios).filter(s=>s.nome)];
+              const tc=TRIB_COLORS[c.tributacao]||{bg:"#f1f5f9",text:"#475569",border:"#cbd5e1"};
               return(
                 <div key={c.id}
-                  style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 100px 120px 90px",gap:0,padding:"10px 16px",borderBottom:idx<filtered.length-1?"1px solid var(--border)":"none",alignItems:"center",transition:"background .1s",cursor:"default"}}
+                  style={{display:"grid",gridTemplateColumns:"2fr 1.1fr 1.1fr 1fr 90px 110px 90px",gap:0,padding:"10px 16px",borderBottom:idx<filtered.length-1?"1px solid var(--border)":"none",alignItems:"center",transition:"background .1s"}}
                   onMouseEnter={e=>e.currentTarget.style.background="var(--bg3)"}
                   onMouseLeave={e=>e.currentTarget.style.background=""}>
-                  {/* Nome + info */}
+                  {/* Nome */}
                   <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0,paddingRight:8}}>
                     <div style={{width:34,height:34,borderRadius:9,background:c.color+"18",border:"2px solid "+c.color+"44",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:900,color:c.color,flexShrink:0}}>{c.logo||c.name.slice(0,2).toUpperCase()}</div>
                     <div style={{minWidth:0}}>
                       <div style={{fontWeight:800,fontSize:13,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div>
-                      <div style={{fontSize:10,color:"#94a3b8",display:"flex",gap:6,flexWrap:"nowrap",overflow:"hidden"}}>
-                        {c.cnpj&&<span>{c.cnpj}</span>}
-                        {socios.length>0&&<span style={{color:"#64748b"}}>👤 {socios[0]}{socios.length>1?` +${socios.length-1}`:""}</span>}
-                      </div>
+                      {c.cnpj&&<div style={{fontSize:10,color:"#94a3b8"}}>{c.cnpj}</div>}
                     </div>
                   </div>
                   {/* Tributação */}
                   <div style={{paddingRight:8}}>
-                    {c.tributacao?<span style={{fontSize:10,padding:"2px 7px",borderRadius:10,background:c.color+"15",color:c.color,fontWeight:700,whiteSpace:"nowrap"}}>{c.tributacao}</span>:<span style={{fontSize:10,color:"#cbd5e1"}}>—</span>}
+                    {c.tributacao
+                      ?<span style={{fontSize:10,padding:"2px 8px",borderRadius:10,background:tc.bg,color:tc.text,fontWeight:800,border:`1px solid ${tc.border}`,whiteSpace:"nowrap",display:"inline-block"}}>{c.tributacao}</span>
+                      :<span style={{fontSize:10,color:"#cbd5e1"}}>—</span>}
+                  </div>
+                  {/* Sócios */}
+                  <div style={{paddingRight:8,minWidth:0}}>
+                    {socios.length===0
+                      ?<span style={{fontSize:10,color:"#cbd5e1"}}>—</span>
+                      :<div style={{display:"flex",flexDirection:"column",gap:1}}>
+                        {socios.slice(0,2).map((s,i)=>(
+                          <div key={i} style={{display:"flex",alignItems:"center",gap:4,minWidth:0}}>
+                            <span style={{fontSize:10,color:"#6366f1",flexShrink:0}}>👤</span>
+                            <span style={{fontSize:11,fontWeight:700,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.nome}</span>
+                            {s.participacao&&<span style={{fontSize:9,color:"#8b5cf6",fontWeight:700,flexShrink:0}}>({s.participacao}%)</span>}
+                          </div>
+                        ))}
+                        {socios.length>2&&<span style={{fontSize:10,color:"#94a3b8"}}>+{socios.length-2} mais</span>}
+                      </div>}
                   </div>
                   {/* Serviços */}
                   <div style={{display:"flex",flexWrap:"wrap",gap:3,paddingRight:8}}>
@@ -2958,18 +3001,12 @@ function CompaniesPage({ data, setData }) {
                       {tasksDone>0&&<span style={{fontSize:10,color:"#22c55e",fontWeight:700}}>✓{tasksDone}</span>}
                       {tasksLate>0&&<span style={{fontSize:10,color:"#ef4444",fontWeight:700}}>⚠{tasksLate}</span>}
                     </div>
-                    {tasks.length>0&&(
-                      <div style={{height:3,borderRadius:2,background:"#f1f5f9",width:60,overflow:"hidden"}}>
-                        <div style={{height:"100%",borderRadius:2,background:c.color,width:`${(tasksDone/tasks.length)*100}%`,transition:"width .3s"}}/>
-                      </div>
-                    )}
+                    {tasks.length>0&&<div style={{height:3,borderRadius:2,background:"#f1f5f9",width:55,overflow:"hidden"}}><div style={{height:"100%",borderRadius:2,background:c.color,width:`${(tasksDone/tasks.length)*100}%`,transition:"width .3s"}}/></div>}
                   </div>
                   {/* Responsáveis */}
-                  <div style={{display:"flex",alignItems:"center",gap:-4}}>
+                  <div style={{display:"flex",alignItems:"center"}}>
                     {collabs.slice(0,5).map((u,i)=>(
-                      <div key={u.id} style={{marginLeft:i>0?-8:0,zIndex:5-i}} title={u.name}>
-                        <Av initials={u.initials} color={u.color} size={26}/>
-                      </div>
+                      <div key={u.id} style={{marginLeft:i>0?-8:0,zIndex:5-i}} title={u.name}><Av initials={u.initials} color={u.color} size={26}/></div>
                     ))}
                     {collabs.length>5&&<span style={{fontSize:10,color:"#94a3b8",fontWeight:700,marginLeft:4}}>+{collabs.length-5}</span>}
                   </div>
@@ -2998,7 +3035,8 @@ function CompaniesPage({ data, setData }) {
               const tasksLate=tasks.filter(t=>isLate(t)).length;
               const sectors=data.sectors.filter(s=>toArr(s.companies).includes(c.id)||s.company===c.id);
               const svcs=data.services.filter(s=>toArr(c.services).includes(s.id));
-              const socios=[c.socio,...toArr(c.socios).map(s=>s.nome)].filter(Boolean);
+              const socios=[...(c.socio?[{nome:c.socio,cpf:c.cpfSocio,participacao:""}]:[]),...toArr(c.socios).filter(s=>s.nome)];
+              const tc=TRIB_COLORS[c.tributacao]||{bg:"#f1f5f9",text:"#475569",border:"#cbd5e1"};
               return (
                 <div key={c.id} style={{background:"var(--bg2)",borderRadius:16,border:"1px solid var(--border)",boxShadow:"0 2px 8px rgba(0,0,0,.06)",overflow:"hidden",display:"flex",flexDirection:"column"}}>
                   {/* Header colorido */}
@@ -3010,11 +3048,23 @@ function CompaniesPage({ data, setData }) {
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontWeight:900,fontSize:14,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div>
                         {c.cnpj&&<div style={{fontSize:10,color:"#94a3b8"}}>{c.cnpj}</div>}
-                        {c.tributacao&&<span style={{fontSize:10,padding:"1px 7px",borderRadius:8,background:c.color+"15",color:c.color,fontWeight:700}}>{c.tributacao}</span>}
+                        {c.tributacao&&<span style={{fontSize:10,padding:"1px 7px",borderRadius:8,background:tc.bg,color:tc.text,fontWeight:800,border:`1px solid ${tc.border}`,display:"inline-block",marginTop:2}}>{c.tributacao}</span>}
                       </div>
                     </div>
                     {/* Sócios */}
-                    {socios.length>0&&<div style={{fontSize:11,color:"#64748b"}}>👤 {socios.slice(0,2).join(" · ")}{socios.length>2?` +${socios.length-2}`:""}</div>}
+                    {socios.length>0&&(
+                      <div style={{display:"flex",flexDirection:"column",gap:2,padding:"6px 10px",borderRadius:8,background:"var(--bg3)",border:"1px solid var(--border)"}}>
+                        {socios.slice(0,3).map((s,i)=>(
+                          <div key={i} style={{display:"flex",alignItems:"center",gap:5,minWidth:0}}>
+                            <span style={{fontSize:10,color:"#6366f1",flexShrink:0}}>👤</span>
+                            <span style={{fontSize:11,fontWeight:700,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{s.nome}</span>
+                            {s.cpf&&<span style={{fontSize:9,color:"#94a3b8",whiteSpace:"nowrap"}}>{s.cpf}</span>}
+                            {s.participacao&&<span style={{fontSize:9,color:"#8b5cf6",fontWeight:700,whiteSpace:"nowrap"}}>({s.participacao}%)</span>}
+                          </div>
+                        ))}
+                        {socios.length>3&&<span style={{fontSize:10,color:"#94a3b8"}}>+{socios.length-3} sócio{socios.length-3>1?"s":""}</span>}
+                      </div>
+                    )}
                     {/* KPIs */}
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
                       {[{v:tasks.length,l:"Tarefas",c:c.color},{v:tasksDone,l:"Concl.",c:"#22c55e"},{v:tasksLate,l:"Atrasadas",c:tasksLate>0?"#ef4444":"#94a3b8"}].map(({v,l,c:cl})=>(
@@ -5369,9 +5419,62 @@ function AuditoriaPage({data,setData}){
   const [tab,setTab]=useState("historico");
   const [filter,setFilter]=useState({user:"",action:"",dateFrom:"",dateTo:""});
   const [recDiag,setRecDiag]=useState(null);
-  // State for delete-from-date tool
   const [delFrom,setDelFrom]=useState({serviceId:"",companyId:"",fromDate:"",status:"todo",preview:[],done:false});
   const [delPreview,setDelPreview]=useState([]);
+  // Duplicatas
+  const [dupMode,setDupMode]=useState("titulo_empresa_data"); // critério de detecção
+  const [dupKeep,setDupKeep]=useState({}); // {groupKey: taskId a manter}
+  const [dupDone,setDupDone]=useState(false);
+
+  // Detecção de duplicatas
+  const dupGroups=useMemo(()=>{
+    const active=data.tasks.filter(t=>t.status!=="archived");
+    const map={};
+    active.forEach(t=>{
+      let key="";
+      const title=(t.title||"").trim().toLowerCase();
+      const co=t.company||"";
+      const date=t.dueDate||"";
+      const svc=t._serviceId||"";
+      if(dupMode==="titulo_empresa_data") key=`${title}||${co}||${date}`;
+      else if(dupMode==="titulo_empresa")  key=`${title}||${co}`;
+      else if(dupMode==="servico_empresa_data") key=`${svc}||${co}||${date}`;
+      else if(dupMode==="titulo_data")     key=`${title}||${date}`;
+      if(!key) return;
+      if(!map[key]) map[key]=[];
+      map[key].push(t);
+    });
+    return Object.entries(map)
+      .filter(([,tasks])=>tasks.length>1)
+      .map(([key,tasks])=>({
+        key,
+        tasks:tasks.sort((a,b)=>new Date(a.createdAt||0)-new Date(b.createdAt||0)),
+        company:data.companies.find(c=>c.id===tasks[0].company),
+        svc:data.services.find(s=>s.id===tasks[0]._serviceId),
+      }))
+      .sort((a,b)=>b.tasks.length-a.tasks.length);
+  },[data.tasks,dupMode]);
+
+  const totalDups=dupGroups.reduce((s,g)=>s+g.tasks.length-1,0);
+
+  const execRemoveDups=()=>{
+    // Para cada grupo: manter o escolhido (ou o mais antigo), remover o resto
+    const toRemove=new Set();
+    dupGroups.forEach(g=>{
+      const keepId=dupKeep[g.key]||g.tasks[0].id; // padrão: manter o mais antigo
+      g.tasks.forEach(t=>{if(t.id!==keepId) toRemove.add(t.id);});
+    });
+    if(toRemove.size===0) return;
+    setData(d=>({...d,tasks:d.tasks.filter(t=>!toRemove.has(t.id))}));
+    setDupDone(true);
+    setTimeout(()=>setDupDone(false),4000);
+  };
+
+  const execRemoveGroup=(g)=>{
+    const keepId=dupKeep[g.key]||g.tasks[0].id;
+    const toRemove=g.tasks.filter(t=>t.id!==keepId).map(t=>t.id);
+    setData(d=>({...d,tasks:d.tasks.filter(t=>!toRemove.includes(t.id))}));
+  };
 
   // Collect all history entries across all tasks
   const allHistory=useMemo(()=>{
@@ -5457,8 +5560,11 @@ function AuditoriaPage({data,setData}){
       <p style={{fontSize:13,color:"#64748b",marginBottom:16}}>Rastreie alterações, diagnostique erros em recorrências e monitore ações do sistema.</p>
 
       <div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap"}}>
-        {[["historico","📋 Histórico de Alterações"],["recorrencias","🔄 Diagnóstico de Recorrências"],["excluir","🗑 Excluir Recorrentes"],["sistema","⚙️ Integridade de Dados"]].map(([v,l])=>(
-          <button key={v} onClick={()=>setTab(v)} style={{padding:"7px 16px",borderRadius:9,border:"none",background:tab===v?"#6366f1":"var(--bg3)",color:tab===v?"#fff":"#64748b",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",transition:"all .15s"}}>{l}</button>
+        {[["historico","📋 Histórico"],["recorrencias","🔄 Recorrências"],["duplicatas","⧉ Duplicatas"],["excluir","🗑 Excluir Recorrentes"],["sistema","⚙️ Integridade"]].map(([v,l])=>(
+          <button key={v} onClick={()=>{setTab(v);setDupDone(false);}} style={{padding:"7px 16px",borderRadius:9,border:"none",background:tab===v?"#6366f1":"var(--bg3)",color:tab===v?"#fff":"#64748b",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",transition:"all .15s",position:"relative"}}>
+            {l}
+            {v==="duplicatas"&&totalDups>0&&<span style={{position:"absolute",top:-6,right:-6,background:"#ef4444",color:"#fff",borderRadius:"50%",width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:900}}>{totalDups>99?"99+":totalDups}</span>}
+          </button>
         ))}
       </div>
 
@@ -5502,6 +5608,116 @@ function AuditoriaPage({data,setData}){
             })}
             {filteredHistory.length>200&&<div style={{textAlign:"center",padding:"12px",fontSize:12,color:"#94a3b8"}}>Mostrando 200 de {filteredHistory.length} registros. Use os filtros para refinar.</div>}
           </div>
+        </div>
+      )}
+
+      {tab==="duplicatas"&&(
+        <div>
+          {/* Header com resumo e critério */}
+          <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap",alignItems:"flex-start"}}>
+            <div style={{flex:1,minWidth:260,padding:"14px 18px",borderRadius:12,background:totalDups>0?"#fef2f2":"#f0fdf4",border:`1.5px solid ${totalDups>0?"#fecaca":"#86efac"}`}}>
+              <div style={{fontSize:28,fontWeight:900,color:totalDups>0?"#ef4444":"#22c55e",lineHeight:1}}>{totalDups}</div>
+              <div style={{fontSize:12,fontWeight:700,color:totalDups>0?"#dc2626":"#15803d",marginTop:2}}>{totalDups>0?`tarefa${totalDups!==1?"s duplicadas":"duplicada"} em ${dupGroups.length} grupo${dupGroups.length!==1?"s":""}`:"Nenhuma duplicata encontrada!"}</div>
+            </div>
+            <div style={{flex:2,minWidth:300,padding:"14px 18px",borderRadius:12,background:"var(--bg2)",border:"1px solid var(--border)"}}>
+              <div style={{fontSize:11,fontWeight:800,color:"#374151",marginBottom:8,textTransform:"uppercase",letterSpacing:".04em"}}>Critério de detecção</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                {[
+                  ["titulo_empresa_data","Título + Empresa + Data"],
+                  ["titulo_empresa","Título + Empresa"],
+                  ["servico_empresa_data","Serviço + Empresa + Data"],
+                  ["titulo_data","Título + Data"],
+                ].map(([v,l])=>(
+                  <button key={v} onClick={()=>{setDupMode(v);setDupKeep({});setDupDone(false);}}
+                    style={{padding:"5px 12px",borderRadius:8,border:`1.5px solid ${dupMode===v?"#6366f1":"#e5e7eb"}`,background:dupMode===v?"#6366f1":"var(--bg3)",color:dupMode===v?"#fff":"#64748b",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .12s"}}>{l}</button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Ação global */}
+          {dupGroups.length>0&&(
+            <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:16,padding:"12px 16px",borderRadius:12,background:"#fffbeb",border:"1.5px solid #fde047"}}>
+              <span style={{fontSize:13,fontWeight:700,color:"#92400e",flex:1}}>
+                ⚠️ Serão removidas <strong>{totalDups}</strong> tarefa{totalDups!==1?"s":""} — mantendo a mais antiga de cada grupo (ou a que você escolher).
+              </span>
+              {dupDone
+                ?<span style={{fontSize:13,fontWeight:800,color:"#22c55e"}}>✅ Duplicatas removidas!</span>
+                :<button onClick={execRemoveDups}
+                  style={{padding:"8px 18px",borderRadius:9,border:"none",background:"#ef4444",color:"#fff",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}
+                  onMouseEnter={e=>e.currentTarget.style.background="#dc2626"}
+                  onMouseLeave={e=>e.currentTarget.style.background="#ef4444"}>
+                  🗑 Remover todas as duplicatas
+                </button>}
+            </div>
+          )}
+
+          {/* Lista de grupos */}
+          {dupGroups.length===0?(
+            <div style={{textAlign:"center",padding:"60px 20px",color:"#94a3b8",border:"2px dashed var(--border)",borderRadius:14}}>
+              <div style={{fontSize:48,marginBottom:12}}>✅</div>
+              <div style={{fontSize:16,fontWeight:700,color:"#22c55e",marginBottom:4}}>Nenhuma duplicata encontrada!</div>
+              <div style={{fontSize:12}}>Tente outro critério de detecção se suspeitar de duplicatas.</div>
+            </div>
+          ):(
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              {dupGroups.map(g=>{
+                const keepId=dupKeep[g.key]||g.tasks[0].id;
+                const toRemoveCount=g.tasks.length-1;
+                return(
+                  <div key={g.key} style={{background:"var(--bg2)",borderRadius:14,border:"2px solid #fecaca",overflow:"hidden",boxShadow:"0 1px 4px rgba(239,68,68,.08)"}}>
+                    {/* Cabeçalho do grupo */}
+                    <div style={{padding:"10px 16px",background:"#fef2f2",borderBottom:"1px solid #fecaca",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                      <span style={{fontSize:12,fontWeight:900,color:"#dc2626"}}>⧉ {g.tasks.length} cópias</span>
+                      {g.company&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:8,background:g.company.color+"18",color:g.company.color,fontWeight:700}}>{g.company.logo} {g.company.name}</span>}
+                      {g.svc&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:8,background:"#eef2ff",color:"#6366f1",fontWeight:700}}>📋 {g.svc.name}</span>}
+                      <span style={{fontSize:11,color:"#94a3b8",marginLeft:"auto"}}>será removida{toRemoveCount>1?"m":""}: <strong style={{color:"#ef4444"}}>{toRemoveCount}</strong></span>
+                      <button onClick={()=>execRemoveGroup(g)}
+                        style={{padding:"4px 12px",borderRadius:7,border:"1px solid #fca5a5",background:"#fff",color:"#ef4444",fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}
+                        onMouseEnter={e=>e.currentTarget.style.background="#fef2f2"}
+                        onMouseLeave={e=>e.currentTarget.style.background="#fff"}>Corrigir este grupo</button>
+                    </div>
+                    {/* Tarefas do grupo */}
+                    <div>
+                      {g.tasks.map((t,i)=>{
+                        const isKeep=t.id===keepId;
+                        const co=data.companies.find(c=>c.id===t.company);
+                        const pri=PRI[t.priority]||PRI.media;
+                        const st=STS.find(s=>s.id===t.status)||STS[0];
+                        const asg=data.collaborators.filter(u=>toArr(t.assignees).includes(u.id));
+                        return(
+                          <div key={t.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 16px",borderBottom:i<g.tasks.length-1?"1px solid var(--border)":"none",background:isKeep?"#f0fdf4":"#fff",transition:"background .1s"}}>
+                            {/* Radio de seleção */}
+                            <button onClick={()=>setDupKeep(prev=>({...prev,[g.key]:t.id}))}
+                              title={isKeep?"Esta será mantida":"Clique para manter esta"}
+                              style={{width:22,height:22,borderRadius:"50%",border:`2px solid ${isKeep?"#22c55e":"#e5e7eb"}`,background:isKeep?"#22c55e":"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,transition:"all .15s"}}>
+                              {isKeep&&<span style={{color:"#fff",fontSize:12,fontWeight:900}}>✓</span>}
+                            </button>
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:2}}>
+                                <span style={{fontSize:13,fontWeight:isKeep?800:600,color:isKeep?"#15803d":"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:280}}>{t.title}</span>
+                                {isKeep&&<span style={{fontSize:10,padding:"1px 7px",borderRadius:8,background:"#dcfce7",color:"#15803d",fontWeight:800,flexShrink:0}}>✓ MANTER</span>}
+                                {!isKeep&&<span style={{fontSize:10,padding:"1px 7px",borderRadius:8,background:"#fef2f2",color:"#dc2626",fontWeight:800,flexShrink:0}}>✗ REMOVER</span>}
+                              </div>
+                              <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                                {t.dueDate&&<span style={{fontSize:10,color:"#94a3b8"}}>📅 {fmtDate(t.dueDate)}</span>}
+                                <span style={{fontSize:10,padding:"1px 6px",borderRadius:6,background:pri.bg,color:pri.t,fontWeight:700}}>{pri.l}</span>
+                                <span style={{fontSize:10,padding:"1px 6px",borderRadius:6,background:st.c+"18",color:st.c,fontWeight:700}}>{st.l}</span>
+                                {t._competencia&&<span style={{fontSize:10,padding:"1px 6px",borderRadius:6,background:"#f5f3ff",color:"#7c3aed",fontWeight:700}}>🏷 {t._competencia}</span>}
+                                {toArr(t.checklist).length>0&&<span style={{fontSize:10,color:"#64748b"}}>☑ {toArr(t.checklist).filter(c=>c.done).length}/{toArr(t.checklist).length}</span>}
+                                {asg.slice(0,3).map(u=><Av key={u.id} initials={u.initials} color={u.color} size={18} title={u.name}/>)}
+                                <span style={{fontSize:10,color:"#cbd5e1"}}>criado: {t.createdAt||"—"}</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -5722,6 +5938,303 @@ function AuditoriaPage({data,setData}){
 }
 
 /* ===========================================
+   CARGA DE TRABALHO */
+function CargaPage({data}){
+  const [periodo,setPeriodo]=useState("mes"); // "semana"|"mes"|"trimestre"|"todos"
+  const [viewMode,setViewMode]=useState("barras"); // "barras"|"timeline"
+  const [filterCo,setFilterCo]=useState("");
+
+  const hoje=new Date();hoje.setHours(0,0,0,0);
+  const periodRange=useMemo(()=>{
+    const ini=new Date(hoje);
+    const fim=new Date(hoje);
+    if(periodo==="semana"){ini.setDate(hoje.getDate()-hoje.getDay());fim.setDate(ini.getDate()+6);}
+    else if(periodo==="mes"){ini.setDate(1);fim.setMonth(fim.getMonth()+1);fim.setDate(0);}
+    else if(periodo==="trimestre"){ini.setDate(1);ini.setMonth(Math.floor(hoje.getMonth()/3)*3);fim.setMonth(ini.getMonth()+3);fim.setDate(0);}
+    else{return null;}
+    return{ini,fim};
+  },[periodo,hoje.toDateString()]);
+
+  const fmtD=(d)=>new Date(d+"T00:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"});
+
+  // Tarefas ativas filtradas por período
+  const tasksInPeriod=useMemo(()=>{
+    return data.tasks.filter(t=>{
+      if(t.status==="archived") return false;
+      if(filterCo&&t.company!==filterCo) return false;
+      if(!periodRange) return true;
+      if(!t.dueDate) return true; // sem prazo entra sempre
+      const d=new Date(t.dueDate+"T00:00:00");
+      return d>=periodRange.ini&&d<=periodRange.fim;
+    });
+  },[data.tasks,periodRange,filterCo]);
+
+  // Métricas por colaborador
+  const collabStats=useMemo(()=>{
+    const stats=data.collaborators.map(u=>{
+      const mine=tasksInPeriod.filter(t=>toArr(t.assignees).includes(u.id));
+      const done=mine.filter(t=>t.status==="done");
+      const late=mine.filter(t=>isLate(t));
+      const todo=mine.filter(t=>t.status==="todo"||t.status==="inprogress");
+      const withDate=mine.filter(t=>t.dueDate);
+      // Carga: conta tarefas ponderadas por prioridade
+      const carga=mine.reduce((s,t)=>{
+        if(t.status==="done"||t.status==="archived") return s;
+        const w={urgente:3,alta:2,media:1,baixa:0.5}[t.priority]||1;
+        return s+w;
+      },0);
+      // Próximo prazo
+      const proxima=withDate.filter(t=>t.status!=="done").sort((a,b)=>a.dueDate.localeCompare(b.dueDate))[0];
+      // Empresas atendidas
+      const cos=[...new Set(mine.map(t=>t.company).filter(Boolean))];
+      return{...u,mine,done,late,todo,carga,proxima,cos,total:mine.length};
+    }).filter(u=>u.total>0||data.collaborators.length<=6); // mostra todos se poucos
+
+    // Sem responsável
+    const semResp=tasksInPeriod.filter(t=>toArr(t.assignees).length===0&&t.status!=="done");
+
+    return{collabs:stats.sort((a,b)=>b.carga-a.carga), semResp};
+  },[data.collaborators,tasksInPeriod]);
+
+  const maxCarga=Math.max(1,...collabStats.collabs.map(u=>u.carga));
+
+  // Nível de carga
+  const nivelCarga=(c,max)=>{
+    const pct=c/max;
+    if(pct>0.8) return{label:"Sobrecarregado",bg:"#fef2f2",bar:"#ef4444",text:"#dc2626",dot:"#ef4444"};
+    if(pct>0.5) return{label:"Ocupado",bg:"#fffbeb",bar:"#f59e0b",text:"#92400e",dot:"#f59e0b"};
+    if(pct>0.2) return{label:"Normal",bg:"#f0fdf4",bar:"#22c55e",text:"#15803d",dot:"#22c55e"};
+    return{label:"Disponível",bg:"#f8fafc",bar:"#94a3b8",text:"#64748b",dot:"#94a3b8"};
+  };
+
+  // Timeline: dias do período com tarefas por colaborador
+  const timelineDays=useMemo(()=>{
+    if(!periodRange||periodo==="trimestre") return[];
+    const days=[];
+    for(let d=new Date(periodRange.ini);d<=periodRange.fim;d.setDate(d.getDate()+1)){
+      const ds=d.toISOString().slice(0,10);
+      days.push(ds);
+    }
+    return days;
+  },[periodRange,periodo]);
+
+  return(
+    <div>
+      <PH title="Carga de Trabalho" icon="⚖" badge={collabStats.collabs.length}/>
+      <p style={{fontSize:13,color:"#64748b",marginBottom:16}}>Visualize a distribuição de tarefas entre os colaboradores e identifique sobrecargas.</p>
+
+      {/* Controles */}
+      <div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap",alignItems:"center"}}>
+        <div style={{display:"flex",gap:2,background:"var(--bg3)",borderRadius:9,padding:3,border:"1px solid var(--border)"}}>
+          {[["semana","Semana"],["mes","Mês"],["trimestre","Trimestre"],["todos","Todos"]].map(([v,l])=>(
+            <button key={v} onClick={()=>setPeriodo(v)}
+              style={{padding:"5px 12px",borderRadius:7,border:"none",background:periodo===v?"#6366f1":"transparent",color:periodo===v?"#fff":"#64748b",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",transition:"all .12s"}}>{l}</button>
+          ))}
+        </div>
+        <div style={{display:"flex",gap:2,background:"var(--bg3)",borderRadius:9,padding:3,border:"1px solid var(--border)"}}>
+          {[["barras","⊟ Barras"],["timeline","⊞ Timeline"]].map(([v,l])=>(
+            <button key={v} onClick={()=>setViewMode(v)}
+              style={{padding:"5px 12px",borderRadius:7,border:"none",background:viewMode===v?"#6366f1":"transparent",color:viewMode===v?"#fff":"#64748b",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",transition:"all .12s"}}>{l}</button>
+          ))}
+        </div>
+        <select value={filterCo} onChange={e=>setFilterCo(e.target.value)}
+          style={{padding:"7px 11px",borderRadius:9,border:"2px solid #e5e7eb",fontSize:12,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}}>
+          <option value="">Todas as empresas</option>
+          {data.companies.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        {periodRange&&<span style={{fontSize:12,color:"#94a3b8",marginLeft:4}}>{fmtD(periodRange.ini.toISOString().slice(0,10))} → {fmtD(periodRange.fim.toISOString().slice(0,10))}</span>}
+      </div>
+
+      {/* KPI resumo */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10,marginBottom:20}}>
+        {[
+          {v:tasksInPeriod.filter(t=>t.status!=="done").length,l:"Pendentes",c:"#6366f1"},
+          {v:tasksInPeriod.filter(t=>t.status==="done").length,l:"Concluídas",c:"#22c55e"},
+          {v:tasksInPeriod.filter(t=>isLate(t)).length,l:"Atrasadas",c:"#ef4444"},
+          {v:collabStats.semResp.length,l:"Sem responsável",c:"#f59e0b"},
+          {v:collabStats.collabs.filter(u=>nivelCarga(u.carga,maxCarga).label==="Sobrecarregado").length,l:"Sobrecarregados",c:"#dc2626"},
+          {v:collabStats.collabs.filter(u=>nivelCarga(u.carga,maxCarga).label==="Disponível").length,l:"Disponíveis",c:"#14b8a6"},
+        ].map(({v,l,c})=>(
+          <div key={l} style={{background:"var(--bg2)",borderRadius:12,padding:"12px 14px",border:"1px solid var(--border)",borderLeft:`4px solid ${c}`}}>
+            <div style={{fontSize:26,fontWeight:900,color:c,lineHeight:1}}>{v}</div>
+            <div style={{fontSize:11,fontWeight:700,color:"#64748b",marginTop:3}}>{l}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* MODO BARRAS */}
+      {viewMode==="barras"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {collabStats.collabs.length===0&&<div style={{textAlign:"center",padding:"40px",color:"#94a3b8",border:"2px dashed var(--border)",borderRadius:14}}>Nenhum colaborador com tarefas neste período.</div>}
+          {collabStats.collabs.map(u=>{
+            const nv=nivelCarga(u.carga,maxCarga);
+            const pct=Math.round((u.carga/maxCarga)*100);
+            const cos=u.cos.map(id=>data.companies.find(c=>c.id===id)).filter(Boolean);
+            return(
+              <div key={u.id} style={{background:"var(--bg2)",borderRadius:14,border:`1px solid var(--border)`,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,.04)"}}>
+                {/* Linha principal */}
+                <div style={{display:"flex",alignItems:"center",gap:14,padding:"14px 18px"}}>
+                  <Av initials={u.initials} color={u.color} size={42}/>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+                      <span style={{fontSize:14,fontWeight:800,color:"var(--text)"}}>{u.name}</span>
+                      <span style={{fontSize:11,padding:"2px 9px",borderRadius:20,background:nv.bg,color:nv.text,fontWeight:800,border:`1px solid ${nv.dot}40`}}>{nv.label}</span>
+                      {u.late.length>0&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:20,background:"#fef2f2",color:"#dc2626",fontWeight:700}}>⚠ {u.late.length} atrasada{u.late.length>1?"s":""}</span>}
+                    </div>
+                    {/* Barra de carga */}
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <div style={{flex:1,height:8,borderRadius:4,background:"#f1f5f9",overflow:"hidden"}}>
+                        <div style={{height:"100%",borderRadius:4,background:nv.bar,width:`${pct}%`,transition:"width .5s ease"}}/>
+                      </div>
+                      <span style={{fontSize:11,fontWeight:800,color:nv.text,minWidth:32}}>{pct}%</span>
+                    </div>
+                  </div>
+                  {/* Contadores */}
+                  <div style={{display:"flex",gap:12,flexShrink:0}}>
+                    {[{v:u.todo.length,l:"Pendentes",c:"#6366f1"},{v:u.done.length,l:"Concluídas",c:"#22c55e"},{v:u.late.length,l:"Atrasadas",c:"#ef4444"}].map(({v,l,c})=>(
+                      <div key={l} style={{textAlign:"center",minWidth:48}}>
+                        <div style={{fontSize:20,fontWeight:900,color:c,lineHeight:1}}>{v}</div>
+                        <div style={{fontSize:9,color:"#94a3b8",fontWeight:700,marginTop:2}}>{l}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {/* Detalhes expandidos */}
+                <div style={{padding:"0 18px 14px",display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-start"}}>
+                  {/* Empresas */}
+                  {cos.length>0&&<div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
+                    <span style={{fontSize:10,color:"#94a3b8",fontWeight:700}}>Empresas:</span>
+                    {cos.map(c=><span key={c.id} style={{fontSize:10,padding:"1px 7px",borderRadius:8,background:c.color+"15",color:c.color,fontWeight:700}}>{c.logo} {c.name}</span>)}
+                  </div>}
+                  {/* Próxima entrega */}
+                  {u.proxima&&<div style={{display:"flex",alignItems:"center",gap:5}}>
+                    <span style={{fontSize:10,color:"#94a3b8",fontWeight:700}}>Próxima entrega:</span>
+                    <span style={{fontSize:11,fontWeight:800,color:isLate(u.proxima)?"#ef4444":"#6366f1"}}>📅 {fmtDate(u.proxima.dueDate)} — {u.proxima.title.slice(0,30)}{u.proxima.title.length>30?"…":""}</span>
+                  </div>}
+                  {/* Tarefas top 3 pendentes */}
+                  {u.todo.slice(0,3).length>0&&(
+                    <div style={{width:"100%",display:"flex",flexDirection:"column",gap:3,marginTop:2}}>
+                      {u.todo.slice(0,3).map(t=>{
+                        const co=data.companies.find(c=>c.id===t.company);
+                        const p=PRI[t.priority]||PRI.media;
+                        return(
+                          <div key={t.id} style={{display:"flex",alignItems:"center",gap:7,padding:"4px 8px",borderRadius:7,background:"var(--bg3)"}}>
+                            <span style={{width:6,height:6,borderRadius:"50%",background:p.d,flexShrink:0}}/>
+                            <span style={{fontSize:11,fontWeight:600,color:"var(--text)",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</span>
+                            {co&&<span style={{fontSize:10,color:co.color,fontWeight:700,flexShrink:0}}>{co.logo}</span>}
+                            {t.dueDate&&<span style={{fontSize:10,color:isLate(t)?"#ef4444":"#94a3b8",flexShrink:0}}>{fmtDate(t.dueDate)}</span>}
+                            {t._competencia&&<span style={{fontSize:10,color:"#7c3aed",fontWeight:700,flexShrink:0}}>🏷{t._competencia}</span>}
+                          </div>
+                        );
+                      })}
+                      {u.todo.length>3&&<span style={{fontSize:10,color:"#94a3b8",paddingLeft:8}}>+{u.todo.length-3} tarefa{u.todo.length-3>1?"s":""} a mais</span>}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          {/* Sem responsável */}
+          {collabStats.semResp.length>0&&(
+            <div style={{background:"#fffbeb",borderRadius:14,border:"1.5px solid #fde047",padding:"14px 18px"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                <span style={{fontSize:20}}>⚠️</span>
+                <span style={{fontSize:13,fontWeight:800,color:"#92400e"}}>{collabStats.semResp.length} tarefa{collabStats.semResp.length>1?"s":""} sem responsável</span>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                {collabStats.semResp.slice(0,5).map(t=>{
+                  const co=data.companies.find(c=>c.id===t.company);
+                  const p=PRI[t.priority]||PRI.media;
+                  return(
+                    <div key={t.id} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 8px",borderRadius:7,background:"#fff"}}>
+                      <span style={{width:6,height:6,borderRadius:"50%",background:p.d,flexShrink:0}}/>
+                      <span style={{fontSize:11,fontWeight:600,flex:1,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</span>
+                      {co&&<span style={{fontSize:10,color:co.color,fontWeight:700}}>{co.logo} {co.name}</span>}
+                      {t.dueDate&&<span style={{fontSize:10,color:isLate(t)?"#ef4444":"#94a3b8"}}>{fmtDate(t.dueDate)}</span>}
+                    </div>
+                  );
+                })}
+                {collabStats.semResp.length>5&&<span style={{fontSize:10,color:"#92400e",fontWeight:700}}>+{collabStats.semResp.length-5} tarefas a mais sem responsável</span>}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* MODO TIMELINE */}
+      {viewMode==="timeline"&&(
+        timelineDays.length===0
+          ?<div style={{textAlign:"center",padding:"40px",color:"#94a3b8",border:"2px dashed var(--border)",borderRadius:14}}>Timeline disponível para Semana e Mês.</div>
+          :<div style={{overflowX:"auto"}}>
+            <div style={{minWidth:Math.max(700,timelineDays.length*44+200)}}>
+              {/* Cabeçalho de dias */}
+              <div style={{display:"grid",gridTemplateColumns:`180px repeat(${timelineDays.length},1fr)`,gap:0,marginBottom:2}}>
+                <div style={{padding:"6px 12px",fontSize:10,fontWeight:800,color:"#94a3b8",textTransform:"uppercase"}}></div>
+                {timelineDays.map(d=>{
+                  const dt=new Date(d+"T00:00:00");
+                  const isToday=d===todayStr();
+                  const dom=dt.getDate();
+                  const dow=["D","S","T","Q","Q","S","S"][dt.getDay()];
+                  return(
+                    <div key={d} style={{textAlign:"center",padding:"4px 2px",background:isToday?"#6366f1":"transparent",borderRadius:isToday?6:0}}>
+                      <div style={{fontSize:9,fontWeight:700,color:isToday?"#fff":"#94a3b8"}}>{dow}</div>
+                      <div style={{fontSize:11,fontWeight:isToday?900:600,color:isToday?"#fff":"var(--text)"}}>{dom}</div>
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Linhas por colaborador */}
+              {collabStats.collabs.map(u=>{
+                const nv=nivelCarga(u.carga,maxCarga);
+                return(
+                  <div key={u.id} style={{display:"grid",gridTemplateColumns:`180px repeat(${timelineDays.length},1fr)`,gap:0,marginBottom:3,alignItems:"center"}}>
+                    {/* Nome */}
+                    <div style={{display:"flex",alignItems:"center",gap:8,padding:"4px 8px",background:"var(--bg2)",borderRadius:"8px 0 0 8px",border:"1px solid var(--border)",borderRight:"none",height:36}}>
+                      <Av initials={u.initials} color={u.color} size={24}/>
+                      <span style={{fontSize:11,fontWeight:700,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name}</span>
+                      <span style={{width:7,height:7,borderRadius:"50%",background:nv.dot,flexShrink:0,marginLeft:"auto"}}/>
+                    </div>
+                    {/* Células por dia */}
+                    {timelineDays.map((d,di)=>{
+                      const tarefasDia=u.mine.filter(t=>t.dueDate===d);
+                      const temAtrasada=tarefasDia.some(t=>isLate(t));
+                      const temConcluida=tarefasDia.length>0&&tarefasDia.every(t=>t.status==="done");
+                      const isToday=d===todayStr();
+                      return(
+                        <div key={d} title={tarefasDia.map(t=>t.title).join(", ")||""}
+                          style={{height:36,background:tarefasDia.length>0?(temConcluida?"#dcfce7":temAtrasada?"#fef2f2":"#eef2ff"):isToday?"#f5f3ff":"var(--bg2)",
+                            border:"1px solid var(--border)",borderLeft:di===0?"1px solid var(--border)":"none",
+                            display:"flex",alignItems:"center",justifyContent:"center",position:"relative",
+                            borderRadius:di===timelineDays.length-1?"0 8px 8px 0":0}}>
+                          {tarefasDia.length>0&&(
+                            <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
+                              <span style={{fontSize:10,fontWeight:900,color:temConcluida?"#15803d":temAtrasada?"#dc2626":"#6366f1"}}>{tarefasDia.length}</span>
+                              <div style={{width:16,height:2,borderRadius:1,background:temConcluida?"#22c55e":temAtrasada?"#ef4444":"#6366f1"}}/>
+                            </div>
+                          )}
+                          {isToday&&tarefasDia.length===0&&<div style={{width:2,height:20,borderRadius:1,background:"#c7d2fe"}}/>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{marginTop:12,display:"flex",gap:14,flexWrap:"wrap"}}>
+              {[["#eef2ff","#6366f1","Pendente"],["#dcfce7","#22c55e","Concluída"],["#fef2f2","#ef4444","Atrasada"],["#f5f3ff","#c7d2fe","Hoje"]].map(([bg,c,l])=>(
+                <div key={l} style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:"#64748b"}}>
+                  <div style={{width:14,height:14,borderRadius:4,background:bg,border:`1.5px solid ${c}`}}/>
+                  {l}
+                </div>
+              ))}
+            </div>
+          </div>
+      )}
+    </div>
+  );
+}
+
+/* ===========================================
    APP ROOT */
 
 function App(){
@@ -5771,6 +6284,18 @@ function App(){
     const handler=(e)=>toast(`⚠️ Erro ao salvar: ${e.detail}`,"err",5000);
     window.addEventListener("mdtec_save_error",handler);
     return()=>window.removeEventListener("mdtec_save_error",handler);
+  },[]);
+
+  // Escuta updates de outros colaboradores e exibe notificação discreta
+  const [collabUpdateMsg,setCollabUpdateMsg]=useState(null);
+  useEffect(()=>{
+    const handler=(e)=>{
+      const who=e.detail||"Colaborador";
+      setCollabUpdateMsg(who);
+      setTimeout(()=>setCollabUpdateMsg(null),3500);
+    };
+    window.addEventListener("mdtec_collab_update",handler);
+    return()=>window.removeEventListener("mdtec_collab_update",handler);
   },[]);
 
   // Atalhos de teclado globais (antes dos returns condicionais)
@@ -6375,6 +6900,13 @@ function App(){
             <p style={{fontSize:13,color:"#94a3b8",marginTop:4,fontWeight:500}}>{new Date().toLocaleDateString("pt-BR",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</p>
           </div>
           <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+            {/* Indicador de atualização de colaborador */}
+            {collabUpdateMsg&&(
+              <div style={{display:"flex",alignItems:"center",gap:6,padding:"5px 11px",borderRadius:10,background:"#f0fdf4",border:"1px solid #86efac",animation:"fadeIn .3s ease",fontSize:12,fontWeight:700,color:"#15803d"}}>
+                <span style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",flexShrink:0}}/>
+                🔄 {collabUpdateMsg} atualizou
+              </div>
+            )}
             {overdueCount>0&&(
               <div style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:10,background:"#fef2f2",border:"1px solid #fecaca"}}>
                 <span style={{width:8,height:8,borderRadius:"50%",background:"#ef4444",animation:"pulse 2s infinite"}}/>
@@ -6441,6 +6973,7 @@ function App(){
         {page==="tabela"        && <GridView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete}/>}
         {page==="gantt"         && <GanttView data={dataForUser} onEdit={openEdit}/>}
         {page==="relatorio"     && <RelatorioPage data={data} isAdmin={isAdmin}/>}
+        {page==="carga"         && <CargaPage data={dataForUser}/>}
         {page==="servicos"      && <ServicosPage data={data} setData={setData}/>}
         {page==="modelos"       && <TemplatesPage data={data} setData={setData} onUseTemplate={useTemplate}/>}
         {page==="empresas"      && <CompaniesPage data={data} setData={setData}/>}

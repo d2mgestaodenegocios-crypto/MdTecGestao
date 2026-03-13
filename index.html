@@ -2744,63 +2744,225 @@ function CalView({data,onEdit,onReschedule}){
 
 /* ===========================================
    TABLE / GRID VIEW */
-function GridView({data,onEdit,onDelete,onComplete}){
-  const [sort,ss]=useState({k:"createdAt",dir:"desc"});
+function GridView({data,onEdit,onDelete,onComplete,onQuickUpdate}){
+  const [sort,setSort]=useState({k:"dueDate",dir:"asc"});
   const [fl,sfl]=useState({});
-  const ts=k=>ss(s=>s.k===k?{k,dir:s.dir==="asc"?"desc":"asc"}:{k,dir:"asc"});
+  const [selected,setSelected]=useState(new Set());
+  const [editCell,setEditCell]=useState(null); // {id, field}
+  const [cols,setCols]=useState(["status","priority","company","sector","assignees","dueDate","competencia","checklist","labels"]);
+
+  const ALL_COLS=[
+    {k:"status",l:"Status",w:110},
+    {k:"priority",l:"Prioridade",w:95},
+    {k:"company",l:"Empresa",w:140},
+    {k:"sector",l:"Setor",w:110},
+    {k:"assignees",l:"Responsável",w:150},
+    {k:"dueDate",l:"Vencimento",w:105},
+    {k:"competencia",l:"Competência",w:110},
+    {k:"checklist",l:"Checklist",w:100},
+    {k:"labels",l:"Marcadores",w:130},
+    {k:"createdAt",l:"Criado em",w:105},
+    {k:"valor",l:"Valor (R$)",w:100},
+    {k:"slaHours",l:"SLA (h)",w:80},
+  ];
+  const visibleCols=ALL_COLS.filter(c=>cols.includes(c.k));
+
+  const ts=(k)=>setSort(s=>s.k===k?{k,dir:s.dir==="asc"?"desc":"asc"}:{k,dir:"asc"});
   const filtered=applyFilters(data.tasks.filter(t=>t.status!=="archived"),fl);
-  const sorted=[...filtered].sort((a,b)=>{let va=a[sort.k]??"",vb=b[sort.k]??"";return sort.dir==="asc"?va<vb?-1:va>vb?1:0:va>vb?-1:va<vb?1:0;});
-  const SH=({f:fk,l})=><button onClick={()=>ts(fk)} style={{background:"none",border:"none",cursor:"pointer",fontSize:10,fontWeight:800,color:sort.k===fk?"#6366f1":"#94a3b8",textTransform:"uppercase",letterSpacing:".05em",fontFamily:"inherit",display:"flex",alignItems:"center",gap:2}}>{l} {sort.k===fk?(sort.dir==="asc"?"↑":"↓"):"↕"}</button>;
+  const sorted=[...filtered].sort((a,b)=>{
+    let va=a[sort.k]??"",vb=b[sort.k]??"";
+    return sort.dir==="asc"?va<vb?-1:va>vb?1:0:va>vb?-1:va<vb?1:0;
+  });
+
+  const toggleSelect=(id)=>setSelected(s=>{const n=new Set(s);n.has(id)?n.delete(id):n.add(id);return n;});
+  const toggleAll=()=>setSelected(s=>s.size===sorted.length?new Set():new Set(sorted.map(t=>t.id)));
+
+  const deleteSelected=()=>{
+    if(selected.size===0) return;
+    if(!window.confirm(`Excluir ${selected.size} tarefa(s) selecionada(s)?`)) return;
+    selected.forEach(id=>onDelete(id));
+    setSelected(new Set());
+  };
+
+  // Edição inline de status/prioridade
+  const commitEdit=(id,field,val)=>{
+    if(onQuickUpdate) onQuickUpdate(id,field,val);
+    setEditCell(null);
+  };
+
+  const [showColPicker,setShowColPicker]=useState(false);
+
   return(
     <div>
       <FBar data={data} filters={fl} setF={sfl}/>
-      <div className="scroll-x">
-        <div style={{borderRadius:14,border:"1px solid var(--border)",overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,.05)",background:"var(--bg2)"}}>
-          <div className="tbl-head" style={{display:"grid",gridTemplateColumns:"12px minmax(160px,2fr) 110px 82px minmax(120px,1.3fr) minmax(90px,1fr) minmax(140px,1.4fr) 86px minmax(80px,110px) 52px",padding:"10px 16px",background:"var(--bg3)",borderBottom:"2px solid var(--border)",gap:8,alignItems:"center"}}>
-            <div/>
-            <SH f="title" l="Tarefa"/>
-            <SH f="status" l="Status"/>
-            <SH f="priority" l="Prior."/>
-            <div style={{fontSize:10,fontWeight:800,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".04em"}}>Empresa</div>
-            <div style={{fontSize:10,fontWeight:800,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".04em"}}>Setor</div>
-            <div style={{fontSize:10,fontWeight:800,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".04em"}}>Responsavel</div>
-            <SH f="dueDate" l="Venc."/>
-            <div style={{fontSize:10,fontWeight:800,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".04em"}}>Check</div>
-            <div/>
-          </div>
-          {sorted.length===0&&<div style={{padding:"38px 20px",textAlign:"center",color:"#94a3b8"}}>Nenhum resultado.</div>}
-          {sorted.map((t,i)=>{
-            const st=STS.find(s=>s.id===t.status)||STS[0];
-            const co=(taskCompanies(t).map(id=>data.companies.find(c=>c.id===id)).filter(Boolean))[0]||null;
-            const sec=data.sectors.find(s=>s.id===t.sector);
-            const asg=data.collaborators.filter(c=>toArr(t.assignees).includes(c.id));
-            const ckd=toArr(t.checklist).filter(c=>c.done).length,ckt=toArr(t.checklist).length;
-            const over=isLate(t),done=t.status==="done";
-            return(
-              <div key={t.id} className="tbl-row" style={{display:"grid",gridTemplateColumns:"12px minmax(160px,2fr) 110px 82px minmax(120px,1.3fr) minmax(90px,1fr) minmax(140px,1.4fr) 86px minmax(80px,110px) 52px",padding:"10px 16px",borderBottom:i<sorted.length-1?"1px solid #f8fafc":"none",alignItems:"center",gap:8,cursor:"pointer",transition:"background .1s",background:done?"#f8fffe":"transparent"}}
-                onMouseEnter={e=>e.currentTarget.style.background=done?"#f0fdf4":"#fafafa"}
-                onMouseLeave={e=>e.currentTarget.style.background=done?"#f8fffe":"transparent"}
-                onClick={()=>onEdit(t)}
-              >
-                <div style={{width:8,height:8,borderRadius:"50%",background:st.c,flexShrink:0}}/>
-                <div style={{minWidth:0}}><div style={{fontSize:13,fontWeight:700,color:done?"#94a3b8":"#0f172a",textDecoration:done?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</div></div>
-                <SBadge status={t.status}/>
-                <PBadge priority={t.priority}/>
-                <div style={{minWidth:0}}>{co?<div style={{display:"flex",alignItems:"center",gap:5}}><span style={{width:8,height:8,borderRadius:"50%",background:co.color,flexShrink:0}}/><span style={{fontSize:12,fontWeight:700,color:co.color,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{co.name}</span></div>:<span style={{color:"#cbd5e1",fontSize:12}}>—</span>}</div>
-                <div style={{minWidth:0}}>{sec?<span style={{fontSize:11,padding:"2px 8px",borderRadius:20,background:sec.color+"18",color:sec.color,fontWeight:700,whiteSpace:"nowrap",display:"inline-block",maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis"}}>{sec.name}</span>:<span style={{color:"#cbd5e1",fontSize:12}}>—</span>}</div>
-                <div style={{minWidth:0,display:"flex",alignItems:"center",gap:5,overflow:"hidden"}}>{asg.length===0?<span style={{color:"#cbd5e1",fontSize:12}}>—</span>:<><Av initials={asg[0].initials} color={asg[0].color} size={22} title={asg[0].name}/><span style={{fontSize:12,fontWeight:600,color:"#374151",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{asg[0].name||asg[0].initials}</span>{asg.length>1&&<span style={{fontSize:11,color:"#94a3b8",fontWeight:700,flexShrink:0}}>+{asg.length-1}</span>}</>}</div>
-                <span style={{fontSize:12,color:over?"#ef4444":"#64748b",fontWeight:over?700:400,whiteSpace:"nowrap"}}>{t.dueDate?fmtDate(t.dueDate):"—"}</span>
-                <div>{ckt>0?<div><div style={{height:4,borderRadius:2,background:"#f1f5f9",overflow:"hidden",marginBottom:3}}><div style={{width:`${(ckd/ckt)*100}%`,height:"100%",background:ckd===ckt?"#22c55e":"#6366f1",borderRadius:2}}/></div><span style={{fontSize:10,color:"#94a3b8",fontWeight:600}}>{ckd}/{ckt}</span></div>:<span style={{color:"#cbd5e1",fontSize:12}}>—</span>}</div>
-                <div style={{display:"flex",gap:3,alignItems:"center"}} onClick={e=>e.stopPropagation()}>
-                  <QCBtn status={t.status} onClick={()=>onComplete(t)} size={22} absolute={false}/>
-                  <Btn onClick={()=>onDelete(t.id)} v="danger" sz="sm">×</Btn>
-                </div>
-              </div>
-            );
-          })}
+
+      {/* Toolbar */}
+      <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center",flexWrap:"wrap"}}>
+        <span style={{fontSize:12,color:"#94a3b8",fontWeight:700}}>{sorted.length} linha{sorted.length!==1?"s":""}{selected.size>0&&<span style={{color:"#6366f1"}}> · {selected.size} selecionada{selected.size>1?"s":""}</span>}</span>
+        {selected.size>0&&(
+          <>
+            <button onClick={deleteSelected} style={{padding:"5px 12px",borderRadius:7,border:"1.5px solid #fca5a5",background:"#fef2f2",color:"#dc2626",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>🗑 Excluir {selected.size}</button>
+            <button onClick={()=>setSelected(new Set())} style={{padding:"5px 10px",borderRadius:7,border:"1.5px solid #e5e7eb",background:"#f8fafc",color:"#64748b",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>× Desmarcar</button>
+          </>
+        )}
+        <div style={{marginLeft:"auto",position:"relative"}}>
+          <button onClick={()=>setShowColPicker(v=>!v)} style={{padding:"5px 12px",borderRadius:7,border:"1.5px solid #e5e7eb",background:"var(--bg2)",color:"#64748b",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:5}}>
+            ⊞ Colunas
+          </button>
+          {showColPicker&&(
+            <div onClick={e=>e.stopPropagation()} style={{position:"absolute",right:0,top:"calc(100% + 6px)",background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:12,boxShadow:"0 8px 24px rgba(0,0,0,.12)",zIndex:200,padding:"12px 14px",minWidth:200}}>
+              <div style={{fontSize:11,fontWeight:800,color:"#374151",marginBottom:8,textTransform:"uppercase",letterSpacing:".04em"}}>Colunas visíveis</div>
+              {ALL_COLS.map(c=>(
+                <label key={c.k} style={{display:"flex",alignItems:"center",gap:8,padding:"4px 0",cursor:"pointer",fontSize:12,color:"var(--text)"}}>
+                  <input type="checkbox" checked={cols.includes(c.k)} onChange={e=>setCols(p=>e.target.checked?[...p,c.k]:p.filter(x=>x!==c.k))} style={{cursor:"pointer"}}/>
+                  {c.l}
+                </label>
+              ))}
+            </div>
+          )}
         </div>
       </div>
-      <div style={{marginTop:7,fontSize:12,color:"#94a3b8"}}>{sorted.length} tarefa{sorted.length!==1?"s":""}</div>
+
+      {/* Tabela */}
+      <div style={{overflowX:"auto",borderRadius:12,border:"1px solid var(--border)",boxShadow:"0 1px 6px rgba(0,0,0,.06)"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",background:"var(--bg2)",minWidth:600}}>
+          {/* Cabeçalho */}
+          <thead>
+            <tr style={{background:"var(--bg3)",borderBottom:"2px solid var(--border)"}}>
+              {/* Checkbox col */}
+              <th style={{width:36,padding:"10px 8px 10px 14px",textAlign:"center",position:"sticky",left:0,background:"var(--bg3)",zIndex:2}}>
+                <input type="checkbox" checked={sorted.length>0&&selected.size===sorted.length} onChange={toggleAll} style={{cursor:"pointer",width:14,height:14}}/>
+              </th>
+              {/* Título — sticky */}
+              <th style={{minWidth:200,padding:"10px 12px",textAlign:"left",position:"sticky",left:50,background:"var(--bg3)",zIndex:2,borderRight:"2px solid var(--border)"}}>
+                <button onClick={()=>ts("title")} style={{background:"none",border:"none",cursor:"pointer",fontSize:10,fontWeight:800,color:sort.k==="title"?"#6366f1":"#94a3b8",textTransform:"uppercase",letterSpacing:".05em",fontFamily:"inherit",display:"flex",alignItems:"center",gap:3}}>
+                  Tarefa {sort.k==="title"?(sort.dir==="asc"?"↑":"↓"):"↕"}
+                </button>
+              </th>
+              {/* Colunas dinâmicas */}
+              {visibleCols.map(c=>(
+                <th key={c.k} style={{minWidth:c.w,padding:"10px 12px",textAlign:"left",whiteSpace:"nowrap"}}>
+                  <button onClick={()=>ts(c.k)} style={{background:"none",border:"none",cursor:"pointer",fontSize:10,fontWeight:800,color:sort.k===c.k?"#6366f1":"#94a3b8",textTransform:"uppercase",letterSpacing:".05em",fontFamily:"inherit",display:"flex",alignItems:"center",gap:3}}>
+                    {c.l} {sort.k===c.k?(sort.dir==="asc"?"↑":"↓"):"↕"}
+                  </button>
+                </th>
+              ))}
+              <th style={{width:60,padding:"10px 12px"}}/>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.length===0&&(
+              <tr><td colSpan={3+visibleCols.length} style={{padding:"40px",textAlign:"center",color:"#94a3b8",fontSize:13}}>Nenhuma tarefa encontrada</td></tr>
+            )}
+            {sorted.map((t,i)=>{
+              const isSel=selected.has(t.id);
+              const st=STS.find(s=>s.id===t.status)||STS[0];
+              const co=(taskCompanies(t).map(id=>data.companies.find(c=>c.id===id)).filter(Boolean))[0]||null;
+              const sec=data.sectors.find(s=>s.id===t.sector);
+              const asg=data.collaborators.filter(c=>toArr(t.assignees).includes(c.id));
+              const lbs=data.labels.filter(l=>toArr(t.labels).includes(l.id));
+              const ckd=toArr(t.checklist).filter(c=>c.done).length,ckt=toArr(t.checklist).length;
+              const over=isLate(t),done=t.status==="done";
+              const pri=PRI[t.priority]||PRI.media;
+              const rowBg=isSel?"#eef2ff":done?"#f8fffe":i%2===0?"var(--bg2)":"var(--bg3)";
+
+              const cellVal=(field)=>{
+                switch(field){
+                  case"status": return(
+                    editCell?.id===t.id&&editCell.field==="status"
+                      ?<select autoFocus value={t.status} onChange={e=>commitEdit(t.id,"status",e.target.value)} onBlur={()=>setEditCell(null)}
+                          style={{fontSize:11,padding:"2px 6px",borderRadius:6,border:"2px solid #6366f1",fontFamily:"inherit",background:"#fff",outline:"none"}}>
+                          {STS.map(s=><option key={s.id} value={s.id}>{s.l}</option>)}
+                        </select>
+                      :<div onClick={e=>{e.stopPropagation();setEditCell({id:t.id,field:"status"});}} style={{display:"inline-flex",alignItems:"center",gap:5,padding:"3px 9px",borderRadius:20,background:st.c+"18",color:st.c,fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",border:`1px solid ${st.c}30`}} title="Clique para editar">
+                          <span style={{width:6,height:6,borderRadius:"50%",background:st.c,flexShrink:0}}/>{st.l}
+                        </div>
+                  );
+                  case"priority": return(
+                    editCell?.id===t.id&&editCell.field==="priority"
+                      ?<select autoFocus value={t.priority} onChange={e=>commitEdit(t.id,"priority",e.target.value)} onBlur={()=>setEditCell(null)}
+                          style={{fontSize:11,padding:"2px 6px",borderRadius:6,border:"2px solid #6366f1",fontFamily:"inherit",background:"#fff",outline:"none"}}>
+                          {Object.entries(PRI).map(([k,v])=><option key={k} value={k}>{v.l}</option>)}
+                        </select>
+                      :<div onClick={e=>{e.stopPropagation();setEditCell({id:t.id,field:"priority"});}} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:20,background:pri.bg,color:pri.t,fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}} title="Clique para editar">
+                          <span style={{width:6,height:6,borderRadius:"50%",background:pri.d}}/>{pri.l}
+                        </div>
+                  );
+                  case"company": return co
+                    ?<div style={{display:"flex",alignItems:"center",gap:5,minWidth:0}}><span style={{width:8,height:8,borderRadius:"50%",background:co.color,flexShrink:0}}/><span style={{fontSize:12,fontWeight:700,color:co.color,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:120}}>{co.name}</span></div>
+                    :<span style={{color:"#cbd5e1",fontSize:12}}>—</span>;
+                  case"sector": return sec
+                    ?<span style={{fontSize:11,padding:"2px 8px",borderRadius:20,background:sec.color+"18",color:sec.color,fontWeight:700,whiteSpace:"nowrap"}}>{sec.name}</span>
+                    :<span style={{color:"#cbd5e1",fontSize:12}}>—</span>;
+                  case"assignees": return asg.length===0
+                    ?<span style={{color:"#cbd5e1",fontSize:12}}>—</span>
+                    :<div style={{display:"flex",alignItems:"center",gap:4}}>
+                      {asg.slice(0,3).map((u,ii)=><div key={u.id} style={{marginLeft:ii>0?-6:0}} title={u.name}><Av initials={u.initials} color={u.color} size={22}/></div>)}
+                      {asg.length>3&&<span style={{fontSize:10,color:"#94a3b8",fontWeight:700}}>+{asg.length-3}</span>}
+                    </div>;
+                  case"dueDate": return<span style={{fontSize:12,color:over?"#ef4444":done?"#22c55e":"#64748b",fontWeight:over?700:400,whiteSpace:"nowrap"}}>{t.dueDate?fmtDate(t.dueDate):"—"}</span>;
+                  case"competencia": return t._competencia
+                    ?<span style={{fontSize:11,padding:"2px 8px",borderRadius:20,background:"#f5f3ff",color:"#7c3aed",fontWeight:800,border:"1px solid #ddd6fe",whiteSpace:"nowrap"}}>🏷 {t._competencia}</span>
+                    :<span style={{color:"#cbd5e1",fontSize:12}}>—</span>;
+                  case"checklist": return ckt>0
+                    ?<div style={{minWidth:70}}>
+                      <div style={{height:4,borderRadius:2,background:"#f1f5f9",overflow:"hidden",marginBottom:3}}><div style={{width:`${(ckd/ckt)*100}%`,height:"100%",background:ckd===ckt?"#22c55e":"#6366f1",borderRadius:2}}/></div>
+                      <span style={{fontSize:10,color:"#64748b",fontWeight:600}}>{ckd}/{ckt}</span>
+                    </div>
+                    :<span style={{color:"#cbd5e1",fontSize:12}}>—</span>;
+                  case"labels": return lbs.length>0
+                    ?<div style={{display:"flex",gap:3,flexWrap:"nowrap"}}>{lbs.slice(0,2).map(l=><span key={l.id} style={{fontSize:10,padding:"1px 6px",borderRadius:8,background:l.color+"20",color:l.color,fontWeight:700,whiteSpace:"nowrap"}}>{l.name}</span>)}{lbs.length>2&&<span style={{fontSize:10,color:"#94a3b8"}}>+{lbs.length-2}</span>}</div>
+                    :<span style={{color:"#cbd5e1",fontSize:12}}>—</span>;
+                  case"createdAt": return<span style={{fontSize:11,color:"#94a3b8",whiteSpace:"nowrap"}}>{t.createdAt?fmtDate(t.createdAt):"—"}</span>;
+                  case"valor": return t.valor?<span style={{fontSize:12,fontWeight:700,color:"#15803d"}}>R$ {Number(t.valor).toLocaleString("pt-BR",{minimumFractionDigits:2})}</span>:<span style={{color:"#cbd5e1",fontSize:12}}>—</span>;
+                  case"slaHours": return t.slaHours?<span style={{fontSize:12,color:"#f59e0b",fontWeight:700}}>{t.slaHours}h</span>:<span style={{color:"#cbd5e1",fontSize:12}}>—</span>;
+                  default: return<span style={{fontSize:12,color:"#94a3b8"}}>{t[field]||"—"}</span>;
+                }
+              };
+
+              return(
+                <tr key={t.id} style={{background:rowBg,borderBottom:"1px solid var(--border)",transition:"background .1s"}}
+                  onMouseEnter={e=>{if(!isSel&&!done)e.currentTarget.style.background="#f8faff";}}
+                  onMouseLeave={e=>{e.currentTarget.style.background=rowBg;}}>
+                  {/* Checkbox */}
+                  <td style={{padding:"8px 8px 8px 14px",textAlign:"center",position:"sticky",left:0,background:rowBg,zIndex:1}} onClick={e=>e.stopPropagation()}>
+                    <input type="checkbox" checked={isSel} onChange={()=>toggleSelect(t.id)} style={{cursor:"pointer",width:14,height:14}}/>
+                  </td>
+                  {/* Título */}
+                  <td style={{padding:"8px 12px",position:"sticky",left:50,background:rowBg,zIndex:1,borderRight:"2px solid var(--border)",minWidth:200,cursor:"pointer"}} onClick={()=>onEdit(t)}>
+                    <div style={{display:"flex",alignItems:"center",gap:6}}>
+                      <span style={{width:8,height:8,borderRadius:"50%",background:st.c,flexShrink:0}}/>
+                      <span style={{fontSize:13,fontWeight:700,color:done?"#94a3b8":"var(--text)",textDecoration:done?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:220}}>
+                        {t.pinned&&"📌 "}{t.title}
+                      </span>
+                    </div>
+                    {t.description&&<div style={{fontSize:10,color:"#94a3b8",marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",paddingLeft:14}}>{t.description}</div>}
+                  </td>
+                  {/* Colunas dinâmicas */}
+                  {visibleCols.map(c=>(
+                    <td key={c.k} style={{padding:"8px 12px",whiteSpace:"nowrap"}}>{cellVal(c.k)}</td>
+                  ))}
+                  {/* Ações */}
+                  <td style={{padding:"6px 10px",textAlign:"right"}} onClick={e=>e.stopPropagation()}>
+                    <div style={{display:"flex",gap:4,justifyContent:"flex-end",alignItems:"center"}}>
+                      <QCBtn status={t.status} onClick={()=>onComplete(t)} size={22} absolute={false}/>
+                      <button onClick={()=>onDelete(t.id)} style={{background:"none",border:"none",cursor:"pointer",color:"#cbd5e1",fontSize:14,padding:"2px 4px",borderRadius:5,transition:"color .15s"}}
+                        onMouseEnter={e=>e.currentTarget.style.color="#ef4444"}
+                        onMouseLeave={e=>e.currentTarget.style.color="#cbd5e1"}>✕</button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {showColPicker&&<div style={{position:"fixed",inset:0,zIndex:150}} onClick={()=>setShowColPicker(false)}/>}
+      <div style={{marginTop:8,fontSize:12,color:"#94a3b8",display:"flex",gap:12}}>
+        <span>{sorted.length} tarefa{sorted.length!==1?"s":""}</span>
+        {selected.size>0&&<span style={{color:"#6366f1",fontWeight:700}}>{selected.size} selecionada{selected.size>1?"s":""}</span>}
+        <span style={{marginLeft:"auto"}}>💡 Clique em Status ou Prioridade para editar inline · Clique na linha para abrir</span>
+      </div>
     </div>
   );
 }
@@ -4739,7 +4901,7 @@ function MentionInput({value,onChange,onSubmit,collaborators,placeholder}){
 }
 
 /* Helper: render text with @mentions highlighted */
-function RichText({text,collaborators}){
+function RichText({text,collaborators,isMe=false}){
   if(!text) return null;
   const parts=text.split(/(@[\w\s]+?)(?=\s|$|@)/g);
   return(
@@ -4748,7 +4910,11 @@ function RichText({text,collaborators}){
         if(p.startsWith("@")){
           const name=p.slice(1).trim();
           const u=collaborators.find(c=>c.name.toLowerCase()===name.toLowerCase());
-          return <span key={i} style={{color:u?u.color:"#6366f1",fontWeight:700,background:u?u.color+"15":"#eef2ff",borderRadius:4,padding:"0 3px"}}>{p}</span>;
+          if(isMe){
+            // Fundo branco semi-transparente para contrastar com o gradiente roxo
+            return <span key={i} style={{color:"#fff",fontWeight:800,background:"rgba(255,255,255,0.25)",borderRadius:5,padding:"1px 5px",border:"1px solid rgba(255,255,255,0.4)"}}>{p}</span>;
+          }
+          return <span key={i} style={{color:u?u.color:"#6366f1",fontWeight:800,background:u?u.color+"20":"#eef2ff",borderRadius:5,padding:"1px 5px",border:`1px solid ${u?u.color+"40":"#c7d2fe"}`}}>{p}</span>;
         }
         return <span key={i}>{p}</span>;
       })}
@@ -4894,7 +5060,7 @@ function ChatWidget({data,setData,currentUser,currentUserId,myCollab,unreadCount
             </div>
 
             {/* Messages */}
-            <div style={{flex:1,overflowY:"auto",padding:"12px 14px",display:"flex",flexDirection:"column",gap:2,background:"var(--bg)"}}>
+            <div style={{flex:1,overflowY:"auto",padding:"12px 14px",display:"flex",flexDirection:"column",gap:0,background:"var(--bg)"}}>
               {messages.length===0&&(
                 <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:6,color:"#94a3b8",paddingTop:40}}>
                   <span style={{fontSize:28}}>💬</span>
@@ -4905,22 +5071,70 @@ function ChatWidget({data,setData,currentUser,currentUserId,myCollab,unreadCount
               {messages.map((m,i)=>{
                 const isMe=m.authorId===currentUserId||m.author===currentUser;
                 const prev=messages[i-1];
+                const next=messages[i+1];
                 const sameAuthor=prev&&prev.author===m.author&&(new Date(m.createdAt)-new Date(prev.createdAt))<120000;
+                const sameAuthorNext=next&&next.author===m.author&&(new Date(next.createdAt)-new Date(m.createdAt))<120000;
                 const u=data.collaborators.find(x=>x.id===m.authorId||x.name===m.author);
+                // Separador de data
+                const msgDate=new Date(m.createdAt).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric"});
+                const prevDate=prev?new Date(prev.createdAt).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric"}):"";
+                const showDateSep=msgDate!==prevDate;
+                const todayStr2=new Date().toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric"});
+                const yesterdayStr=(()=>{const d=new Date();d.setDate(d.getDate()-1);return d.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric"});})();
+                const dateLabel=msgDate===todayStr2?"Hoje":msgDate===yesterdayStr?"Ontem":msgDate;
+                // Bordas da bolha: arredondamento contínuo quando mesmo autor
+                const brMe=`${sameAuthor?4:13}px ${sameAuthorNext?4:13}px ${sameAuthorNext?4:13}px ${sameAuthor?4:13}px`;
+                const brOther=`${sameAuthor?4:13}px ${sameAuthor?4:13}px ${sameAuthorNext?4:13}px ${sameAuthorNext?4:13}px`;
                 return(
-                  <div key={m.id} style={{display:"flex",gap:7,alignItems:"flex-end",flexDirection:isMe?"row-reverse":"row",marginTop:sameAuthor?1:8}}>
-                    {!isMe&&!sameAuthor&&<Av initials={u?.initials||(m.author.slice(0,2).toUpperCase())} color={u?.color||"#6366f1"} size={26}/>}
-                    {!isMe&&sameAuthor&&<div style={{width:26,flexShrink:0}}/>}
-                    <div style={{maxWidth:"78%"}}>
-                      {!sameAuthor&&<div style={{fontSize:10,fontWeight:700,color:u?.color||"#6366f1",marginBottom:2,textAlign:isMe?"right":"left"}}>{isMe?"Você":m.author}</div>}
-                      <div style={{padding:"7px 11px",borderRadius:isMe?"13px 13px 3px 13px":"13px 13px 13px 3px",background:isMe?"linear-gradient(135deg,#6366f1,#8b5cf6)":"var(--bg2)",color:isMe?"#fff":"#0f172a",fontSize:12,lineHeight:1.5,boxShadow:"0 1px 3px rgba(0,0,0,.07)",border:isMe?"none":"1px solid var(--border)"}}>
-                        <RichText text={m.text} collaborators={data.collaborators}/>
+                  <React.Fragment key={m.id}>
+                    {showDateSep&&(
+                      <div style={{display:"flex",alignItems:"center",gap:10,margin:"16px 0 8px"}}>
+                        <div style={{flex:1,height:1,background:"var(--border)"}}/>
+                        <span style={{fontSize:10,fontWeight:700,color:"#94a3b8",padding:"2px 10px",borderRadius:10,background:"var(--bg3)",border:"1px solid var(--border)",whiteSpace:"nowrap"}}>{dateLabel}</span>
+                        <div style={{flex:1,height:1,background:"var(--border)"}}/>
                       </div>
-                      <div style={{fontSize:9,color:"#94a3b8",marginTop:1,textAlign:isMe?"right":"left"}}>
-                        {new Date(m.createdAt).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}
+                    )}
+                    <div style={{display:"flex",gap:8,alignItems:"flex-end",flexDirection:isMe?"row-reverse":"row",marginTop:sameAuthor?2:10}}>
+                      {/* Avatar — sempre ocupa espaço, só mostra no último da sequência */}
+                      <div style={{width:30,flexShrink:0,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+                        {!isMe&&!sameAuthorNext&&(
+                          <div title={u?.name||m.author}>
+                            <Av initials={u?.initials||(m.author.slice(0,2).toUpperCase())} color={u?.color||"#6366f1"} size={28}/>
+                          </div>
+                        )}
                       </div>
+                      <div style={{maxWidth:"76%",display:"flex",flexDirection:"column",alignItems:isMe?"flex-end":"flex-start"}}>
+                        {/* Nome — só no primeiro da sequência */}
+                        {!sameAuthor&&!isMe&&(
+                          <div style={{fontSize:11,fontWeight:800,color:u?.color||"#6366f1",marginBottom:3,paddingLeft:4}}>{m.author}</div>
+                        )}
+                        {!sameAuthor&&isMe&&(
+                          <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",marginBottom:3,paddingRight:4}}>Você</div>
+                        )}
+                        {/* Bolha */}
+                        <div style={{
+                          padding:"8px 12px",
+                          borderRadius:isMe?brMe:brOther,
+                          background:isMe?"linear-gradient(135deg,#6366f1,#8b5cf6)":"var(--bg2)",
+                          color:isMe?"#fff":"var(--text)",
+                          fontSize:13,lineHeight:1.55,
+                          boxShadow:isMe?"0 2px 8px rgba(99,102,241,.3)":"0 1px 3px rgba(0,0,0,.07)",
+                          border:isMe?"none":"1px solid var(--border)",
+                          wordBreak:"break-word",
+                        }}>
+                          <RichText text={m.text} collaborators={data.collaborators} isMe={isMe}/>
+                        </div>
+                        {/* Hora — só na última da sequência */}
+                        {!sameAuthorNext&&(
+                          <div style={{fontSize:9,color:"#94a3b8",marginTop:3,paddingLeft:isMe?0:4,paddingRight:isMe?4:0}}>
+                            {new Date(m.createdAt).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}
+                          </div>
+                        )}
+                      </div>
+                      {/* Espaço do lado direito para mensagens do outro */}
+                      {!isMe&&<div style={{width:30,flexShrink:0}}/>}
                     </div>
-                  </div>
+                  </React.Fragment>
                 );
               })}
               <div ref={bottomRef}/>
@@ -6970,7 +7184,7 @@ function App(){
         {page==="hoje"          && <HojePage data={dataForUser} myCollabId={myCollabId} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete} onAdd={openNew}/>}
         {page==="minhas"        && <MinhasTarefasPage data={{...dataForUser, tasks: (myCollabId ? dataForUser.tasks.filter(t=>t.assignees?.includes(myCollabId)) : dataForUser.tasks).filter(t=>t.status!=="archived")}} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete}/>}
         {page==="calendario"    && <CalView data={dataForUser} onEdit={openEdit} onReschedule={(id,date)=>{setData(d=>({...d,tasks:d.tasks.map(t=>t.id===id?{...t,dueDate:date}:t)}));toast(`📅 Reagendado para ${date}.`,"ok");}}/>}
-        {page==="tabela"        && <GridView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete}/>}
+        {page==="tabela"        && <GridView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete} onQuickUpdate={(id,field,val)=>setData(d=>({...d,tasks:d.tasks.map(t=>t.id===id?{...t,[field]:val}:t)}))}/>}
         {page==="gantt"         && <GanttView data={dataForUser} onEdit={openEdit}/>}
         {page==="relatorio"     && <RelatorioPage data={data} isAdmin={isAdmin}/>}
         {page==="carga"         && <CargaPage data={dataForUser}/>}

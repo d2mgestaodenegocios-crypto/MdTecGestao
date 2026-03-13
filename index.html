@@ -2870,49 +2870,186 @@ function CompaniesPage({ data, setData }) {
   const {ask:askDel,modal:delModal}=useConfirmDelete();
   const del=(id)=>{const item=data.companies.find(x=>x.id===id);askDel(`Empresa: "${item?.name||""}"`,()=>setData(d=>({...d,companies:d.companies.filter(c=>c.id!==id)})));};
   const tabSt=(t)=>({padding:"6px 14px",border:"none",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit",background:tab===t?"#6366f1":"#f1f5f9",color:tab===t?"#fff":"#64748b"});
+  const [viewMode,setViewMode]=useState("lista"); // "lista" | "cards"
+  const [search,setSearch]=useState("");
+  const [filterTrib,setFilterTrib]=useState("");
+
   return (
     <div>
       <PH title="Empresas" icon="E" badge={data.companies.length} action={<Btn onClick={openNew}>+ Nova Empresa</Btn>}/>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14}}>
-        {data.companies.map(c=>{
-          const collabs=data.collaborators.filter(u=>toArr(u.companies).includes(c.id)||u.company===c.id);
-          const tasks=data.tasks.filter(t=>t.company===c.id);
-          const sectors=data.sectors.filter(s=>toArr(s.companies).includes(c.id)||s.company===c.id);
-          const svcs=data.services.filter(s=>toArr(c.services).includes(s.id));
-          return (
-            <div key={c.id} style={{background:"var(--bg2)",borderRadius:16,padding:20,border:"1px solid var(--border)",boxShadow:"0 2px 8px rgba(0,0,0,.06)"}}>
-              <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:14}}>
-                <div style={{width:52,height:52,borderRadius:14,background:c.color+"18",border:"2px solid "+c.color+"44",display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,fontWeight:900,color:c.color}}>{c.logo}</div>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontWeight:900,fontSize:15,color:"#0f172a"}}>{c.name}</div>
-                  <div style={{fontSize:11,color:"#94a3b8"}}>CNPJ: {c.cnpj||"-"}</div>
-                  {c.email&&<div style={{fontSize:11,color:"#64748b"}}>{c.email}</div>}
-                  {c.telefone&&<div style={{fontSize:11,color:"#64748b"}}>{c.telefone}</div>}
-                </div>
-              </div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}}>
-                {[{v:collabs.length,l:"Colab."},{v:tasks.length,l:"Tarefas"},{v:sectors.length,l:"Setores"}].map(({v,l})=>(
-                  <div key={l} style={{textAlign:"center",background:"var(--bg3)",borderRadius:9,padding:"8px 4px"}}>
-                    <div style={{fontSize:18,fontWeight:900,color:c.color}}>{v}</div>
-                    <div style={{fontSize:10,color:"#94a3b8",fontWeight:600}}>{l}</div>
-                  </div>
-                ))}
-              </div>
-              {c.socio&&<div style={{fontSize:11,color:"#64748b",marginBottom:4}}>👤 {c.socio}{c.cpfSocio&&<span style={{color:"#94a3b8"}}> · CPF: {c.cpfSocio}</span>}</div>}
-              {toArr(c.socios).filter(s=>s.nome).map((s,i)=><div key={i} style={{fontSize:11,color:"#64748b",marginBottom:2}}>👤 {s.nome}{s.cpf&&<span style={{color:"#94a3b8"}}> · {s.cpf}</span>}{s.participacao&&<span style={{color:"#6366f1"}}> ({s.participacao}%)</span>}</div>)}
-              {c.tributacao&&<div style={{fontSize:11,marginBottom:8}}><span style={{padding:"2px 8px",borderRadius:20,background:c.color+"18",color:c.color,fontWeight:700,fontSize:10}}>{c.tributacao}</span></div>}
-              {svcs.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:10}}>{svcs.map(s=><span key={s.id} style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:"#6366f118",color:"#6366f1",fontWeight:700}}>{s.name}</span>)}</div>}
-              <div style={{display:"flex",marginBottom:12}}>
-                {collabs.slice(0,6).map((u,i)=><div key={u.id} style={{marginLeft:i>0?-8:0}}><Av initials={u.initials} color={u.color} size={28} title={u.name}/></div>)}
-              </div>
-              <div style={{display:"flex",gap:8}}>
-                <Btn onClick={()=>openEdit(c)} v="ghost" sz="sm" xs={{flex:1,justifyContent:"center"}}>Editar</Btn>
-                <Btn onClick={()=>del(c.id)} v="danger" sz="sm">x</Btn>
-              </div>
-            </div>
-          );
-        })}
+
+      {/* Barra de busca + filtros + toggle de visualização */}
+      <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Buscar empresa, CNPJ, sócio..."
+          style={{flex:"1 1 200px",padding:"8px 12px",borderRadius:9,border:"2px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}}
+          onFocus={e=>e.target.style.borderColor="#6366f1"} onBlur={e=>e.target.style.borderColor="#e5e7eb"}/>
+        <select value={filterTrib} onChange={e=>setFilterTrib(e.target.value)}
+          style={{padding:"8px 12px",borderRadius:9,border:"2px solid #e5e7eb",fontSize:12,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",minWidth:160}}>
+          <option value="">Todas as tributações</option>
+          {TRIBS.map(t=><option key={t} value={t}>{t}</option>)}
+        </select>
+        {(search||filterTrib)&&<button onClick={()=>{setSearch("");setFilterTrib("");}} style={{padding:"7px 12px",borderRadius:9,border:"2px solid #e5e7eb",background:"#f8fafc",cursor:"pointer",fontSize:12,fontFamily:"inherit",color:"#64748b",fontWeight:700}}>× Limpar</button>}
+        <div style={{display:"flex",gap:2,marginLeft:"auto",background:"var(--bg3)",borderRadius:9,padding:3,border:"1px solid var(--border)"}}>
+          {[["lista","☰ Lista"],["cards","⊞ Cards"]].map(([v,l])=>(
+            <button key={v} onClick={()=>setViewMode(v)}
+              style={{padding:"5px 12px",borderRadius:7,border:"none",background:viewMode===v?"#6366f1":"transparent",color:viewMode===v?"#fff":"#64748b",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",transition:"all .15s"}}>{l}</button>
+          ))}
+        </div>
       </div>
+
+      {(()=>{
+        const filtered=data.companies.filter(c=>{
+          const q=search.toLowerCase();
+          if(q&&![c.name,c.cnpj,c.socio,...toArr(c.socios).map(s=>s.nome)].some(v=>(v||"").toLowerCase().includes(q))) return false;
+          if(filterTrib&&c.tributacao!==filterTrib) return false;
+          return true;
+        });
+
+        if(filtered.length===0) return <div style={{textAlign:"center",padding:"60px 20px",color:"#94a3b8"}}><div style={{fontSize:40,marginBottom:10}}>🏢</div><div style={{fontSize:15,fontWeight:700}}>Nenhuma empresa encontrada</div></div>;
+
+        /* ── MODO LISTA ─────────────────────────────── */
+        if(viewMode==="lista") return(
+          <div style={{background:"var(--bg2)",borderRadius:14,border:"1px solid var(--border)",overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
+            {/* Cabeçalho */}
+            <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 100px 120px 90px",gap:0,padding:"8px 16px",background:"var(--bg3)",borderBottom:"2px solid var(--border)"}}>
+              {["Empresa","Tributação","Serviços","Tarefas","Responsáveis",""].map((h,i)=>(
+                <div key={i} style={{fontSize:10,fontWeight:800,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".05em",paddingRight:8}}>{h}</div>
+              ))}
+            </div>
+            {/* Linhas */}
+            {filtered.map((c,idx)=>{
+              const collabs=data.collaborators.filter(u=>toArr(u.companies).includes(c.id)||u.company===c.id);
+              const tasks=data.tasks.filter(t=>t.company===c.id&&t.status!=="archived");
+              const tasksDone=tasks.filter(t=>t.status==="done").length;
+              const tasksLate=tasks.filter(t=>isLate(t)).length;
+              const svcs=data.services.filter(s=>toArr(c.services).includes(s.id));
+              const socios=[c.socio,...toArr(c.socios).map(s=>s.nome)].filter(Boolean);
+              return(
+                <div key={c.id}
+                  style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 100px 120px 90px",gap:0,padding:"10px 16px",borderBottom:idx<filtered.length-1?"1px solid var(--border)":"none",alignItems:"center",transition:"background .1s",cursor:"default"}}
+                  onMouseEnter={e=>e.currentTarget.style.background="var(--bg3)"}
+                  onMouseLeave={e=>e.currentTarget.style.background=""}>
+                  {/* Nome + info */}
+                  <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0,paddingRight:8}}>
+                    <div style={{width:34,height:34,borderRadius:9,background:c.color+"18",border:"2px solid "+c.color+"44",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:900,color:c.color,flexShrink:0}}>{c.logo||c.name.slice(0,2).toUpperCase()}</div>
+                    <div style={{minWidth:0}}>
+                      <div style={{fontWeight:800,fontSize:13,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div>
+                      <div style={{fontSize:10,color:"#94a3b8",display:"flex",gap:6,flexWrap:"nowrap",overflow:"hidden"}}>
+                        {c.cnpj&&<span>{c.cnpj}</span>}
+                        {socios.length>0&&<span style={{color:"#64748b"}}>👤 {socios[0]}{socios.length>1?` +${socios.length-1}`:""}</span>}
+                      </div>
+                    </div>
+                  </div>
+                  {/* Tributação */}
+                  <div style={{paddingRight:8}}>
+                    {c.tributacao?<span style={{fontSize:10,padding:"2px 7px",borderRadius:10,background:c.color+"15",color:c.color,fontWeight:700,whiteSpace:"nowrap"}}>{c.tributacao}</span>:<span style={{fontSize:10,color:"#cbd5e1"}}>—</span>}
+                  </div>
+                  {/* Serviços */}
+                  <div style={{display:"flex",flexWrap:"wrap",gap:3,paddingRight:8}}>
+                    {svcs.length===0?<span style={{fontSize:10,color:"#cbd5e1"}}>—</span>:svcs.slice(0,2).map(s=>(
+                      <span key={s.id} style={{fontSize:10,padding:"1px 6px",borderRadius:8,background:"#eef2ff",color:"#6366f1",fontWeight:700,whiteSpace:"nowrap"}}>{s.name}</span>
+                    ))}
+                    {svcs.length>2&&<span style={{fontSize:10,color:"#94a3b8",fontWeight:700}}>+{svcs.length-2}</span>}
+                  </div>
+                  {/* Tarefas */}
+                  <div style={{display:"flex",flexDirection:"column",gap:2}}>
+                    <div style={{display:"flex",alignItems:"center",gap:5}}>
+                      <span style={{fontSize:12,fontWeight:800,color:"var(--text)"}}>{tasks.length}</span>
+                      {tasksDone>0&&<span style={{fontSize:10,color:"#22c55e",fontWeight:700}}>✓{tasksDone}</span>}
+                      {tasksLate>0&&<span style={{fontSize:10,color:"#ef4444",fontWeight:700}}>⚠{tasksLate}</span>}
+                    </div>
+                    {tasks.length>0&&(
+                      <div style={{height:3,borderRadius:2,background:"#f1f5f9",width:60,overflow:"hidden"}}>
+                        <div style={{height:"100%",borderRadius:2,background:c.color,width:`${(tasksDone/tasks.length)*100}%`,transition:"width .3s"}}/>
+                      </div>
+                    )}
+                  </div>
+                  {/* Responsáveis */}
+                  <div style={{display:"flex",alignItems:"center",gap:-4}}>
+                    {collabs.slice(0,5).map((u,i)=>(
+                      <div key={u.id} style={{marginLeft:i>0?-8:0,zIndex:5-i}} title={u.name}>
+                        <Av initials={u.initials} color={u.color} size={26}/>
+                      </div>
+                    ))}
+                    {collabs.length>5&&<span style={{fontSize:10,color:"#94a3b8",fontWeight:700,marginLeft:4}}>+{collabs.length-5}</span>}
+                  </div>
+                  {/* Ações */}
+                  <div style={{display:"flex",gap:5,justifyContent:"flex-end"}}>
+                    <button onClick={()=>openEdit(c)} title="Editar" style={{background:"none",border:"1.5px solid #e5e7eb",borderRadius:7,padding:"4px 8px",cursor:"pointer",fontSize:11,fontWeight:700,color:"#64748b",fontFamily:"inherit",transition:"all .15s"}}
+                      onMouseEnter={e=>{e.currentTarget.style.background="#6366f1";e.currentTarget.style.color="#fff";e.currentTarget.style.borderColor="#6366f1";}}
+                      onMouseLeave={e=>{e.currentTarget.style.background="none";e.currentTarget.style.color="#64748b";e.currentTarget.style.borderColor="#e5e7eb";}}>✎</button>
+                    <button onClick={()=>del(c.id)} title="Excluir" style={{background:"none",border:"1.5px solid #e5e7eb",borderRadius:7,padding:"4px 8px",cursor:"pointer",fontSize:11,color:"#94a3b8",fontFamily:"inherit",transition:"all .15s"}}
+                      onMouseEnter={e=>{e.currentTarget.style.background="#fef2f2";e.currentTarget.style.color="#ef4444";e.currentTarget.style.borderColor="#fca5a5";}}
+                      onMouseLeave={e=>{e.currentTarget.style.background="none";e.currentTarget.style.color="#94a3b8";e.currentTarget.style.borderColor="#e5e7eb";}}>✕</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+
+        /* ── MODO CARDS ─────────────────────────────── */
+        return(
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14}}>
+            {filtered.map(c=>{
+              const collabs=data.collaborators.filter(u=>toArr(u.companies).includes(c.id)||u.company===c.id);
+              const tasks=data.tasks.filter(t=>t.company===c.id&&t.status!=="archived");
+              const tasksDone=tasks.filter(t=>t.status==="done").length;
+              const tasksLate=tasks.filter(t=>isLate(t)).length;
+              const sectors=data.sectors.filter(s=>toArr(s.companies).includes(c.id)||s.company===c.id);
+              const svcs=data.services.filter(s=>toArr(c.services).includes(s.id));
+              const socios=[c.socio,...toArr(c.socios).map(s=>s.nome)].filter(Boolean);
+              return (
+                <div key={c.id} style={{background:"var(--bg2)",borderRadius:16,border:"1px solid var(--border)",boxShadow:"0 2px 8px rgba(0,0,0,.06)",overflow:"hidden",display:"flex",flexDirection:"column"}}>
+                  {/* Header colorido */}
+                  <div style={{height:5,background:c.color,flexShrink:0}}/>
+                  <div style={{padding:"14px 16px",flex:1,display:"flex",flexDirection:"column",gap:10}}>
+                    {/* Nome + logo */}
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <div style={{width:42,height:42,borderRadius:11,background:c.color+"18",border:"2px solid "+c.color+"44",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:900,color:c.color,flexShrink:0}}>{c.logo||c.name.slice(0,2).toUpperCase()}</div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontWeight:900,fontSize:14,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div>
+                        {c.cnpj&&<div style={{fontSize:10,color:"#94a3b8"}}>{c.cnpj}</div>}
+                        {c.tributacao&&<span style={{fontSize:10,padding:"1px 7px",borderRadius:8,background:c.color+"15",color:c.color,fontWeight:700}}>{c.tributacao}</span>}
+                      </div>
+                    </div>
+                    {/* Sócios */}
+                    {socios.length>0&&<div style={{fontSize:11,color:"#64748b"}}>👤 {socios.slice(0,2).join(" · ")}{socios.length>2?` +${socios.length-2}`:""}</div>}
+                    {/* KPIs */}
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
+                      {[{v:tasks.length,l:"Tarefas",c:c.color},{v:tasksDone,l:"Concl.",c:"#22c55e"},{v:tasksLate,l:"Atrasadas",c:tasksLate>0?"#ef4444":"#94a3b8"}].map(({v,l,c:cl})=>(
+                        <div key={l} style={{textAlign:"center",background:"var(--bg3)",borderRadius:8,padding:"6px 4px"}}>
+                          <div style={{fontSize:16,fontWeight:900,color:cl,lineHeight:1}}>{v}</div>
+                          <div style={{fontSize:9,color:"#94a3b8",fontWeight:700,marginTop:2}}>{l}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Progresso */}
+                    {tasks.length>0&&<div style={{height:4,borderRadius:2,background:"#f1f5f9",overflow:"hidden"}}><div style={{height:"100%",borderRadius:2,background:c.color,width:`${(tasksDone/tasks.length)*100}%`,transition:"width .3s"}}/></div>}
+                    {/* Serviços */}
+                    {svcs.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4}}>{svcs.map(s=><span key={s.id} style={{fontSize:10,padding:"2px 7px",borderRadius:8,background:"#eef2ff",color:"#6366f1",fontWeight:700}}>{s.name}</span>)}</div>}
+                    {/* Equipe */}
+                    {collabs.length>0&&<div style={{display:"flex",alignItems:"center",gap:-4}}>
+                      {collabs.slice(0,6).map((u,i)=><div key={u.id} style={{marginLeft:i>0?-8:0}} title={u.name}><Av initials={u.initials} color={u.color} size={26}/></div>)}
+                      {collabs.length>6&&<span style={{fontSize:10,color:"#94a3b8",marginLeft:4}}>+{collabs.length-6}</span>}
+                    </div>}
+                  </div>
+                  {/* Footer ações */}
+                  <div style={{display:"flex",gap:0,borderTop:"1px solid var(--border)"}}>
+                    <button onClick={()=>openEdit(c)} style={{flex:1,padding:"9px",background:"none",border:"none",cursor:"pointer",fontSize:12,fontWeight:700,color:"#6366f1",fontFamily:"inherit",transition:"background .15s"}}
+                      onMouseEnter={e=>e.currentTarget.style.background="#eef2ff"}
+                      onMouseLeave={e=>e.currentTarget.style.background="none"}>✎ Editar</button>
+                    <div style={{width:1,background:"var(--border)"}}/>
+                    <button onClick={()=>del(c.id)} style={{padding:"9px 14px",background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#94a3b8",fontFamily:"inherit",transition:"background .15s"}}
+                      onMouseEnter={e=>{e.currentTarget.style.background="#fef2f2";e.currentTarget.style.color="#ef4444";}}
+                      onMouseLeave={e=>{e.currentTarget.style.background="none";e.currentTarget.style.color="#94a3b8";}}>✕</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
       <Modal open={open} onClose={()=>setOpen(false)} title={editing?"Editar Empresa":"Nova Empresa"} width={520}>
         {localToast&&(
           <div style={{marginBottom:10,padding:"9px 14px",borderRadius:9,background:localToast.type==="ok"?"#f0fdf4":localToast.type==="warn"?"#fffbeb":"#fef2f2",border:`1.5px solid ${localToast.type==="ok"?"#86efac":localToast.type==="warn"?"#fcd34d":"#fca5a5"}`,fontSize:12,fontWeight:700,color:localToast.type==="ok"?"#15803d":localToast.type==="warn"?"#92400e":"#b91c1c",display:"flex",alignItems:"center",gap:7}}>

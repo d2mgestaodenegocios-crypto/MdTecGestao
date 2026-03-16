@@ -563,6 +563,14 @@ function useSharedData() {
           p.tasks=[...resetChecklist.filter(t=>!t._parentId&&!t.recurrence),...generated];
           p._migrated_v3=true;
         }
+        // MIGRAÇÃO v4: garantir campo companies[] em todas as tarefas
+        if(!p._migrated_v4){
+          p.tasks=(p.tasks||[]).map(t=>{
+            if(Array.isArray(t.companies)&&t.companies.length>0) return t;
+            return {...t,companies:t.company?[t.company]:[]};
+          });
+          p._migrated_v4=true;
+        }
         p.tasks = (p.tasks || []).map(normalizeTask);
         setRaw(p);
       } else {
@@ -878,6 +886,24 @@ function RelatorioPage({data,isAdmin}){
         <label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,fontWeight:700,color:"#64748b",cursor:"pointer"}}>
           <input type="checkbox" checked={showDone} onChange={e=>setShowDone(e.target.checked)} style={{accentColor:"#22c55e"}}/> Concluídas
         </label>
+        <Btn onClick={()=>{
+          const headers=["Título","Status","Prioridade","Setor","Responsáveis","Valor (R$)","Vencimento","Concluído em","Notas internas"];
+          const esc=v=>`"${String(v||"").replace(/"/g,'""')}"`;
+          const rows=tasks.map(t=>{
+            const st=STS.find(s=>s.id===t.status)||{l:t.status};
+            const pri=PRI[t.priority]||{l:t.priority};
+            const sec=data.sectors.find(s=>s.id===t.sector);
+            const asgs=data.collaborators.filter(c=>toArr(t.assignees).includes(c.id)).map(c=>c.name).join("; ");
+            return [t.title,st.l,pri.l,sec?.name||"",asgs,t.valor||"",t.dueDate||"",t.completedAt||"",t.internalNote||""].map(esc).join(",");
+          });
+          const csv=[headers.map(esc).join(","),...rows].join("
+");
+          const blob=new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8"});
+          const url=URL.createObjectURL(blob);
+          const a=document.createElement("a");
+          a.href=url;a.download=`relatorio_${company?.name||"empresa"}_${period}_${todayStr()}.csv`;a.click();
+          URL.revokeObjectURL(url);
+        }} xs={{background:"#f0fdf4",color:"#15803d",border:"1px solid #86efac"}}>⬇ CSV</Btn>
         <Btn onClick={()=>window.print()} xs={{marginLeft:"auto",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",border:"none"}}>🖨 Imprimir / PDF</Btn>
       </div>
 
@@ -1568,7 +1594,13 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
   const [commentTxt,setCommentTxt]=useState("");
   const set=(k,v)=>sf(p=>({...p,[k]:v}));
   const tog=(k,id)=>set(k,f[k].includes(id)?f[k].filter(x=>x!==id):[...f[k],id]);
-  const fC=data.collaborators.filter(c=>{if(!f.company) return true;const cos=toArr(c.companies).length>0?toArr(c.companies):(c.company?[c.company]:[]);return cos.length===0||cos.includes(f.company);});
+  const [asgSearch,setAsgSearch]=useState("");
+  const fC=data.collaborators.filter(c=>{
+    const cos=toArr(c.companies).length>0?toArr(c.companies):(c.company?[c.company]:[]);
+    const coMatch=!f.company||cos.length===0||cos.includes(f.company);
+    const txtMatch=!asgSearch||c.name.toLowerCase().includes(asgSearch.toLowerCase());
+    return coMatch&&txtMatch;
+  });
   const fS=data.sectors.filter(s=>{if(!f.company) return true;const cos=toArr(s.companies).length>0?toArr(s.companies):(s.company?[s.company]:[]);return cos.length===0||cos.includes(f.company);});
   const addCk=()=>{if(!ckTxt.trim())return;set("checklist",[...f.checklist,{id:uid(),text:ckTxt.trim(),done:false}]);sCk("");};
   const addComment=()=>{
@@ -1621,8 +1653,15 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
       <Sel label="Recorrência" value={f.recurrence||""} onChange={v=>set("recurrence",v)} placeholder="Sem recorrência" options={data.recurrences.map(r=>({value:r.id,label:r.name}))} disabled={blocked}/>
 
       <Fld label={`Responsáveis (máx. 2)${(f.assignees||[]).length>=2?" · limite":""}`}>
-        {fC.length===0?<p style={{fontSize:12,color:"#94a3b8"}}>Nenhum colaborador cadastrado ainda.</p>:
+        {data.collaborators.length>6&&(
+          <input value={asgSearch} onChange={e=>setAsgSearch(e.target.value)}
+            placeholder="🔍 Buscar colaborador..."
+            style={{width:"100%",padding:"6px 10px",borderRadius:8,border:"1.5px solid #e5e7eb",fontSize:12,fontFamily:"inherit",marginBottom:8,outline:"none",background:"var(--bg2)",color:"var(--text)",boxSizing:"border-box"}}
+            onFocus={e=>e.target.style.borderColor="#6366f1"} onBlur={e=>e.target.style.borderColor="#e5e7eb"}/>
+        )}
+        {data.collaborators.length===0?<p style={{fontSize:12,color:"#94a3b8"}}>Nenhum colaborador cadastrado ainda.</p>:
           <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            {fC.length===0&&asgSearch&&<span style={{fontSize:12,color:"#94a3b8"}}>Nenhum colaborador encontrado.</span>}
             {fC.map(u=>{const sel=(f.assignees||[]).includes(u.id);const maxed=!sel&&(f.assignees||[]).length>=2;return(
               <button key={u.id} onClick={()=>!blocked&&!maxed&&tog("assignees",u.id)} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px 4px 5px",borderRadius:20,border:`2px solid ${sel?u.color:"#e5e7eb"}`,background:sel?u.color+"18":"#f9fafb",color:sel?u.color:"#6b7280",cursor:(blocked||maxed)?"not-allowed":"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit",transition:"all .12s",opacity:(blocked||maxed)?.5:1}}>
                 <Av initials={u.initials} color={u.color} size={22}/>{u.name}
@@ -3007,10 +3046,15 @@ function CompaniesPage({ data, setData }) {
           const existsAny=existingDates.size>0;
           if(!existsAny){
             const rec=data.recurrences.find(r=>r.id===svc.recurrence);
+            // Verifica se o setor do serviço pertence à empresa destino; se não, limpa
+            const svcSectorId=svc.sector||"";
+            const svcSectorObj=svcSectorId?data.sectors.find(s=>s.id===svcSectorId):null;
+            const sectorBelongs=svcSectorObj&&(toArr(svcSectorObj.companies).includes(coId)||svcSectorObj.company===coId||(!toArr(svcSectorObj.companies).length&&!svcSectorObj.company));
+            const resolvedSector=sectorBelongs?svcSectorId:"";
             const base={
               id:uid(),title:svc.name,description:svc.description||"",
               status:svc.status||"todo",priority:svc.priority||"media",
-              company:coId,sector:svc.sector||"",
+              company:coId,companies:[coId],sector:resolvedSector,
               assignees:toArr(svc.assignees),labels:toArr(svc.labels),
               checklist:toArr(svc.checklist).map(ck=>({...ck,done:false})),
               dependencies:[],recurrence:"",
@@ -3354,10 +3398,15 @@ function CompaniesPage({ data, setData }) {
               };
               const cleanCk=toArr(svc.checklist).map(ck=>({...ck,done:false}));
               const gId=uid();
+              // Valida se o setor do servico pertence a empresa destino
+              const inlSectorId=svc.sector||"";
+              const inlSectorObj=inlSectorId?d.sectors.find(s=>s.id===inlSectorId):null;
+              const inlSectorOk=inlSectorObj&&(toArr(inlSectorObj.companies).includes(coId)||inlSectorObj.company===coId||(!toArr(inlSectorObj.companies).length&&!inlSectorObj.company));
+              const inlSector=inlSectorOk?inlSectorId:"";
               const baseTask={
                 id:gId,title:svc.name,description:svc.description||"",
                 status:svc.status||"todo",priority:svc.priority||"media",
-                company:coId,sector:svc.sector||"",
+                company:coId,companies:[coId],sector:inlSector,
                 assignees:toArr(svc.assignees),labels:toArr(svc.labels),
                 checklist:cleanCk,dependencies:[],recurrence:"",
                 createdAt:todayStr(),completedAt:null,archivedAt:null,
@@ -3433,14 +3482,25 @@ function CompaniesPage({ data, setData }) {
                           {rec&&<span style={{fontSize:10,color:"#6366f1",fontWeight:700,background:"#eef2ff",padding:"1px 6px",borderRadius:6}}>↻ {rec.name}</span>}
                           {dueDay&&<span style={{fontSize:10,color:"#f59e0b",fontWeight:700,background:"#fffbeb",padding:"1px 6px",borderRadius:6}}>📅 todo dia {dueDay}</span>}
                           {jaGerado&&<span style={{fontSize:10,color:"#22c55e",fontWeight:700}}>✅ {qtd} tarefa{qtd!==1?"s":""} ativa{qtd!==1?"s":""}</span>}
+                          {(()=>{
+                            if(!s.sector||!sel||!coId) return null;
+                            const sec=data.sectors.find(x=>x.id===s.sector);
+                            if(!sec) return null;
+                            const cos=toArr(sec.companies).length>0?toArr(sec.companies):(sec.company?[sec.company]:[]);
+                            const belongs=cos.length===0||cos.includes(coId);
+                            if(belongs) return <span style={{fontSize:10,color:"#15803d",fontWeight:700,background:"#f0fdf4",padding:"1px 6px",borderRadius:6}}>◫ {sec.name}</span>;
+                            return <span title={`O setor "${sec.name}" pertence a outra empresa — as tarefas serão geradas sem setor`} style={{fontSize:10,color:"#92400e",fontWeight:700,background:"#fef9c3",padding:"1px 6px",borderRadius:6,cursor:"help"}}>⚠ setor de outra empresa</span>;
+                          })()}
                         </div>
                       </div>
                       {sel&&(
-                        <button onClick={e=>{e.stopPropagation();gerarInline(s);}}
-                          style={{flexShrink:0,padding:"5px 14px",borderRadius:8,border:"none",background:jaGerado?"#f1f5f9":"#6366f1",color:jaGerado?"#94a3b8":"#fff",fontWeight:800,fontSize:12,cursor:jaGerado?"not-allowed":"pointer",fontFamily:"inherit",transition:"all .15s"}}
-                          onMouseEnter={e=>{if(!jaGerado)e.currentTarget.style.background="#4f46e5";}}
-                          onMouseLeave={e=>{if(!jaGerado)e.currentTarget.style.background="#6366f1";}}
-                        >{jaGerado?"✅ Gerado":"⚡ Gerar"}</button>
+                        <button onClick={e=>{e.stopPropagation();if(coId&&!jaGerado)gerarInline(s);}}
+                          disabled={!coId||jaGerado}
+                          title={!coId?"Salve a empresa primeiro para gerar tarefas":jaGerado?"Tarefas já geradas":"Gerar tarefas"}
+                          style={{flexShrink:0,padding:"5px 14px",borderRadius:8,border:"none",background:(!coId||jaGerado)?"#f1f5f9":"#6366f1",color:(!coId||jaGerado)?"#94a3b8":"#fff",fontWeight:800,fontSize:12,cursor:(!coId||jaGerado)?"not-allowed":"pointer",fontFamily:"inherit",transition:"all .15s",opacity:!coId?0.5:1}}
+                          onMouseEnter={e=>{if(coId&&!jaGerado)e.currentTarget.style.background="#4f46e5";}}
+                          onMouseLeave={e=>{if(coId&&!jaGerado)e.currentTarget.style.background="#6366f1";}}
+                        >{!coId?"💾 Salve 1º":jaGerado?"✅ Gerado":"⚡ Gerar"}</button>
                       )}
                     </div>
                     {/* Config: só mês inicial + competência */}
@@ -3907,10 +3967,15 @@ function ServicosPage({ data, setData }) {
     if(existing.length>0){
       if(!window.confirm(`Já existem ${existing.length} tarefa(s) ativa(s) deste serviço para esta empresa. Gerar mais mesmo assim?`)) return 0;
     }
+    // Valida se o setor do serviço pertence à empresa destino
+    const svcSectorId=svc.sector||"";
+    const svcSectorObj=svcSectorId?data.sectors.find(s=>s.id===svcSectorId):null;
+    const sectorBelongs=svcSectorObj&&(toArr(svcSectorObj.companies).includes(coId)||svcSectorObj.company===coId||(!toArr(svcSectorObj.companies).length&&!svcSectorObj.company));
+    const resolvedSector=sectorBelongs?svcSectorId:"";
     const base={
       id:uid(),title:svc.name,description:svc.description||"",
       status:svc.status||"todo",priority:svc.priority||"media",
-      company:coId,sector:svc.sector||"",
+      company:coId,companies:[coId],sector:resolvedSector,
       assignees:toArr(svc.assignees),labels:toArr(svc.labels),
       checklist:toArr(svc.checklist).map(ck=>({...ck,id:uid(),done:false})),
       dependencies:[],recurrence:"",
@@ -4040,6 +4105,7 @@ function ServicosPage({ data, setData }) {
                 {rec&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#6366f118",color:"#6366f1",fontWeight:700}}>↻ {rec.name}</span>}
                 {s.defaultDue&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#f59e0b18",color:"#f59e0b",fontWeight:700}}>{fmtDate(s.defaultDue)}</span>}
                 {lbs.map(l=><span key={l.id} style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:l.color+"18",color:l.color,fontWeight:700}}>{l.name}</span>)}
+                {(()=>{const sec=data.sectors.find(x=>x.id===s.sector);return sec?<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:sec.color+"18",color:sec.color,fontWeight:700}}>◫ {sec.name}</span>:null;})()}
               </div>
               {/* Contadores de tarefas */}
               <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
@@ -4130,7 +4196,13 @@ function ServicosPage({ data, setData }) {
             <Sel label="Prioridade" value={form.priority} onChange={v=>set("priority",v)} options={Object.entries(PRI).map(([k,v])=>({value:k,label:v.l}))}/>
             <Sel label="Status inicial" value={form.status} onChange={v=>set("status",v)} options={getFullSTS(data.customStatuses).filter(s=>s.id!=="archived").map(s=>({value:s.id,label:s.l}))}/>
           </div>
-          <Sel label="Setor padrão" value={form.sector||""} onChange={v=>set("sector",v)} placeholder="Nenhum" options={data.sectors.map(s=>({value:s.id,label:s.name}))}/>
+          <Sel label="Setor padrão" value={form.sector||""} onChange={v=>set("sector",v)} placeholder="Nenhum"
+            options={data.sectors.map(s=>{
+              const cos=toArr(s.companies).length>0?toArr(s.companies):(s.company?[s.company]:[]);
+              const coNames=cos.map(id=>data.companies.find(c=>c.id===id)?.name).filter(Boolean);
+              return {value:s.id,label:coNames.length>0?`${s.name} (${coNames.join(", ")})`:s.name};
+            })}
+          />
           <Fld label="Marcadores padrão">
             <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
               {data.labels.map(l=>{const sel=toArr(form.labels).includes(l.id);return(
@@ -5311,12 +5383,15 @@ function PainelRecorrencias({data,setData,onEdit,toast}){
    HOJE PAGE */
 function HojePage({data,myCollabId,onEdit,onDelete,onComplete,onAdd}){
   const today=todayStr();
+  const tomorrow=new Date();tomorrow.setDate(tomorrow.getDate()+1);
+  const tomorrowStr=tomorrow.toISOString().slice(0,10);
+
   const tasks=data.tasks.filter(t=>{
     if(t.status==="archived"||t.status==="done") return false;
     if(!t.dueDate) return false;
-    return t.dueDate<=today;
+    return t.dueDate<=tomorrowStr;
   }).sort((a,b)=>{
-    // atrasadas primeiro, depois hoje; dentro de cada grupo por prioridade
+    // atrasadas primeiro, depois hoje, depois amanhã; dentro de cada grupo por prioridade
     const priOrder={critica:0,alta:1,media:2,baixa:3};
     if(a.dueDate!==b.dueDate) return a.dueDate.localeCompare(b.dueDate);
     return (priOrder[a.priority]||2)-(priOrder[b.priority]||2);
@@ -5324,6 +5399,7 @@ function HojePage({data,myCollabId,onEdit,onDelete,onComplete,onAdd}){
 
   const overdue=tasks.filter(t=>t.dueDate<today);
   const dueToday=tasks.filter(t=>t.dueDate===today);
+  const dueTomorrow=tasks.filter(t=>t.dueDate===tomorrowStr);
 
   const SectionHeader=({label,count,color})=>(
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,marginTop:20}}>
@@ -5391,6 +5467,12 @@ function HojePage({data,myCollabId,onEdit,onDelete,onComplete,onAdd}){
         <>
           <SectionHeader label="Vence hoje" count={dueToday.length} color="#f59e0b"/>
           {dueToday.map(t=><Row key={t.id} task={t}/>)}
+        </>
+      )}
+      {dueTomorrow.length>0&&(
+        <>
+          <SectionHeader label="Amanhã" count={dueTomorrow.length} color="#6366f1"/>
+          {dueTomorrow.map(t=><Row key={t.id} task={t}/>)}
         </>
       )}
     </div>
@@ -6567,28 +6649,77 @@ function App(){
     : (myCollab?.accessLevel==="admin");
   const myCollabId = myCollab?.id || user?._collabId || null;
 
-  // Alertar tarefas atrasadas via sino ao carregar
+  // Alertar tarefas atrasadas, vencendo hoje e amanhã via sino ao carregar
   useEffect(()=>{
     if(!synced||!myCollabId) return;
     const today=todayStr();
+    const tomorrow=new Date();tomorrow.setDate(tomorrow.getDate()+1);
+    const tomorrowStr=tomorrow.toISOString().slice(0,10);
+    const notifs=[];
+
+    // — Atrasadas
     const overdueMine=data.tasks.filter(t=>
       t.status!=="done"&&t.status!=="archived"&&
       t.dueDate&&t.dueDate<today&&
       toArr(t.assignees).includes(myCollabId)
     );
-    if(overdueMine.length===0) return;
-    // Only add if not already notified today
-    const alreadyToday=(data.notifications||[]).some(n=>
-      n.toId===myCollabId&&n.icon==="⚠️"&&(n.createdAt||"").slice(0,10)===today
+    const alreadyOverdue=(data.notifications||[]).some(n=>
+      n.toId===myCollabId&&n._notifType==="overdue"&&(n.createdAt||"").slice(0,10)===today
     );
-    if(alreadyToday) return;
-    const txt=overdueMine.length===1
-      ?`Tarefa atrasada: "${overdueMine[0].title}"`
-      :`${overdueMine.length} tarefas atrasadas aguardando atenção`;
-    setData(d=>({...d,notifications:[...(d.notifications||[]),{
-      id:uid(),toId:myCollabId,icon:"⚠️",text:txt,page:"hoje",
-      createdAt:new Date().toISOString(),read:false
-    }]}));
+    if(overdueMine.length>0&&!alreadyOverdue){
+      notifs.push({
+        id:uid(),toId:myCollabId,icon:"⚠️",
+        text:overdueMine.length===1
+          ?`Tarefa atrasada: "${overdueMine[0].title}"`
+          :`${overdueMine.length} tarefas atrasadas aguardando atenção`,
+        page:"hoje",_notifType:"overdue",
+        createdAt:new Date().toISOString(),read:false
+      });
+    }
+
+    // — Vencendo hoje
+    const todayMine=data.tasks.filter(t=>
+      t.status!=="done"&&t.status!=="archived"&&
+      t.dueDate===today&&
+      toArr(t.assignees).includes(myCollabId)
+    );
+    const alreadyToday=(data.notifications||[]).some(n=>
+      n.toId===myCollabId&&n._notifType==="due_today"&&(n.createdAt||"").slice(0,10)===today
+    );
+    if(todayMine.length>0&&!alreadyToday){
+      notifs.push({
+        id:uid(),toId:myCollabId,icon:"📅",
+        text:todayMine.length===1
+          ?`Vence hoje: "${todayMine[0].title}"`
+          :`${todayMine.length} tarefas vencem hoje`,
+        page:"hoje",_notifType:"due_today",
+        createdAt:new Date().toISOString(),read:false
+      });
+    }
+
+    // — Vencendo amanhã
+    const tomorrowMine=data.tasks.filter(t=>
+      t.status!=="done"&&t.status!=="archived"&&
+      t.dueDate===tomorrowStr&&
+      toArr(t.assignees).includes(myCollabId)
+    );
+    const alreadyTomorrow=(data.notifications||[]).some(n=>
+      n.toId===myCollabId&&n._notifType==="due_tomorrow"&&(n.createdAt||"").slice(0,10)===today
+    );
+    if(tomorrowMine.length>0&&!alreadyTomorrow){
+      notifs.push({
+        id:uid(),toId:myCollabId,icon:"🔔",
+        text:tomorrowMine.length===1
+          ?`Vence amanhã: "${tomorrowMine[0].title}"`
+          :`${tomorrowMine.length} tarefas vencem amanhã`,
+        page:"hoje",_notifType:"due_tomorrow",
+        createdAt:new Date().toISOString(),read:false
+      });
+    }
+
+    if(notifs.length>0){
+      setData(d=>({...d,notifications:[...(d.notifications||[]),...notifs]}));
+    }
   },[synced,myCollabId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-renovação: quando um grupo recorrente (_recGroup) não tem tarefas futuras

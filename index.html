@@ -887,8 +887,8 @@ function RelatorioPage({data,isAdmin}){
           <input type="checkbox" checked={showDone} onChange={e=>setShowDone(e.target.checked)} style={{accentColor:"#22c55e"}}/> Concluídas
         </label>
         <Btn onClick={()=>{
-          const headers=["Título","Status","Prioridade","Setor","Responsáveis","Valor (R$)","Vencimento","Concluído em","Notas internas"];
-          const esc=v=>`"${String(v||"").replace(/"/g,'""')}"`;
+          const hdrs=["Título","Status","Prioridade","Setor","Responsáveis","Valor (R$)","Vencimento","Concluído em","Notas internas"];
+          const esc=v=>'"'+String(v||"").replace(/"/g,'""')+'"';
           const rows=tasks.map(t=>{
             const st=STS.find(s=>s.id===t.status)||{l:t.status};
             const pri=PRI[t.priority]||{l:t.priority};
@@ -896,12 +896,12 @@ function RelatorioPage({data,isAdmin}){
             const asgs=data.collaborators.filter(c=>toArr(t.assignees).includes(c.id)).map(c=>c.name).join("; ");
             return [t.title,st.l,pri.l,sec?.name||"",asgs,t.valor||"",t.dueDate||"",t.completedAt||"",t.internalNote||""].map(esc).join(",");
           });
-          const csv=[headers.map(esc).join(","),...rows].join("
-");
-          const blob=new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8"});
+          const csv=[hdrs.map(esc).join(","),...rows].join("\n");
+          const BOM="\uFEFF";
+          const blob=new Blob([BOM+csv],{type:"text/csv;charset=utf-8"});
           const url=URL.createObjectURL(blob);
           const a=document.createElement("a");
-          a.href=url;a.download=`relatorio_${company?.name||"empresa"}_${period}_${todayStr()}.csv`;a.click();
+          a.href=url;a.download="relatorio_"+(company?.name||"empresa")+"_"+period+"_"+todayStr()+".csv";a.click();
           URL.revokeObjectURL(url);
         }} xs={{background:"#f0fdf4",color:"#15803d",border:"1px solid #86efac"}}>⬇ CSV</Btn>
         <Btn onClick={()=>window.print()} xs={{marginLeft:"auto",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",border:"none"}}>🖨 Imprimir / PDF</Btn>

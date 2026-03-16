@@ -886,24 +886,7 @@ function RelatorioPage({data,isAdmin}){
         <label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,fontWeight:700,color:"#64748b",cursor:"pointer"}}>
           <input type="checkbox" checked={showDone} onChange={e=>setShowDone(e.target.checked)} style={{accentColor:"#22c55e"}}/> Concluídas
         </label>
-        <Btn onClick={()=>{
-          const hdrs=["Título","Status","Prioridade","Setor","Responsáveis","Valor (R$)","Vencimento","Concluído em","Notas internas"];
-          const esc=v=>'"'+String(v||"").replace(/"/g,'""')+'"';
-          const rows=tasks.map(t=>{
-            const st=STS.find(s=>s.id===t.status)||{l:t.status};
-            const pri=PRI[t.priority]||{l:t.priority};
-            const sec=data.sectors.find(s=>s.id===t.sector);
-            const asgs=data.collaborators.filter(c=>toArr(t.assignees).includes(c.id)).map(c=>c.name).join("; ");
-            return [t.title,st.l,pri.l,sec?.name||"",asgs,t.valor||"",t.dueDate||"",t.completedAt||"",t.internalNote||""].map(esc).join(",");
-          });
-          const csv=[hdrs.map(esc).join(","),...rows].join("\n");
-          const BOM="\uFEFF";
-          const blob=new Blob([BOM+csv],{type:"text/csv;charset=utf-8"});
-          const url=URL.createObjectURL(blob);
-          const a=document.createElement("a");
-          a.href=url;a.download="relatorio_"+(company?.name||"empresa")+"_"+period+"_"+todayStr()+".csv";a.click();
-          URL.revokeObjectURL(url);
-        }} xs={{background:"#f0fdf4",color:"#15803d",border:"1px solid #86efac"}}>⬇ CSV</Btn>
+        <Btn onClick={()=>exportRelCSV(tasks,data,company,period)} xs={{background:"#f0fdf4",color:"#15803d",border:"1px solid #86efac"}}>⬇ CSV</Btn>
         <Btn onClick={()=>window.print()} xs={{marginLeft:"auto",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",border:"none"}}>🖨 Imprimir / PDF</Btn>
       </div>
 
@@ -5482,6 +5465,27 @@ function HojePage({data,myCollabId,onEdit,onDelete,onComplete,onAdd}){
 
 /* ===========================================
    CSV EXPORT */
+function exportRelCSV(tasks,data,company,period){
+  const hdrs=["Titulo","Status","Prioridade","Setor","Responsaveis","Valor (R$)","Vencimento","Concluido em","Notas internas"];
+  const q=function(v){return '"'+String(v||"").replace(/"/g,'""')+'"';};
+  const rows=tasks.map(function(t){
+    var st=STS.find(function(s){return s.id===t.status;})||{l:t.status};
+    var pri=PRI[t.priority]||{l:t.priority};
+    var sec=data.sectors.find(function(s){return s.id===t.sector;});
+    var asgs=data.collaborators.filter(function(c){return toArr(t.assignees).includes(c.id);}).map(function(c){return c.name;}).join("; ");
+    return [t.title,st.l,pri.l,sec?sec.name:"",asgs,t.valor||"",t.dueDate||"",t.completedAt||"",t.internalNote||""].map(q).join(",");
+  });
+  var nl=String.fromCharCode(10);
+  var csv=[hdrs.map(q).join(",")].concat(rows).join(nl);
+  var bom=String.fromCharCode(0xFEFF);
+  var blob=new Blob([bom+csv],{type:"text/csv;charset=utf-8"});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement("a");
+  a.href=url;
+  a.download="relatorio_"+(company?company.name:"empresa")+"_"+period+"_"+todayStr()+".csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
 function exportTasksCSV(tasks,data){
   const coName=id=>data.companies.find(c=>c.id===id)?.name||"";
   const coNames=ids=>toArr(ids).map(id=>data.companies.find(c=>c.id===id)?.name||"").filter(Boolean).join("; ");

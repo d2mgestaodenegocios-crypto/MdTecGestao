@@ -3637,15 +3637,17 @@ function SectorsPage({ data, setData }) {
 function CollaboratorsPage({ data, setData }) {
   const [open,setOpen]=useState(false);
   const [editing,setEditing]=useState(null);
-  const [form,setForm]=useState({name:"",role:"",companies:[],sectors:[],color:"#8b5cf6",initials:"",email:"",password:"",userId:"",accessLevel:"user"});
-  const openNew=()=>{setEditing(null);setForm({name:"",role:"",companies:[],sectors:[],color:"#8b5cf6",initials:"",email:"",password:"",userId:"",accessLevel:"user"});setOpen(true);};
+  const PERM_DEFAULTS={canAdvanceStatus:true,canComplete:true,canDelete:false,canArchive:false,canEdit:true};
+  const [form,setForm]=useState({name:"",role:"",companies:[],sectors:[],color:"#8b5cf6",initials:"",email:"",password:"",userId:"",accessLevel:"user",permissions:{...PERM_DEFAULTS}});
+  const openNew=()=>{setEditing(null);setForm({name:"",role:"",companies:[],sectors:[],color:"#8b5cf6",initials:"",email:"",password:"",userId:"",accessLevel:"user",permissions:{...PERM_DEFAULTS}});setOpen(true);};
   const openEdit=(u)=>{
     setEditing(u);
     setForm({name:u.name,role:u.role,
       companies:toArr(u.companies).length>0?toArr(u.companies):(u.company?[u.company]:[]),
       sectors:toArr(u.sectors).length>0?toArr(u.sectors):(u.sector?[u.sector]:[]),
       color:u.color,initials:u.initials,email:u.email||"",
-      password:"",userId:u.userId||"",accessLevel:u.accessLevel||"user"});
+      password:"",userId:u.userId||"",accessLevel:u.accessLevel||"user",
+      permissions:{...PERM_DEFAULTS,...(u.permissions||{})}});
     setOpen(true);
   };
   const togUCo=(id)=>setForm(f=>({...f,companies:toArr(f.companies).includes(id)?toArr(f.companies).filter(x=>x!==id):[...toArr(f.companies),id]}));
@@ -3663,7 +3665,7 @@ function CollaboratorsPage({ data, setData }) {
       if(form.password&&form.password.length>=6){
         newHash = await hashPwd(form.password);
       }
-      setData(d=>({...d,collaborators:d.collaborators.map(u=>u.id===editing.id?{...u,...form,initials,password:"",accessLevel:form.accessLevel||"user",_pwdHash:newHash}:u)}));
+      setData(d=>({...d,collaborators:d.collaborators.map(u=>u.id===editing.id?{...u,...form,initials,password:"",accessLevel:form.accessLevel||"user",permissions:{...PERM_DEFAULTS,...(form.permissions||{})},_pwdHash:newHash}:u)}));
       setOpen(false);
       toast("💾 Colaborador atualizado!","ok");
     } else {
@@ -3680,6 +3682,7 @@ function CollaboratorsPage({ data, setData }) {
         setData(d=>({...d,collaborators:[...d.collaborators,{
           id:newCollabId,...form,initials,password:"",
           accessLevel:form.accessLevel||"user",
+          permissions:{...PERM_DEFAULTS,...(form.permissions||{})},
           _pwdHash:pwdHash
         }]}));
         setOpen(false);
@@ -3717,6 +3720,25 @@ function CollaboratorsPage({ data, setData }) {
               <div style={{display:"flex",gap:4,justifyContent:"center",flexWrap:"wrap",marginBottom:12}}>
                 {(()=>{const uCos=toArr(u.companies).length>0?toArr(u.companies):(u.company?[u.company]:[]);const cos=data.companies.filter(c=>uCos.includes(c.id));return cos.length>0?cos.map(c=><Chip key={c.id} label={c.name} color={c.color}/>):<Chip label="Todas as empresas" color="#94a3b8"/>;})()}
               </div>
+              {u.accessLevel!=="admin"&&(()=>{
+                const p={canAdvanceStatus:true,canComplete:true,canDelete:false,canArchive:false,canEdit:true,...(u.permissions||{})};
+                const permsToShow=[
+                  {key:"canAdvanceStatus",label:"Avançar",icon:"→"},
+                  {key:"canComplete",label:"Concluir",icon:"✓"},
+                  {key:"canEdit",label:"Editar",icon:"✎"},
+                  {key:"canArchive",label:"Arquivar",icon:"📦"},
+                  {key:"canDelete",label:"Excluir",icon:"🗑"},
+                ];
+                return(
+                  <div style={{display:"flex",flexWrap:"wrap",gap:3,justifyContent:"center",marginBottom:10}}>
+                    {permsToShow.map(({key,label,icon})=>(
+                      <span key={key} style={{fontSize:9,padding:"2px 6px",borderRadius:10,background:p[key]?"#f0fdf4":"#fef2f2",color:p[key]?"#15803d":"#dc2626",fontWeight:700,border:`1px solid ${p[key]?"#86efac":"#fecaca"}`}}>
+                        {icon} {label}
+                      </span>
+                    ))}
+                  </div>
+                );
+              })()}
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:12}}>
                 <div style={{background:"var(--bg3)",borderRadius:8,padding:"6px"}}>
                   <div style={{fontSize:16,fontWeight:800,color:"#6366f1"}}>{tasks.length}</div>
@@ -3760,6 +3782,35 @@ function CollaboratorsPage({ data, setData }) {
               :<div style={{fontSize:12,color:"#ef4444",fontWeight:600,padding:"6px 10px",background:"#fef2f2",borderRadius:8}}>{saveErr}</div>
             )}
               <Sel label="Nível de acesso" value={form.accessLevel||"user"} onChange={v=>setForm(f=>({...f,accessLevel:v}))} options={[{value:"user",label:"👤 Usuário"},{value:"admin",label:"🔑 Administrador"}]}/>
+          {/* Permissões granulares — só visível para usuário comum */}
+          {(form.accessLevel||"user")==="user"&&(
+            <div style={{padding:"12px 14px",borderRadius:10,background:"var(--bg3)",border:"1px solid var(--border)"}}>
+              <div style={{fontSize:12,fontWeight:800,color:"#374151",marginBottom:10}}>🔐 Permissões do colaborador</div>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {[
+                  {key:"canAdvanceStatus",label:"Avançar status das tarefas",hint:"A Fazer → Em Andamento → Em Revisão",icon:"→"},
+                  {key:"canComplete",label:"Concluir tarefas",hint:"Mover para Concluído",icon:"✓"},
+                  {key:"canEdit",label:"Editar tarefas",hint:"Alterar título, descrição, prazo etc.",icon:"✎"},
+                  {key:"canArchive",label:"Arquivar tarefas",hint:"Mover tarefas para o arquivo",icon:"📦"},
+                  {key:"canDelete",label:"Excluir tarefas",hint:"Apagar permanentemente",icon:"🗑"},
+                ].map(({key,label,hint,icon})=>{
+                  const checked=form.permissions?.[key]!==false;
+                  return(
+                    <label key={key} onClick={()=>setForm(f=>({...f,permissions:{...PERM_DEFAULTS,...(f.permissions||{}),[key]:!checked}}))}
+                      style={{display:"flex",alignItems:"center",gap:10,padding:"7px 10px",borderRadius:8,cursor:"pointer",background:checked?"#f0fdf4":"#fef2f2",border:`1px solid ${checked?"#86efac":"#fecaca"}`,transition:"all .15s"}}>
+                      <div style={{width:20,height:20,borderRadius:5,background:checked?"#22c55e":"#e5e7eb",border:`2px solid ${checked?"#16a34a":"#d1d5db"}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all .15s"}}>
+                        {checked&&<span style={{fontSize:12,color:"#fff",fontWeight:900}}>✓</span>}
+                      </div>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:12,fontWeight:700,color:checked?"#15803d":"#dc2626"}}>{icon} {label}</div>
+                        <div style={{fontSize:10,color:"#94a3b8"}}>{hint}</div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <div>
             <label style={{fontSize:12,fontWeight:700,color:"#64748b",display:"block",marginBottom:8}}>Empresas (opcional — vazio = todas)</label>
             <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
@@ -6672,7 +6723,12 @@ function App(){
   },[]);
 
   // Arquivar tarefa manualmente
+  // Helper de permissões — admin sempre pode tudo
+  const myPerms=isAdmin?{canAdvanceStatus:true,canComplete:true,canDelete:true,canArchive:true,canEdit:true}
+    :{canAdvanceStatus:true,canComplete:true,canDelete:false,canArchive:false,canEdit:true,...(myCollab?.permissions||{})};
+
   const archiveTask=(id)=>{
+    if(!isAdmin&&!myPerms.canArchive){toast("🔒 Você não tem permissão para arquivar tarefas.","err");return;}
     setData(d=>({...d,tasks:d.tasks.map(t=>t.id===id?{...t,status:"archived",archivedAt:todayStr()}:t)}));
     toast("📦 Tarefa arquivada.","ok");
   };
@@ -7001,6 +7057,14 @@ function App(){
 
   const saveTask=(updated)=>{
     const isNew=!data.tasks.find(t=>t.id===updated.id);
+    // Verificar permissão de edição para não-admin
+    if(!isAdmin&&!isNew&&!myPerms.canEdit){toast("🔒 Você não tem permissão para editar tarefas.","err");return;}
+    // Verificar permissão de concluir via modal
+    if(!isAdmin){
+      const prev=data.tasks.find(t=>t.id===updated.id);
+      if(prev&&prev.status!=="done"&&updated.status==="done"&&!myPerms.canComplete){toast("🔒 Você não tem permissão para concluir tarefas.","err");return;}
+      if(prev&&prev.status!==updated.status&&updated.status!=="done"&&!myPerms.canAdvanceStatus){toast("🔒 Você não tem permissão para avançar o status.","err");return;}
+    }
     // Detect new @mentions in comments and notify
     const prevComments=data.tasks.find(t=>t.id===updated.id)?.comments||[];
     const newComments=(updated.comments||[]).filter(nc=>!prevComments.find(pc=>pc.id===nc.id));
@@ -7125,6 +7189,7 @@ function App(){
   };
 
   const deleteTask=(id)=>{
+    if(!isAdmin&&!myPerms.canDelete){toast("🔒 Você não tem permissão para excluir tarefas.","err");return;}
     const lk=getLock(id);
     if(lk){toast(`🔒 Não pode excluir: ${lk.user} está editando.`,"err");return;}
     const t=data.tasks.find(x=>x.id===id);
@@ -7135,16 +7200,33 @@ function App(){
   };
 
   const deduplicateTasks=()=>{
-    const seen=new Set();
-    const deduped=data.tasks.filter(t=>{
-      const key=`${t.title}|${t.company||""}|${t.dueDate||""}|${t.recurrence||""}`;
-      if(seen.has(key)) return false;
-      seen.add(key); return true;
+    // Dedup seguro: agrupa por (title + company + dueDate + _recGroup)
+    // Dentro de cada grupo, mantém o mais completo (maior completedAt ou maior id)
+    // NUNCA remove tarefas com ids únicos — só remove cópias exatas
+    const groups=new Map();
+    data.tasks.forEach(t=>{
+      // Chave mais específica possível para não apagar tarefas legítimas
+      const key=`${t.title?.trim()||""}|${t.company||""}|${t.dueDate||""}|${t._recGroup||t.id}`;
+      if(!groups.has(key)) groups.set(key,[]);
+      groups.get(key).push(t);
     });
-    const removed=data.tasks.length-deduped.length;
+    const toKeep=new Set();
+    let removed=0;
+    groups.forEach(group=>{
+      if(group.length===1){toKeep.add(group[0].id);return;}
+      // Dentro do grupo: manter o que tem mais dados (completedAt, comments, history)
+      const best=group.sort((a,b)=>{
+        const scoreA=(a.completedAt?10:0)+(a.comments?.length||0)+(a.history?.length||0);
+        const scoreB=(b.completedAt?10:0)+(b.comments?.length||0)+(b.history?.length||0);
+        return scoreB-scoreA;
+      })[0];
+      toKeep.add(best.id);
+      removed+=group.length-1;
+    });
     if(removed===0){toast("Nenhuma duplicata encontrada.","ok");return;}
-    setData(d=>({...d,tasks:deduped}));
-    toast(`${removed} tarefa${removed>1?"s duplicadas removidas":"duplicada removida"}!`,"ok");
+    if(!window.confirm(`Encontradas ${removed} tarefa(s) duplicada(s).\n\nSerão mantidas as versões com mais dados (comentários, histórico).\n\nDeseja continuar?`)) return;
+    setData(d=>({...d,tasks:d.tasks.filter(t=>toKeep.has(t.id))}));
+    toast(`✅ ${removed} duplicata${removed>1?"s removidas":" removida"} com segurança!`,"ok");
   };
 
   const bulkUpdate=(action,ids,value)=>{
@@ -7166,14 +7248,22 @@ function App(){
   const quickComplete=(task)=>{
     const lk=getLock(task.id);
     if(lk){toast(`🔒 ${lk.user} está editando. Aguarde.`,"lock",4000);return;}
-    // Build cycle from full STS (respects custom statuses)
     const fullSTS=getFullSTS(data.customStatuses).filter(s=>s.id!=="archived");
     const cycleArr=fullSTS.sort((a,b)=>a.order-b.order).map(s=>s.id);
     const CYCLE=Object.fromEntries(cycleArr.map((id,i)=>[id,cycleArr[(i+1)%cycleArr.length]]));
     const LABELS=Object.fromEntries(fullSTS.map(s=>[s.id,s.l]));
     const cur=task.status||"todo";
     const next=CYCLE[cur]||"doing";
-    // Se é tarefa recorrente e vai para "done", perguntar se é só hoje ou toda a série
+    // Verificar permissões
+    if(!isAdmin){
+      if(next==="done"&&!myPerms.canComplete){
+        toast("🔒 Você não tem permissão para concluir tarefas.","err");return;
+      }
+      if(next!=="done"&&!myPerms.canAdvanceStatus){
+        toast("🔒 Você não tem permissão para avançar o status das tarefas.","err");return;
+      }
+    }
+    // Se é tarefa recorrente e vai para "done"
     if(next==="done" && task._recGroup){
       const seriesFuture=data.tasks.filter(t=>
         t._recGroup===task._recGroup && t.id!==task.id &&
@@ -7181,7 +7271,6 @@ function App(){
         (t.dueDate||"")>=(todayStr())
       );
       if(seriesFuture.length>0){
-        // Só conclui esta — não altera as demais
         setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{
           ...t,status:"done",completedAt:todayStr(),
           completedBy:myCollabId||null,
@@ -7203,7 +7292,7 @@ function App(){
           ?t.checklist.map(c=>({...c,done:false}))
           :t.checklist,
     }:t)}));
-    toast(`→ ${LABELS[cur]}!`,"ok");
+    toast(`→ ${LABELS[next]}!`,"ok");
   };
 
   // Notificações
@@ -7221,10 +7310,16 @@ function App(){
   const dragStatusChange=(taskId,newStatus)=>{
     const lk=getLock(taskId);
     if(lk){toast(`🔒 ${lk.user} está editando.`,"lock",4000);return;}
-    const statusLabel=STS.find(s=>s.id===newStatus)?.l||newStatus;
+    if(!isAdmin){
+      if(newStatus==="done"&&!myPerms.canComplete){toast("🔒 Você não tem permissão para concluir tarefas.","err");return;}
+      if(newStatus!=="done"&&!myPerms.canAdvanceStatus){toast("🔒 Você não tem permissão para avançar o status.","err");return;}
+    }
+    const statusLabel=getFullSTS(data.customStatuses).find(s=>s.id===newStatus)?.l||newStatus;
     setData(d=>({...d,tasks:d.tasks.map(t=>t.id===taskId?{
       ...t,status:newStatus,
       completedAt:newStatus==="done"?todayStr():(t.completedAt&&newStatus!=="done"?null:t.completedAt),
+      completedBy:newStatus==="done"?(myCollabId||null):null,
+      completedByName:newStatus==="done"?(userName||null):null,
     }:t)}));
     toast(`→ ${statusLabel}!`,"ok");
   };
@@ -7400,7 +7495,7 @@ function App(){
         {page==="calendario"    && <CalView data={dataForUser} onEdit={openEdit} onReschedule={(id,date)=>{setData(d=>({...d,tasks:d.tasks.map(t=>t.id===id?{...t,dueDate:date}:t)}));toast(`📅 Reagendado para ${date}.`,"ok");}}/>}
         {page==="tabela"        && <GridView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete} onQuickUpdate={(id,field,val)=>setData(d=>({...d,tasks:d.tasks.map(t=>t.id===id?{...t,[field]:val}:t)}))}/>}
         {page==="gantt"         && <GanttView data={dataForUser} onEdit={openEdit}/>}
-        {page==="relatorio"     && <RelatorioPage data={data} isAdmin={isAdmin}/>}
+        {page==="relatorio"     && <RelatorioPage data={isAdmin?data:dataForUser} isAdmin={isAdmin} myCollabId={myCollabId}/>}
         {page==="carga"         && <CargaPage data={dataForUser}/>}
         {page==="servicos"      && <ServicosPage data={data} setData={setData}/>}
         {page==="modelos"       && <TemplatesPage data={data} setData={setData} onUseTemplate={useTemplate}/>}

@@ -940,8 +940,14 @@ function RelatorioPage({data,isAdmin}){
                   {t.description&&<p style={{fontSize:11,color:"#64748b",margin:"2px 0 5px",lineHeight:1.5}}>{t.description}</p>}
                   <div style={{display:"flex",gap:12,flexWrap:"wrap",fontSize:11,color:"#94a3b8",alignItems:"center"}}>
                     {t.dueDate&&<span style={{color:over?"#ef4444":"#64748b",fontWeight:700}}>📅 {fmtDate(t.dueDate)}{over?" ⚠ ATRASADA":""}</span>}
-                    {asg.length>0&&<span>👤 {asg.map(u=>u.name).join(", ")}</span>}
-                    {asg.length===0&&t.status!=="done"&&<span style={{color:"#94a3b8",fontStyle:"italic"}}>👤 Sem responsável</span>}
+                    {t.status==="done"&&t.completedByName
+                      ? <span style={{color:"#22c55e",fontWeight:700}}>✅ Concluído por: {t.completedByName}{t.completedAt?` em ${fmtDate(t.completedAt)}`:""}</span>
+                      : t.status==="done"&&t.completedAt
+                        ? <span style={{color:"#22c55e",fontWeight:700}}>✅ Concluído em {fmtDate(t.completedAt)}</span>
+                        : asg.length>0
+                          ? <span>👤 {asg.map(u=>u.name).join(", ")}</span>
+                          : <span style={{color:"#94a3b8",fontStyle:"italic"}}>👤 Sem responsável</span>
+                    }
                     {ckTot>0&&<span>☑ {ckDone}/{ckTot}</span>}
                     {t.valor&&<span style={{color:"#16a34a",fontWeight:700}}>💰 R$ {Number(t.valor).toLocaleString("pt-BR",{minimumFractionDigits:2})}</span>}
                   </div>
@@ -1902,8 +1908,8 @@ function FBar({data,filters,setF,showMonth=true}){
    TASK CARD  - with ✓ Quick Complete button */
 function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isDragging,ghost,onPomodoro,onPin,onMoveTop,onDuplicate}){
   const cardRef=useRef(null);
-  const assignees=data.collaborators.filter(c=>task.assignees.includes(c.id));
-  const labels=data.labels.filter(l=>task.labels.includes(l.id));
+  const assignees=data.collaborators.filter(c=>toArr(task.assignees).includes(c.id));
+  const labels=data.labels.filter(l=>toArr(task.labels).includes(l.id));
   const rec=task.recurrence?data.recurrences.find(r=>r.id===task.recurrence):null;
   const DOW_NAMES=["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
   const DOW_COLORS=["#f59e0b","#6366f1","#14b8a6","#8b5cf6","#f97316","#22c55e","#ec4899"];
@@ -2104,7 +2110,13 @@ function QuickCreateBar({data,onAdd}){
   const inp=useRef(null);
   const submit=()=>{
     if(!title.trim()) return;
-    onAdd({title:title.trim(),company,dueDate:date,status:"todo",priority:"media"});
+    onAdd({
+      title:title.trim(),company,companies:company?[company]:[],
+      dueDate:date,status:"todo",priority:"media",
+      assignees:[],labels:[],checklist:[],dependencies:[],
+      sector:"",dueTime:"",slaHours:"",valor:"",recurrence:"",
+      internalNote:"",pinned:false,comments:[],history:[],
+    });
     setTitle("");setDate("");setShow(false);
   };
   if(!show) return(
@@ -2128,7 +2140,7 @@ function QuickCreateBar({data,onAdd}){
   );
 }
 
-function KanbanView({data,onEdit,onDelete,onAdd,onComplete,onStatusChange,myCollabId,myCollab,onArchive,onPomodoro,onPin,onMoveTop}){
+function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusChange,myCollabId,myCollab,onArchive,onPomodoro,onPin,onMoveTop}){
   const [kanbanFilter,setKanbanFilter]=useState("week");
   const [ownerFilter,setOwnerFilter]=useState("all");
   const [collabFilter,setCollabFilter]=useState(""); // NEW: filter by specific collaborator
@@ -2319,10 +2331,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete,onStatusChange,myColl
                     onPomodoro={onPomodoro}
                     onPin={(id,val)=>onPin&&onPin(id,val)}
                     onMoveTop={(id)=>onMoveTop&&onMoveTop(id,st.id)}
-                    onDuplicate={(task)=>{
-                      const copy={...task,id:uid(),title:task.title+" (cópia)",createdAt:todayStr(),completedAt:null,archivedAt:null,pinned:false,comments:[],history:[],checklist:toArr(task.checklist).map(c=>({...c,id:uid(),done:false}))};
-                      onAdd(copy);
-                    }}
+                    onDuplicate={onDuplicate}
                   />
                 ))}
                 {tasks.length===0&&(
@@ -3068,7 +3077,7 @@ function CompaniesPage({ data, setData }) {
             const base={
               id:uid(),title:svc.name,description:svc.description||"",
               status:svc.status||"todo",priority:svc.priority||"media",
-              company:coId,sector:svc.sector||"",
+              company:coId,companies:[coId],sector:svc.sector||"",
               assignees:toArr(svc.assignees),labels:toArr(svc.labels),
               checklist:toArr(svc.checklist).map(ck=>({...ck,done:false})),
               dependencies:[],recurrence:"",
@@ -3968,7 +3977,7 @@ function ServicosPage({ data, setData }) {
     const base={
       id:uid(),title:svc.name,description:svc.description||"",
       status:svc.status||"todo",priority:svc.priority||"media",
-      company:coId,sector:svc.sector||"",
+      company:coId,companies:[coId],sector:svc.sector||"",
       assignees:toArr(svc.assignees),labels:toArr(svc.labels),
       checklist:toArr(svc.checklist).map(ck=>({...ck,id:uid(),done:false})),
       dependencies:[],recurrence:"",
@@ -6833,14 +6842,50 @@ function App(){
       });
   const dataForUser = isAdmin ? data : {...data, tasks: visibleTasks};
 
-  const openNew=(statusOrTask="todo")=>{
-    if(statusOrTask&&typeof statusOrTask==="object"){
-      // Duplicate: save directly without opening modal
-      setData(d=>({...d,tasks:[...d.tasks,statusOrTask]}));
-      toast("⧉ Tarefa duplicada!","ok");
-    } else {
-      setTM({open:true,task:null,defStatus:statusOrTask||"todo",lockInfo:null});
+  const openNew=(status="todo")=>{
+    if(status&&typeof status==="object"){
+      // Só aceita objetos SEM id (vindo do QuickCreateBar)
+      // Objetos com id são duplicatas — não devem chegar aqui
+      if(status.id){
+        console.warn("openNew recebeu objeto com id — ignorado. Use duplicateTask.");
+        return;
+      }
+      const newTask={
+        id:uid(),
+        ...status,
+        assignees:Array.isArray(status.assignees)?status.assignees:[],
+        labels:Array.isArray(status.labels)?status.labels:[],
+        checklist:Array.isArray(status.checklist)?status.checklist:[],
+        dependencies:Array.isArray(status.dependencies)?status.dependencies:[],
+        companies:Array.isArray(status.companies)&&status.companies.length>0?status.companies:(status.company?[status.company]:[]),
+        createdAt:todayStr(),completedAt:null,archivedAt:null,
+      };
+      setData(d=>({...d,tasks:[...d.tasks,newTask]}));
+      toast("✦ Tarefa criada!","ok");
+      return;
     }
+    const s=typeof status==="string"?status:"todo";
+    setTM({open:true,task:null,defStatus:s,lockInfo:null});
+  };
+
+  const duplicateTask=(task)=>{
+    const copy={
+      ...task,
+      id:uid(),
+      title:task.title+" (cópia)",
+      createdAt:todayStr(),
+      completedAt:null,
+      archivedAt:null,
+      pinned:false,
+      comments:[],
+      history:[],
+      completedBy:null,
+      completedByName:null,
+      assignees:Array.isArray(task.assignees)?task.assignees:[],
+      checklist:toArr(task.checklist).map(c=>({...c,id:uid(),done:false})),
+    };
+    setData(d=>({...d,tasks:[...d.tasks,copy]}));
+    toast("⧉ Tarefa duplicada!","ok");
   };
 
   const openEdit=(task)=>{
@@ -6957,6 +7002,8 @@ function App(){
         }
       }
     });
+    const prevTask=data.tasks.find(t=>t.id===updated.id);
+    const wasNotDone=prevTask&&prevTask.status!=="done";
     const base={
       ...updated,
       assignees: Array.isArray(updated.assignees)?updated.assignees:[],
@@ -6964,6 +7011,13 @@ function App(){
       checklist: Array.isArray(updated.checklist)?updated.checklist:[],
       dependencies: Array.isArray(updated.dependencies)?updated.dependencies:[],
       completedAt:updated.status==="done"&&!updated.completedAt?todayStr():updated.completedAt,
+      // Grava quem finalizou (apenas quando muda para done)
+      completedBy: updated.status==="done"
+        ? (updated.completedBy||(wasNotDone?myCollabId:null)||null)
+        : null,
+      completedByName: updated.status==="done"
+        ? (updated.completedByName||(wasNotDone?userName:null)||null)
+        : null,
       // Normalize companies: always keep array + primary company alias
       companies: Array.isArray(updated.companies)&&updated.companies.length>0
         ? updated.companies
@@ -7103,6 +7157,8 @@ function App(){
         // Só conclui esta — não altera as demais
         setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{
           ...t,status:"done",completedAt:todayStr(),
+          completedBy:myCollabId||null,
+          completedByName:userName||null,
           checklist:t.checklist.map(c=>({...c,done:true})),
         }:t)}));
         toast(`✓ Concluído (série continua com ${seriesFuture.length} ocorrência${seriesFuture.length>1?"s":""}).`,"ok");
@@ -7112,6 +7168,8 @@ function App(){
     setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{
       ...t,status:next,
       completedAt:next==="done"?todayStr():null,
+      completedBy:next==="done"?(myCollabId||null):null,
+      completedByName:next==="done"?(userName||null):null,
       checklist:next==="done"
         ?t.checklist.map(c=>({...c,done:true}))
         :next==="todo"
@@ -7290,7 +7348,7 @@ function App(){
               </div>
             </div>
           )}
-          <KanbanView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onAdd={openNew} onComplete={quickComplete} onStatusChange={dragStatusChange} myCollabId={myCollabId} myCollab={myCollab} onArchive={archiveTask} onPomodoro={t=>setPomodoroTask(t)}
+          <KanbanView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onAdd={openNew} onDuplicate={duplicateTask} onComplete={quickComplete} onStatusChange={dragStatusChange} myCollabId={myCollabId} myCollab={myCollab} onArchive={archiveTask} onPomodoro={t=>setPomodoroTask(t)}
             onPin={(id,val)=>{setData(d=>({...d,tasks:d.tasks.map(t=>t.id===id?{...t,pinned:val}:t)}));toast(val?"📌 Tarefa fixada no topo!":"📍 Tarefa desafixada.","ok");}}
             onMoveTop={(id,colId)=>{
               setData(d=>{

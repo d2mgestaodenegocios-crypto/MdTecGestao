@@ -4006,7 +4006,7 @@ function RecurrencesPage({ data, setData }) {
 
 // --- SERVIÇOS ---------------------------------------------------
 function ServicosPage({ data, setData }) {
-  const blankSvc={name:"",description:"",color:"#6366f1",status:"todo",priority:"media",recurrence:"",defaultDue:"",mesInicio:"",sector:"",assignees:[],labels:[],checklist:[]};
+  const blankSvc={name:"",description:"",color:"#6366f1",status:"todo",priority:"media",recurrence:"",defaultDue:"",mesInicio:"",sequencias:3,sector:"",assignees:[],labels:[],checklist:[]};
   const [open,setOpen]=useState(false);
   const [editing,setEditing]=useState(null);
   const [form,setForm]=useState(blankSvc);
@@ -4030,7 +4030,6 @@ function ServicosPage({ data, setData }) {
     if(existing.length>0){
       if(!window.confirm(`Já existem ${existing.length} tarefa(s) ativa(s) deste serviço para esta empresa. Gerar mais mesmo assim?`)) return 0;
     }
-    // Datas já existentes para esse serviço+empresa (evita duplicar datas)
     const existingDates=new Set(existing.map(t=>t.dueDate).filter(Boolean));
     const base={
       id:uid(),title:svc.name,description:svc.description||"",
@@ -4042,25 +4041,34 @@ function ServicosPage({ data, setData }) {
       dueDate:svc.defaultDue||"",
       createdAt:todayStr(),completedAt:null,archivedAt:null,
       _serviceId:svc.id,
+      _sequencias:Number(svc.sequencias)||3,
     };
     const startDate=svc.mesInicio?new Date(svc.mesInicio+"-01T00:00:00"):new Date();
     startDate.setHours(0,0,0,0);
-    const endDate=new Date(startDate);endDate.setMonth(startDate.getMonth()+3);
+    // Geração lazy: gera apenas até o fim do mês corrente + 1 mês
+    // O restante será gerado automaticamente no dia 1 de cada mês
+    const hoje=new Date(); hoje.setHours(0,0,0,0);
+    const lazyEnd=new Date(hoje.getFullYear(),hoje.getMonth()+2,0); // último dia do mês seguinte
+    const seqs=Number(svc.sequencias)||3;
+    const seqEnd=new Date(startDate.getFullYear(),startDate.getMonth()+seqs,0); // fim do período total
+    const endDate=lazyEnd<seqEnd?lazyEnd:seqEnd; // gera só até o que vier primeiro
     const tasks=[];
     const gId=base.id;
     const recId=svc.recurrence;
     const push=(ds)=>{
-      if(existingDates.has(ds)) return; // já existe tarefa nessa data — não duplica
-      tasks.push({...base,id:uid(),dueDate:ds,_recGroup:gId,_recurrenceId:recId,checklist:toArr(svc.checklist).map(ck=>({...ck,id:uid(),done:false}))});
+      if(existingDates.has(ds)) return;
+      const d=new Date(ds+"T12:00:00");
+      if(d>seqEnd) return; // não ultrapassa o total de sequências
+      tasks.push({...base,id:uid(),dueDate:ds,_recGroup:gId,_recurrenceId:recId,_seqEnd:seqEnd.toISOString().slice(0,10),checklist:toArr(svc.checklist).map(ck=>({...ck,id:uid(),done:false}))});
     };
     if(rec){
       if(rec.interval==="monthly"){
         const td=svc.defaultDue?new Date(svc.defaultDue+"T12:00:00").getDate():1;
-        for(let m=0;m<4;m++){const d=new Date(startDate.getFullYear(),startDate.getMonth()+m,td);if(d>=startDate)push(d.toISOString().slice(0,10));}
+        for(let m=0;m<seqs+1;m++){const d=new Date(startDate.getFullYear(),startDate.getMonth()+m,td);if(d>=startDate&&d<=endDate)push(d.toISOString().slice(0,10));}
       } else if(rec.interval==="lastday"){
-        for(let m=0;m<4;m++){const d=new Date(startDate.getFullYear(),startDate.getMonth()+m+1,0);if(d>=startDate)push(d.toISOString().slice(0,10));}
+        for(let m=0;m<seqs+1;m++){const d=new Date(startDate.getFullYear(),startDate.getMonth()+m+1,0);if(d>=startDate&&d<=endDate)push(d.toISOString().slice(0,10));}
       } else if(rec.interval==="quarterly"){
-        for(let q=0;q<4;q++){const d=new Date(startDate.getFullYear(),startDate.getMonth()+q*3,svc.defaultDue?new Date(svc.defaultDue+"T12:00:00").getDate():1);if(d>=startDate)push(d.toISOString().slice(0,10));}
+        for(let q=0;q<Math.ceil(seqs/3)+1;q++){const d=new Date(startDate.getFullYear(),startDate.getMonth()+q*3,svc.defaultDue?new Date(svc.defaultDue+"T12:00:00").getDate():1);if(d>=startDate&&d<=endDate)push(d.toISOString().slice(0,10));}
       } else if(rec.interval==="custom_days"&&Array.isArray(rec.days)&&rec.days.length>0){
         for(let d=new Date(startDate);d<=endDate;d.setDate(d.getDate()+1)){if(rec.days.includes(d.getDay()))push(d.toISOString().slice(0,10));}
       } else if(rec.interval==="weekly"){
@@ -4071,13 +4079,12 @@ function ServicosPage({ data, setData }) {
         let cnt=0;
         for(let d=new Date(startDate);d<=endDate;d.setDate(d.getDate()+1)){if(d.getDay()===tdow){if(cnt%2===0)push(d.toISOString().slice(0,10));cnt++;}}
       } else if(rec.interval==="daily"){
-        const ed28=new Date(startDate);ed28.setDate(startDate.getDate()+28);
-        for(let d=new Date(startDate);d<=ed28;d.setDate(d.getDate()+1))push(d.toISOString().slice(0,10));
+        for(let d=new Date(startDate);d<=endDate;d.setDate(d.getDate()+1))push(d.toISOString().slice(0,10));
       } else if(rec.interval==="yearly"){
-        if(svc.defaultDue){const d=new Date(svc.defaultDue+"T12:00:00");push(new Date(startDate.getFullYear(),d.getMonth(),d.getDate()).toISOString().slice(0,10));}
+        if(svc.defaultDue){const d=new Date(svc.defaultDue+"T12:00:00");const y=new Date(startDate.getFullYear(),d.getMonth(),d.getDate());if(y>=startDate&&y<=endDate)push(y.toISOString().slice(0,10));}
       }
     } else {
-      tasks.push(base);
+      if(!existingDates.has(base.dueDate||"")) tasks.push({...base,_seqEnd:seqEnd.toISOString().slice(0,10)});
     }
     if(tasks.length>0) setData(d=>({...d,tasks:[...d.tasks,...tasks]}));
     return tasks.length;
@@ -4101,7 +4108,7 @@ function ServicosPage({ data, setData }) {
 
   const save=()=>{
     if(!form.name.trim())return;
-    const svc={...form,checklist:toArr(form.checklist),assignees:toArr(form.assignees),labels:toArr(form.labels)};
+    const svc={...form,checklist:toArr(form.checklist),assignees:toArr(form.assignees),labels:toArr(form.labels),sequencias:Number(form.sequencias)||3};
     if(editing){
       setData(d=>{
         const services=d.services.map(s=>s.id===editing.id?{...s,...svc}:s);
@@ -4304,12 +4311,26 @@ function ServicosPage({ data, setData }) {
             <Inp label="Mês de início" value={form.mesInicio||""} onChange={v=>set("mesInicio",v)} type="month" hint="Mês em que a recorrência inicia"/>
             <Inp label="Vencimento padrão" value={form.defaultDue||""} onChange={v=>set("defaultDue",v)} type="date" hint="Data de vencimento da primeira ocorrência"/>
           </div>
+          {/* Campo de sequências */}
+          <Fld label="Quantidade de sequências (meses)">
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              {[3,6,9,12].map(n=>(
+                <button key={n} onClick={()=>set("sequencias",n)}
+                  style={{padding:"7px 20px",borderRadius:9,border:`2px solid ${(form.sequencias||3)===n?"#6366f1":"#e2e8f0"}`,background:(form.sequencias||3)===n?"#6366f1":"var(--bg3)",color:(form.sequencias||3)===n?"#fff":"#64748b",fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit",transition:"all .15s"}}>
+                  {n} meses
+                </button>
+              ))}
+            </div>
+            <div style={{fontSize:11,color:"#94a3b8",marginTop:6}}>
+              Período total da série. As tarefas são geradas mês a mês (no dia 1 de cada mês) para economizar memória. Total configurado: <strong style={{color:"#6366f1"}}>{form.sequencias||3} meses</strong>.
+            </div>
+          </Fld>
           <div style={{padding:"14px",background:"var(--bg3)",borderRadius:10,fontSize:12,color:"#64748b",lineHeight:1.7,border:"1px solid var(--border)"}}>
             <strong style={{color:"var(--text)",display:"block",marginBottom:6}}>Como funciona:</strong>
             1. Preencha todas as abas (Geral, Responsáveis, Checklist, Recorrência).<br/>
-            2. Vá em <strong>Empresas</strong>, abra a aba Serviços e marque este serviço — as tarefas são geradas automaticamente.<br/>
-            3. Ou use o botão <strong>↻ Gerar</strong> no card do serviço para gerar tarefas manualmente.<br/>
-            4. Use <strong>⊕ Empresa</strong> para vincular a uma nova empresa e já gerar as tarefas.
+            2. Defina quantos meses de sequência (3, 6, 9 ou 12 meses).<br/>
+            3. As tarefas são geradas <strong>mês a mês</strong> — no dia 1 de cada mês as tarefas daquele mês aparecem automaticamente.<br/>
+            4. Ao editar o serviço, as tarefas existentes são <strong>atualizadas</strong>, não recriadas.
           </div>
         </div>}
         <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20,paddingTop:14,borderTop:"1px solid #f1f5f9"}}>
@@ -5396,6 +5417,11 @@ function PainelRecorrencias({data,setData,onEdit,toast}){
                 <span style={{color:"#22c55e"}}>✓ {g.done.length} concluída{g.done.length!==1?"s":""}</span>
                 {g.overdue.length>0&&<span style={{color:"#ef4444",fontWeight:700}}>⚠ {g.overdue.length} atrasada{g.overdue.length!==1?"s":""}</span>}
                 {g.nextDue&&<span style={{color:"#6366f1",fontWeight:700}}>Próxima: {fmtDate(g.nextDue)}</span>}
+                {/* Contador total de ocorrências */}
+                <span style={{padding:"1px 8px",borderRadius:10,background:"#f0fdf4",color:"#15803d",fontWeight:700,border:"1px solid #86efac"}}>
+                  📊 {g.totalTasks} ocorrência{g.totalTasks!==1?"s":""}
+                </span>
+                {(()=>{const seqEnd=g.tasks.find(t=>t._seqEnd)?._seqEnd;return seqEnd&&<span style={{fontSize:11,color:"#94a3b8"}}>até {fmtDate(seqEnd)}</span>;})()}
               </div>
               {/* Linha do tempo simplificada */}
               {g.future.length>0&&(
@@ -6739,6 +6765,64 @@ function App(){
     const idSet=new Set(ids);
     setData(d=>({...d,tasks:d.tasks.map(t=>idSet.has(t.id)?{...t,status:"archived",archivedAt:todayStr()}:t)}));
     toast(`📦 ${ids.length} tarefa${ids.length>1?"s arquivadas automaticamente":"arquivada automaticamente"}.`,"ok");
+  },[synced]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Geração lazy mensal: no dia 1 de cada mês, gera tarefas do mês seguinte para séries ativas
+  useEffect(()=>{
+    if(!synced) return;
+    const hoje=new Date(); hoje.setHours(0,0,0,0);
+    // Só executa no dia 1 de cada mês (ou se nunca gerou neste mês)
+    const thisMonthKey=hoje.toISOString().slice(0,7); // "YYYY-MM"
+    if(hoje.getDate()!==1) return; // só roda no dia 1
+    // Mês a gerar = mês seguinte
+    const nextMonthStart=new Date(hoje.getFullYear(),hoje.getMonth()+1,1);
+    const nextMonthEnd=new Date(hoje.getFullYear(),hoje.getMonth()+2,0);
+    const nextMonthKey=nextMonthStart.toISOString().slice(0,7);
+    // Agrupar tarefas por _recGroup para encontrar séries ativas com _seqEnd
+    const groups={};
+    data.tasks.forEach(t=>{
+      if(!t._recGroup||t.status==="archived") return;
+      if(!groups[t._recGroup]) groups[t._recGroup]={tasks:[],seqEnd:t._seqEnd||null,serviceId:t._serviceId||null,recurrenceId:t._recurrenceId||null,base:t};
+      groups[t._recGroup].tasks.push(t);
+    });
+    const newTasks=[];
+    Object.values(groups).forEach(g=>{
+      if(!g.seqEnd) return; // série sem limite definido — ignora geração lazy
+      const seqEnd=new Date(g.seqEnd+"T23:59:59");
+      if(nextMonthStart>seqEnd) return; // série já terminou
+      const existingDates=new Set(g.tasks.map(t=>t.dueDate).filter(Boolean));
+      const rec=g.recurrenceId?data.recurrences.find(r=>r.id===g.recurrenceId):null;
+      const svc=g.serviceId?data.services.find(s=>s.id===g.serviceId):null;
+      if(!rec) return;
+      const base={...g.base,id:uid(),status:"todo",completedAt:null,archivedAt:null,createdAt:todayStr(),comments:[],history:[],pinned:false};
+      const push=(ds)=>{
+        if(existingDates.has(ds)) return;
+        const d=new Date(ds+"T12:00:00");
+        if(d<nextMonthStart||d>nextMonthEnd) return; // só mês seguinte
+        if(d>seqEnd) return;
+        newTasks.push({...base,id:uid(),dueDate:ds,checklist:toArr(svc?.checklist||base.checklist).map(ck=>({...ck,id:uid(),done:false}))});
+      };
+      if(rec.interval==="monthly"){
+        const td=base.dueDate?new Date(base.dueDate+"T12:00:00").getDate():1;
+        const d=new Date(nextMonthStart.getFullYear(),nextMonthStart.getMonth(),td);
+        push(d.toISOString().slice(0,10));
+      } else if(rec.interval==="lastday"){
+        push(nextMonthEnd.toISOString().slice(0,10));
+      } else if(rec.interval==="weekly"||rec.interval==="biweekly"||rec.interval==="custom_days"||rec.interval==="daily"){
+        const tdow=base.dueDate?new Date(base.dueDate+"T12:00:00").getDay():1;
+        let cnt=0;
+        for(let d=new Date(nextMonthStart);d<=nextMonthEnd;d.setDate(d.getDate()+1)){
+          if(rec.interval==="daily") push(d.toISOString().slice(0,10));
+          else if(rec.interval==="custom_days"&&rec.days?.includes(d.getDay())) push(d.toISOString().slice(0,10));
+          else if(rec.interval==="weekly"&&d.getDay()===tdow) push(d.toISOString().slice(0,10));
+          else if(rec.interval==="biweekly"&&d.getDay()===tdow){if(cnt%2===0)push(d.toISOString().slice(0,10));cnt++;}
+        }
+      }
+    });
+    if(newTasks.length>0){
+      setData(d=>({...d,tasks:[...d.tasks,...newTasks]}));
+      toast(`↻ ${newTasks.length} tarefa${newTasks.length>1?"s recorrentes geradas":"recorrente gerada"} para ${nextMonthKey}.`,"ok");
+    }
   },[synced]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Encontrar colaborador vinculado ao email logado

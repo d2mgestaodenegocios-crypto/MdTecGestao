@@ -6722,17 +6722,6 @@ function App(){
     return()=>window.removeEventListener("keydown",handler);
   },[]);
 
-  // Arquivar tarefa manualmente
-  // Helper de permissões — admin sempre pode tudo
-  const myPerms=isAdmin?{canAdvanceStatus:true,canComplete:true,canDelete:true,canArchive:true,canEdit:true}
-    :{canAdvanceStatus:true,canComplete:true,canDelete:false,canArchive:false,canEdit:true,...(myCollab?.permissions||{})};
-
-  const archiveTask=(id)=>{
-    if(!isAdmin&&!myPerms.canArchive){toast("🔒 Você não tem permissão para arquivar tarefas.","err");return;}
-    setData(d=>({...d,tasks:d.tasks.map(t=>t.id===id?{...t,status:"archived",archivedAt:todayStr()}:t)}));
-    toast("📦 Tarefa arquivada.","ok");
-  };
-
   // Auto-archive: tarefas concluídas há mais de archiveDays (padrão 7) dias
   // DEVE ficar ANTES dos early returns (regra dos hooks React)
   useEffect(()=>{
@@ -6762,6 +6751,18 @@ function App(){
     ? (!myCollab || myCollab.accessLevel==="admin")
     : (myCollab?.accessLevel==="admin");
   const myCollabId = myCollab?.id || user?._collabId || null;
+
+  // Helper de permissões — admin sempre pode tudo
+  const myPerms=isAdmin
+    ?{canAdvanceStatus:true,canComplete:true,canDelete:true,canArchive:true,canEdit:true}
+    :{canAdvanceStatus:true,canComplete:true,canDelete:false,canArchive:false,canEdit:true,...(myCollab?.permissions||{})};
+
+  // Arquivar tarefa manualmente
+  const archiveTask=(id)=>{
+    if(!isAdmin&&!myPerms.canArchive){toast("🔒 Você não tem permissão para arquivar tarefas.","err");return;}
+    setData(d=>({...d,tasks:d.tasks.map(t=>t.id===id?{...t,status:"archived",archivedAt:todayStr()}:t)}));
+    toast("📦 Tarefa arquivada.","ok");
+  };
 
   // Alertar tarefas atrasadas via sino ao carregar
   useEffect(()=>{

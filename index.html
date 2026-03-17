@@ -4110,15 +4110,25 @@ function ServicosPage({ data, setData }) {
     if(!form.name.trim())return;
     const svc={...form,checklist:toArr(form.checklist),assignees:toArr(form.assignees),labels:toArr(form.labels),sequencias:Number(form.sequencias)||3};
     if(editing){
+      // Tarefas que batem pelo _serviceId OU pelo título+_recGroup sem _serviceId (tarefas antigas)
+      const matchTask=(t)=>{
+        if(t.status==="archived"||t.status==="done") return false;
+        if(t._serviceId===editing.id) return true;
+        // Fallback: tarefa sem _serviceId mas com mesmo título do serviço (gerada antes da correção)
+        if(!t._serviceId&&t.title===editing.name&&t._recGroup) return true;
+        return false;
+      };
+      const affectedCount=data.tasks.filter(matchTask).length;
       setData(d=>{
         const services=d.services.map(s=>s.id===editing.id?{...s,...svc}:s);
         const tasks=d.tasks.map(t=>{
-          if(t._serviceId!==editing.id||t.status==="archived"||t.status==="done") return t;
+          if(!matchTask(t)) return t;
           const newCk=toArr(svc.checklist).map(ck=>{
-            const existing=t.checklist.find(x=>x.text===ck.text||x.id===ck.id);
+            const existing=toArr(t.checklist).find(x=>x.text===ck.text||x.id===ck.id);
             return existing?{...ck,done:existing.done}:{...ck,id:uid(),done:false};
           });
           return {...t,
+            _serviceId:editing.id, // reconecta tarefas antigas
             title:svc.name,
             description:svc.description||t.description,
             priority:svc.priority||t.priority,
@@ -4130,8 +4140,7 @@ function ServicosPage({ data, setData }) {
         });
         return {...d,services,tasks};
       });
-      const affectedCount=data.tasks.filter(t=>t._serviceId===editing.id&&t.status!=="archived"&&t.status!=="done").length;
-      showToast(`✦ Serviço atualizado e propagado para ${affectedCount} tarefa${affectedCount!==1?"s":""}!`,"ok");
+      showToast(`✦ Serviço atualizado${affectedCount>0?` e propagado para ${affectedCount} tarefa${affectedCount!==1?"s":""}`:` (nenhuma tarefa ativa vinculada)`}!`,"ok");
     } else {
       setData(d=>({...d,services:[...(d.services||[]),{id:uid(),...svc}]}));
       showToast("✦ Serviço criado!","ok");

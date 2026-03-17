@@ -1583,6 +1583,23 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
     <div style={{display:"flex",flexDirection:"column",gap:15}}>
       {lockInfo&&<LockBanner holder={lockInfo.user} onForce={onForce}/>}
 
+      {/* Barra de ação rápida no topo */}
+      {!blocked&&(
+        <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderRadius:10,background:"var(--bg3)",border:"1px solid var(--border)",position:"sticky",top:0,zIndex:10,backdropFilter:"blur(8px)"}}>
+          <span style={{flex:1,fontSize:12,color:"#94a3b8",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+            {f.title.trim()
+              ? <span style={{color:"var(--text2)",fontWeight:700}}>✎ {f.title.slice(0,45)}{f.title.length>45?"…":""}</span>
+              : <span style={{fontStyle:"italic"}}>Nova tarefa</span>}
+          </span>
+          <button onClick={onClose} style={{padding:"4px 12px",borderRadius:7,border:"1.5px solid var(--border2)",background:"transparent",color:"#64748b",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit",transition:"all .12s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor="#ef4444";e.currentTarget.style.color="#ef4444";}} onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border2)";e.currentTarget.style.color="#64748b";}}>Cancelar</button>
+          <button onClick={()=>f.title.trim()&&onSave(f)} disabled={!f.title.trim()} style={{padding:"5px 16px",borderRadius:7,border:"none",background:f.title.trim()?"linear-gradient(135deg,#6366f1,#8b5cf6)":"#e5e7eb",color:f.title.trim()?"#fff":"#9ca3af",cursor:f.title.trim()?"pointer":"not-allowed",fontSize:12,fontWeight:800,fontFamily:"inherit",transition:"all .15s",boxShadow:f.title.trim()?"0 2px 8px rgba(99,102,241,.3)":"none"}}
+            onMouseEnter={e=>{if(f.title.trim())e.currentTarget.style.transform="scale(1.04)";}}
+            onMouseLeave={e=>{e.currentTarget.style.transform="scale(1)";}}>
+            {task?"💾 Salvar":"✦ Criar"}
+          </button>
+        </div>
+      )}
+
       <Inp label="Título *" value={f.title} onChange={v=>set("title",v)} placeholder="Título da tarefa" disabled={blocked}/>
       <Txt label="Descrição" value={f.description} onChange={v=>set("description",v)} placeholder="Detalhes da tarefa..." disabled={blocked}/>
 
@@ -1883,7 +1900,7 @@ function FBar({data,filters,setF,showMonth=true}){
 
 /* ===========================================
    TASK CARD  - with ✓ Quick Complete button */
-function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isDragging,ghost,onPomodoro,onPin,onMoveTop}){
+function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isDragging,ghost,onPomodoro,onPin,onMoveTop,onDuplicate}){
   const cardRef=useRef(null);
   const assignees=data.collaborators.filter(c=>task.assignees.includes(c.id));
   const labels=data.labels.filter(l=>task.labels.includes(l.id));
@@ -2066,6 +2083,7 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
           <div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",gap:4}}>
             {onMoveTop&&!task.pinned&&<button onClick={e=>{e.stopPropagation();onMoveTop(task.id);}} title="Mover para o topo da coluna" style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#e2e8f0",padding:"2px 4px",borderRadius:5,transition:"color .15s",fontWeight:900}} onMouseEnter={e=>e.currentTarget.style.color="#6366f1"} onMouseLeave={e=>e.currentTarget.style.color="#e2e8f0"}>⬆</button>}
             {onPin&&<button onClick={e=>{e.stopPropagation();onPin(task.id,!task.pinned);}} title={task.pinned?"Desafixar do topo":"Fixar no topo"} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:task.pinned?"#f59e0b":"#e2e8f0",padding:"2px 4px",borderRadius:5,transition:"color .15s"}} onMouseEnter={e=>e.currentTarget.style.color="#f59e0b"} onMouseLeave={e=>e.currentTarget.style.color=task.pinned?"#f59e0b":"#e2e8f0"}>📌</button>}
+            {onDuplicate&&<button onClick={e=>{e.stopPropagation();onDuplicate(task);}} title="Duplicar tarefa" style={{background:"none",border:"none",cursor:"pointer",fontSize:13,color:"#e2e8f0",padding:"2px 4px",borderRadius:5,transition:"color .15s",fontWeight:700,lineHeight:1}} onMouseEnter={e=>{e.currentTarget.style.color="#6366f1";e.currentTarget.style.background="#eef2ff";}} onMouseLeave={e=>{e.currentTarget.style.color="#e2e8f0";e.currentTarget.style.background="none";}}>⧉</button>}
             {onArchive&&<button onClick={e=>{e.stopPropagation();onArchive(task.id);}} title="Arquivar" style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#e2e8f0",padding:"2px 4px",borderRadius:5,transition:"color .15s"}} onMouseEnter={e=>e.currentTarget.style.color="#f59e0b"} onMouseLeave={e=>e.currentTarget.style.color="#e2e8f0"}>📦</button>}
             {onPomodoro&&<button onClick={e=>{e.stopPropagation();onPomodoro(task);}} title="Iniciar Pomodoro" style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#e2e8f0",padding:"2px 4px",borderRadius:5,transition:"color .15s"}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#e2e8f0"}>🍅</button>}
             {onDelete&&<button onClick={e=>{e.stopPropagation();onDelete(task.id);}} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#e2e8f0",padding:"2px 4px",borderRadius:5,transition:"color .15s"}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#e2e8f0"}>🗑</button>}
@@ -2259,15 +2277,26 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete,onStatusChange,myColl
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:6}}>
                   {(()=>{
-                    const ckTot=tasks.reduce((s,t)=>s+toArr(t.checklist).length,0);
-                    const ckDone=tasks.reduce((s,t)=>s+toArr(t.checklist).filter(c=>c.done).length,0);
-                    const pct=ckTot>0?Math.round(ckDone/ckTot*100):null;
-                    return pct!==null&&(
-                      <div style={{display:"flex",alignItems:"center",gap:4}}>
-                        <div style={{width:40,height:4,borderRadius:4,background:st.c+"28",overflow:"hidden"}}>
-                          <div style={{width:pct+"%",height:"100%",background:st.c,borderRadius:4,transition:"width .3s"}}/>
+                    const total=tasks.length;
+                    const overdue=tasks.filter(t=>isLate(t)).length;
+                    const done=tasks.filter(t=>t.status==="done").length;
+                    const onTime=total-overdue;
+                    if(total===0) return null;
+                    const overPct=Math.round(overdue/total*100);
+                    const onPct=100-overPct;
+                    return(
+                      <div style={{display:"flex",flexDirection:"column",gap:2,alignItems:"flex-end"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:4}}>
+                          <div style={{width:56,height:5,borderRadius:4,overflow:"hidden",background:"#f1f5f9",display:"flex"}}>
+                            <div title={`${onTime} em dia`} style={{width:onPct+"%",height:"100%",background:st.id==="done"?"#22c55e":"#6366f1",transition:"width .3s"}}/>
+                            <div title={`${overdue} atrasada${overdue!==1?"s":""}`} style={{width:overPct+"%",height:"100%",background:"#ef4444",transition:"width .3s"}}/>
+                          </div>
+                          {overdue>0&&<span style={{fontSize:9,fontWeight:900,color:"#ef4444",whiteSpace:"nowrap"}}>⚠{overdue}</span>}
                         </div>
-                        <span style={{fontSize:9,fontWeight:800,color:st.c}}>{pct}%</span>
+                        <div style={{display:"flex",gap:6}}>
+                          {overdue>0&&<span style={{fontSize:9,color:"#ef4444",fontWeight:700}}>{overPct}% atras.</span>}
+                          {st.id==="done"&&<span style={{fontSize:9,color:"#22c55e",fontWeight:700}}>✓ {done}</span>}
+                        </div>
                       </div>
                     );
                   })()}
@@ -2290,6 +2319,10 @@ function KanbanView({data,onEdit,onDelete,onAdd,onComplete,onStatusChange,myColl
                     onPomodoro={onPomodoro}
                     onPin={(id,val)=>onPin&&onPin(id,val)}
                     onMoveTop={(id)=>onMoveTop&&onMoveTop(id,st.id)}
+                    onDuplicate={(task)=>{
+                      const copy={...task,id:uid(),title:task.title+" (cópia)",createdAt:todayStr(),completedAt:null,archivedAt:null,pinned:false,comments:[],history:[],checklist:toArr(task.checklist).map(c=>({...c,id:uid(),done:false}))};
+                      onAdd(copy);
+                    }}
                   />
                 ))}
                 {tasks.length===0&&(
@@ -6800,7 +6833,15 @@ function App(){
       });
   const dataForUser = isAdmin ? data : {...data, tasks: visibleTasks};
 
-  const openNew=(status="todo")=>setTM({open:true,task:null,defStatus:status,lockInfo:null});
+  const openNew=(statusOrTask="todo")=>{
+    if(statusOrTask&&typeof statusOrTask==="object"){
+      // Duplicate: save directly without opening modal
+      setData(d=>({...d,tasks:[...d.tasks,statusOrTask]}));
+      toast("⧉ Tarefa duplicada!","ok");
+    } else {
+      setTM({open:true,task:null,defStatus:statusOrTask||"todo",lockInfo:null});
+    }
+  };
 
   const openEdit=(task)=>{
     const safeTask=sanitizeTask(task);

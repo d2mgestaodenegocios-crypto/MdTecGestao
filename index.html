@@ -256,7 +256,6 @@ const WDAYS=[{id:0,s:"Dom",l:"Domingo"},{id:1,s:"Seg",l:"Segunda"},{id:2,s:"Ter"
 const MN=["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
 const MS=["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
 const BASE_STS=[
-  {id:"backlog",l:"Backlog",c:"#64748b",bg:"#f8fafc",fixed:true,order:0},
   {id:"todo",l:"A Fazer",c:"#6366f1",bg:"#eef2ff",fixed:true,order:1},
   {id:"doing",l:"Em Andamento",c:"#f59e0b",bg:"#fffbeb",fixed:true,order:2},
   {id:"review",l:"Em Revisão",c:"#8b5cf6",bg:"#f5f3ff",fixed:true,order:3},
@@ -562,14 +561,6 @@ function useSharedData() {
             .map(t=>t._recGroup?{...t,checklist:(t.checklist||[]).map(c=>({...c,done:false})),status:t.status==="archived"?t.status:"todo",completedAt:null}:t);
           p.tasks=[...resetChecklist.filter(t=>!t._parentId&&!t.recurrence),...generated];
           p._migrated_v3=true;
-        }
-        // MIGRAÇÃO v4: garantir campo companies[] em todas as tarefas
-        if(!p._migrated_v4){
-          p.tasks=(p.tasks||[]).map(t=>{
-            if(Array.isArray(t.companies)&&t.companies.length>0) return t;
-            return {...t,companies:t.company?[t.company]:[]};
-          });
-          p._migrated_v4=true;
         }
         p.tasks = (p.tasks || []).map(normalizeTask);
         setRaw(p);
@@ -886,7 +877,6 @@ function RelatorioPage({data,isAdmin}){
         <label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,fontWeight:700,color:"#64748b",cursor:"pointer"}}>
           <input type="checkbox" checked={showDone} onChange={e=>setShowDone(e.target.checked)} style={{accentColor:"#22c55e"}}/> Concluídas
         </label>
-        <Btn onClick={()=>exportRelCSV(tasks,data,company,period)} xs={{background:"#f0fdf4",color:"#15803d",border:"1px solid #86efac"}}>⬇ CSV</Btn>
         <Btn onClick={()=>window.print()} xs={{marginLeft:"auto",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",border:"none"}}>🖨 Imprimir / PDF</Btn>
       </div>
 
@@ -1049,7 +1039,7 @@ function ConfigPage({data,setData,toast,deduplicateTasks}){
           }} sz="sm" xs={{marginBottom:12}}>+ Nova coluna</Btn>
         )}
         {(data.customStatuses||[]).length===0&&(
-          <p style={{fontSize:12,color:"#94a3b8",fontStyle:"italic"}}>Nenhuma coluna extra. Os 5 status padrão (Backlog, A Fazer, Em Andamento, Em Revisão, Concluído) são usados.</p>
+          <p style={{fontSize:12,color:"#94a3b8",fontStyle:"italic"}}>Nenhuma coluna extra. Os 4 status padrão (A Fazer, Em Andamento, Em Revisão, Concluído) são usados.</p>
         )}
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
           {(data.customStatuses||[]).map((cs,idx)=>(
@@ -1572,20 +1562,15 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
   const blank={id:uid(),title:"",description:"",status:defStatus,priority:"media",company:"",companies:[],sector:"",assignees:[],labels:[],dueDate:"",dueTime:"",slaHours:"",valor:"",checklist:[],dependencies:[],recurrence:"",createdAt:todayStr(),comments:[],history:[],internalNote:"",pinned:false};
   const [f,sf]=useState(task?{...sanitizeTask(task),comments:task.comments||[]}:blank);
   const [ckTxt,sCk]=useState("");
+  const [ckDueDate,setCkDueDate]=useState("");
   const [ckEditing,setCkEditing]=useState(null); // id of checklist item being edited
   const [ckEditTxt,setCkEditTxt]=useState("");
   const [commentTxt,setCommentTxt]=useState("");
   const set=(k,v)=>sf(p=>({...p,[k]:v}));
   const tog=(k,id)=>set(k,f[k].includes(id)?f[k].filter(x=>x!==id):[...f[k],id]);
-  const [asgSearch,setAsgSearch]=useState("");
-  const fC=data.collaborators.filter(c=>{
-    const cos=toArr(c.companies).length>0?toArr(c.companies):(c.company?[c.company]:[]);
-    const coMatch=!f.company||cos.length===0||cos.includes(f.company);
-    const txtMatch=!asgSearch||c.name.toLowerCase().includes(asgSearch.toLowerCase());
-    return coMatch&&txtMatch;
-  });
+  const fC=data.collaborators.filter(c=>{if(!f.company) return true;const cos=toArr(c.companies).length>0?toArr(c.companies):(c.company?[c.company]:[]);return cos.length===0||cos.includes(f.company);});
   const fS=data.sectors.filter(s=>{if(!f.company) return true;const cos=toArr(s.companies).length>0?toArr(s.companies):(s.company?[s.company]:[]);return cos.length===0||cos.includes(f.company);});
-  const addCk=()=>{if(!ckTxt.trim())return;set("checklist",[...f.checklist,{id:uid(),text:ckTxt.trim(),done:false}]);sCk("");};
+  const addCk=()=>{if(!ckTxt.trim())return;set("checklist",[...f.checklist,{id:uid(),text:ckTxt.trim(),done:false,dueDate:ckDueDate||null}]);sCk("");setCkDueDate("");};
   const addComment=()=>{
     if(!commentTxt.trim())return;
     const comment={id:uid(),text:commentTxt.trim(),author:currentUser||"Usuário",createdAt:new Date().toISOString()};
@@ -1636,15 +1621,8 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
       <Sel label="Recorrência" value={f.recurrence||""} onChange={v=>set("recurrence",v)} placeholder="Sem recorrência" options={data.recurrences.map(r=>({value:r.id,label:r.name}))} disabled={blocked}/>
 
       <Fld label={`Responsáveis (máx. 2)${(f.assignees||[]).length>=2?" · limite":""}`}>
-        {data.collaborators.length>6&&(
-          <input value={asgSearch} onChange={e=>setAsgSearch(e.target.value)}
-            placeholder="🔍 Buscar colaborador..."
-            style={{width:"100%",padding:"6px 10px",borderRadius:8,border:"1.5px solid #e5e7eb",fontSize:12,fontFamily:"inherit",marginBottom:8,outline:"none",background:"var(--bg2)",color:"var(--text)",boxSizing:"border-box"}}
-            onFocus={e=>e.target.style.borderColor="#6366f1"} onBlur={e=>e.target.style.borderColor="#e5e7eb"}/>
-        )}
-        {data.collaborators.length===0?<p style={{fontSize:12,color:"#94a3b8"}}>Nenhum colaborador cadastrado ainda.</p>:
+        {fC.length===0?<p style={{fontSize:12,color:"#94a3b8"}}>Nenhum colaborador cadastrado ainda.</p>:
           <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-            {fC.length===0&&asgSearch&&<span style={{fontSize:12,color:"#94a3b8"}}>Nenhum colaborador encontrado.</span>}
             {fC.map(u=>{const sel=(f.assignees||[]).includes(u.id);const maxed=!sel&&(f.assignees||[]).length>=2;return(
               <button key={u.id} onClick={()=>!blocked&&!maxed&&tog("assignees",u.id)} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px 4px 5px",borderRadius:20,border:`2px solid ${sel?u.color:"#e5e7eb"}`,background:sel?u.color+"18":"#f9fafb",color:sel?u.color:"#6b7280",cursor:(blocked||maxed)?"not-allowed":"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit",transition:"all .12s",opacity:(blocked||maxed)?.5:1}}>
                 <Av initials={u.initials} color={u.color} size={22}/>{u.name}
@@ -1680,8 +1658,9 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
             </div>
           );
         })()}
-        <div style={{display:"flex",gap:8,marginBottom:8}}>
-          <input value={ckTxt} onChange={e=>sCk(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!blocked&&addCk()} disabled={blocked} placeholder="Novo item (Enter para adicionar)..." style={{flex:1,padding:"7px 12px",borderRadius:9,fontSize:13,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",opacity:blocked?.6:1}}/>
+        <div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap"}}>
+          <input value={ckTxt} onChange={e=>sCk(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!blocked&&addCk()} disabled={blocked} placeholder="Novo item (Enter para adicionar)..." style={{flex:1,minWidth:160,padding:"7px 12px",borderRadius:9,fontSize:13,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",opacity:blocked?.6:1}}/>
+          <input value={ckDueDate} onChange={e=>setCkDueDate(e.target.value)} type="date" disabled={blocked} title="Prazo do item" style={{padding:"7px 10px",borderRadius:9,fontSize:12,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",color:"#64748b",background:"var(--input-bg)",opacity:blocked?.6:1,maxWidth:150}}/>
           <Btn onClick={addCk} sz="sm" disabled={blocked}>+ Add</Btn>
         </div>
         <div style={{display:"flex",flexDirection:"column",gap:4}}>
@@ -1729,6 +1708,21 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
                 {data.collaborators.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
               </select>}
               {ckAsgn&&<div title={ckAsgn.name}><Av initials={ckAsgn.initials} color={ckAsgn.color} size={20}/></div>}
+              {/* Prazo do item de checklist */}
+              {!blocked
+                ? <input
+                    type="date"
+                    value={ck.dueDate||""}
+                    onChange={e=>set("checklist",f.checklist.map(x=>x.id===ck.id?{...x,dueDate:e.target.value||null}:x))}
+                    title="Prazo deste item"
+                    style={{fontSize:11,borderRadius:6,border:`1px solid ${ck.dueDate&&new Date(ck.dueDate+"T23:59:59")<new Date()&&!ck.done?"#fca5a5":"#e2e8f0"}`,padding:"2px 6px",background:ck.dueDate&&new Date(ck.dueDate+"T23:59:59")<new Date()&&!ck.done?"#fff0f0":"var(--bg2)",color:ck.dueDate&&new Date(ck.dueDate+"T23:59:59")<new Date()&&!ck.done?"#ef4444":"#64748b",fontFamily:"inherit",maxWidth:130}}
+                  />
+                : ck.dueDate&&(
+                    <span style={{fontSize:10,padding:"2px 7px",borderRadius:5,background:new Date(ck.dueDate+"T23:59:59")<new Date()&&!ck.done?"#fff0f0":"#f0fdf4",color:new Date(ck.dueDate+"T23:59:59")<new Date()&&!ck.done?"#ef4444":"#16a34a",fontWeight:700,border:`1px solid ${new Date(ck.dueDate+"T23:59:59")<new Date()&&!ck.done?"#fca5a5":"#86efac"}`}}>
+                      📅 {fmtDate(ck.dueDate)}
+                    </span>
+                  )
+              }
               {!blocked&&<button onClick={()=>set("checklist",f.checklist.filter(x=>x.id!==ck.id))} style={{background:"none",border:"none",cursor:"pointer",color:"#cbd5e1",fontSize:16,lineHeight:1,padding:"0 2px"}}>×</button>}
             </div>
             );
@@ -1908,6 +1902,8 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
   const ckDone=task.checklist.filter(c=>c.done).length;
   const ckTot=task.checklist.length;
   const prog=ckTot>0?Math.round((ckDone/ckTot)*100):null;
+  const _now=new Date();
+  const ckOverdue=task.checklist.filter(c=>!c.done&&c.dueDate&&new Date(c.dueDate+"T23:59:59")<_now).length;
   const over=isLate(task);
   const done=task.status==="done";
   // SLA urgency: if slaHours set, check if creation + slaHours < now
@@ -1936,13 +1932,13 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
       ref={cardRef}
       onClick={handleCardClick}
       style={{
-        background:ghost?"#fff":done?"#f8fffe":task.pinned?"#fffbeb":"#fff",
+        background:ghost?"#fff":done?"#f8fffe":task.pinned?"#fffbeb":(ckOverdue>0&&!done)?`${p.bg}`:`${p.bg}55`,
         borderRadius:13,
         cursor:isDragging?"grabbing":"pointer",
         transition:"box-shadow .15s,transform .15s,opacity .15s",
         position:"relative",
-        borderLeft:`3px solid ${done?"#22c55e":over?"#ef4444":task.pinned?"#f59e0b":p.d}`,
-        boxShadow:task.pinned&&!isDragging?"0 2px 8px rgba(245,158,11,.25),0 0 0 1.5px #fcd34d":isDragging?"none":done?"0 1px 3px rgba(0,0,0,.05),0 0 0 1.5px #bbf7d0":"0 1px 3px rgba(0,0,0,.07),0 0 0 1px rgba(0,0,0,.05)",
+        borderLeft:`4px solid ${done?"#22c55e":over?"#ef4444":task.pinned?"#f59e0b":p.d}`,
+        boxShadow:task.pinned&&!isDragging?`0 2px 8px rgba(245,158,11,.25),0 0 0 1.5px #fcd34d`:isDragging?"none":done?`0 1px 3px rgba(0,0,0,.05),0 0 0 1.5px #bbf7d0`:(ckOverdue>0&&!done)?`0 2px 8px ${p.d}33,0 0 0 1.5px ${p.d}66`:`0 1px 3px rgba(0,0,0,.07),0 0 0 1px ${p.d}30`,
         opacity:isDragging?.3:1,
         display:"flex",
         flexDirection:"row",
@@ -2049,12 +2045,19 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
 
         {prog!==null&&(
           <div style={{marginBottom:8}}>
-            <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:3,alignItems:"center"}}>
               <span style={{fontSize:10,color:"#94a3b8"}}>Checklist</span>
-              <span style={{fontSize:10,fontWeight:700,color:"#64748b"}}>{ckDone}/{ckTot}</span>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                {ckOverdue>0&&!done&&(
+                  <span style={{fontSize:10,padding:"1px 7px",borderRadius:20,background:"#fff0f0",color:"#ef4444",fontWeight:800,border:"1px solid #fca5a5",animation:"pulse 2s infinite"}}>
+                    ⚠ {ckOverdue} atrasad{ckOverdue>1?"os":"o"}
+                  </span>
+                )}
+                <span style={{fontSize:10,fontWeight:700,color:ckOverdue>0&&!done?"#ef4444":"#64748b"}}>{ckDone}/{ckTot}</span>
+              </div>
             </div>
             <div style={{height:4,borderRadius:3,background:"#f1f5f9",overflow:"hidden"}}>
-              <div style={{width:`${prog}%`,height:"100%",background:prog===100?"#22c55e":"#6366f1",borderRadius:3,transition:"width .4s"}}/>
+              <div style={{width:`${prog}%`,height:"100%",background:prog===100?"#22c55e":ckOverdue>0&&!done?"#ef4444":"#6366f1",borderRadius:3,transition:"width .4s"}}/>
             </div>
           </div>
         )}
@@ -3029,15 +3032,10 @@ function CompaniesPage({ data, setData }) {
           const existsAny=existingDates.size>0;
           if(!existsAny){
             const rec=data.recurrences.find(r=>r.id===svc.recurrence);
-            // Verifica se o setor do serviço pertence à empresa destino; se não, limpa
-            const svcSectorId=svc.sector||"";
-            const svcSectorObj=svcSectorId?data.sectors.find(s=>s.id===svcSectorId):null;
-            const sectorBelongs=svcSectorObj&&(toArr(svcSectorObj.companies).includes(coId)||svcSectorObj.company===coId||(!toArr(svcSectorObj.companies).length&&!svcSectorObj.company));
-            const resolvedSector=sectorBelongs?svcSectorId:"";
             const base={
               id:uid(),title:svc.name,description:svc.description||"",
               status:svc.status||"todo",priority:svc.priority||"media",
-              company:coId,companies:[coId],sector:resolvedSector,
+              company:coId,sector:svc.sector||"",
               assignees:toArr(svc.assignees),labels:toArr(svc.labels),
               checklist:toArr(svc.checklist).map(ck=>({...ck,done:false})),
               dependencies:[],recurrence:"",
@@ -3381,15 +3379,10 @@ function CompaniesPage({ data, setData }) {
               };
               const cleanCk=toArr(svc.checklist).map(ck=>({...ck,done:false}));
               const gId=uid();
-              // Valida se o setor do servico pertence a empresa destino
-              const inlSectorId=svc.sector||"";
-              const inlSectorObj=inlSectorId?d.sectors.find(s=>s.id===inlSectorId):null;
-              const inlSectorOk=inlSectorObj&&(toArr(inlSectorObj.companies).includes(coId)||inlSectorObj.company===coId||(!toArr(inlSectorObj.companies).length&&!inlSectorObj.company));
-              const inlSector=inlSectorOk?inlSectorId:"";
               const baseTask={
                 id:gId,title:svc.name,description:svc.description||"",
                 status:svc.status||"todo",priority:svc.priority||"media",
-                company:coId,companies:[coId],sector:inlSector,
+                company:coId,sector:svc.sector||"",
                 assignees:toArr(svc.assignees),labels:toArr(svc.labels),
                 checklist:cleanCk,dependencies:[],recurrence:"",
                 createdAt:todayStr(),completedAt:null,archivedAt:null,
@@ -3465,25 +3458,14 @@ function CompaniesPage({ data, setData }) {
                           {rec&&<span style={{fontSize:10,color:"#6366f1",fontWeight:700,background:"#eef2ff",padding:"1px 6px",borderRadius:6}}>↻ {rec.name}</span>}
                           {dueDay&&<span style={{fontSize:10,color:"#f59e0b",fontWeight:700,background:"#fffbeb",padding:"1px 6px",borderRadius:6}}>📅 todo dia {dueDay}</span>}
                           {jaGerado&&<span style={{fontSize:10,color:"#22c55e",fontWeight:700}}>✅ {qtd} tarefa{qtd!==1?"s":""} ativa{qtd!==1?"s":""}</span>}
-                          {(()=>{
-                            if(!s.sector||!sel||!coId) return null;
-                            const sec=data.sectors.find(x=>x.id===s.sector);
-                            if(!sec) return null;
-                            const cos=toArr(sec.companies).length>0?toArr(sec.companies):(sec.company?[sec.company]:[]);
-                            const belongs=cos.length===0||cos.includes(coId);
-                            if(belongs) return <span style={{fontSize:10,color:"#15803d",fontWeight:700,background:"#f0fdf4",padding:"1px 6px",borderRadius:6}}>◫ {sec.name}</span>;
-                            return <span title={`O setor "${sec.name}" pertence a outra empresa — as tarefas serão geradas sem setor`} style={{fontSize:10,color:"#92400e",fontWeight:700,background:"#fef9c3",padding:"1px 6px",borderRadius:6,cursor:"help"}}>⚠ setor de outra empresa</span>;
-                          })()}
                         </div>
                       </div>
                       {sel&&(
-                        <button onClick={e=>{e.stopPropagation();if(coId&&!jaGerado)gerarInline(s);}}
-                          disabled={!coId||jaGerado}
-                          title={!coId?"Salve a empresa primeiro para gerar tarefas":jaGerado?"Tarefas já geradas":"Gerar tarefas"}
-                          style={{flexShrink:0,padding:"5px 14px",borderRadius:8,border:"none",background:(!coId||jaGerado)?"#f1f5f9":"#6366f1",color:(!coId||jaGerado)?"#94a3b8":"#fff",fontWeight:800,fontSize:12,cursor:(!coId||jaGerado)?"not-allowed":"pointer",fontFamily:"inherit",transition:"all .15s",opacity:!coId?0.5:1}}
-                          onMouseEnter={e=>{if(coId&&!jaGerado)e.currentTarget.style.background="#4f46e5";}}
-                          onMouseLeave={e=>{if(coId&&!jaGerado)e.currentTarget.style.background="#6366f1";}}
-                        >{!coId?"💾 Salve 1º":jaGerado?"✅ Gerado":"⚡ Gerar"}</button>
+                        <button onClick={e=>{e.stopPropagation();gerarInline(s);}}
+                          style={{flexShrink:0,padding:"5px 14px",borderRadius:8,border:"none",background:jaGerado?"#f1f5f9":"#6366f1",color:jaGerado?"#94a3b8":"#fff",fontWeight:800,fontSize:12,cursor:jaGerado?"not-allowed":"pointer",fontFamily:"inherit",transition:"all .15s"}}
+                          onMouseEnter={e=>{if(!jaGerado)e.currentTarget.style.background="#4f46e5";}}
+                          onMouseLeave={e=>{if(!jaGerado)e.currentTarget.style.background="#6366f1";}}
+                        >{jaGerado?"✅ Gerado":"⚡ Gerar"}</button>
                       )}
                     </div>
                     {/* Config: só mês inicial + competência */}
@@ -3950,15 +3932,10 @@ function ServicosPage({ data, setData }) {
     if(existing.length>0){
       if(!window.confirm(`Já existem ${existing.length} tarefa(s) ativa(s) deste serviço para esta empresa. Gerar mais mesmo assim?`)) return 0;
     }
-    // Valida se o setor do serviço pertence à empresa destino
-    const svcSectorId=svc.sector||"";
-    const svcSectorObj=svcSectorId?data.sectors.find(s=>s.id===svcSectorId):null;
-    const sectorBelongs=svcSectorObj&&(toArr(svcSectorObj.companies).includes(coId)||svcSectorObj.company===coId||(!toArr(svcSectorObj.companies).length&&!svcSectorObj.company));
-    const resolvedSector=sectorBelongs?svcSectorId:"";
     const base={
       id:uid(),title:svc.name,description:svc.description||"",
       status:svc.status||"todo",priority:svc.priority||"media",
-      company:coId,companies:[coId],sector:resolvedSector,
+      company:coId,sector:svc.sector||"",
       assignees:toArr(svc.assignees),labels:toArr(svc.labels),
       checklist:toArr(svc.checklist).map(ck=>({...ck,id:uid(),done:false})),
       dependencies:[],recurrence:"",
@@ -4088,7 +4065,6 @@ function ServicosPage({ data, setData }) {
                 {rec&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#6366f118",color:"#6366f1",fontWeight:700}}>↻ {rec.name}</span>}
                 {s.defaultDue&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#f59e0b18",color:"#f59e0b",fontWeight:700}}>{fmtDate(s.defaultDue)}</span>}
                 {lbs.map(l=><span key={l.id} style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:l.color+"18",color:l.color,fontWeight:700}}>{l.name}</span>)}
-                {(()=>{const sec=data.sectors.find(x=>x.id===s.sector);return sec?<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:sec.color+"18",color:sec.color,fontWeight:700}}>◫ {sec.name}</span>:null;})()}
               </div>
               {/* Contadores de tarefas */}
               <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
@@ -4179,13 +4155,7 @@ function ServicosPage({ data, setData }) {
             <Sel label="Prioridade" value={form.priority} onChange={v=>set("priority",v)} options={Object.entries(PRI).map(([k,v])=>({value:k,label:v.l}))}/>
             <Sel label="Status inicial" value={form.status} onChange={v=>set("status",v)} options={getFullSTS(data.customStatuses).filter(s=>s.id!=="archived").map(s=>({value:s.id,label:s.l}))}/>
           </div>
-          <Sel label="Setor padrão" value={form.sector||""} onChange={v=>set("sector",v)} placeholder="Nenhum"
-            options={data.sectors.map(s=>{
-              const cos=toArr(s.companies).length>0?toArr(s.companies):(s.company?[s.company]:[]);
-              const coNames=cos.map(id=>data.companies.find(c=>c.id===id)?.name).filter(Boolean);
-              return {value:s.id,label:coNames.length>0?`${s.name} (${coNames.join(", ")})`:s.name};
-            })}
-          />
+          <Sel label="Setor padrão" value={form.sector||""} onChange={v=>set("sector",v)} placeholder="Nenhum" options={data.sectors.map(s=>({value:s.id,label:s.name}))}/>
           <Fld label="Marcadores padrão">
             <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
               {data.labels.map(l=>{const sel=toArr(form.labels).includes(l.id);return(
@@ -5366,15 +5336,12 @@ function PainelRecorrencias({data,setData,onEdit,toast}){
    HOJE PAGE */
 function HojePage({data,myCollabId,onEdit,onDelete,onComplete,onAdd}){
   const today=todayStr();
-  const tomorrow=new Date();tomorrow.setDate(tomorrow.getDate()+1);
-  const tomorrowStr=tomorrow.toISOString().slice(0,10);
-
   const tasks=data.tasks.filter(t=>{
     if(t.status==="archived"||t.status==="done") return false;
     if(!t.dueDate) return false;
-    return t.dueDate<=tomorrowStr;
+    return t.dueDate<=today;
   }).sort((a,b)=>{
-    // atrasadas primeiro, depois hoje, depois amanhã; dentro de cada grupo por prioridade
+    // atrasadas primeiro, depois hoje; dentro de cada grupo por prioridade
     const priOrder={critica:0,alta:1,media:2,baixa:3};
     if(a.dueDate!==b.dueDate) return a.dueDate.localeCompare(b.dueDate);
     return (priOrder[a.priority]||2)-(priOrder[b.priority]||2);
@@ -5382,7 +5349,6 @@ function HojePage({data,myCollabId,onEdit,onDelete,onComplete,onAdd}){
 
   const overdue=tasks.filter(t=>t.dueDate<today);
   const dueToday=tasks.filter(t=>t.dueDate===today);
-  const dueTomorrow=tasks.filter(t=>t.dueDate===tomorrowStr);
 
   const SectionHeader=({label,count,color})=>(
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,marginTop:20}}>
@@ -5452,12 +5418,6 @@ function HojePage({data,myCollabId,onEdit,onDelete,onComplete,onAdd}){
           {dueToday.map(t=><Row key={t.id} task={t}/>)}
         </>
       )}
-      {dueTomorrow.length>0&&(
-        <>
-          <SectionHeader label="Amanhã" count={dueTomorrow.length} color="#6366f1"/>
-          {dueTomorrow.map(t=><Row key={t.id} task={t}/>)}
-        </>
-      )}
     </div>
   );
 }
@@ -5465,27 +5425,6 @@ function HojePage({data,myCollabId,onEdit,onDelete,onComplete,onAdd}){
 
 /* ===========================================
    CSV EXPORT */
-function exportRelCSV(tasks,data,company,period){
-  const hdrs=["Titulo","Status","Prioridade","Setor","Responsaveis","Valor (R$)","Vencimento","Concluido em","Notas internas"];
-  const q=function(v){return '"'+String(v||"").replace(/"/g,'""')+'"';};
-  const rows=tasks.map(function(t){
-    var st=STS.find(function(s){return s.id===t.status;})||{l:t.status};
-    var pri=PRI[t.priority]||{l:t.priority};
-    var sec=data.sectors.find(function(s){return s.id===t.sector;});
-    var asgs=data.collaborators.filter(function(c){return toArr(t.assignees).includes(c.id);}).map(function(c){return c.name;}).join("; ");
-    return [t.title,st.l,pri.l,sec?sec.name:"",asgs,t.valor||"",t.dueDate||"",t.completedAt||"",t.internalNote||""].map(q).join(",");
-  });
-  var nl=String.fromCharCode(10);
-  var csv=[hdrs.map(q).join(",")].concat(rows).join(nl);
-  var bom=String.fromCharCode(0xFEFF);
-  var blob=new Blob([bom+csv],{type:"text/csv;charset=utf-8"});
-  var url=URL.createObjectURL(blob);
-  var a=document.createElement("a");
-  a.href=url;
-  a.download="relatorio_"+(company?company.name:"empresa")+"_"+period+"_"+todayStr()+".csv";
-  a.click();
-  URL.revokeObjectURL(url);
-}
 function exportTasksCSV(tasks,data){
   const coName=id=>data.companies.find(c=>c.id===id)?.name||"";
   const coNames=ids=>toArr(ids).map(id=>data.companies.find(c=>c.id===id)?.name||"").filter(Boolean).join("; ");
@@ -5521,15 +5460,26 @@ function GlobalSearch({data,onEdit,onNavigate,onClose}){
   const results=useMemo(()=>{
     if(!q.trim()) return [];
     const ql=q.toLowerCase();
-    const tasks=data.tasks.filter(t=>t.status!=="archived"&&(t.title.toLowerCase().includes(ql)||t.description?.toLowerCase().includes(ql))).slice(0,6).map(t=>({type:"task",item:t}));
-    const pages=[
+    const tasks=data.tasks.filter(t=>
+      t.status!=="archived"&&(
+        t.title.toLowerCase().includes(ql)||
+        t.description?.toLowerCase().includes(ql)||
+        toArr(t.checklist).some(c=>c.text?.toLowerCase().includes(ql))||
+        data.collaborators.filter(u=>toArr(t.assignees).includes(u.id)).some(u=>u.name.toLowerCase().includes(ql))||
+        data.companies.find(c=>c.id===t.company)?.name.toLowerCase().includes(ql)
+      )
+    ).slice(0,8).map(t=>({type:"task",item:t}));
+    const allPages=[
       {id:"dashboard",label:"Dashboard",icon:"✦"},{id:"kanban",label:"Kanban",icon:"⊞"},
       {id:"lista",label:"Lista",icon:"☰"},{id:"calendario",label:"Calendário",icon:"📅"},
-      {id:"tabela",label:"Tabela",icon:"▦"},{id:"colaboradores",label:"Colaboradores",icon:"◉"},
-      {id:"empresas",label:"Empresas",icon:"⬡"},{id:"configuracoes",label:"Configurações",icon:"⚙"},
+      {id:"gantt",label:"Linha do Tempo",icon:"🗓"},{id:"tabela",label:"Tabela",icon:"▦"},
+      {id:"hoje",label:"Hoje",icon:"🌅"},{id:"minhas",label:"Minhas Tarefas",icon:"👤"},
+      {id:"colaboradores",label:"Colaboradores",icon:"◉"},{id:"empresas",label:"Empresas",icon:"⬡"},
+      {id:"relatorio",label:"Relatório",icon:"📧"},{id:"configuracoes",label:"Configurações",icon:"⚙"},
+      {id:"modelos",label:"Modelos",icon:"◧"},{id:"servicos",label:"Serviços",icon:"S"},
     ].filter(p=>p.label.toLowerCase().includes(ql)).slice(0,3).map(p=>({type:"page",item:p}));
-    return [...pages,...tasks];
-  },[q,data.tasks]);
+    return [...allPages,...tasks];
+  },[q,data.tasks,data.collaborators,data.companies]);
 
   const [sel,setSel]=useState(0);
   useEffect(()=>setSel(0),[results]);
@@ -5548,56 +5498,108 @@ function GlobalSearch({data,onEdit,onNavigate,onClose}){
   };
 
   const co=(task)=>data.companies.find(c=>c.id===task.company);
-  const st=(task)=>STS.find(s=>s.id===task.status)||STS[0];
+  const getSt=(task)=>{
+    const allSts=getFullSTS(data.customStatuses);
+    return allSts.find(s=>s.id===task.status)||allSts[0];
+  };
+  const isOver=(task)=>isLate(task);
+
+  // Quick nav suggestions when empty
+  const quickNav=[
+    {id:"hoje",label:"Hoje",icon:"🌅",hint:"tarefas do dia"},
+    {id:"kanban",label:"Kanban",icon:"⊞",hint:"quadro visual"},
+    {id:"minhas",label:"Minhas Tarefas",icon:"👤",hint:"atribuídas a mim"},
+    {id:"relatorio",label:"Relatório",icon:"📧",hint:"por empresa"},
+  ];
 
   return(
-    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.6)",zIndex:9000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:"15vh",backdropFilter:"blur(4px)"}}>
-      <div style={{background:"var(--bg2)",borderRadius:18,width:"100%",maxWidth:560,boxShadow:"0 32px 80px rgba(0,0,0,.3)",overflow:"hidden",animation:"popIn .18s ease"}}>
-        <div style={{display:"flex",alignItems:"center",gap:12,padding:"14px 18px",borderBottom:"1px solid var(--border)"}}>
-          <span style={{fontSize:18,color:"#94a3b8"}}>🔍</span>
-          <input ref={inputRef} value={q} onChange={e=>setQ(e.target.value)} onKeyDown={handleKey} placeholder="Buscar tarefas, páginas..." style={{flex:1,border:"none",outline:"none",fontSize:15,fontFamily:"inherit",color:"#0f172a",background:"transparent"}}/>
-          <kbd style={{padding:"2px 7px",borderRadius:5,background:"#f1f5f9",border:"1px solid #e2e8f0",fontSize:11,fontFamily:"monospace",color:"#64748b"}}>Esc</kbd>
+    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.6)",zIndex:9000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:"12vh",backdropFilter:"blur(4px)"}}>
+      <div style={{background:"var(--bg2)",borderRadius:18,width:"100%",maxWidth:580,boxShadow:"0 32px 80px rgba(0,0,0,.3)",overflow:"hidden",animation:"popIn .18s ease"}}>
+        <div style={{display:"flex",alignItems:"center",gap:12,padding:"16px 18px",borderBottom:"1px solid var(--border)"}}>
+          <span style={{fontSize:18,color:"#6366f1"}}>🔍</span>
+          <input ref={inputRef} value={q} onChange={e=>setQ(e.target.value)} onKeyDown={handleKey}
+            placeholder="Tarefas, responsáveis, empresas, páginas..."
+            style={{flex:1,border:"none",outline:"none",fontSize:15,fontFamily:"inherit",color:"var(--text)",background:"transparent"}}/>
+          {q&&<button onClick={()=>setQ("")} style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:18,lineHeight:1,padding:"0 4px"}}>×</button>}
+          <kbd style={{padding:"2px 7px",borderRadius:5,background:"#f1f5f9",border:"1px solid #e2e8f0",fontSize:11,fontFamily:"monospace",color:"#64748b",flexShrink:0}}>Esc</kbd>
         </div>
+
         {q.trim()===""&&(
-          <div style={{padding:"20px 18px",fontSize:13,color:"#94a3b8",textAlign:"center"}}>Digite para buscar tarefas ou navegar entre páginas</div>
+          <div style={{padding:"16px 18px"}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".06em",marginBottom:10}}>Acesso rápido</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+              {quickNav.map(p=>(
+                <button key={p.id} onClick={()=>{onNavigate(p.id);onClose();}}
+                  style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:10,border:"1.5px solid var(--border)",background:"var(--bg3)",cursor:"pointer",fontFamily:"inherit",textAlign:"left",transition:"all .12s"}}
+                  onMouseEnter={e=>{e.currentTarget.style.borderColor="#6366f1";e.currentTarget.style.background="#eef2ff";}}
+                  onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border)";e.currentTarget.style.background="var(--bg3)";}}>
+                  <span style={{fontSize:18}}>{p.icon}</span>
+                  <div>
+                    <div style={{fontSize:13,fontWeight:700,color:"var(--text)"}}>{p.label}</div>
+                    <div style={{fontSize:11,color:"#94a3b8"}}>{p.hint}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+            <div style={{marginTop:14,padding:"8px 12px",borderRadius:8,background:"var(--bg3)",fontSize:11,color:"#94a3b8",display:"flex",gap:16,flexWrap:"wrap"}}>
+              <span>↑↓ navegar</span><span>↵ abrir</span><span>Esc fechar</span><span>⌘K / Ctrl+K abrir</span>
+            </div>
+          </div>
         )}
+
         {q.trim()!=""&&results.length===0&&(
-          <div style={{padding:"20px 18px",fontSize:13,color:"#94a3b8",textAlign:"center"}}>Nenhum resultado para "{q}"</div>
+          <div style={{padding:"32px 18px",fontSize:13,color:"#94a3b8",textAlign:"center"}}>
+            <div style={{fontSize:28,marginBottom:8}}>🔎</div>
+            Nenhum resultado para <strong>"{q}"</strong>
+          </div>
         )}
+
         {results.length>0&&(
-          <div style={{maxHeight:360,overflowY:"auto"}}>
+          <div style={{maxHeight:380,overflowY:"auto"}}>
             {results.map((r,i)=>(
               <div key={r.type+r.item.id} onClick={()=>go(r)}
-                style={{padding:"10px 18px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,background:i===sel?"#eef2ff":"transparent",borderBottom:"1px solid #f8fafc",transition:"background .1s"}}
+                style={{padding:"10px 18px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,background:i===sel?"#eef2ff":"transparent",borderBottom:"1px solid var(--border)",transition:"background .1s"}}
                 onMouseEnter={()=>setSel(i)}
               >
                 {r.type==="page"&&(
                   <>
-                    <span style={{fontSize:16,width:28,textAlign:"center"}}>{r.item.icon}</span>
+                    <div style={{width:32,height:32,borderRadius:8,background:"linear-gradient(135deg,#6366f1,#8b5cf6)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>{r.item.icon}</div>
                     <div style={{flex:1}}>
-                      <div style={{fontSize:13,fontWeight:700,color:"#0f172a"}}>{r.item.label}</div>
+                      <div style={{fontSize:13,fontWeight:700,color:"var(--text)"}}>{r.item.label}</div>
                       <div style={{fontSize:11,color:"#94a3b8"}}>Página</div>
                     </div>
-                    <span style={{fontSize:11,color:"#94a3b8"}}>→</span>
+                    <span style={{fontSize:11,color:"#94a3b8",background:"var(--bg3)",padding:"2px 8px",borderRadius:6}}>→ ir</span>
                   </>
                 )}
-                {r.type==="task"&&(()=>{const c=co(r.item);const s=st(r.item);return(
+                {r.type==="task"&&(()=>{
+                  const c=co(r.item);
+                  const s=getSt(r.item);
+                  const late=isOver(r.item);
+                  const pri=PRI[r.item.priority]||PRI.media;
+                  const asg=data.collaborators.filter(u=>toArr(r.item.assignees).includes(u.id));
+                  return(
                   <>
-                    <span style={{width:8,height:8,borderRadius:"50%",background:s.c,flexShrink:0}}/>
+                    <div style={{width:8,height:8,borderRadius:"50%",background:late?"#ef4444":s.c,flexShrink:0}}/>
                     <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:13,fontWeight:700,color:"#0f172a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.item.title}</div>
-                      <div style={{fontSize:11,color:"#94a3b8"}}>{s.l}{c?` · ${c.name}`:""}</div>
+                      <div style={{fontSize:13,fontWeight:700,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.item.title}</div>
+                      <div style={{display:"flex",gap:8,alignItems:"center",marginTop:2,flexWrap:"wrap"}}>
+                        <span style={{fontSize:10,padding:"1px 7px",borderRadius:20,background:s.c+"18",color:s.c,fontWeight:700}}>{s.l}</span>
+                        <span style={{fontSize:10,padding:"1px 7px",borderRadius:20,background:pri.bg,color:pri.t,fontWeight:700}}>{pri.l}</span>
+                        {c&&<span style={{fontSize:11,color:"#94a3b8"}}>{c.logo} {c.name}</span>}
+                        {asg.length>0&&<span style={{fontSize:11,color:"#94a3b8"}}>👤 {asg.map(u=>u.name).join(", ")}</span>}
+                      </div>
                     </div>
-                    {r.item.dueDate&&<span style={{fontSize:11,color:"#94a3b8",whiteSpace:"nowrap"}}>{fmtDate(r.item.dueDate)}</span>}
+                    {r.item.dueDate&&<span style={{fontSize:11,color:late?"#ef4444":"#94a3b8",fontWeight:late?700:400,whiteSpace:"nowrap",flexShrink:0}}>{late?"⚠ ":""}{fmtDate(r.item.dueDate)}</span>}
                   </>
                 );})()}
               </div>
             ))}
           </div>
         )}
-        <div style={{padding:"8px 18px",borderTop:"1px solid #f1f5f9",display:"flex",gap:12,fontSize:11,color:"#94a3b8"}}>
+        {q.trim()&&<div style={{padding:"8px 18px",borderTop:"1px solid var(--border)",display:"flex",gap:12,fontSize:11,color:"#94a3b8"}}>
           <span>↑↓ navegar</span><span>↵ abrir</span><span>Esc fechar</span>
-        </div>
+          <span style={{marginLeft:"auto"}}>{results.length} resultado{results.length!==1?"s":""}</span>
+        </div>}
       </div>
     </div>
   );
@@ -6653,77 +6655,28 @@ function App(){
     : (myCollab?.accessLevel==="admin");
   const myCollabId = myCollab?.id || user?._collabId || null;
 
-  // Alertar tarefas atrasadas, vencendo hoje e amanhã via sino ao carregar
+  // Alertar tarefas atrasadas via sino ao carregar
   useEffect(()=>{
     if(!synced||!myCollabId) return;
     const today=todayStr();
-    const tomorrow=new Date();tomorrow.setDate(tomorrow.getDate()+1);
-    const tomorrowStr=tomorrow.toISOString().slice(0,10);
-    const notifs=[];
-
-    // — Atrasadas
     const overdueMine=data.tasks.filter(t=>
       t.status!=="done"&&t.status!=="archived"&&
       t.dueDate&&t.dueDate<today&&
       toArr(t.assignees).includes(myCollabId)
     );
-    const alreadyOverdue=(data.notifications||[]).some(n=>
-      n.toId===myCollabId&&n._notifType==="overdue"&&(n.createdAt||"").slice(0,10)===today
-    );
-    if(overdueMine.length>0&&!alreadyOverdue){
-      notifs.push({
-        id:uid(),toId:myCollabId,icon:"⚠️",
-        text:overdueMine.length===1
-          ?`Tarefa atrasada: "${overdueMine[0].title}"`
-          :`${overdueMine.length} tarefas atrasadas aguardando atenção`,
-        page:"hoje",_notifType:"overdue",
-        createdAt:new Date().toISOString(),read:false
-      });
-    }
-
-    // — Vencendo hoje
-    const todayMine=data.tasks.filter(t=>
-      t.status!=="done"&&t.status!=="archived"&&
-      t.dueDate===today&&
-      toArr(t.assignees).includes(myCollabId)
-    );
+    if(overdueMine.length===0) return;
+    // Only add if not already notified today
     const alreadyToday=(data.notifications||[]).some(n=>
-      n.toId===myCollabId&&n._notifType==="due_today"&&(n.createdAt||"").slice(0,10)===today
+      n.toId===myCollabId&&n.icon==="⚠️"&&(n.createdAt||"").slice(0,10)===today
     );
-    if(todayMine.length>0&&!alreadyToday){
-      notifs.push({
-        id:uid(),toId:myCollabId,icon:"📅",
-        text:todayMine.length===1
-          ?`Vence hoje: "${todayMine[0].title}"`
-          :`${todayMine.length} tarefas vencem hoje`,
-        page:"hoje",_notifType:"due_today",
-        createdAt:new Date().toISOString(),read:false
-      });
-    }
-
-    // — Vencendo amanhã
-    const tomorrowMine=data.tasks.filter(t=>
-      t.status!=="done"&&t.status!=="archived"&&
-      t.dueDate===tomorrowStr&&
-      toArr(t.assignees).includes(myCollabId)
-    );
-    const alreadyTomorrow=(data.notifications||[]).some(n=>
-      n.toId===myCollabId&&n._notifType==="due_tomorrow"&&(n.createdAt||"").slice(0,10)===today
-    );
-    if(tomorrowMine.length>0&&!alreadyTomorrow){
-      notifs.push({
-        id:uid(),toId:myCollabId,icon:"🔔",
-        text:tomorrowMine.length===1
-          ?`Vence amanhã: "${tomorrowMine[0].title}"`
-          :`${tomorrowMine.length} tarefas vencem amanhã`,
-        page:"hoje",_notifType:"due_tomorrow",
-        createdAt:new Date().toISOString(),read:false
-      });
-    }
-
-    if(notifs.length>0){
-      setData(d=>({...d,notifications:[...(d.notifications||[]),...notifs]}));
-    }
+    if(alreadyToday) return;
+    const txt=overdueMine.length===1
+      ?`Tarefa atrasada: "${overdueMine[0].title}"`
+      :`${overdueMine.length} tarefas atrasadas aguardando atenção`;
+    setData(d=>({...d,notifications:[...(d.notifications||[]),{
+      id:uid(),toId:myCollabId,icon:"⚠️",text:txt,page:"hoje",
+      createdAt:new Date().toISOString(),read:false
+    }]}));
   },[synced,myCollabId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-renovação: quando um grupo recorrente (_recGroup) não tem tarefas futuras
@@ -7092,7 +7045,7 @@ function App(){
     const lk=getLock(task.id);
     if(lk){toast(`🔒 ${lk.user} está editando. Aguarde.`,"lock",4000);return;}
     // Build cycle from full STS (respects custom statuses)
-    const fullSTS=getFullSTS(data.customStatuses).filter(s=>s.id!=="backlog"&&s.id!=="archived");
+    const fullSTS=getFullSTS(data.customStatuses).filter(s=>s.id!=="archived");
     const cycleArr=fullSTS.sort((a,b)=>a.order-b.order).map(s=>s.id);
     const CYCLE=Object.fromEntries(cycleArr.map((id,i)=>[id,cycleArr[(i+1)%cycleArr.length]]));
     const LABELS=Object.fromEntries(fullSTS.map(s=>[s.id,s.l]));

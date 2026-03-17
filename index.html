@@ -6843,9 +6843,13 @@ function App(){
   const dataForUser = isAdmin ? data : {...data, tasks: visibleTasks};
 
   const openNew=(status="todo")=>{
+    // Rejeita eventos de clique do React (SyntheticEvent / HTMLElement)
+    if(status&&typeof status==="object"&&(status.nativeEvent||status.target||status.currentTarget||status instanceof Element)){
+      setTM({open:true,task:null,defStatus:"todo",lockInfo:null});
+      return;
+    }
     if(status&&typeof status==="object"){
       // Só aceita objetos SEM id (vindo do QuickCreateBar)
-      // Objetos com id são duplicatas — não devem chegar aqui
       if(status.id){
         console.warn("openNew recebeu objeto com id — ignorado. Use duplicateTask.");
         return;

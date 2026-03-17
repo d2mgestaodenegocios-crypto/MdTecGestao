@@ -1819,15 +1819,19 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
         </Fld>
       )}
 
-      <div style={{display:"flex",gap:10,justifyContent:"space-between",paddingTop:10,borderTop:"1px solid #f3f4f6",flexWrap:"wrap",alignItems:"center"}}>
+      <div style={{display:"flex",gap:10,justifyContent:"space-between",paddingTop:12,borderTop:"2px solid var(--border)",flexWrap:"wrap",alignItems:"center",marginTop:4}}>
         <div>
-          {task&&onDelete&&<Btn onClick={()=>onDelete(f.id)} v="danger" disabled={blocked}>🗑 Excluir Tarefa</Btn>}
+          {task&&onDelete&&<Btn onClick={()=>onDelete(f.id)} v="danger" disabled={blocked}>🗑 Excluir</Btn>}
         </div>
-        <div style={{display:"flex",gap:10}}>
-          <Btn onClick={onClose} v="ghost">Cancelar</Btn>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <button onClick={onClose} style={{padding:"8px 20px",borderRadius:9,border:"1.5px solid var(--border2)",background:"transparent",color:"#64748b",cursor:"pointer",fontSize:13,fontWeight:700,fontFamily:"inherit",transition:"all .12s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor="#ef4444";e.currentTarget.style.color="#ef4444";}} onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border2)";e.currentTarget.style.color="#64748b";}}>Cancelar</button>
           {blocked
             ?<span style={{fontSize:12,color:"#94a3b8",alignSelf:"center"}}>Aguardando liberação da edição...</span>
-            :<Btn onClick={()=>f.title.trim()&&onSave(f)} disabled={!f.title.trim()}>{task?"💾 Salvar Alterações":"✦ Criar Tarefa"}</Btn>
+            :<button onClick={()=>f.title.trim()&&onSave(f)} disabled={!f.title.trim()} style={{padding:"9px 28px",borderRadius:9,border:"none",background:f.title.trim()?"linear-gradient(135deg,#6366f1,#8b5cf6)":"#e5e7eb",color:f.title.trim()?"#fff":"#9ca3af",cursor:f.title.trim()?"pointer":"not-allowed",fontSize:13,fontWeight:800,fontFamily:"inherit",transition:"all .15s",boxShadow:f.title.trim()?"0 4px 14px rgba(99,102,241,.35)":"none",letterSpacing:".01em"}}
+              onMouseEnter={e=>{if(f.title.trim()){e.currentTarget.style.transform="translateY(-1px)";e.currentTarget.style.boxShadow="0 6px 20px rgba(99,102,241,.45)";}}}
+              onMouseLeave={e=>{e.currentTarget.style.transform="none";e.currentTarget.style.boxShadow=f.title.trim()?"0 4px 14px rgba(99,102,241,.35)":"none";}}>
+              {task?"💾 Salvar Alterações":"✦ Criar Tarefa"}
+            </button>
           }
         </div>
       </div>
@@ -3067,7 +3071,7 @@ function CompaniesPage({ data, setData }) {
           // Busca todas as tarefas ativas (não arquivadas) já vinculadas a este serviço+empresa
           const existingDates=new Set(
             tasks
-              .filter(t=>t.company===coId&&t._serviceId===svc.id&&t.status!=="archived")
+              .filter(t=>(t.company===coId||toArr(t.companies).includes(coId))&&t._serviceId===svc.id&&t.status!=="archived")
               .map(t=>t.dueDate||"_noduedate")
           );
           // Só gera se não houver NENHUMA tarefa ativa já vinculada
@@ -3091,31 +3095,32 @@ function CompaniesPage({ data, setData }) {
               const endDate=new Date(startDate);endDate.setMonth(startDate.getMonth()+3);
               const cleanCk=toArr(svc.checklist).map(ck=>({...ck,done:false}));
               const gId=base.id;
+              const pushSafe=(ds)=>{if(!existingDates.has(ds)){tasks.push({...base,id:uid(),dueDate:ds,checklist:cleanCk,_recGroup:gId});}};
               if(rec.interval==="monthly"||rec.interval==="yearly"){
                 const targetDay=svc.defaultDue?new Date(svc.defaultDue+"T12:00:00").getDate():1;
                 for(let m=0;m<3;m++){
                   const d=new Date(startDate.getFullYear(),startDate.getMonth()+m,targetDay);
-                  if(d>=startDate) tasks.push({...base,id:uid(),dueDate:d.toISOString().slice(0,10),checklist:cleanCk,_recGroup:gId});
+                  if(d>=startDate) pushSafe(d.toISOString().slice(0,10));
                 }
               } else if(rec.interval==="custom_days"&&Array.isArray(rec.days)&&rec.days.length>0){
                 for(let d=new Date(startDate);d<=endDate;d.setDate(d.getDate()+1)){
-                  if(rec.days.includes(d.getDay())) tasks.push({...base,id:uid(),dueDate:d.toISOString().slice(0,10),checklist:cleanCk,_recGroup:gId});
+                  if(rec.days.includes(d.getDay())) pushSafe(d.toISOString().slice(0,10));
                 }
               } else if(rec.interval==="weekly"){
                 const tdow=svc.defaultDue?new Date(svc.defaultDue+"T12:00:00").getDay():1;
                 for(let d=new Date(startDate);d<=endDate;d.setDate(d.getDate()+1)){
-                  if(d.getDay()===tdow) tasks.push({...base,id:uid(),dueDate:d.toISOString().slice(0,10),checklist:cleanCk,_recGroup:gId});
+                  if(d.getDay()===tdow) pushSafe(d.toISOString().slice(0,10));
                 }
               } else if(rec.interval==="daily"){
                 const endD28=new Date(startDate);endD28.setDate(startDate.getDate()+28);
                 for(let d=new Date(startDate);d<=endD28;d.setDate(d.getDate()+1)){
-                  tasks.push({...base,id:uid(),dueDate:d.toISOString().slice(0,10),checklist:cleanCk,_recGroup:gId});
+                  pushSafe(d.toISOString().slice(0,10));
                 }
               } else {
-                tasks.push(base);
+                if(!existingDates.has(base.dueDate||"_noduedate")) tasks.push(base);
               }
             } else {
-              tasks.push(base);
+              if(!existingDates.has(base.dueDate||"_noduedate")) tasks.push(base);
             }
           }
         });
@@ -3970,10 +3975,12 @@ function ServicosPage({ data, setData }) {
   // Gera tarefas para um serviço numa empresa específica
   const gerarTarefas=(svc,coId)=>{
     const rec=data.recurrences.find(r=>r.id===svc.recurrence);
-    const existing=data.tasks.filter(t=>t._serviceId===svc.id&&t.company===coId&&t.status!=="archived");
+    const existing=data.tasks.filter(t=>t._serviceId===svc.id&&(t.company===coId||toArr(t.companies).includes(coId))&&t.status!=="archived");
     if(existing.length>0){
       if(!window.confirm(`Já existem ${existing.length} tarefa(s) ativa(s) deste serviço para esta empresa. Gerar mais mesmo assim?`)) return 0;
     }
+    // Datas já existentes para esse serviço+empresa (evita duplicar datas)
+    const existingDates=new Set(existing.map(t=>t.dueDate).filter(Boolean));
     const base={
       id:uid(),title:svc.name,description:svc.description||"",
       status:svc.status||"todo",priority:svc.priority||"media",
@@ -3991,7 +3998,10 @@ function ServicosPage({ data, setData }) {
     const tasks=[];
     const gId=base.id;
     const recId=svc.recurrence;
-    const push=(ds)=>tasks.push({...base,id:uid(),dueDate:ds,_recGroup:gId,_recurrenceId:recId,checklist:toArr(svc.checklist).map(ck=>({...ck,id:uid(),done:false}))});
+    const push=(ds)=>{
+      if(existingDates.has(ds)) return; // já existe tarefa nessa data — não duplica
+      tasks.push({...base,id:uid(),dueDate:ds,_recGroup:gId,_recurrenceId:recId,checklist:toArr(svc.checklist).map(ck=>({...ck,id:uid(),done:false}))});
+    };
     if(rec){
       if(rec.interval==="monthly"){
         const td=svc.defaultDue?new Date(svc.defaultDue+"T12:00:00").getDate():1;
@@ -7033,12 +7043,25 @@ function App(){
     if(isNew && base.recurrence){
       const rec=data.recurrences.find(r=>r.id===base.recurrence);
       if(rec){
-        const copies=generateRecurringTasks(base,rec).map(t=>({...t,_recurrenceId:rec.id}));
+        const allCopies=generateRecurringTasks(base,rec).map(t=>({...t,_recurrenceId:rec.id}));
+        // DEDUP: nunca inserir se já existe tarefa com mesmo _recGroup + dueDate
+        const existingDates=new Set(
+          data.tasks
+            .filter(t=>t._recGroup===base.id&&t.status!=="archived")
+            .map(t=>t.dueDate)
+        );
+        const copies=allCopies.filter(t=>!existingDates.has(t.dueDate));
         if(copies.length>0){
           setData(d=>({...d,tasks:[...d.tasks,...copies]}));
           if(taskModal.task) release(taskModal.task.id);
           setTM(m=>({...m,open:false}));
           toast(`✦ ${copies.length} tarefas recorrentes criadas!`,"ok");
+          return;
+        } else {
+          // Todas já existem
+          if(taskModal.task) release(taskModal.task.id);
+          setTM(m=>({...m,open:false}));
+          toast("⚠ Todas as ocorrências já existem para este período.","warn");
           return;
         }
       }

@@ -891,11 +891,11 @@ function RelatorioPage({data,isAdmin}){
       const asg=data.collaborators.filter(u=>toArr(t.assignees).includes(u.id)).map(u=>u.name).join("; ");
       rows.push([t.title,STS.find(s=>s.id===t.status)?.l||t.status,PRI[t.priority]?.l||t.priority,t._competencia||"",t.dueDate||"",asg,t.valor||""]);
     });
-    const csv="﻿"+rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("
-");
+    const esc=(v)=>'"'+String(v).replace(/"/g,'""')+'"';
+    const csv="\uFEFF"+rows.map(r=>r.map(esc).join(",")).join("\n");
     const a=document.createElement("a");
     a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));
-    a.download=`relatorio_${company.name}_${todayStr()}.csv`;
+    a.download="relatorio_"+company.name+"_"+todayStr()+".csv";
     a.click();
   };
 

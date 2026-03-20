@@ -241,9 +241,9 @@ function normalizeTask(t){
     approvalNote: t.approvalNote||"",
     approvedBy: t.approvedBy||"",
     approvedAt: t.approvedAt||"",
+    customFieldValues: (typeof t.customFieldValues==="object"&&t.customFieldValues!==null)?t.customFieldValues:{},
     _competencia: t._competencia||"",
     _serviceId: t._serviceId||"",
-    customFieldValues: (typeof t.customFieldValues==="object"&&t.customFieldValues!==null)?t.customFieldValues:{},
     completedBy: t.completedBy||"",
     completedByName: t.completedByName||"",
   };
@@ -519,6 +519,7 @@ function useSharedData() {
         if (!p.taskTemplates || !Array.isArray(p.taskTemplates)) p.taskTemplates = [];
         if (!p.customStatuses) p.customStatuses = [];
         if (!p.customFields) p.customFields = [];
+        if (!p.customFields) p.customFields = [];
         if (!p.services || !Array.isArray(p.services)) p.services = [];
         if (!p.chatMessages || !Array.isArray(p.chatMessages)) p.chatMessages = [];
         if (!p.notifications || !Array.isArray(p.notifications)) p.notifications = [];
@@ -622,7 +623,6 @@ function useSharedData() {
         if (!p.recurrences || !Array.isArray(p.recurrences)) p.recurrences = SEED.recurrences;
         if (!p.taskTemplates || !Array.isArray(p.taskTemplates)) p.taskTemplates = [];
         if (!p.customStatuses) p.customStatuses = [];
-        if (!p.customFields) p.customFields = [];
         if (!p.services || !Array.isArray(p.services)) p.services = [];
         if (!p.chatMessages || !Array.isArray(p.chatMessages)) p.chatMessages = [];
         if (!p.notifications || !Array.isArray(p.notifications)) p.notifications = [];
@@ -872,32 +872,30 @@ function RelatorioPage({data,isAdmin}){
 
   if(!company) return <div style={{padding:40,textAlign:"center",color:"#94a3b8"}}>Selecione uma empresa.</div>;
 
-  // Timeline de competências
+  // Timeline de competências por empresa
   const competencias=useMemo(()=>{
     const all=data.tasks.filter(t=>t.status!=="archived"&&taskHasCompany(t,selCompany)&&t._competencia);
     const map={};
     all.forEach(t=>{
-      const k=t._competencia;
-      if(!map[k])map[k]={comp:k,done:[],pending:[],late:[]};
-      if(t.status==="done") map[k].done.push(t);
-      else if(isLate(t)) map[k].late.push(t);
-      else map[k].pending.push(t);
+      if(!map[t._competencia])map[t._competencia]={comp:t._competencia,done:[],pending:[],late:[]};
+      if(t.status==="done") map[t._competencia].done.push(t);
+      else if(isLate(t)) map[t._competencia].late.push(t);
+      else map[t._competencia].pending.push(t);
     });
     return Object.values(map).sort((a,b)=>a.comp.localeCompare(b.comp));
   },[data.tasks,selCompany]);
 
   const exportCSV=()=>{
-    const headers=["Título","Status","Prioridade","Competência","Vencimento","Responsáveis","Valor"];
-    const rows=tasks.map(t=>{
+    const rows=[["Título","Status","Prioridade","Competência","Vencimento","Responsáveis","Valor (R$)"]];
+    tasks.forEach(t=>{
       const asg=data.collaborators.filter(u=>toArr(t.assignees).includes(u.id)).map(u=>u.name).join("; ");
-      return[t.title,STS.find(s=>s.id===t.status)?.l||t.status,PRI[t.priority]?.l||t.priority,
-        t._competencia||"",t.dueDate||"",asg,t.valor||""
-      ].map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",");
+      rows.push([t.title,STS.find(s=>s.id===t.status)?.l||t.status,PRI[t.priority]?.l||t.priority,t._competencia||"",t.dueDate||"",asg,t.valor||""]);
     });
-    const csv="\uFEFF"+[headers.join(","),...rows].join("\n");
+    const csv="﻿"+rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("
+");
     const a=document.createElement("a");
     a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));
-    a.download=`relatorio_${company?.name||"empresa"}_${todayStr()}.csv`;
+    a.download=`relatorio_${company.name}_${todayStr()}.csv`;
     a.click();
   };
 
@@ -919,7 +917,7 @@ function RelatorioPage({data,isAdmin}){
         <label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,fontWeight:700,color:"#64748b",cursor:"pointer"}}>
           <input type="checkbox" checked={showDone} onChange={e=>setShowDone(e.target.checked)} style={{accentColor:"#22c55e"}}/> Concluídas
         </label>
-        <button onClick={exportCSV} style={{padding:"7px 14px",borderRadius:9,border:"1.5px solid #e2e8f0",background:"var(--bg2)",color:"#64748b",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}
+        <button onClick={exportCSV} style={{padding:"7px 13px",borderRadius:9,border:"1.5px solid #e2e8f0",background:"var(--bg2)",color:"#64748b",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",transition:"border-color .15s"}}
           onMouseEnter={e=>e.currentTarget.style.borderColor="#22c55e"} onMouseLeave={e=>e.currentTarget.style.borderColor="#e2e8f0"}>📊 Exportar CSV</button>
         <Btn onClick={()=>window.print()} xs={{marginLeft:"auto",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",border:"none"}}>🖨 Imprimir / PDF</Btn>
       </div>
@@ -1009,9 +1007,9 @@ function RelatorioPage({data,isAdmin}){
         </div>
       </div>
       {competencias.length>0&&(
-        <div className="no-print" style={{marginTop:16,background:"var(--bg2)",borderRadius:14,border:"1px solid var(--border)",overflow:"hidden"}}>
-          <div style={{padding:"12px 18px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",gap:8}}>
-            <span style={{fontSize:15}}>🗓</span>
+        <div className="no-print" style={{marginTop:14,background:"var(--bg2)",borderRadius:14,border:"1px solid var(--border)",overflow:"hidden"}}>
+          <div style={{padding:"11px 18px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:14}}>🗓</span>
             <span style={{fontSize:13,fontWeight:800,color:"var(--text)"}}>Timeline de Competências</span>
             <span style={{fontSize:11,color:"#94a3b8"}}>{competencias.length} competência{competencias.length!==1?"s":""}</span>
           </div>
@@ -1021,13 +1019,13 @@ function RelatorioPage({data,isAdmin}){
                 const total=c.done.length+c.pending.length+c.late.length;
                 const pct=total>0?Math.round((c.done.length/total)*100):0;
                 const bg=pct===100?"#f0fdf4":c.late.length>0?"#fef2f2":"#f0f4ff";
-                const border=pct===100?"#86efac":c.late.length>0?"#fca5a5":"#c7d2fe";
+                const bdr=pct===100?"#86efac":c.late.length>0?"#fca5a5":"#c7d2fe";
                 const tc=pct===100?"#15803d":c.late.length>0?"#dc2626":"#4338ca";
                 return(
-                  <div key={c.comp} style={{minWidth:100,borderRadius:10,background:bg,border:`2px solid ${border}`,padding:"10px 12px",display:"flex",flexDirection:"column",gap:4}}>
+                  <div key={c.comp} style={{minWidth:100,borderRadius:10,background:bg,border:`2px solid ${bdr}`,padding:"10px 12px",display:"flex",flexDirection:"column",gap:4}}>
                     <div style={{fontSize:12,fontWeight:900,color:tc}}>{c.comp}</div>
-                    <div style={{height:4,borderRadius:2,background:"rgba(0,0,0,.08)",overflow:"hidden"}}>
-                      <div style={{height:"100%",borderRadius:2,background:pct===100?"#22c55e":c.late.length>0?"#ef4444":"#6366f1",width:`${pct}%`}}/>
+                    <div style={{height:4,borderRadius:2,background:"rgba(0,0,0,.09)",overflow:"hidden"}}>
+                      <div style={{height:"100%",borderRadius:2,background:pct===100?"#22c55e":c.late.length>0?"#ef4444":"#6366f1",width:`${pct}%`,transition:"width .3s"}}/>
                     </div>
                     <div style={{fontSize:10,color:tc,fontWeight:700}}>{pct}%</div>
                     <div style={{display:"flex",gap:3,flexWrap:"wrap"}}>
@@ -1113,7 +1111,7 @@ function ConfigPage({data,setData,toast,deduplicateTasks}){
           <Btn onClick={()=>{
             const name=window.prompt("Nome do campo (ex: Nº do Processo, Contrato):");
             if(!name?.trim()) return;
-            const tipo=window.prompt("Tipo:\n1 = Texto\n2 = Número\n3 = Data\n4 = Lista de opções\n\nDigite 1, 2, 3 ou 4:");
+            const tipo=window.prompt("Tipo:\n1 = Texto  2 = Número  3 = Data  4 = Lista\n\nDigite 1, 2, 3 ou 4:");
             const tipos={"1":"text","2":"number","3":"date","4":"select"};
             const type=tipos[tipo]||"text";
             let options=[];
@@ -1129,17 +1127,17 @@ function ConfigPage({data,setData,toast,deduplicateTasks}){
               <span style={{fontSize:16}}>{cf.type==="text"?"📝":cf.type==="number"?"🔢":cf.type==="date"?"📅":"📋"}</span>
               <div style={{flex:1}}>
                 <div style={{fontSize:13,fontWeight:700,color:"var(--text)"}}>{cf.name}</div>
-                <div style={{fontSize:11,color:"#94a3b8"}}>{cf.type==="select"&&cf.options?.length>0?`Lista: ${cf.options.slice(0,3).join(", ")}`:cf.type==="text"?"Texto":cf.type==="number"?"Número":"Data"}</div>
+                <div style={{fontSize:11,color:"#94a3b8"}}>{cf.type==="select"&&cf.options?.length>0?`Lista: ${cf.options.slice(0,3).join(", ")}`:cf.type==="text"?"Texto livre":cf.type==="number"?"Número":"Data"}</div>
               </div>
               <button onClick={()=>setData(d=>({...d,customFields:(d.customFields||[]).filter(f=>f.id!==cf.id)}))}
-                style={{background:"none",border:"none",cursor:"pointer",color:"#cbd5e1",fontSize:18,padding:"0 4px",transition:"color .1s"}}
+                style={{background:"none",border:"none",cursor:"pointer",color:"#cbd5e1",fontSize:18,padding:"0 4px"}}
                 onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#cbd5e1"}>✕</button>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Custom Status Editor */}}
+      {/* Custom Status Editor */}
       <div style={{background:"var(--bg2)",borderRadius:16,padding:24,border:"1px solid var(--border)",marginBottom:16,boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
         <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:4}}>⊞ Status extras do Kanban</h3>
         <p style={{fontSize:13,color:"#64748b",marginBottom:16,lineHeight:1.5}}>
@@ -1907,13 +1905,13 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
                   <label style={{fontSize:11,fontWeight:700,color:"#374151",display:"block",marginBottom:3}}>{cf.name}</label>
                   {cf.type==="select"
                     ?<select value={val} onChange={e=>setVal(e.target.value)} disabled={blocked}
-                        style={{width:"100%",padding:"8px 12px",borderRadius:9,border:"2px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}}>
+                        style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"2px solid #e5e7eb",fontSize:12,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}}>
                         <option value="">Selecionar...</option>
                         {(cf.options||[]).map(o=><option key={o} value={o}>{o}</option>)}
                       </select>
                     :<input type={cf.type} value={val} onChange={e=>setVal(e.target.value)} disabled={blocked}
                         placeholder={cf.type==="text"?"Preencher...":cf.type==="number"?"0":""}
-                        style={{width:"100%",padding:"8px 12px",borderRadius:9,border:"2px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",boxSizing:"border-box"}}/>
+                        style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"2px solid #e5e7eb",fontSize:12,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",boxSizing:"border-box"}}/>
                   }
                 </div>
               );
@@ -1941,12 +1939,12 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
         </div>
       </div>
 
-      {/* Requer Aprovação */}
+      {/* Requer Aprovação do Gestor */}
       <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:10,background:f.needsApproval?"#eff6ff":"var(--bg3)",border:`1.5px solid ${f.needsApproval?"#bfdbfe":"var(--border)"}`,cursor:blocked?"not-allowed":"pointer",transition:"all .15s"}} onClick={()=>!blocked&&set("needsApproval",!f.needsApproval)}>
         <span style={{fontSize:16}}>✅</span>
         <div style={{flex:1}}>
           <div style={{fontSize:13,fontWeight:700,color:f.needsApproval?"#1d4ed8":"#64748b"}}>Requer aprovação do gestor</div>
-          {f.needsApproval&&<div style={{fontSize:11,color:"#3b82f6",marginTop:1}}>Ao concluir, vai para revisão antes de finalizar</div>}
+          {f.needsApproval&&<div style={{fontSize:11,color:"#3b82f6",marginTop:1}}>Ao concluir vai para revisão antes de finalizar</div>}
         </div>
         <div style={{marginLeft:"auto",width:32,height:18,borderRadius:9,background:f.needsApproval?"#3b82f6":"#e2e8f0",position:"relative",transition:"background .2s",flexShrink:0}}>
           <div style={{position:"absolute",top:2,left:f.needsApproval?14:2,width:14,height:14,borderRadius:"50%",background:"#fff",boxShadow:"0 1px 3px rgba(0,0,0,.2)",transition:"left .2s"}}/>
@@ -1954,9 +1952,8 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
       </div>
       {task&&f.approvalStatus==="pending"&&(
         <div style={{padding:"12px 14px",borderRadius:11,background:"#eff6ff",border:"2px solid #bfdbfe"}}>
-          <div style={{fontSize:12,fontWeight:800,color:"#1e40af",marginBottom:6}}>⏳ Aguardando aprovação</div>
-          <textarea value={f.approvalNote||""} onChange={e=>set("approvalNote",e.target.value)}
-            placeholder="Comentário da aprovação (opcional)..."
+          <div style={{fontSize:12,fontWeight:800,color:"#1e40af",marginBottom:6}}>⏳ Aguardando aprovação do gestor</div>
+          <textarea value={f.approvalNote||""} onChange={e=>set("approvalNote",e.target.value)} placeholder="Comentário (opcional)..."
             style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1.5px solid #bfdbfe",fontSize:12,fontFamily:"inherit",resize:"vertical",minHeight:44,background:"#fff",outline:"none",boxSizing:"border-box",marginBottom:8}}/>
           <div style={{display:"flex",gap:8}}>
             <button onClick={()=>{set("approvalStatus","approved");set("status","done");}}
@@ -1966,8 +1963,8 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
           </div>
         </div>
       )}
-      {task&&f.approvalStatus==="approved"&&<div style={{padding:"8px 12px",borderRadius:9,background:"#f0fdf4",border:"1.5px solid #86efac",fontSize:12,color:"#15803d",fontWeight:700}}>✅ Aprovada por {f.approvedBy||"gestor"}</div>}
-      {task&&f.approvalStatus==="rejected"&&<div style={{padding:"8px 12px",borderRadius:9,background:"#fef2f2",border:"1.5px solid #fca5a5",fontSize:12,color:"#dc2626",fontWeight:700}}>❌ Rejeitada{f.approvalNote?` — ${f.approvalNote}`:""}</div>}
+      {task&&f.approvalStatus==="approved"&&<div style={{padding:"8px 12px",borderRadius:9,background:"#f0fdf4",border:"1.5px solid #86efac",fontSize:12,color:"#15803d",fontWeight:700}}>✅ Aprovada</div>}
+      {task&&f.approvalStatus==="rejected"&&<div style={{padding:"8px 12px",borderRadius:9,background:"#fef2f2",border:"1.5px solid #fca5a5",fontSize:12,color:"#dc2626",fontWeight:700}}>❌ Rejeitada — reaberta para correção{f.approvalNote?`: "${f.approvalNote}"`:""}.</div>}
 
       {/* Histórico de alterações */}
       {task&&toArr(f.history).length>0&&(
@@ -2235,6 +2232,9 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
           })()}
           {task.dependencies?.length>0&&<span style={{fontSize:11,color:"#f59e0b",fontWeight:700}}>⬡ {task.dependencies.length}</span>}
           {task._competencia&&<span style={{fontSize:11,padding:"2px 9px",borderRadius:20,background:"#f5f3ff",color:"#7c3aed",fontWeight:800,border:"1.5px solid #ddd6fe"}}>🏷 {task._competencia}</span>}
+          {task.approvalStatus==="pending"&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:"#eff6ff",color:"#1d4ed8",fontWeight:800,border:"1px solid #bfdbfe",animation:"pulse 2s infinite"}}>⏳ Aguarda aprovação</span>}
+          {task.approvalStatus==="rejected"&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:"#fef2f2",color:"#dc2626",fontWeight:800,border:"1px solid #fca5a5"}}>❌ Rejeitada</span>}
+          {task.approvalStatus==="approved"&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:"#f0fdf4",color:"#15803d",fontWeight:800,border:"1px solid #86efac"}}>✅ Aprovada</span>}
         </div>
 
         {prog!==null&&(
@@ -5075,79 +5075,76 @@ function Dashboard({ data }) {
 /* ===========================================
    POMODORO TIMER */
 function PomodoroTimer({taskTitle,onClose}){
-  const DEFAULT_MODES=[
+  const BASE_MODES=[
     {id:"focus",label:"🍅 Foco",mins:25,color:"#ef4444"},
     {id:"short",label:"☕ Pausa Curta",mins:5,color:"#22c55e"},
     {id:"long",label:"🛋 Pausa Longa",mins:15,color:"#6366f1"},
   ];
   const [customModes,setCustomModes]=useState(()=>{
-    try{return JSON.parse(localStorage.getItem("mdtec_pomodoro_modes")||"[]");}catch{return [];}
+    try{return JSON.parse(localStorage.getItem("mdtec_pomo_custom")||"[]");}catch{return[];}
   });
+  const MODES=[...BASE_MODES,...customModes];
   const [mode,setMode]=useState(0);
-  const [secs,setSecs]=useState(DEFAULT_MODES[0].mins*60);
+  const [secs,setSecs]=useState(MODES[0].mins*60);
   const [running,setRunning]=useState(false);
   const [rounds,setRounds]=useState(0);
-  const [showCustom,setShowCustom]=useState(false);
+  const [showNew,setShowNew]=useState(false);
   const [newLabel,setNewLabel]=useState("");
   const [newMins,setNewMins]=useState("25");
   const [newColor,setNewColor]=useState("#8b5cf6");
-
-  const MODES=[...DEFAULT_MODES,...customModes];
   const cur=MODES[mode]||MODES[0];
   const total=cur.mins*60;
   const pct=Math.round((1-secs/total)*100);
+  const circ=2*Math.PI*45;
+  const mm=String(Math.floor(secs/60)).padStart(2,"0");
+  const ss2=String(secs%60).padStart(2,"0");
 
   useEffect(()=>{
     if(!running) return;
     const id=setInterval(()=>setSecs(s=>{
       if(s<=1){
         setRunning(false);
-        if(cur.id==="focus"||customModes.find(m=>m.id===cur.id)){
-          setRounds(r=>r+1);
-        }
-        // Notificação do navegador
-        if(Notification?.permission==="granted"){
-          new Notification("⏱ Pomodoro",{body:`"${taskTitle}" — ${cur.label} finalizado!`,icon:"/favicon.ico"});
+        setRounds(r=>r+1);
+        if(typeof Notification!=="undefined"&&Notification.permission==="granted"){
+          new Notification("⏱ Pomodoro",{body:`"${taskTitle}" — ${cur.label} concluído!`});
         }
         return 0;
       }
       return s-1;
     }),1000);
     return()=>clearInterval(id);
-  },[running,mode,cur]);
+  },[running,cur.label,taskTitle]);
 
   const switchMode=(idx)=>{setMode(idx);setSecs(MODES[idx].mins*60);setRunning(false);};
+  const nextMode=()=>switchMode((mode+1)%MODES.length);
 
   const saveCustom=()=>{
     if(!newLabel.trim()||!newMins) return;
-    const custom={id:"custom_"+Date.now(),label:newLabel.trim(),mins:parseInt(newMins)||25,color:newColor};
-    const updated=[...customModes,custom];
+    const m={id:"c_"+Date.now(),label:newLabel.trim(),mins:Math.max(1,parseInt(newMins)||25),color:newColor};
+    const updated=[...customModes,m];
     setCustomModes(updated);
-    localStorage.setItem("mdtec_pomodoro_modes",JSON.stringify(updated));
-    setNewLabel("");setNewMins("25");setShowCustom(false);
+    localStorage.setItem("mdtec_pomo_custom",JSON.stringify(updated));
+    setNewLabel("");setNewMins("25");setShowNew(false);
   };
   const deleteCustom=(id)=>{
     const updated=customModes.filter(m=>m.id!==id);
     setCustomModes(updated);
-    localStorage.setItem("mdtec_pomodoro_modes",JSON.stringify(updated));
+    localStorage.setItem("mdtec_pomo_custom",JSON.stringify(updated));
     if(MODES[mode]?.id===id) switchMode(0);
   };
-
-  const requestNotifPerm=()=>{if(Notification?.permission==="default") Notification.requestPermission();};
-
-  const mm=String(Math.floor(secs/60)).padStart(2,"0");
-  const ss=String(secs%60).padStart(2,"0");
-  const circ=2*Math.PI*45;
+  const askNotif=()=>{
+    if(typeof Notification!=="undefined"&&Notification.permission==="default") Notification.requestPermission();
+  };
 
   return(
-    <div style={{position:"fixed",bottom:24,right:24,zIndex:5000,background:"var(--bg2)",borderRadius:20,boxShadow:"0 20px 60px rgba(0,0,0,.3)",border:"1px solid var(--border)",width:280,overflow:"hidden",animation:"popIn .2s ease"}}>
-      {/* Header */}
-      <div style={{background:`linear-gradient(135deg,${cur.color}28,${cur.color}08)`,padding:"12px 14px 8px",borderBottom:"1px solid var(--border)"}}>
+    <div style={{position:"fixed",bottom:24,right:24,zIndex:5000,background:"var(--bg2)",borderRadius:20,boxShadow:"0 20px 60px rgba(0,0,0,.3)",border:"1px solid var(--border)",width:288,overflow:"hidden",animation:"popIn .2s ease"}}>
+      <div style={{background:`linear-gradient(135deg,${cur.color}25,${cur.color}06)`,padding:"12px 14px 12px"}}>
+        {/* Header */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
           <span style={{fontSize:12,fontWeight:900,color:cur.color}}>⏱ Pomodoro</span>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <span style={{fontSize:10,color:"#94a3b8",fontWeight:700}}>🍅 ×{rounds}</span>
-            <button onClick={requestNotifPerm} title="Ativar notificações" style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:13}}>🔔</button>
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+            <span style={{fontSize:11,color:"#94a3b8",fontWeight:700}}>🍅×{rounds}</span>
+            <button onClick={askNotif} title="Ativar notificações" style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:13,lineHeight:1}}>🔔</button>
             <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:18,lineHeight:1,fontWeight:700}}>×</button>
           </div>
         </div>
@@ -5156,45 +5153,45 @@ function PomodoroTimer({taskTitle,onClose}){
         {/* Modos */}
         <div style={{display:"flex",gap:4,marginBottom:8,flexWrap:"wrap"}}>
           {MODES.map((m,i)=>(
-            <div key={m.id} style={{position:"relative",display:"flex",alignItems:"center"}}>
+            <div key={m.id} style={{position:"relative"}}>
               <button onClick={()=>switchMode(i)}
-                style={{padding:"4px 8px",borderRadius:8,border:`1.5px solid ${mode===i?m.color:"#e2e8f0"}`,
+                style={{padding:"4px 9px",borderRadius:8,border:`1.5px solid ${mode===i?m.color:"#e2e8f0"}`,
                   background:mode===i?m.color:"transparent",color:mode===i?"#fff":"#64748b",
-                  fontSize:10,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>
+                  fontSize:10,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",
+                  paddingRight:customModes.find(c=>c.id===m.id)?"20px":"9px"}}>
                 {m.label}
               </button>
-              {customModes.find(cm=>cm.id===m.id)&&(
+              {customModes.find(c=>c.id===m.id)&&(
                 <button onClick={()=>deleteCustom(m.id)}
-                  style={{position:"absolute",top:-6,right:-6,background:"#ef4444",border:"none",borderRadius:"50%",
-                    width:14,height:14,cursor:"pointer",color:"#fff",fontSize:9,lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center",zIndex:1}}>×</button>
+                  style={{position:"absolute",top:-5,right:-4,background:"#ef4444",border:"none",borderRadius:"50%",
+                    width:14,height:14,cursor:"pointer",color:"#fff",fontSize:9,lineHeight:"14px",textAlign:"center",zIndex:1,padding:0}}>×</button>
               )}
             </div>
           ))}
-          <button onClick={()=>setShowCustom(v=>!v)}
-            style={{padding:"4px 8px",borderRadius:8,border:"1.5px dashed #c7d2fe",background:"#eef2ff",
-              color:"#6366f1",fontSize:10,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>
-            + Criar
+          <button onClick={()=>setShowNew(v=>!v)}
+            style={{padding:"4px 9px",borderRadius:8,border:"1.5px dashed #c7d2fe",background:"#eef2ff",
+              color:"#6366f1",fontSize:10,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>
+            {showNew?"× Cancelar":"+ Criar"}
           </button>
         </div>
 
-        {/* Form criar modo customizado */}
-        {showCustom&&(
-          <div style={{background:"#f8fafc",borderRadius:10,padding:"10px",marginBottom:8,border:"1px solid #e2e8f0",display:"flex",flexDirection:"column",gap:6}}>
-            <input value={newLabel} onChange={e=>setNewLabel(e.target.value)} placeholder="Nome (ex: Deep Work)"
-              style={{padding:"5px 8px",borderRadius:7,border:"1.5px solid #e2e8f0",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
+        {/* Form novo modo */}
+        {showNew&&(
+          <div style={{background:"var(--bg3)",borderRadius:10,padding:"10px",marginBottom:8,border:"1px solid var(--border)",display:"flex",flexDirection:"column",gap:6}}>
+            <input value={newLabel} onChange={e=>setNewLabel(e.target.value)} placeholder="Nome do modo (ex: Deep Work)"
+              style={{padding:"5px 8px",borderRadius:7,border:"1.5px solid #e2e8f0",fontSize:11,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}}
+              onKeyDown={e=>e.key==="Enter"&&saveCustom()}/>
             <div style={{display:"flex",gap:6,alignItems:"center"}}>
-              <input type="number" value={newMins} onChange={e=>setNewMins(e.target.value)} placeholder="Min" min={1} max={120}
-                style={{flex:1,padding:"5px 8px",borderRadius:7,border:"1.5px solid #e2e8f0",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
-              <span style={{fontSize:11,color:"#64748b"}}>min</span>
+              <input type="number" value={newMins} onChange={e=>setNewMins(e.target.value)} placeholder="Minutos" min={1} max={120}
+                style={{flex:1,padding:"5px 8px",borderRadius:7,border:"1.5px solid #e2e8f0",fontSize:11,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}}/>
+              <span style={{fontSize:11,color:"#64748b",fontWeight:700}}>min</span>
               <input type="color" value={newColor} onChange={e=>setNewColor(e.target.value)}
-                style={{width:28,height:28,borderRadius:6,border:"none",cursor:"pointer",padding:2}}/>
+                style={{width:30,height:30,borderRadius:6,border:"none",cursor:"pointer",padding:2}}/>
             </div>
-            <div style={{display:"flex",gap:5}}>
-              <button onClick={saveCustom} disabled={!newLabel.trim()||!newMins}
-                style={{flex:1,padding:"5px",borderRadius:7,border:"none",background:"#6366f1",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Salvar</button>
-              <button onClick={()=>setShowCustom(false)}
-                style={{padding:"5px 8px",borderRadius:7,border:"1px solid #e2e8f0",background:"none",fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>×</button>
-            </div>
+            <button onClick={saveCustom} disabled={!newLabel.trim()||!newMins}
+              style={{padding:"6px",borderRadius:7,border:"none",background:newLabel.trim()?"#6366f1":"#e5e7eb",color:newLabel.trim()?"#fff":"#94a3b8",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+              Salvar modo
+            </button>
           </div>
         )}
 
@@ -5207,26 +5204,26 @@ function PomodoroTimer({taskTitle,onClose}){
               style={{transition:"stroke-dashoffset .5s ease"}} strokeLinecap="round"/>
           </svg>
           <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",textAlign:"center"}}>
-            <div style={{fontSize:26,fontWeight:900,color:cur.color,fontVariantNumeric:"tabular-nums",letterSpacing:"-1px"}}>{mm}:{ss}</div>
-            <div style={{fontSize:9,color:"#94a3b8",fontWeight:700,marginTop:2}}>{pct}% concluído</div>
+            <div style={{fontSize:26,fontWeight:900,color:cur.color,fontVariantNumeric:"tabular-nums",letterSpacing:"-1px"}}>{mm}:{ss2}</div>
+            <div style={{fontSize:9,color:"#94a3b8",fontWeight:700,marginTop:1}}>{pct}% · {cur.mins}min</div>
           </div>
         </div>
 
         {/* Controles */}
-        <div style={{display:"flex",gap:8,justifyContent:"center",paddingBottom:2}}>
+        <div style={{display:"flex",gap:6,justifyContent:"center"}}>
           <button onClick={()=>setRunning(r=>!r)}
-            style={{flex:1,padding:"9px 0",borderRadius:10,border:"none",background:cur.color,color:"#fff",
-              fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit",boxShadow:`0 4px 14px ${cur.color}55`,transition:"opacity .15s"}}
+            style={{flex:1,padding:"8px 0",borderRadius:10,border:"none",background:cur.color,color:"#fff",
+              fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit",boxShadow:`0 4px 12px ${cur.color}55`,transition:"opacity .15s"}}
             onMouseEnter={e=>e.currentTarget.style.opacity=".85"}
             onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
             {running?"⏸ Pausar":"▶ Iniciar"}
           </button>
           <button onClick={()=>{setSecs(cur.mins*60);setRunning(false);}}
-            style={{padding:"9px 14px",borderRadius:10,border:`1.5px solid ${cur.color}55`,background:"transparent",
-              color:cur.color,fontSize:15,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}} title="Reiniciar">↺</button>
-          <button onClick={()=>{const next=(mode+1)%MODES.length;switchMode(next);}}
-            style={{padding:"9px 14px",borderRadius:10,border:`1.5px solid #e2e8f0`,background:"transparent",
-              color:"#64748b",fontSize:13,cursor:"pointer",fontFamily:"inherit"}} title="Próximo modo">⏭</button>
+            title="Reiniciar"
+            style={{padding:"8px 11px",borderRadius:10,border:`1.5px solid ${cur.color}44`,background:"transparent",color:cur.color,fontSize:14,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>↺</button>
+          <button onClick={nextMode}
+            title="Próximo modo"
+            style={{padding:"8px 11px",borderRadius:10,border:"1.5px solid #e2e8f0",background:"transparent",color:"#64748b",fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>⏭</button>
         </div>
       </div>
     </div>
@@ -6702,17 +6699,14 @@ function CargaPage({data,setData}){
     const semResp=tasksInPeriod.filter(t=>toArr(t.assignees).length===0&&t.status!=="done");
     const totalFaturado=stats.reduce((s,u)=>s+(u.valorFaturado||0),0);
     const totalPendente=stats.reduce((s,u)=>s+(u.valorPendente||0),0);
-
     return{collabs:stats.sort((a,b)=>b.carga-a.carga), semResp, totalFaturado, totalPendente};
   },[data.collaborators,tasksInPeriod]);
 
-
-  const saveMeta=(collabId,val)=>{
+  const saveMeta=(id,val)=>{
     const v=parseInt(val)||0;
-    setData(d=>({...d,collaborators:d.collaborators.map(u=>u.id===collabId?{...u,metaMensal:v}:u)}));
+    setData(d=>({...d,collaborators:d.collaborators.map(u=>u.id===id?{...u,metaMensal:v}:u)}));
     setEditingMeta(null);
   };
-
   const maxCarga=Math.max(1,...collabStats.collabs.map(u=>u.carga));
 
   // Nível de carga
@@ -6812,7 +6806,7 @@ function CargaPage({data,setData}){
                     </div>
                     {/* Barra de carga */}
                     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:u.meta>0?4:0}}>
-                      <span style={{fontSize:10,color:"#94a3b8",minWidth:28}}>Carga</span>
+                      <span style={{fontSize:10,color:"#94a3b8",minWidth:28,flexShrink:0}}>Carga</span>
                       <div style={{flex:1,height:6,borderRadius:4,background:"#f1f5f9",overflow:"hidden"}}>
                         <div style={{height:"100%",borderRadius:4,background:nv.bar,width:`${pct}%`,transition:"width .5s ease"}}/>
                       </div>
@@ -6820,24 +6814,24 @@ function CargaPage({data,setData}){
                     </div>
                     {u.meta>0&&(
                       <div style={{display:"flex",alignItems:"center",gap:8}}>
-                        <span style={{fontSize:10,color:"#94a3b8",minWidth:28}}>Meta</span>
+                        <span style={{fontSize:10,color:"#94a3b8",minWidth:28,flexShrink:0}}>Meta</span>
                         <div style={{flex:1,height:6,borderRadius:4,background:"#f1f5f9",overflow:"hidden"}}>
                           <div style={{height:"100%",borderRadius:4,background:u.metaPct>=100?"#22c55e":"#f59e0b",width:`${Math.min(100,u.metaPct||0)}%`,transition:"width .5s ease"}}/>
                         </div>
-                        <span style={{fontSize:10,color:"#64748b",minWidth:56,textAlign:"right"}}>{u.done.length}/{u.meta}</span>
-                        <button onClick={()=>{setEditingMeta(u.id);setMetaInput(String(u.meta));}} style={{background:"none",border:"none",cursor:"pointer",fontSize:10,color:"#94a3b8",padding:0}} title="Editar meta">✎</button>
+                        <span style={{fontSize:10,color:"#64748b",minWidth:52,textAlign:"right"}}>{u.done.length}/{u.meta}</span>
+                        <button onClick={()=>{setEditingMeta(u.id);setMetaInput(String(u.meta));}} style={{background:"none",border:"none",cursor:"pointer",fontSize:10,color:"#94a3b8",padding:0,fontFamily:"inherit"}} title="Editar meta">✎</button>
                       </div>
                     )}
                     {!u.meta&&(
-                      <button onClick={()=>{setEditingMeta(u.id);setMetaInput("");}} style={{fontSize:10,color:"#6366f1",background:"none",border:"none",cursor:"pointer",padding:0,fontFamily:"inherit",marginTop:2}}>+ Meta mensal</button>
+                      <button onClick={()=>{setEditingMeta(u.id);setMetaInput("");}} style={{fontSize:10,color:"#6366f1",background:"none",border:"none",cursor:"pointer",padding:"2px 0",fontFamily:"inherit",marginTop:2}}>+ Meta mensal</button>
                     )}
                     {editingMeta===u.id&&(
-                      <div style={{display:"flex",gap:5,alignItems:"center",marginTop:4}}>
-                        <input type="number" value={metaInput} onChange={e=>setMetaInput(e.target.value)} placeholder="Nº de tarefas" autoFocus
-                          style={{flex:1,padding:"3px 7px",borderRadius:6,border:"2px solid #6366f1",fontSize:11,fontFamily:"inherit",outline:"none"}}
+                      <div style={{display:"flex",gap:5,alignItems:"center",marginTop:5}}>
+                        <input type="number" value={metaInput} onChange={e=>setMetaInput(e.target.value)} placeholder="Nº tarefas/mês" autoFocus
+                          style={{flex:1,padding:"4px 7px",borderRadius:7,border:"2px solid #6366f1",fontSize:11,fontFamily:"inherit",outline:"none"}}
                           onKeyDown={e=>{if(e.key==="Enter")saveMeta(u.id,metaInput);if(e.key==="Escape")setEditingMeta(null);}}/>
-                        <button onClick={()=>saveMeta(u.id,metaInput)} style={{padding:"3px 8px",borderRadius:6,border:"none",background:"#6366f1",color:"#fff",fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>OK</button>
-                        <button onClick={()=>setEditingMeta(null)} style={{padding:"3px 6px",borderRadius:6,border:"1px solid #e5e7eb",background:"none",fontSize:11,cursor:"pointer"}}>×</button>
+                        <button onClick={()=>saveMeta(u.id,metaInput)} style={{padding:"4px 9px",borderRadius:7,border:"none",background:"#6366f1",color:"#fff",fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>OK</button>
+                        <button onClick={()=>setEditingMeta(null)} style={{padding:"4px 7px",borderRadius:7,border:"1px solid #e5e7eb",background:"none",fontSize:11,cursor:"pointer"}}>×</button>
                       </div>
                     )}
                   </div>
@@ -7000,7 +6994,6 @@ function App(){
   const [sideCol,setSideCol]= useState(false);
   const [darkMode,setDarkMode] = useState(()=>localStorage.getItem("mdtec_dark")==="1");
   const [showSearch,setShowSearch] = useState(false);
-  const [focusCompany,setFocusCompany] = useState(""); // modo foco por empresa
   const [focusMode,setFocusMode] = useState(false);
   const [pomodoroTask,setPomodoroTask] = useState(null);
   const topbarRef = useRef(null);
@@ -7170,33 +7163,37 @@ function App(){
     toast("📦 Tarefa arquivada.","ok");
   };
 
-  // Alertar tarefas: atrasadas, vencendo hoje e vencendo amanhã
+  // Alertas automáticos: atrasadas ⚠️, vencem hoje 🔴, vencem amanhã 🔔
   useEffect(()=>{
     if(!synced||!myCollabId) return;
     const today=todayStr();
-    const tmr=new Date();tmr.setDate(tmr.getDate()+1);
+    const tmr=new Date(); tmr.setDate(tmr.getDate()+1);
     const tomorrowStr=tmr.toISOString().slice(0,10);
-    const mine=(status,date)=>data.tasks.filter(t=>
-      t.status!=="done"&&t.status!=="archived"&&toArr(t.assignees).includes(myCollabId)&&
-      (date?t.dueDate===date:t.dueDate&&t.dueDate<today)
+    const myTasks=(dueVal,compareFn)=>data.tasks.filter(t=>
+      t.status!=="done"&&t.status!=="archived"&&
+      toArr(t.assignees).includes(myCollabId)&&
+      t.dueDate&&compareFn(t.dueDate,dueVal)
     );
-    const overdue=mine(null,null);
-    const todayTasks=mine(null,today);
-    const tomorrowTasks=mine(null,tomorrowStr);
+    const overdue=myTasks(today,(d,ref)=>d<ref);
+    const dueToday=myTasks(today,(d,ref)=>d===ref);
+    const dueTomorrow=myTasks(tomorrowStr,(d,ref)=>d===ref);
     const already=(icon)=>(data.notifications||[]).some(n=>
       n.toId===myCollabId&&n.icon===icon&&(n.createdAt||"").slice(0,10)===today
     );
-    const newNotifs=[];
-    if(overdue.length>0&&!already("⚠️")) newNotifs.push({id:uid(),toId:myCollabId,icon:"⚠️",
+    const notifs=[];
+    if(overdue.length>0&&!already("⚠️")) notifs.push({
+      id:uid(),toId:myCollabId,icon:"⚠️",page:"hoje",read:false,createdAt:new Date().toISOString(),
       text:overdue.length===1?`Atrasada: "${overdue[0].title}"`:`${overdue.length} tarefas atrasadas`,
-      page:"hoje",createdAt:new Date().toISOString(),read:false});
-    if(todayTasks.length>0&&!already("🔴")) newNotifs.push({id:uid(),toId:myCollabId,icon:"🔴",
-      text:todayTasks.length===1?`⏰ Vence hoje: "${todayTasks[0].title}"`:`⏰ ${todayTasks.length} tarefas vencem hoje!`,
-      page:"hoje",createdAt:new Date().toISOString(),read:false});
-    if(tomorrowTasks.length>0&&!already("🔔")) newNotifs.push({id:uid(),toId:myCollabId,icon:"🔔",
-      text:tomorrowTasks.length===1?`Vence amanhã: "${tomorrowTasks[0].title}"`:`${tomorrowTasks.length} tarefas vencem amanhã`,
-      page:"hoje",createdAt:new Date().toISOString(),read:false});
-    if(newNotifs.length>0) setData(d=>({...d,notifications:[...(d.notifications||[]),...newNotifs]}));
+    });
+    if(dueToday.length>0&&!already("🔴")) notifs.push({
+      id:uid(),toId:myCollabId,icon:"🔴",page:"hoje",read:false,createdAt:new Date().toISOString(),
+      text:dueToday.length===1?`⏰ Vence hoje: "${dueToday[0].title}"`:`⏰ ${dueToday.length} tarefas vencem hoje!`,
+    });
+    if(dueTomorrow.length>0&&!already("🔔")) notifs.push({
+      id:uid(),toId:myCollabId,icon:"🔔",page:"hoje",read:false,createdAt:new Date().toISOString(),
+      text:dueTomorrow.length===1?`Vence amanhã: "${dueTomorrow[0].title}"`:`${dueTomorrow.length} tarefas vencem amanhã`,
+    });
+    if(notifs.length>0) setData(d=>({...d,notifications:[...(d.notifications||[]),...notifs]}));
   },[synced,myCollabId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-renovação: quando um grupo recorrente (_recGroup) não tem tarefas futuras
@@ -7319,10 +7316,6 @@ function App(){
         return assignees.length===0 || assignees.includes(myCollabId);
       });
   const dataForUser = isAdmin ? data : {...data, tasks: visibleTasks};
-  // Modo foco: filtra todas as views por empresa selecionada
-  const dataFocused = focusCompany
-    ? {...dataForUser, tasks: dataForUser.tasks.filter(t=>taskHasCompany(t,focusCompany))}
-    : dataForUser;
 
   const openNew=(status="todo")=>{
     // Rejeita eventos de clique do React (SyntheticEvent / HTMLElement)
@@ -7513,6 +7506,10 @@ function App(){
         ? (updated.completedByName||(wasNotDone?userName:null)||null)
         : null,
       // Normalize companies: always keep array + primary company alias
+      approvedBy: updated.approvalStatus==="approved"&&!updated.approvedBy
+        ? (userName||"Gestor") : updated.approvedBy||"",
+      approvedAt: updated.approvalStatus==="approved"&&!updated.approvedAt
+        ? todayStr() : updated.approvedAt||"",
       companies: Array.isArray(updated.companies)&&updated.companies.length>0
         ? updated.companies
         : (updated.company?[updated.company]:[]),
@@ -7599,9 +7596,25 @@ function App(){
       const ex=d.tasks.find(t=>t.id===taskWithHistory.id);
       return {...d,tasks:ex?d.tasks.map(t=>t.id===taskWithHistory.id?taskWithHistory:t):[...d.tasks,taskWithHistory]};
     });
+    // Notificar ao aprovar/rejeitar
+    if(!isNew){
+      const prev=data.tasks.find(t=>t.id===base.id);
+      if(prev&&prev.approvalStatus!==base.approvalStatus){
+        const assignees=toArr(base.assignees);
+        if(base.approvalStatus==="approved"){
+          assignees.forEach(aId=>{if(aId!==myCollabId)addNotification({toId:aId,icon:"✅",text:`✅ "${base.title}" foi aprovada!`,page:"minhas",createdAt:new Date().toISOString(),read:false});});
+          toast("✅ Tarefa aprovada!","ok");
+        } else if(base.approvalStatus==="rejected"){
+          assignees.forEach(aId=>{if(aId!==myCollabId)addNotification({toId:aId,icon:"❌",text:`❌ "${base.title}" foi rejeitada${base.approvalNote?`: ${base.approvalNote}`:""}`,page:"minhas",createdAt:new Date().toISOString(),read:false});});
+          toast("❌ Rejeitada — colaborador notificado.","warn");
+        }
+      }
+    }
     if(taskModal.task) release(taskModal.task.id);
     setTM(m=>({...m,open:false}));
-    toast(isNew?"✦ Tarefa criada!":"💾 Tarefa atualizada!","ok");
+    const prev2=data.tasks.find(t=>t.id===base.id);
+    const approvalChanged=!isNew&&prev2&&prev2.approvalStatus!==base.approvalStatus;
+    if(!approvalChanged) toast(isNew?"✦ Tarefa criada!":"💾 Tarefa atualizada!","ok");
   };
 
   const deleteTask=(id)=>{
@@ -7661,6 +7674,7 @@ function App(){
     }
   };
 
+  // Notificações
   const addNotification=(notif)=>{
     setData(d=>({...d,notifications:[...(d.notifications||[]),{id:uid(),createdAt:new Date().toISOString(),read:false,...notif}]}));
   };
@@ -7683,18 +7697,17 @@ function App(){
         toast("🔒 Você não tem permissão para avançar o status das tarefas.","err");return;
       }
     }
-    // Se requer aprovação → manda para review
+    // Se requer aprovação → manda para "review" pending
     if(next==="done"&&task.needsApproval){
       setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{
         ...t,status:"review",approvalStatus:"pending",
         completedAt:todayStr(),completedBy:myCollabId||null,completedByName:userName||null,
         checklist:t.checklist.map(c=>({...c,done:true})),
       }:t)}));
-      // Notificar admins
       data.collaborators.filter(u=>u.accessLevel==="admin").forEach(a=>{
         addNotification({toId:a.id,icon:"✅",text:`"${task.title}" aguarda aprovação`,page:"lista",createdAt:new Date().toISOString(),read:false});
       });
-      toast("⏳ Enviada para aprovação!","ok");
+      toast("⏳ Enviada para aprovação do gestor!","ok");
       return;
     }
     // Se é tarefa recorrente e vai para "done"
@@ -7729,7 +7742,6 @@ function App(){
     toast(`→ ${LABELS[next]}!`,"ok");
   };
 
-  // Notificações
 
   const markNotifRead=(id)=>{
     setData(d=>({...d,notifications:(d.notifications||[]).map(n=>n.id===id?{...n,read:true}:n)}));
@@ -7882,16 +7894,16 @@ function App(){
             </button>
             {/* Dark Mode */}
             <button onClick={()=>setDarkMode(d=>!d)} title={darkMode?"Modo claro":"Modo escuro"} aria-label="Alternar tema" style={{width:34,height:34,borderRadius:"50%",border:"1.5px solid #e2e8f0",background:darkMode?"#1e293b":"#f8fafc",color:darkMode?"#f59e0b":"#64748b",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .2s"}}>{darkMode?"☀️":"🌙"}</button>
-            {/* Modo Foco por Empresa */}
+            {/* 🏢 Modo Foco por Empresa */}
             {data.companies.length>0&&(
-              <div style={{display:"flex",alignItems:"center",gap:5,padding:"3px 4px 3px 10px",borderRadius:10,border:`1.5px solid ${focusCompany?"#6366f1":"#e2e8f0"}`,background:focusCompany?"#eef2ff":"var(--bg3)",transition:"all .15s"}}>
-                <span style={{fontSize:11,fontWeight:700,color:focusCompany?"#6366f1":"#94a3b8",whiteSpace:"nowrap"}}>🏢</span>
+              <div style={{display:"flex",alignItems:"center",gap:4,padding:"3px 4px 3px 10px",borderRadius:10,border:`1.5px solid ${focusCompany?"#6366f1":"#e2e8f0"}`,background:focusCompany?"#eef2ff":"var(--bg3)",transition:"all .15s"}}>
+                <span style={{fontSize:11,fontWeight:700,color:focusCompany?"#6366f1":"#94a3b8",flexShrink:0}}>🏢</span>
                 <select value={focusCompany} onChange={e=>setFocusCompany(e.target.value)}
-                  style={{border:"none",background:"transparent",fontSize:11,fontWeight:700,color:focusCompany?"#4338ca":"#64748b",cursor:"pointer",fontFamily:"inherit",outline:"none",padding:"2px 2px",maxWidth:130}}>
+                  style={{border:"none",background:"transparent",fontSize:11,fontWeight:700,color:focusCompany?"#4338ca":"#64748b",cursor:"pointer",fontFamily:"inherit",outline:"none",padding:"2px",maxWidth:130}}>
                   <option value="">Todas empresas</option>
                   {data.companies.map(c=><option key={c.id} value={c.id}>{c.logo} {c.name}</option>)}
                 </select>
-                {focusCompany&&<button onClick={()=>setFocusCompany("")} style={{background:"none",border:"none",cursor:"pointer",color:"#6366f1",fontSize:14,padding:"0 4px",lineHeight:1}}>×</button>}
+                {focusCompany&&<button onClick={()=>setFocusCompany("")} style={{background:"none",border:"none",cursor:"pointer",color:"#6366f1",fontSize:14,padding:"0 3px",lineHeight:1,fontWeight:700}}>×</button>}
               </div>
             )}
             {/* Modo Foco — só no Kanban */}
@@ -7900,7 +7912,7 @@ function App(){
           </div>
         </div>
 
-        {page==="dashboard"     && <Dashboard data={dataFocused}/>}
+        {page==="dashboard"     && <Dashboard data={dataForUser}/>}
         {page==="kanban"        && <>
           {focusMode&&(
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,padding:"10px 16px",background:"var(--bg2)",borderRadius:12,border:"1px solid var(--border)",boxShadow:"0 2px 8px rgba(0,0,0,.08)"}}>
@@ -7914,7 +7926,7 @@ function App(){
               </div>
             </div>
           )}
-          <KanbanView data={dataFocused} onEdit={openEdit} onDelete={deleteTask} onAdd={openNew} onDuplicate={duplicateTask} onComplete={quickComplete} onStatusChange={dragStatusChange} myCollabId={myCollabId} myCollab={myCollab} onArchive={archiveTask} onPomodoro={t=>setPomodoroTask(t)}
+          <KanbanView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onAdd={openNew} onDuplicate={duplicateTask} onComplete={quickComplete} onStatusChange={dragStatusChange} myCollabId={myCollabId} myCollab={myCollab} onArchive={archiveTask} onPomodoro={t=>setPomodoroTask(t)}
             onPin={(id,val)=>{setData(d=>({...d,tasks:d.tasks.map(t=>t.id===id?{...t,pinned:val}:t)}));toast(val?"📌 Tarefa fixada no topo!":"📍 Tarefa desafixada.","ok");}}
             onMoveTop={(id,colId)=>{
               setData(d=>{
@@ -7933,12 +7945,12 @@ function App(){
             }}
           />
         </>}
-        {page==="lista"         && <ListView data={dataFocused} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete} onBulkUpdate={bulkUpdate}/>}
-        {page==="hoje"          && <HojePage data={dataFocused} myCollabId={myCollabId} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete} onAdd={openNew}/>}
+        {page==="lista"         && <ListView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete} onBulkUpdate={bulkUpdate}/>}
+        {page==="hoje"          && <HojePage data={dataForUser} myCollabId={myCollabId} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete} onAdd={openNew}/>}
         {page==="minhas"        && <MinhasTarefasPage data={{...dataFocused, tasks: (myCollabId ? dataFocused.tasks.filter(t=>t.assignees?.includes(myCollabId)) : dataForUser.tasks).filter(t=>t.status!=="archived")}} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete}/>}
         {page==="calendario"    && <CalView data={dataForUser} onEdit={openEdit} onReschedule={(id,date)=>{setData(d=>({...d,tasks:d.tasks.map(t=>t.id===id?{...t,dueDate:date}:t)}));toast(`📅 Reagendado para ${date}.`,"ok");}}/>}
-        {page==="tabela"        && <GridView data={dataFocused} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete} onQuickUpdate={(id,field,val)=>setData(d=>({...d,tasks:d.tasks.map(t=>t.id===id?{...t,[field]:val}:t)}))}/>}
-        {page==="gantt"         && <GanttView data={dataFocused} onEdit={openEdit}/>}
+        {page==="tabela"        && <GridView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete} onQuickUpdate={(id,field,val)=>setData(d=>({...d,tasks:d.tasks.map(t=>t.id===id?{...t,[field]:val}:t)}))}/>}
+        {page==="gantt"         && <GanttView data={dataForUser} onEdit={openEdit}/>}
         {page==="relatorio"     && <RelatorioPage data={isAdmin?data:dataForUser} isAdmin={isAdmin} myCollabId={myCollabId}/>}
         {page==="carga"         && <CargaPage data={dataFocused} setData={setData}/>}
         {page==="servicos"      && <ServicosPage data={data} setData={setData}/>}

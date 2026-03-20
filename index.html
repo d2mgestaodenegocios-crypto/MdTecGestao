@@ -236,6 +236,16 @@ function normalizeTask(t){
     pinned: t.pinned===true,
     valor: t.valor||"",
     internalNote: t.internalNote||"",
+    needsApproval: t.needsApproval===true,
+    approvalStatus: t.approvalStatus||null,
+    approvalNote: t.approvalNote||"",
+    approvedBy: t.approvedBy||"",
+    approvedAt: t.approvedAt||"",
+    _competencia: t._competencia||"",
+    _serviceId: t._serviceId||"",
+    customFieldValues: (typeof t.customFieldValues==="object"&&t.customFieldValues!==null)?t.customFieldValues:{},
+    completedBy: t.completedBy||"",
+    completedByName: t.completedByName||"",
   };
 }
 const todayStr=()=>new Date().toISOString().slice(0,10);
@@ -348,6 +358,7 @@ const SEED={
   chatMessages:[],
   notifications:[],
   customStatuses:[],
+  customFields:[],
 };
 
 /* ===========================================
@@ -507,6 +518,7 @@ function useSharedData() {
         if (!p.recurrences || !Array.isArray(p.recurrences)) p.recurrences = SEED.recurrences;
         if (!p.taskTemplates || !Array.isArray(p.taskTemplates)) p.taskTemplates = [];
         if (!p.customStatuses) p.customStatuses = [];
+        if (!p.customFields) p.customFields = [];
         if (!p.services || !Array.isArray(p.services)) p.services = [];
         if (!p.chatMessages || !Array.isArray(p.chatMessages)) p.chatMessages = [];
         if (!p.notifications || !Array.isArray(p.notifications)) p.notifications = [];
@@ -610,6 +622,7 @@ function useSharedData() {
         if (!p.recurrences || !Array.isArray(p.recurrences)) p.recurrences = SEED.recurrences;
         if (!p.taskTemplates || !Array.isArray(p.taskTemplates)) p.taskTemplates = [];
         if (!p.customStatuses) p.customStatuses = [];
+        if (!p.customFields) p.customFields = [];
         if (!p.services || !Array.isArray(p.services)) p.services = [];
         if (!p.chatMessages || !Array.isArray(p.chatMessages)) p.chatMessages = [];
         if (!p.notifications || !Array.isArray(p.notifications)) p.notifications = [];
@@ -859,6 +872,35 @@ function RelatorioPage({data,isAdmin}){
 
   if(!company) return <div style={{padding:40,textAlign:"center",color:"#94a3b8"}}>Selecione uma empresa.</div>;
 
+  // Timeline de competências
+  const competencias=useMemo(()=>{
+    const all=data.tasks.filter(t=>t.status!=="archived"&&taskHasCompany(t,selCompany)&&t._competencia);
+    const map={};
+    all.forEach(t=>{
+      const k=t._competencia;
+      if(!map[k])map[k]={comp:k,done:[],pending:[],late:[]};
+      if(t.status==="done") map[k].done.push(t);
+      else if(isLate(t)) map[k].late.push(t);
+      else map[k].pending.push(t);
+    });
+    return Object.values(map).sort((a,b)=>a.comp.localeCompare(b.comp));
+  },[data.tasks,selCompany]);
+
+  const exportCSV=()=>{
+    const headers=["Título","Status","Prioridade","Competência","Vencimento","Responsáveis","Valor"];
+    const rows=tasks.map(t=>{
+      const asg=data.collaborators.filter(u=>toArr(t.assignees).includes(u.id)).map(u=>u.name).join("; ");
+      return[t.title,STS.find(s=>s.id===t.status)?.l||t.status,PRI[t.priority]?.l||t.priority,
+        t._competencia||"",t.dueDate||"",asg,t.valor||""
+      ].map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",");
+    });
+    const csv="\uFEFF"+[headers.join(","),...rows].join("\n");
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));
+    a.download=`relatorio_${company?.name||"empresa"}_${todayStr()}.csv`;
+    a.click();
+  };
+
   return(
     <div>
       <style>{`@media print{.no-print{display:none!important}.print-page{box-shadow:none!important;border:none!important}@page{margin:1.5cm}}`}</style>
@@ -877,6 +919,8 @@ function RelatorioPage({data,isAdmin}){
         <label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,fontWeight:700,color:"#64748b",cursor:"pointer"}}>
           <input type="checkbox" checked={showDone} onChange={e=>setShowDone(e.target.checked)} style={{accentColor:"#22c55e"}}/> Concluídas
         </label>
+        <button onClick={exportCSV} style={{padding:"7px 14px",borderRadius:9,border:"1.5px solid #e2e8f0",background:"var(--bg2)",color:"#64748b",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}
+          onMouseEnter={e=>e.currentTarget.style.borderColor="#22c55e"} onMouseLeave={e=>e.currentTarget.style.borderColor="#e2e8f0"}>📊 Exportar CSV</button>
         <Btn onClick={()=>window.print()} xs={{marginLeft:"auto",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",border:"none"}}>🖨 Imprimir / PDF</Btn>
       </div>
 
@@ -964,6 +1008,40 @@ function RelatorioPage({data,isAdmin}){
           <span>{new Date().toLocaleDateString("pt-BR")} — {tasks.length} tarefa(s)</span>
         </div>
       </div>
+      {competencias.length>0&&(
+        <div className="no-print" style={{marginTop:16,background:"var(--bg2)",borderRadius:14,border:"1px solid var(--border)",overflow:"hidden"}}>
+          <div style={{padding:"12px 18px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:15}}>🗓</span>
+            <span style={{fontSize:13,fontWeight:800,color:"var(--text)"}}>Timeline de Competências</span>
+            <span style={{fontSize:11,color:"#94a3b8"}}>{competencias.length} competência{competencias.length!==1?"s":""}</span>
+          </div>
+          <div style={{padding:"14px 18px",overflowX:"auto"}}>
+            <div style={{display:"flex",gap:8,minWidth:"max-content"}}>
+              {competencias.map(c=>{
+                const total=c.done.length+c.pending.length+c.late.length;
+                const pct=total>0?Math.round((c.done.length/total)*100):0;
+                const bg=pct===100?"#f0fdf4":c.late.length>0?"#fef2f2":"#f0f4ff";
+                const border=pct===100?"#86efac":c.late.length>0?"#fca5a5":"#c7d2fe";
+                const tc=pct===100?"#15803d":c.late.length>0?"#dc2626":"#4338ca";
+                return(
+                  <div key={c.comp} style={{minWidth:100,borderRadius:10,background:bg,border:`2px solid ${border}`,padding:"10px 12px",display:"flex",flexDirection:"column",gap:4}}>
+                    <div style={{fontSize:12,fontWeight:900,color:tc}}>{c.comp}</div>
+                    <div style={{height:4,borderRadius:2,background:"rgba(0,0,0,.08)",overflow:"hidden"}}>
+                      <div style={{height:"100%",borderRadius:2,background:pct===100?"#22c55e":c.late.length>0?"#ef4444":"#6366f1",width:`${pct}%`}}/>
+                    </div>
+                    <div style={{fontSize:10,color:tc,fontWeight:700}}>{pct}%</div>
+                    <div style={{display:"flex",gap:3,flexWrap:"wrap"}}>
+                      {c.done.length>0&&<span style={{fontSize:9,padding:"1px 5px",borderRadius:6,background:"#dcfce7",color:"#15803d",fontWeight:700}}>✓{c.done.length}</span>}
+                      {c.pending.length>0&&<span style={{fontSize:9,padding:"1px 5px",borderRadius:6,background:"#eef2ff",color:"#4338ca",fontWeight:700}}>○{c.pending.length}</span>}
+                      {c.late.length>0&&<span style={{fontSize:9,padding:"1px 5px",borderRadius:6,background:"#fef2f2",color:"#dc2626",fontWeight:700}}>⚠{c.late.length}</span>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1027,7 +1105,41 @@ function ConfigPage({data,setData,toast,deduplicateTasks}){
         <Btn onClick={()=>{ deduplicateTasks(); }} v="ghost">🧹 Remover duplicatas</Btn>
       </div>
 
-      {/* Custom Status Editor */}
+      {/* Campos Personalizados */}
+      <div style={{background:"var(--bg2)",borderRadius:16,padding:24,border:"1px solid var(--border)",marginBottom:16,boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
+        <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:4}}>🧩 Campos personalizados nas tarefas</h3>
+        <p style={{fontSize:13,color:"#64748b",marginBottom:16,lineHeight:1.5}}>Crie campos extras (texto, número, data ou lista) que aparecem em todas as tarefas.</p>
+        {(data.customFields||[]).length<8&&(
+          <Btn onClick={()=>{
+            const name=window.prompt("Nome do campo (ex: Nº do Processo, Contrato):");
+            if(!name?.trim()) return;
+            const tipo=window.prompt("Tipo:\n1 = Texto\n2 = Número\n3 = Data\n4 = Lista de opções\n\nDigite 1, 2, 3 ou 4:");
+            const tipos={"1":"text","2":"number","3":"date","4":"select"};
+            const type=tipos[tipo]||"text";
+            let options=[];
+            if(type==="select"){const opts=window.prompt("Opções separadas por vírgula:");options=(opts||"").split(",").map(o=>o.trim()).filter(Boolean);}
+            setData(d=>({...d,customFields:[...(d.customFields||[]),{id:"cf_"+uid().slice(0,8),name:name.trim(),type,options}]}));
+            toast(`✦ Campo "${name.trim()}" criado!`,"ok");
+          }} sz="sm" xs={{marginBottom:12}}>+ Novo campo</Btn>
+        )}
+        {(data.customFields||[]).length===0&&<p style={{fontSize:12,color:"#94a3b8",fontStyle:"italic"}}>Nenhum campo ainda. Clique em "+ Novo campo" para criar.</p>}
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {(data.customFields||[]).map(cf=>(
+            <div key={cf.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:10,border:"1px solid var(--border)",background:"var(--bg3)"}}>
+              <span style={{fontSize:16}}>{cf.type==="text"?"📝":cf.type==="number"?"🔢":cf.type==="date"?"📅":"📋"}</span>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13,fontWeight:700,color:"var(--text)"}}>{cf.name}</div>
+                <div style={{fontSize:11,color:"#94a3b8"}}>{cf.type==="select"&&cf.options?.length>0?`Lista: ${cf.options.slice(0,3).join(", ")}`:cf.type==="text"?"Texto":cf.type==="number"?"Número":"Data"}</div>
+              </div>
+              <button onClick={()=>setData(d=>({...d,customFields:(d.customFields||[]).filter(f=>f.id!==cf.id)}))}
+                style={{background:"none",border:"none",cursor:"pointer",color:"#cbd5e1",fontSize:18,padding:"0 4px",transition:"color .1s"}}
+                onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#cbd5e1"}>✕</button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Custom Status Editor */}}
       <div style={{background:"var(--bg2)",borderRadius:16,padding:24,border:"1px solid var(--border)",marginBottom:16,boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
         <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:4}}>⊞ Status extras do Kanban</h3>
         <p style={{fontSize:13,color:"#64748b",marginBottom:16,lineHeight:1.5}}>
@@ -1565,7 +1677,7 @@ function DepPicker({tasks,selfId,selected,onChange,blocked}){
 }
 
 function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,onForce,currentUser}){
-  const blank={id:uid(),title:"",description:"",status:defStatus,priority:"media",company:"",companies:[],sector:"",assignees:[],labels:[],dueDate:"",dueTime:"",slaHours:"",valor:"",checklist:[],dependencies:[],recurrence:"",createdAt:todayStr(),comments:[],history:[],internalNote:"",pinned:false};
+  const blank={id:uid(),title:"",description:"",status:defStatus,priority:"media",company:"",companies:[],sector:"",assignees:[],labels:[],dueDate:"",dueTime:"",slaHours:"",valor:"",checklist:[],dependencies:[],recurrence:"",createdAt:todayStr(),comments:[],history:[],internalNote:"",pinned:false,needsApproval:false,approvalStatus:null,approvalNote:"",customFieldValues:{}};
   const [f,sf]=useState(task?{...sanitizeTask(task),comments:task.comments||[]}:blank);
   const [ckTxt,sCk]=useState("");
   const [ckDueDate,setCkDueDate]=useState("");
@@ -1783,6 +1895,33 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
         </Fld>
       )}
 
+      {/* Campos Personalizados */}
+      {(data.customFields||[]).length>0&&(
+        <Fld label="🧩 Campos Personalizados">
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {(data.customFields||[]).map(cf=>{
+              const val=(f.customFieldValues||{})[cf.id]||"";
+              const setVal=(v)=>sf(x=>({...x,customFieldValues:{...(x.customFieldValues||{}),[cf.id]:v}}));
+              return(
+                <div key={cf.id}>
+                  <label style={{fontSize:11,fontWeight:700,color:"#374151",display:"block",marginBottom:3}}>{cf.name}</label>
+                  {cf.type==="select"
+                    ?<select value={val} onChange={e=>setVal(e.target.value)} disabled={blocked}
+                        style={{width:"100%",padding:"8px 12px",borderRadius:9,border:"2px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}}>
+                        <option value="">Selecionar...</option>
+                        {(cf.options||[]).map(o=><option key={o} value={o}>{o}</option>)}
+                      </select>
+                    :<input type={cf.type} value={val} onChange={e=>setVal(e.target.value)} disabled={blocked}
+                        placeholder={cf.type==="text"?"Preencher...":cf.type==="number"?"0":""}
+                        style={{width:"100%",padding:"8px 12px",borderRadius:9,border:"2px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",boxSizing:"border-box"}}/>
+                  }
+                </div>
+              );
+            })}
+          </div>
+        </Fld>
+      )}
+
       {/* Observação Interna (admin only) */}
       {currentUser&&(
         <Fld label="🔒 Observação Interna (visível só para admins)">
@@ -1801,6 +1940,34 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
           <div style={{position:"absolute",top:2,left:f.pinned?14:2,width:14,height:14,borderRadius:"50%",background:"#fff",boxShadow:"0 1px 3px rgba(0,0,0,.2)",transition:"left .2s"}}/>
         </div>
       </div>
+
+      {/* Requer Aprovação */}
+      <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:10,background:f.needsApproval?"#eff6ff":"var(--bg3)",border:`1.5px solid ${f.needsApproval?"#bfdbfe":"var(--border)"}`,cursor:blocked?"not-allowed":"pointer",transition:"all .15s"}} onClick={()=>!blocked&&set("needsApproval",!f.needsApproval)}>
+        <span style={{fontSize:16}}>✅</span>
+        <div style={{flex:1}}>
+          <div style={{fontSize:13,fontWeight:700,color:f.needsApproval?"#1d4ed8":"#64748b"}}>Requer aprovação do gestor</div>
+          {f.needsApproval&&<div style={{fontSize:11,color:"#3b82f6",marginTop:1}}>Ao concluir, vai para revisão antes de finalizar</div>}
+        </div>
+        <div style={{marginLeft:"auto",width:32,height:18,borderRadius:9,background:f.needsApproval?"#3b82f6":"#e2e8f0",position:"relative",transition:"background .2s",flexShrink:0}}>
+          <div style={{position:"absolute",top:2,left:f.needsApproval?14:2,width:14,height:14,borderRadius:"50%",background:"#fff",boxShadow:"0 1px 3px rgba(0,0,0,.2)",transition:"left .2s"}}/>
+        </div>
+      </div>
+      {task&&f.approvalStatus==="pending"&&(
+        <div style={{padding:"12px 14px",borderRadius:11,background:"#eff6ff",border:"2px solid #bfdbfe"}}>
+          <div style={{fontSize:12,fontWeight:800,color:"#1e40af",marginBottom:6}}>⏳ Aguardando aprovação</div>
+          <textarea value={f.approvalNote||""} onChange={e=>set("approvalNote",e.target.value)}
+            placeholder="Comentário da aprovação (opcional)..."
+            style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1.5px solid #bfdbfe",fontSize:12,fontFamily:"inherit",resize:"vertical",minHeight:44,background:"#fff",outline:"none",boxSizing:"border-box",marginBottom:8}}/>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={()=>{set("approvalStatus","approved");set("status","done");}}
+              style={{flex:1,padding:"7px",borderRadius:8,border:"none",background:"#22c55e",color:"#fff",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✅ Aprovar</button>
+            <button onClick={()=>{set("approvalStatus","rejected");set("status","doing");}}
+              style={{flex:1,padding:"7px",borderRadius:8,border:"none",background:"#ef4444",color:"#fff",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>❌ Rejeitar</button>
+          </div>
+        </div>
+      )}
+      {task&&f.approvalStatus==="approved"&&<div style={{padding:"8px 12px",borderRadius:9,background:"#f0fdf4",border:"1.5px solid #86efac",fontSize:12,color:"#15803d",fontWeight:700}}>✅ Aprovada por {f.approvedBy||"gestor"}</div>}
+      {task&&f.approvalStatus==="rejected"&&<div style={{padding:"8px 12px",borderRadius:9,background:"#fef2f2",border:"1.5px solid #fca5a5",fontSize:12,color:"#dc2626",fontWeight:700}}>❌ Rejeitada{f.approvalNote?` — ${f.approvalNote}`:""}</div>}
 
       {/* Histórico de alterações */}
       {task&&toArr(f.history).length>0&&(
@@ -4908,153 +5075,158 @@ function Dashboard({ data }) {
 /* ===========================================
    POMODORO TIMER */
 function PomodoroTimer({taskTitle,onClose}){
-  const MODES=[
-    {id:"focus",   label:"🍅 Foco 25",   mins:25,  color:"#ef4444"},
-    {id:"focus30", label:"🍅 Foco 30",   mins:30,  color:"#f97316"},
-    {id:"focus60", label:"🍅 1 hora",    mins:60,  color:"#dc2626"},
-    {id:"short",   label:"☕ Pausa 5",   mins:5,   color:"#22c55e"},
-    {id:"long",    label:"🛋 Pausa 15",  mins:15,  color:"#6366f1"},
-    {id:"long30",  label:"🛋 Pausa 30",  mins:30,  color:"#8b5cf6"},
+  const DEFAULT_MODES=[
+    {id:"focus",label:"🍅 Foco",mins:25,color:"#ef4444"},
+    {id:"short",label:"☕ Pausa Curta",mins:5,color:"#22c55e"},
+    {id:"long",label:"🛋 Pausa Longa",mins:15,color:"#6366f1"},
   ];
+  const [customModes,setCustomModes]=useState(()=>{
+    try{return JSON.parse(localStorage.getItem("mdtec_pomodoro_modes")||"[]");}catch{return [];}
+  });
   const [mode,setMode]=useState(0);
-  const [secs,setSecs]=useState(MODES[0].mins*60);
+  const [secs,setSecs]=useState(DEFAULT_MODES[0].mins*60);
   const [running,setRunning]=useState(false);
   const [rounds,setRounds]=useState(0);
-  const [finished,setFinished]=useState(false);
-  const endTimeRef=useRef(null);   // timestamp quando o timer deve terminar
-  const rafRef=useRef(null);       // requestAnimationFrame id
-  const cur=MODES[mode];
+  const [showCustom,setShowCustom]=useState(false);
+  const [newLabel,setNewLabel]=useState("");
+  const [newMins,setNewMins]=useState("25");
+  const [newColor,setNewColor]=useState("#8b5cf6");
+
+  const MODES=[...DEFAULT_MODES,...customModes];
+  const cur=MODES[mode]||MODES[0];
   const total=cur.mins*60;
-  const pct=total>0?Math.round(((total-secs)/total)*100):0;
+  const pct=Math.round((1-secs/total)*100);
+
+  useEffect(()=>{
+    if(!running) return;
+    const id=setInterval(()=>setSecs(s=>{
+      if(s<=1){
+        setRunning(false);
+        if(cur.id==="focus"||customModes.find(m=>m.id===cur.id)){
+          setRounds(r=>r+1);
+        }
+        // Notificação do navegador
+        if(Notification?.permission==="granted"){
+          new Notification("⏱ Pomodoro",{body:`"${taskTitle}" — ${cur.label} finalizado!`,icon:"/favicon.ico"});
+        }
+        return 0;
+      }
+      return s-1;
+    }),1000);
+    return()=>clearInterval(id);
+  },[running,mode,cur]);
+
+  const switchMode=(idx)=>{setMode(idx);setSecs(MODES[idx].mins*60);setRunning(false);};
+
+  const saveCustom=()=>{
+    if(!newLabel.trim()||!newMins) return;
+    const custom={id:"custom_"+Date.now(),label:newLabel.trim(),mins:parseInt(newMins)||25,color:newColor};
+    const updated=[...customModes,custom];
+    setCustomModes(updated);
+    localStorage.setItem("mdtec_pomodoro_modes",JSON.stringify(updated));
+    setNewLabel("");setNewMins("25");setShowCustom(false);
+  };
+  const deleteCustom=(id)=>{
+    const updated=customModes.filter(m=>m.id!==id);
+    setCustomModes(updated);
+    localStorage.setItem("mdtec_pomodoro_modes",JSON.stringify(updated));
+    if(MODES[mode]?.id===id) switchMode(0);
+  };
+
+  const requestNotifPerm=()=>{if(Notification?.permission==="default") Notification.requestPermission();};
+
   const mm=String(Math.floor(secs/60)).padStart(2,"0");
   const ss=String(secs%60).padStart(2,"0");
   const circ=2*Math.PI*45;
 
-  // Tick via requestAnimationFrame + timestamp — imune a throttle e re-renders
-  const tick=useCallback(()=>{
-    if(!endTimeRef.current) return;
-    const remaining=Math.max(0,Math.round((endTimeRef.current-Date.now())/1000));
-    setSecs(remaining);
-    if(remaining<=0){
-      endTimeRef.current=null;
-      setRunning(false);
-      setFinished(true);
-      if(mode===0||mode===1||mode===2) setRounds(r=>r+1);
-      // Notificação do navegador
-      if(Notification?.permission==="granted"){
-        new Notification("⏱ Pomodoro finalizado!",{body:taskTitle,icon:"🍅"});
-      }
-      return;
-    }
-    rafRef.current=requestAnimationFrame(tick);
-  },[mode,taskTitle]);
-
-  useEffect(()=>{
-    if(running){
-      // Só define endTime se não estava rodando antes (evita reset ao re-render)
-      if(!endTimeRef.current){
-        endTimeRef.current=Date.now()+secs*1000;
-      }
-      rafRef.current=requestAnimationFrame(tick);
-    } else {
-      if(rafRef.current) cancelAnimationFrame(rafRef.current);
-      endTimeRef.current=null;
-    }
-    return()=>{if(rafRef.current) cancelAnimationFrame(rafRef.current);};
-  },[running,tick]);
-
-  // Pedir permissão de notificação ao montar
-  useEffect(()=>{
-    if(Notification?.permission==="default") Notification.requestPermission();
-  },[]);
-
-  const switchMode=(idx)=>{
-    if(rafRef.current) cancelAnimationFrame(rafRef.current);
-    endTimeRef.current=null;
-    setMode(idx);
-    setSecs(MODES[idx].mins*60);
-    setRunning(false);
-    setFinished(false);
-  };
-  const reset=()=>{
-    if(rafRef.current) cancelAnimationFrame(rafRef.current);
-    endTimeRef.current=null;
-    setSecs(cur.mins*60);
-    setRunning(false);
-    setFinished(false);
-  };
-  const toggleRun=()=>{
-    if(finished) return;
-    if(running){
-      // Pausar: salva segundos restantes, limpa endTime
-      if(rafRef.current) cancelAnimationFrame(rafRef.current);
-      endTimeRef.current=null;
-      setRunning(false);
-    } else {
-      // Retomar/Iniciar: calcula novo endTime a partir dos segundos restantes
-      endTimeRef.current=Date.now()+secs*1000;
-      setRunning(true);
-      setFinished(false);
-    }
-  };
-
-  // Split dos modos em 2 linhas
-  const row1=MODES.slice(0,3);
-  const row2=MODES.slice(3,6);
-
   return(
-    <div style={{position:"fixed",bottom:90,right:90,zIndex:5000,background:"var(--bg2)",borderRadius:20,boxShadow:"0 20px 60px rgba(0,0,0,.25)",border:"1px solid var(--border)",width:280,overflow:"hidden",animation:"popIn .2s ease"}}>
-      <div style={{background:`linear-gradient(135deg,${cur.color}22,${cur.color}08)`,padding:"14px 16px 14px",borderBottom:"1px solid var(--border)"}}>
-        {/* Header */}
+    <div style={{position:"fixed",bottom:24,right:24,zIndex:5000,background:"var(--bg2)",borderRadius:20,boxShadow:"0 20px 60px rgba(0,0,0,.3)",border:"1px solid var(--border)",width:280,overflow:"hidden",animation:"popIn .2s ease"}}>
+      {/* Header */}
+      <div style={{background:`linear-gradient(135deg,${cur.color}28,${cur.color}08)`,padding:"12px 14px 8px",borderBottom:"1px solid var(--border)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-          <span style={{fontSize:12,fontWeight:800,color:cur.color}}>⏱ Pomodoro</span>
+          <span style={{fontSize:12,fontWeight:900,color:cur.color}}>⏱ Pomodoro</span>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <span style={{fontSize:10,color:"#94a3b8"}}>🍅×{rounds}</span>
-            <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:16,lineHeight:1}}>×</button>
+            <span style={{fontSize:10,color:"#94a3b8",fontWeight:700}}>🍅 ×{rounds}</span>
+            <button onClick={requestNotifPerm} title="Ativar notificações" style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:13}}>🔔</button>
+            <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:18,lineHeight:1,fontWeight:700}}>×</button>
           </div>
         </div>
-        {/* Título da tarefa */}
-        <div style={{fontSize:10,color:"#64748b",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:10}}>{taskTitle}</div>
-        {/* Seletor de modo — 2 linhas */}
-        <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:12}}>
-          {[row1,row2].map((row,ri)=>(
-            <div key={ri} style={{display:"flex",gap:4}}>
-              {row.map((m,i)=>{
-                const idx=ri*3+i;
-                return(
-                  <button key={m.id} onClick={()=>switchMode(idx)}
-                    style={{flex:1,padding:"4px 0",borderRadius:7,border:`1.5px solid ${mode===idx?m.color:"#e2e8f0"}`,background:mode===idx?m.color:"transparent",color:mode===idx?"#fff":"#64748b",fontSize:9,fontWeight:800,cursor:"pointer",fontFamily:"inherit",transition:"all .12s"}}>
-                    {m.label}
-                  </button>
-                );
-              })}
+        <div style={{fontSize:11,color:"#64748b",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:10,fontWeight:600}}>📋 {taskTitle}</div>
+
+        {/* Modos */}
+        <div style={{display:"flex",gap:4,marginBottom:8,flexWrap:"wrap"}}>
+          {MODES.map((m,i)=>(
+            <div key={m.id} style={{position:"relative",display:"flex",alignItems:"center"}}>
+              <button onClick={()=>switchMode(i)}
+                style={{padding:"4px 8px",borderRadius:8,border:`1.5px solid ${mode===i?m.color:"#e2e8f0"}`,
+                  background:mode===i?m.color:"transparent",color:mode===i?"#fff":"#64748b",
+                  fontSize:10,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>
+                {m.label}
+              </button>
+              {customModes.find(cm=>cm.id===m.id)&&(
+                <button onClick={()=>deleteCustom(m.id)}
+                  style={{position:"absolute",top:-6,right:-6,background:"#ef4444",border:"none",borderRadius:"50%",
+                    width:14,height:14,cursor:"pointer",color:"#fff",fontSize:9,lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center",zIndex:1}}>×</button>
+              )}
             </div>
           ))}
+          <button onClick={()=>setShowCustom(v=>!v)}
+            style={{padding:"4px 8px",borderRadius:8,border:"1.5px dashed #c7d2fe",background:"#eef2ff",
+              color:"#6366f1",fontSize:10,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>
+            + Criar
+          </button>
         </div>
-        {/* Círculo de progresso */}
-        <div style={{display:"flex",justifyContent:"center",marginBottom:12,position:"relative"}}>
+
+        {/* Form criar modo customizado */}
+        {showCustom&&(
+          <div style={{background:"#f8fafc",borderRadius:10,padding:"10px",marginBottom:8,border:"1px solid #e2e8f0",display:"flex",flexDirection:"column",gap:6}}>
+            <input value={newLabel} onChange={e=>setNewLabel(e.target.value)} placeholder="Nome (ex: Deep Work)"
+              style={{padding:"5px 8px",borderRadius:7,border:"1.5px solid #e2e8f0",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
+            <div style={{display:"flex",gap:6,alignItems:"center"}}>
+              <input type="number" value={newMins} onChange={e=>setNewMins(e.target.value)} placeholder="Min" min={1} max={120}
+                style={{flex:1,padding:"5px 8px",borderRadius:7,border:"1.5px solid #e2e8f0",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
+              <span style={{fontSize:11,color:"#64748b"}}>min</span>
+              <input type="color" value={newColor} onChange={e=>setNewColor(e.target.value)}
+                style={{width:28,height:28,borderRadius:6,border:"none",cursor:"pointer",padding:2}}/>
+            </div>
+            <div style={{display:"flex",gap:5}}>
+              <button onClick={saveCustom} disabled={!newLabel.trim()||!newMins}
+                style={{flex:1,padding:"5px",borderRadius:7,border:"none",background:"#6366f1",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Salvar</button>
+              <button onClick={()=>setShowCustom(false)}
+                style={{padding:"5px 8px",borderRadius:7,border:"1px solid #e2e8f0",background:"none",fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>×</button>
+            </div>
+          </div>
+        )}
+
+        {/* Timer circular */}
+        <div style={{display:"flex",justifyContent:"center",marginBottom:10,position:"relative"}}>
           <svg width={110} height={110} style={{transform:"rotate(-90deg)"}}>
             <circle cx={55} cy={55} r={45} fill="none" stroke={cur.color+"22"} strokeWidth={8}/>
             <circle cx={55} cy={55} r={45} fill="none" stroke={cur.color} strokeWidth={8}
-              strokeDasharray={circ}
-              strokeDashoffset={circ*(1-pct/100)}
-              style={{transition:"stroke-dashoffset .8s linear"}} strokeLinecap="round"/>
+              strokeDasharray={circ} strokeDashoffset={circ*(1-pct/100)}
+              style={{transition:"stroke-dashoffset .5s ease"}} strokeLinecap="round"/>
           </svg>
           <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",textAlign:"center"}}>
-            <div style={{fontSize:28,fontWeight:900,color:finished?"#22c55e":cur.color,fontVariantNumeric:"tabular-nums",letterSpacing:"-.02em"}}>
-              {finished?"✅":mm+":"+ss}
-            </div>
-            <div style={{fontSize:9,color:"#94a3b8",fontWeight:700}}>{finished?"Concluído!":pct+"%"}</div>
+            <div style={{fontSize:26,fontWeight:900,color:cur.color,fontVariantNumeric:"tabular-nums",letterSpacing:"-1px"}}>{mm}:{ss}</div>
+            <div style={{fontSize:9,color:"#94a3b8",fontWeight:700,marginTop:2}}>{pct}% concluído</div>
           </div>
         </div>
+
         {/* Controles */}
-        <div style={{display:"flex",gap:8,justifyContent:"center"}}>
-          <button onClick={toggleRun} disabled={finished}
-            style={{padding:"8px 28px",borderRadius:10,border:"none",background:finished?"#e5e7eb":cur.color,color:finished?"#9ca3af":"#fff",fontSize:13,fontWeight:800,cursor:finished?"not-allowed":"pointer",fontFamily:"inherit",boxShadow:finished?"none":`0 4px 12px ${cur.color}55`,transition:"all .15s"}}>
+        <div style={{display:"flex",gap:8,justifyContent:"center",paddingBottom:2}}>
+          <button onClick={()=>setRunning(r=>!r)}
+            style={{flex:1,padding:"9px 0",borderRadius:10,border:"none",background:cur.color,color:"#fff",
+              fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit",boxShadow:`0 4px 14px ${cur.color}55`,transition:"opacity .15s"}}
+            onMouseEnter={e=>e.currentTarget.style.opacity=".85"}
+            onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
             {running?"⏸ Pausar":"▶ Iniciar"}
           </button>
-          <button onClick={reset}
-            style={{padding:"8px 14px",borderRadius:10,border:`1.5px solid ${cur.color}44`,background:"transparent",color:cur.color,fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>↺</button>
+          <button onClick={()=>{setSecs(cur.mins*60);setRunning(false);}}
+            style={{padding:"9px 14px",borderRadius:10,border:`1.5px solid ${cur.color}55`,background:"transparent",
+              color:cur.color,fontSize:15,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}} title="Reiniciar">↺</button>
+          <button onClick={()=>{const next=(mode+1)%MODES.length;switchMode(next);}}
+            style={{padding:"9px 14px",borderRadius:10,border:`1.5px solid #e2e8f0`,background:"transparent",
+              color:"#64748b",fontSize:13,cursor:"pointer",fontFamily:"inherit"}} title="Próximo modo">⏭</button>
         </div>
       </div>
     </div>
@@ -6470,7 +6642,9 @@ function AuditoriaPage({data,setData}){
 
 /* ===========================================
    CARGA DE TRABALHO */
-function CargaPage({data}){
+function CargaPage({data,setData}){
+  const [editingMeta,setEditingMeta]=useState(null);
+  const [metaInput,setMetaInput]=useState("");
   const [periodo,setPeriodo]=useState("mes"); // "semana"|"mes"|"trimestre"|"todos"
   const [viewMode,setViewMode]=useState("barras"); // "barras"|"timeline"
   const [filterCo,setFilterCo]=useState("");
@@ -6518,14 +6692,26 @@ function CargaPage({data}){
       const proxima=withDate.filter(t=>t.status!=="done").sort((a,b)=>a.dueDate.localeCompare(b.dueDate))[0];
       // Empresas atendidas
       const cos=[...new Set(mine.map(t=>t.company).filter(Boolean))];
-      return{...u,mine,done,late,todo,carga,proxima,cos,total:mine.length};
-    }).filter(u=>u.total>0||data.collaborators.length<=6); // mostra todos se poucos
+      const meta=u.metaMensal||0;
+      const metaPct=meta>0?Math.min(100,Math.round((done.length/meta)*100)):null;
+      const valorFaturado=done.reduce((s,t)=>s+Number(t.valor||0),0);
+      const valorPendente=todo.reduce((s,t)=>s+Number(t.valor||0),0);
+      return{...u,mine,done,late,todo,carga,proxima,cos,total:mine.length,meta,metaPct,valorFaturado,valorPendente};
+    }).filter(u=>u.total>0||data.collaborators.length<=6);
 
-    // Sem responsável
     const semResp=tasksInPeriod.filter(t=>toArr(t.assignees).length===0&&t.status!=="done");
+    const totalFaturado=stats.reduce((s,u)=>s+(u.valorFaturado||0),0);
+    const totalPendente=stats.reduce((s,u)=>s+(u.valorPendente||0),0);
 
-    return{collabs:stats.sort((a,b)=>b.carga-a.carga), semResp};
+    return{collabs:stats.sort((a,b)=>b.carga-a.carga), semResp, totalFaturado, totalPendente};
   },[data.collaborators,tasksInPeriod]);
+
+
+  const saveMeta=(collabId,val)=>{
+    const v=parseInt(val)||0;
+    setData(d=>({...d,collaborators:d.collaborators.map(u=>u.id===collabId?{...u,metaMensal:v}:u)}));
+    setEditingMeta(null);
+  };
 
   const maxCarga=Math.max(1,...collabStats.collabs.map(u=>u.carga));
 
@@ -6591,6 +6777,18 @@ function CargaPage({data}){
             <div style={{fontSize:11,fontWeight:700,color:"#64748b",marginTop:3}}>{l}</div>
           </div>
         ))}
+        {collabStats.totalFaturado>0&&(
+          <div style={{background:"#f0fdf4",borderRadius:12,padding:"12px 14px",border:"1px solid #86efac",borderLeft:"4px solid #22c55e"}}>
+            <div style={{fontSize:18,fontWeight:900,color:"#15803d",lineHeight:1}}>R$ {collabStats.totalFaturado.toLocaleString("pt-BR",{minimumFractionDigits:2})}</div>
+            <div style={{fontSize:11,fontWeight:700,color:"#15803d",marginTop:3}}>💰 Faturado no período</div>
+          </div>
+        )}
+        {collabStats.totalPendente>0&&(
+          <div style={{background:"#fffbeb",borderRadius:12,padding:"12px 14px",border:"1px solid #fde047",borderLeft:"4px solid #f59e0b"}}>
+            <div style={{fontSize:18,fontWeight:900,color:"#92400e",lineHeight:1}}>R$ {collabStats.totalPendente.toLocaleString("pt-BR",{minimumFractionDigits:2})}</div>
+            <div style={{fontSize:11,fontWeight:700,color:"#92400e",marginTop:3}}>⏳ A receber</div>
+          </div>
+        )}
       </div>
 
       {/* MODO BARRAS */}
@@ -6613,12 +6811,35 @@ function CargaPage({data}){
                       {u.late.length>0&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:20,background:"#fef2f2",color:"#dc2626",fontWeight:700}}>⚠ {u.late.length} atrasada{u.late.length>1?"s":""}</span>}
                     </div>
                     {/* Barra de carga */}
-                    <div style={{display:"flex",alignItems:"center",gap:8}}>
-                      <div style={{flex:1,height:8,borderRadius:4,background:"#f1f5f9",overflow:"hidden"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:u.meta>0?4:0}}>
+                      <span style={{fontSize:10,color:"#94a3b8",minWidth:28}}>Carga</span>
+                      <div style={{flex:1,height:6,borderRadius:4,background:"#f1f5f9",overflow:"hidden"}}>
                         <div style={{height:"100%",borderRadius:4,background:nv.bar,width:`${pct}%`,transition:"width .5s ease"}}/>
                       </div>
                       <span style={{fontSize:11,fontWeight:800,color:nv.text,minWidth:32}}>{pct}%</span>
                     </div>
+                    {u.meta>0&&(
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <span style={{fontSize:10,color:"#94a3b8",minWidth:28}}>Meta</span>
+                        <div style={{flex:1,height:6,borderRadius:4,background:"#f1f5f9",overflow:"hidden"}}>
+                          <div style={{height:"100%",borderRadius:4,background:u.metaPct>=100?"#22c55e":"#f59e0b",width:`${Math.min(100,u.metaPct||0)}%`,transition:"width .5s ease"}}/>
+                        </div>
+                        <span style={{fontSize:10,color:"#64748b",minWidth:56,textAlign:"right"}}>{u.done.length}/{u.meta}</span>
+                        <button onClick={()=>{setEditingMeta(u.id);setMetaInput(String(u.meta));}} style={{background:"none",border:"none",cursor:"pointer",fontSize:10,color:"#94a3b8",padding:0}} title="Editar meta">✎</button>
+                      </div>
+                    )}
+                    {!u.meta&&(
+                      <button onClick={()=>{setEditingMeta(u.id);setMetaInput("");}} style={{fontSize:10,color:"#6366f1",background:"none",border:"none",cursor:"pointer",padding:0,fontFamily:"inherit",marginTop:2}}>+ Meta mensal</button>
+                    )}
+                    {editingMeta===u.id&&(
+                      <div style={{display:"flex",gap:5,alignItems:"center",marginTop:4}}>
+                        <input type="number" value={metaInput} onChange={e=>setMetaInput(e.target.value)} placeholder="Nº de tarefas" autoFocus
+                          style={{flex:1,padding:"3px 7px",borderRadius:6,border:"2px solid #6366f1",fontSize:11,fontFamily:"inherit",outline:"none"}}
+                          onKeyDown={e=>{if(e.key==="Enter")saveMeta(u.id,metaInput);if(e.key==="Escape")setEditingMeta(null);}}/>
+                        <button onClick={()=>saveMeta(u.id,metaInput)} style={{padding:"3px 8px",borderRadius:6,border:"none",background:"#6366f1",color:"#fff",fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>OK</button>
+                        <button onClick={()=>setEditingMeta(null)} style={{padding:"3px 6px",borderRadius:6,border:"1px solid #e5e7eb",background:"none",fontSize:11,cursor:"pointer"}}>×</button>
+                      </div>
+                    )}
                   </div>
                   {/* Contadores */}
                   <div style={{display:"flex",gap:12,flexShrink:0}}>
@@ -6779,6 +7000,7 @@ function App(){
   const [sideCol,setSideCol]= useState(false);
   const [darkMode,setDarkMode] = useState(()=>localStorage.getItem("mdtec_dark")==="1");
   const [showSearch,setShowSearch] = useState(false);
+  const [focusCompany,setFocusCompany] = useState(""); // modo foco por empresa
   const [focusMode,setFocusMode] = useState(false);
   const [pomodoroTask,setPomodoroTask] = useState(null);
   const topbarRef = useRef(null);
@@ -6948,28 +7170,33 @@ function App(){
     toast("📦 Tarefa arquivada.","ok");
   };
 
-  // Alertar tarefas atrasadas via sino ao carregar
+  // Alertar tarefas: atrasadas, vencendo hoje e vencendo amanhã
   useEffect(()=>{
     if(!synced||!myCollabId) return;
     const today=todayStr();
-    const overdueMine=data.tasks.filter(t=>
-      t.status!=="done"&&t.status!=="archived"&&
-      t.dueDate&&t.dueDate<today&&
-      toArr(t.assignees).includes(myCollabId)
+    const tmr=new Date();tmr.setDate(tmr.getDate()+1);
+    const tomorrowStr=tmr.toISOString().slice(0,10);
+    const mine=(status,date)=>data.tasks.filter(t=>
+      t.status!=="done"&&t.status!=="archived"&&toArr(t.assignees).includes(myCollabId)&&
+      (date?t.dueDate===date:t.dueDate&&t.dueDate<today)
     );
-    if(overdueMine.length===0) return;
-    // Only add if not already notified today
-    const alreadyToday=(data.notifications||[]).some(n=>
-      n.toId===myCollabId&&n.icon==="⚠️"&&(n.createdAt||"").slice(0,10)===today
+    const overdue=mine(null,null);
+    const todayTasks=mine(null,today);
+    const tomorrowTasks=mine(null,tomorrowStr);
+    const already=(icon)=>(data.notifications||[]).some(n=>
+      n.toId===myCollabId&&n.icon===icon&&(n.createdAt||"").slice(0,10)===today
     );
-    if(alreadyToday) return;
-    const txt=overdueMine.length===1
-      ?`Tarefa atrasada: "${overdueMine[0].title}"`
-      :`${overdueMine.length} tarefas atrasadas aguardando atenção`;
-    setData(d=>({...d,notifications:[...(d.notifications||[]),{
-      id:uid(),toId:myCollabId,icon:"⚠️",text:txt,page:"hoje",
-      createdAt:new Date().toISOString(),read:false
-    }]}));
+    const newNotifs=[];
+    if(overdue.length>0&&!already("⚠️")) newNotifs.push({id:uid(),toId:myCollabId,icon:"⚠️",
+      text:overdue.length===1?`Atrasada: "${overdue[0].title}"`:`${overdue.length} tarefas atrasadas`,
+      page:"hoje",createdAt:new Date().toISOString(),read:false});
+    if(todayTasks.length>0&&!already("🔴")) newNotifs.push({id:uid(),toId:myCollabId,icon:"🔴",
+      text:todayTasks.length===1?`⏰ Vence hoje: "${todayTasks[0].title}"`:`⏰ ${todayTasks.length} tarefas vencem hoje!`,
+      page:"hoje",createdAt:new Date().toISOString(),read:false});
+    if(tomorrowTasks.length>0&&!already("🔔")) newNotifs.push({id:uid(),toId:myCollabId,icon:"🔔",
+      text:tomorrowTasks.length===1?`Vence amanhã: "${tomorrowTasks[0].title}"`:`${tomorrowTasks.length} tarefas vencem amanhã`,
+      page:"hoje",createdAt:new Date().toISOString(),read:false});
+    if(newNotifs.length>0) setData(d=>({...d,notifications:[...(d.notifications||[]),...newNotifs]}));
   },[synced,myCollabId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-renovação: quando um grupo recorrente (_recGroup) não tem tarefas futuras
@@ -7092,6 +7319,10 @@ function App(){
         return assignees.length===0 || assignees.includes(myCollabId);
       });
   const dataForUser = isAdmin ? data : {...data, tasks: visibleTasks};
+  // Modo foco: filtra todas as views por empresa selecionada
+  const dataFocused = focusCompany
+    ? {...dataForUser, tasks: dataForUser.tasks.filter(t=>taskHasCompany(t,focusCompany))}
+    : dataForUser;
 
   const openNew=(status="todo")=>{
     // Rejeita eventos de clique do React (SyntheticEvent / HTMLElement)
@@ -7430,6 +7661,10 @@ function App(){
     }
   };
 
+  const addNotification=(notif)=>{
+    setData(d=>({...d,notifications:[...(d.notifications||[]),{id:uid(),createdAt:new Date().toISOString(),read:false,...notif}]}));
+  };
+
   const quickComplete=(task)=>{
     const lk=getLock(task.id);
     if(lk){toast(`🔒 ${lk.user} está editando. Aguarde.`,"lock",4000);return;}
@@ -7447,6 +7682,20 @@ function App(){
       if(next!=="done"&&!myPerms.canAdvanceStatus){
         toast("🔒 Você não tem permissão para avançar o status das tarefas.","err");return;
       }
+    }
+    // Se requer aprovação → manda para review
+    if(next==="done"&&task.needsApproval){
+      setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{
+        ...t,status:"review",approvalStatus:"pending",
+        completedAt:todayStr(),completedBy:myCollabId||null,completedByName:userName||null,
+        checklist:t.checklist.map(c=>({...c,done:true})),
+      }:t)}));
+      // Notificar admins
+      data.collaborators.filter(u=>u.accessLevel==="admin").forEach(a=>{
+        addNotification({toId:a.id,icon:"✅",text:`"${task.title}" aguarda aprovação`,page:"lista",createdAt:new Date().toISOString(),read:false});
+      });
+      toast("⏳ Enviada para aprovação!","ok");
+      return;
     }
     // Se é tarefa recorrente e vai para "done"
     if(next==="done" && task._recGroup){
@@ -7481,9 +7730,7 @@ function App(){
   };
 
   // Notificações
-  const addNotification=(notif)=>{
-    setData(d=>({...d,notifications:[...(d.notifications||[]),{id:uid(),createdAt:new Date().toISOString(),read:false,...notif}]}));
-  };
+
   const markNotifRead=(id)=>{
     setData(d=>({...d,notifications:(d.notifications||[]).map(n=>n.id===id?{...n,read:true}:n)}));
   };
@@ -7635,13 +7882,25 @@ function App(){
             </button>
             {/* Dark Mode */}
             <button onClick={()=>setDarkMode(d=>!d)} title={darkMode?"Modo claro":"Modo escuro"} aria-label="Alternar tema" style={{width:34,height:34,borderRadius:"50%",border:"1.5px solid #e2e8f0",background:darkMode?"#1e293b":"#f8fafc",color:darkMode?"#f59e0b":"#64748b",cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .2s"}}>{darkMode?"☀️":"🌙"}</button>
+            {/* Modo Foco por Empresa */}
+            {data.companies.length>0&&(
+              <div style={{display:"flex",alignItems:"center",gap:5,padding:"3px 4px 3px 10px",borderRadius:10,border:`1.5px solid ${focusCompany?"#6366f1":"#e2e8f0"}`,background:focusCompany?"#eef2ff":"var(--bg3)",transition:"all .15s"}}>
+                <span style={{fontSize:11,fontWeight:700,color:focusCompany?"#6366f1":"#94a3b8",whiteSpace:"nowrap"}}>🏢</span>
+                <select value={focusCompany} onChange={e=>setFocusCompany(e.target.value)}
+                  style={{border:"none",background:"transparent",fontSize:11,fontWeight:700,color:focusCompany?"#4338ca":"#64748b",cursor:"pointer",fontFamily:"inherit",outline:"none",padding:"2px 2px",maxWidth:130}}>
+                  <option value="">Todas empresas</option>
+                  {data.companies.map(c=><option key={c.id} value={c.id}>{c.logo} {c.name}</option>)}
+                </select>
+                {focusCompany&&<button onClick={()=>setFocusCompany("")} style={{background:"none",border:"none",cursor:"pointer",color:"#6366f1",fontSize:14,padding:"0 4px",lineHeight:1}}>×</button>}
+              </div>
+            )}
             {/* Modo Foco — só no Kanban */}
             <button onClick={()=>setFocusMode(f=>!f)} title={focusMode?"Sair do modo foco":"Modo foco (tela cheia)"} aria-label="Modo foco" style={{width:34,height:34,borderRadius:"50%",border:`1.5px solid ${focusMode?"#6366f1":"#e2e8f0"}`,background:focusMode?"#6366f1":"#f8fafc",color:focusMode?"#fff":"#64748b",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .2s",fontWeight:900}}>{focusMode?"✕":"⛶"}</button>
             {["kanban","lista","tabela","calendario"].includes(page)&&<Btn onClick={openNew}>+ Nova Tarefa</Btn>}
           </div>
         </div>
 
-        {page==="dashboard"     && <Dashboard data={dataForUser}/>}
+        {page==="dashboard"     && <Dashboard data={dataFocused}/>}
         {page==="kanban"        && <>
           {focusMode&&(
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,padding:"10px 16px",background:"var(--bg2)",borderRadius:12,border:"1px solid var(--border)",boxShadow:"0 2px 8px rgba(0,0,0,.08)"}}>
@@ -7655,7 +7914,7 @@ function App(){
               </div>
             </div>
           )}
-          <KanbanView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onAdd={openNew} onDuplicate={duplicateTask} onComplete={quickComplete} onStatusChange={dragStatusChange} myCollabId={myCollabId} myCollab={myCollab} onArchive={archiveTask} onPomodoro={t=>setPomodoroTask(t)}
+          <KanbanView data={dataFocused} onEdit={openEdit} onDelete={deleteTask} onAdd={openNew} onDuplicate={duplicateTask} onComplete={quickComplete} onStatusChange={dragStatusChange} myCollabId={myCollabId} myCollab={myCollab} onArchive={archiveTask} onPomodoro={t=>setPomodoroTask(t)}
             onPin={(id,val)=>{setData(d=>({...d,tasks:d.tasks.map(t=>t.id===id?{...t,pinned:val}:t)}));toast(val?"📌 Tarefa fixada no topo!":"📍 Tarefa desafixada.","ok");}}
             onMoveTop={(id,colId)=>{
               setData(d=>{
@@ -7674,14 +7933,14 @@ function App(){
             }}
           />
         </>}
-        {page==="lista"         && <ListView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete} onBulkUpdate={bulkUpdate}/>}
-        {page==="hoje"          && <HojePage data={dataForUser} myCollabId={myCollabId} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete} onAdd={openNew}/>}
-        {page==="minhas"        && <MinhasTarefasPage data={{...dataForUser, tasks: (myCollabId ? dataForUser.tasks.filter(t=>t.assignees?.includes(myCollabId)) : dataForUser.tasks).filter(t=>t.status!=="archived")}} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete}/>}
+        {page==="lista"         && <ListView data={dataFocused} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete} onBulkUpdate={bulkUpdate}/>}
+        {page==="hoje"          && <HojePage data={dataFocused} myCollabId={myCollabId} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete} onAdd={openNew}/>}
+        {page==="minhas"        && <MinhasTarefasPage data={{...dataFocused, tasks: (myCollabId ? dataFocused.tasks.filter(t=>t.assignees?.includes(myCollabId)) : dataForUser.tasks).filter(t=>t.status!=="archived")}} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete}/>}
         {page==="calendario"    && <CalView data={dataForUser} onEdit={openEdit} onReschedule={(id,date)=>{setData(d=>({...d,tasks:d.tasks.map(t=>t.id===id?{...t,dueDate:date}:t)}));toast(`📅 Reagendado para ${date}.`,"ok");}}/>}
-        {page==="tabela"        && <GridView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete} onQuickUpdate={(id,field,val)=>setData(d=>({...d,tasks:d.tasks.map(t=>t.id===id?{...t,[field]:val}:t)}))}/>}
-        {page==="gantt"         && <GanttView data={dataForUser} onEdit={openEdit}/>}
+        {page==="tabela"        && <GridView data={dataFocused} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete} onQuickUpdate={(id,field,val)=>setData(d=>({...d,tasks:d.tasks.map(t=>t.id===id?{...t,[field]:val}:t)}))}/>}
+        {page==="gantt"         && <GanttView data={dataFocused} onEdit={openEdit}/>}
         {page==="relatorio"     && <RelatorioPage data={isAdmin?data:dataForUser} isAdmin={isAdmin} myCollabId={myCollabId}/>}
-        {page==="carga"         && <CargaPage data={dataForUser}/>}
+        {page==="carga"         && <CargaPage data={dataFocused} setData={setData}/>}
         {page==="servicos"      && <ServicosPage data={data} setData={setData}/>}
         {page==="modelos"       && <TemplatesPage data={data} setData={setData} onUseTemplate={useTemplate}/>}
         {page==="empresas"      && <CompaniesPage data={data} setData={setData}/>}

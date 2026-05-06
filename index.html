@@ -7373,13 +7373,51 @@ function App(){
     toast(isNew?"✦ Tarefa criada!":"💾 Tarefa atualizada!","ok");
   };
 
+  /* ── Estado do modal de exclusão de série recorrente ── */
+  const [recDeleteModal,setRecDeleteModal]=useState({open:false,taskId:null,title:"",serie:[],futuras:[]});
+  const closeRecDeleteModal=()=>setRecDeleteModal({open:false,taskId:null,title:"",serie:[],futuras:[]});
+  const execRecDelete=(opcao)=>{
+    const {taskId,serie,futuras}=recDeleteModal;
+    if(opcao===1){
+      setData(d=>({...d,tasks:d.tasks.filter(x=>x.id!==taskId)}));
+      toast("🗑 Tarefa excluída.","warn");
+    } else if(opcao===2){
+      const ids=new Set([taskId,...futuras.map(x=>x.id)]);
+      setData(d=>({...d,tasks:d.tasks.filter(x=>!ids.has(x.id))}));
+      toast(`🗑 ${ids.size} tarefa(s) excluída(s).`,"warn");
+    } else if(opcao===3){
+      const ids=new Set(serie.map(x=>x.id));
+      setData(d=>({...d,tasks:d.tasks.filter(x=>!ids.has(x.id))}));
+      toast(`🗑 Série completa excluída (${serie.length} tarefas).`,"warn");
+    }
+    closeRecDeleteModal();
+    setTM(m=>({...m,open:false}));
+  };
+
   const deleteTask=(id)=>{
     if(!isAdmin&&!myPerms.canDelete){toast("🔒 Você não tem permissão para excluir tarefas.","err");return;}
     const lk=getLock(id);
     if(lk){toast(`🔒 Não pode excluir: ${lk.user} está editando.`,"err");return;}
     const t=data.tasks.find(x=>x.id===id);
-    askDelete(`Tarefa: "${t?.title||""}"`, ()=>{
-      setData(d=>({...d,tasks:d.tasks.filter(t=>t.id!==id)}));
+    if(!t) return;
+
+    /* Tarefa pertence a uma série recorrente → modal de escolha */
+    if(t._recGroup){
+      const today=todayStr();
+      const serie=data.tasks.filter(x=>x._recGroup===t._recGroup);
+      const futuras=serie.filter(x=>
+        x.id!==id &&
+        (x.dueDate||"")>=today &&
+        x.status!=="done" &&
+        x.status!=="archived"
+      );
+      setRecDeleteModal({open:true,taskId:id,title:t.title,serie,futuras});
+      return;
+    }
+
+    /* Tarefa normal */
+    askDelete(`Tarefa: "${t.title||""}"`, ()=>{
+      setData(d=>({...d,tasks:d.tasks.filter(x=>x.id!==id)}));
       toast("Tarefa excluída.","warn");
     });
   };
@@ -7717,6 +7755,60 @@ function App(){
       </Modal>
 
       {deleteModal}
+
+      {/* ── Modal visual de exclusão de série recorrente ── */}
+      {recDeleteModal.open&&(()=>{
+        const {title,serie,futuras}=recDeleteModal;
+        const today=todayStr();
+        const passadas=serie.filter(x=>x.status==="done"||(x.dueDate&&x.dueDate<today&&x.status!=="archived")).length;
+        const opts=[
+          {id:1,icon:"🗑",label:"Somente esta tarefa",desc:"As demais ocorrências da série continuam normais.",color:"#6366f1",bg:"#eef2ff",border:"#c7d2fe"},
+          {id:2,icon:"🔥",label:`Esta e as ${futuras.length} futuras`,desc:`Remove esta e as ${futuras.length} ocorrência(s) futuras não concluídas. Histórico de ${passadas} tarefa(s) concluída(s) é preservado.`,color:"#f59e0b",bg:"#fffbeb",border:"#fde68a",disabled:futuras.length===0},
+          {id:3,icon:"💣",label:`Toda a série (${serie.length} tarefas)`,desc:"Remove TODAS as ocorrências, incluindo concluídas e arquivadas. Ação irreversível.",color:"#ef4444",bg:"#fef2f2",border:"#fecaca"},
+        ];
+        return(
+          <div onClick={e=>e.target===e.currentTarget&&closeRecDeleteModal()} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.7)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}>
+            <div style={{background:"var(--bg2)",borderRadius:20,width:"100%",maxWidth:460,boxShadow:"0 32px 80px rgba(0,0,0,.35)",animation:"popIn .22s cubic-bezier(.34,1.56,.64,1)",overflow:"hidden"}}>
+              {/* Header */}
+              <div style={{background:"linear-gradient(135deg,#fef2f2,#fff0f0)",padding:"20px 24px 16px",borderBottom:"1px solid #fecaca"}}>
+                <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:6}}>
+                  <div style={{width:44,height:44,borderRadius:12,background:"#ef4444",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>🗓</div>
+                  <div>
+                    <div style={{fontSize:15,fontWeight:900,color:"#991b1b"}}>Excluir tarefa recorrente</div>
+                    <div style={{fontSize:12,color:"#ef4444",marginTop:2,fontWeight:600}}>↻ Série com {serie.length} ocorrência(s)</div>
+                  </div>
+                  <button onClick={closeRecDeleteModal} style={{marginLeft:"auto",background:"none",border:"none",cursor:"pointer",color:"#fca5a5",fontSize:20,lineHeight:1,padding:"2px 6px",borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#fca5a5"}>×</button>
+                </div>
+                <div style={{padding:"8px 12px",borderRadius:9,background:"rgba(239,68,68,.08)",border:"1px solid #fecaca"}}>
+                  <span style={{fontSize:13,fontWeight:700,color:"#7f1d1d"}}>📋 "{title}"</span>
+                </div>
+              </div>
+              {/* Opções */}
+              <div style={{padding:"18px 24px",display:"flex",flexDirection:"column",gap:10}}>
+                <p style={{fontSize:12,color:"#64748b",marginBottom:4,fontWeight:600}}>Escolha o que deseja excluir:</p>
+                {opts.map(o=>(
+                  <button key={o.id} onClick={()=>!o.disabled&&execRecDelete(o.id)} disabled={o.disabled}
+                    style={{display:"flex",alignItems:"flex-start",gap:12,padding:"13px 16px",borderRadius:12,border:`2px solid ${o.disabled?"#f1f5f9":o.border}`,background:o.disabled?"#f8fafc":o.bg,cursor:o.disabled?"not-allowed":"pointer",textAlign:"left",fontFamily:"inherit",transition:"all .15s",opacity:o.disabled?.5:1,width:"100%"}}
+                    onMouseEnter={e=>{if(!o.disabled){e.currentTarget.style.border=`2px solid ${o.color}`;e.currentTarget.style.boxShadow=`0 4px 14px ${o.color}22`;}}}
+                    onMouseLeave={e=>{if(!o.disabled){e.currentTarget.style.border=`2px solid ${o.border}`;e.currentTarget.style.boxShadow="none";}}}
+                  >
+                    <span style={{fontSize:22,flexShrink:0,lineHeight:1.2}}>{o.icon}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:800,color:o.disabled?"#94a3b8":o.color,marginBottom:3}}>{o.label}</div>
+                      <div style={{fontSize:11,color:"#64748b",lineHeight:1.5}}>{o.desc}</div>
+                    </div>
+                    {!o.disabled&&<span style={{fontSize:16,color:o.color,flexShrink:0,alignSelf:"center",fontWeight:900}}>→</span>}
+                  </button>
+                ))}
+              </div>
+              {/* Footer */}
+              <div style={{padding:"12px 24px 18px",borderTop:"1px solid var(--border)",display:"flex",justifyContent:"flex-end"}}>
+                <button onClick={closeRecDeleteModal} style={{padding:"8px 20px",borderRadius:9,border:"1.5px solid #e5e7eb",background:"transparent",color:"#64748b",cursor:"pointer",fontSize:13,fontWeight:700,fontFamily:"inherit",transition:"all .12s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor="#6366f1";e.currentTarget.style.color="#6366f1";}} onMouseLeave={e=>{e.currentTarget.style.borderColor="#e5e7eb";e.currentTarget.style.color="#64748b";}}>Cancelar</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       <Toasts list={toasts}/>
       {pomodoroTask&&<PomodoroTimer taskTitle={pomodoroTask.title} onClose={()=>setPomodoroTask(null)}/>}
       <ChatWidget data={data} setData={setData} currentUser={userName} currentUserId={myCollabId} myCollab={myCollab}/>

@@ -360,6 +360,45 @@ function getUsername(){
 const MY_NAME=getUsername();
 
 /* ===========================================
+   SOUND EFFECTS — Web Audio API (no files needed) */
+function playSoundDone(){
+  try{
+    if(localStorage.getItem("mdtec_sound")==="0") return;
+    const ctx=new(window.AudioContext||window.webkitAudioContext)();
+    const play=(freq,start,dur,type="sine",vol=0.18)=>{
+      const o=ctx.createOscillator();const g=ctx.createGain();
+      o.connect(g);g.connect(ctx.destination);
+      o.type=type;o.frequency.setValueAtTime(freq,ctx.currentTime+start);
+      g.gain.setValueAtTime(0,ctx.currentTime+start);
+      g.gain.linearRampToValueAtTime(vol,ctx.currentTime+start+0.01);
+      g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+start+dur);
+      o.start(ctx.currentTime+start);o.stop(ctx.currentTime+start+dur+0.05);
+    };
+    play(523,0,.15);play(659,.12,.15);play(784,.24,.25);
+    setTimeout(()=>ctx.close(),800);
+  }catch(e){}
+}
+
+function playSoundUrgent(){
+  try{
+    if(localStorage.getItem("mdtec_sound")==="0") return;
+    const ctx=new(window.AudioContext||window.webkitAudioContext)();
+    const play=(freq,start,dur)=>{
+      const o=ctx.createOscillator();const g=ctx.createGain();
+      o.connect(g);g.connect(ctx.destination);
+      o.type="sawtooth";o.frequency.setValueAtTime(freq,ctx.currentTime+start);
+      g.gain.setValueAtTime(0.1,ctx.currentTime+start);
+      g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+start+dur);
+      o.start(ctx.currentTime+start);o.stop(ctx.currentTime+start+dur+0.05);
+    };
+    play(440,0,.08);play(330,.1,.08);
+    setTimeout(()=>ctx.close(),400);
+  }catch(e){}
+}
+
+
+
+/* ===========================================
    SHARED DATA HOOK
    - Persists to localStorage
    - Syncs via BroadcastChannel (same browser, different tabs)
@@ -719,34 +758,55 @@ function LoginScreen({ onLogin }) {
 
 
 /* Modal de confirmacao de exclusao */
-function ConfirmDelete({open,onClose,onConfirm,title,word="EXCLUIR"}){
+/* Modal de confirmação — sem digitar nada, 1 clique confirma */
+function ConfirmDelete({open,onClose,onConfirm,title,requireTyping=false}){
   const [typed,setTyped]=useState("");
-  useEffect(()=>{if(open)setTyped("");},[open]);
+  const [shake,setShake]=useState(false);
+  useEffect(()=>{if(open){setTyped("");setShake(false);}},[open]);
   if(!open)return null;
-  const ok=typed.trim().toUpperCase()===word.toUpperCase();
+  const word="EXCLUIR";
+  const ok=!requireTyping||(typed.trim().toUpperCase()===word);
+  const tryConfirm=()=>{
+    if(!ok){setShake(true);setTimeout(()=>setShake(false),500);return;}
+    onConfirm();
+  };
   return(
-    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.65)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}>
-      <div style={{background:"var(--bg2)",borderRadius:18,width:"100%",maxWidth:430,boxShadow:"0 32px 80px rgba(0,0,0,.3)",animation:"popIn .2s ease",overflow:"hidden"}}>
-        <div style={{background:"#fef2f2",padding:"18px 22px 14px",borderBottom:"1px solid #fecaca",display:"flex",alignItems:"center",gap:12}}>
-          <div style={{width:42,height:42,borderRadius:10,background:"#ef4444",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>🗑</div>
-          <div>
+    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.72)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}}>
+      <div style={{background:"var(--bg2)",borderRadius:20,width:"100%",maxWidth:420,boxShadow:"0 32px 80px rgba(0,0,0,.35)",animation:"popIn .22s cubic-bezier(.34,1.56,.64,1)",overflow:"hidden"}}>
+        {/* Header */}
+        <div style={{background:"linear-gradient(135deg,#fef2f2,#fff0f0)",padding:"20px 24px 16px",borderBottom:"1px solid #fecaca",display:"flex",alignItems:"center",gap:14}}>
+          <div style={{width:46,height:46,borderRadius:13,background:"linear-gradient(135deg,#ef4444,#dc2626)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0,boxShadow:"0 4px 12px rgba(239,68,68,.35)"}}>🗑</div>
+          <div style={{flex:1,minWidth:0}}>
             <div style={{fontSize:15,fontWeight:900,color:"#991b1b"}}>Confirmar exclusão</div>
-            <div style={{fontSize:12,color:"#dc2626",marginTop:2}}>{title}</div>
+            <div style={{fontSize:12,color:"#ef4444",marginTop:2,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{title}</div>
           </div>
+          <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:"#fca5a5",fontSize:20,lineHeight:1,padding:"2px 6px",borderRadius:6,flexShrink:0}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#fca5a5"}>×</button>
         </div>
-        <div style={{padding:"20px 22px"}}>
-          <p style={{fontSize:13,color:"#374151",marginBottom:14,lineHeight:1.6}}>
-            Esta ação <strong>não pode ser desfeita</strong>.<br/>
-            Digite <strong style={{color:"#ef4444",letterSpacing:2}}>{word}</strong> abaixo para confirmar:
-          </p>
-          <input autoFocus value={typed} onChange={e=>setTyped(e.target.value)} onKeyDown={e=>e.key==="Enter"&&ok&&onConfirm()}
-            placeholder={word}
-            style={{width:"100%",padding:"10px 14px",borderRadius:9,fontSize:14,fontWeight:700,letterSpacing:2,border:"2px solid "+(ok?"#22c55e":"#e5e7eb"),outline:"none",fontFamily:"inherit",textTransform:"uppercase",color:"#0f172a",transition:"border .15s",background:ok?"#f0fdf4":"#fff"}}
-          />
+        <div style={{padding:"20px 24px"}}>
+          {requireTyping?(
+            <>
+              <p style={{fontSize:13,color:"#374151",marginBottom:14,lineHeight:1.6}}>
+                Esta ação é <strong>irreversível</strong> e não poderá ser desfeita.<br/>
+                Digite <strong style={{color:"#ef4444",letterSpacing:2,fontFamily:"monospace"}}>{word}</strong> para confirmar:
+              </p>
+              <input autoFocus value={typed} onChange={e=>setTyped(e.target.value)} onKeyDown={e=>e.key==="Enter"&&tryConfirm()}
+                placeholder={word}
+                style={{width:"100%",padding:"11px 14px",borderRadius:10,fontSize:14,fontWeight:800,letterSpacing:3,border:`2px solid ${ok?"#22c55e":"#e5e7eb"}`,outline:"none",fontFamily:"monospace",textTransform:"uppercase",color:"#0f172a",transition:"border .15s,background .15s",background:ok?"#f0fdf4":"#fff",animation:shake?"shake .4s ease":"none"}}
+              />
+            </>
+          ):(
+            <div style={{padding:"14px 16px",borderRadius:12,background:"#fef2f2",border:"1.5px solid #fecaca",marginBottom:4}}>
+              <p style={{fontSize:13,color:"#7f1d1d",lineHeight:1.6,margin:0}}>
+                ⚠️ Esta ação é <strong>irreversível</strong>. A tarefa será excluída permanentemente.
+              </p>
+            </div>
+          )}
           <div style={{display:"flex",gap:10,marginTop:16,justifyContent:"flex-end"}}>
-            <button onClick={onClose} style={{padding:"8px 18px",borderRadius:9,border:"2px solid #e5e7eb",background:"var(--bg2)",color:"#374151",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Cancelar</button>
-            <button onClick={onConfirm} disabled={!ok} style={{padding:"8px 18px",borderRadius:9,border:"none",background:ok?"#ef4444":"#fca5a5",color:"#fff",fontSize:13,fontWeight:700,cursor:ok?"pointer":"not-allowed",fontFamily:"inherit",transition:"all .15s"}}>
-              {ok?"Sim, excluir":"Digite para confirmar"}
+            <button onClick={onClose} style={{padding:"9px 20px",borderRadius:10,border:"1.5px solid #e5e7eb",background:"var(--bg2)",color:"#374151",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .12s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor="#6366f1";e.currentTarget.style.color="#6366f1";}} onMouseLeave={e=>{e.currentTarget.style.borderColor="#e5e7eb";e.currentTarget.style.color="#374151";}}>Cancelar</button>
+            <button onClick={tryConfirm} disabled={!ok} style={{padding:"9px 24px",borderRadius:10,border:"none",background:ok?"linear-gradient(135deg,#ef4444,#dc2626)":"#fca5a5",color:"#fff",fontSize:13,fontWeight:800,cursor:ok?"pointer":"not-allowed",fontFamily:"inherit",transition:"all .15s",boxShadow:ok?"0 4px 14px rgba(239,68,68,.4)":"none"}}
+              onMouseEnter={e=>{if(ok){e.currentTarget.style.transform="translateY(-1px)";e.currentTarget.style.boxShadow="0 6px 20px rgba(239,68,68,.5)";}}}
+              onMouseLeave={e=>{e.currentTarget.style.transform="none";e.currentTarget.style.boxShadow=ok?"0 4px 14px rgba(239,68,68,.4)":"none";}}>
+              {requireTyping&&!ok?"Digite para confirmar":"🗑 Excluir"}
             </button>
           </div>
         </div>
@@ -756,11 +816,11 @@ function ConfirmDelete({open,onClose,onConfirm,title,word="EXCLUIR"}){
 }
 
 function useConfirmDelete(){
-  const [st,setSt]=useState({open:false,title:"",onConfirm:null});
-  const ask=useCallback((title,onConfirm)=>setSt({open:true,title,onConfirm}),[]);
+  const [st,setSt]=useState({open:false,title:"",onConfirm:null,requireTyping:false});
+  const ask=useCallback((title,onConfirm,requireTyping=false)=>setSt({open:true,title,onConfirm,requireTyping}),[]);
   const close=useCallback(()=>setSt(s=>({...s,open:false})),[]);
   const confirm=useCallback(()=>{if(st.onConfirm)st.onConfirm();close();},[st,close]);
-  return{ask,modal:<ConfirmDelete open={st.open} onClose={close} onConfirm={confirm} title={st.title}/>};
+  return{ask,modal:<ConfirmDelete open={st.open} onClose={close} onConfirm={confirm} title={st.title} requireTyping={st.requireTyping}/>};
 }
 
 
@@ -971,6 +1031,13 @@ function RelatorioPage({data,isAdmin}){
 
 function ConfigPage({data,setData,toast,deduplicateTasks}){
   const [days,setDays]=useState(data.archiveDays||30);
+  const [soundOn,setSoundOn]=useState(()=>localStorage.getItem("mdtec_sound")!=="0");
+  const toggleSound=(v)=>{
+    setSoundOn(v);
+    localStorage.setItem("mdtec_sound",v?"1":"0");
+    if(v) playSoundDone();
+    toast(v?"🔊 Som de conclusão ativado!":"🔇 Som de conclusão desativado.","ok");
+  };
   const save=()=>{
     setData(d=>({...d,archiveDays:Number(days)}));
     toast("✅ Configurações salvas!","ok");
@@ -997,6 +1064,22 @@ function ConfigPage({data,setData,toast,deduplicateTasks}){
   return(
     <div style={{maxWidth:560}}>
       <PH title="Configurações" icon="⚙"/>
+
+      {/* Sound setting */}
+      <div style={{background:"var(--bg2)",borderRadius:16,padding:24,border:"1px solid var(--border)",marginBottom:16,boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
+        <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:4}}>🔊 Sons e notificações</h3>
+        <p style={{fontSize:13,color:"#64748b",marginBottom:14,lineHeight:1.5}}>Ative sons ao concluir tarefas e ao marcar como urgente.</p>
+        <div style={{display:"flex",alignItems:"center",gap:14,padding:"12px 16px",borderRadius:11,background:soundOn?"#f0fdf4":"var(--bg3)",border:`1.5px solid ${soundOn?"#86efac":"var(--border)"}`,cursor:"pointer",transition:"all .2s"}} onClick={()=>toggleSound(!soundOn)}>
+          <span style={{fontSize:20}}>{soundOn?"🔊":"🔇"}</span>
+          <div style={{flex:1}}>
+            <div style={{fontSize:13,fontWeight:700,color:soundOn?"#166534":"#64748b"}}>{soundOn?"Som de conclusão ativado":"Som de conclusão desativado"}</div>
+            <div style={{fontSize:11,color:"#94a3b8"}}>Toque ao marcar tarefas como concluídas ou urgentes</div>
+          </div>
+          <div style={{width:36,height:20,borderRadius:10,background:soundOn?"#22c55e":"#e2e8f0",position:"relative",transition:"background .2s",flexShrink:0}}>
+            <div style={{position:"absolute",top:2,left:soundOn?16:2,width:16,height:16,borderRadius:"50%",background:"#fff",boxShadow:"0 1px 3px rgba(0,0,0,.2)",transition:"left .2s"}}/>
+          </div>
+        </div>
+      </div>
 
       <div style={{background:"var(--bg2)",borderRadius:16,padding:24,border:"1px solid var(--border)",marginBottom:16,boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
         <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:4}}>📦 Arquivamento automático</h3>
@@ -1253,9 +1336,25 @@ function MentionAlertBanner({notifications,currentUserId,onRead,onNavigate}){
 
 /* ===========================================
    BASE COMPONENTS */
-function Av({initials,color,size=28,title:tip}){
+function Av({initials,color,size=28,title:tip,photo}){
   const txt=(initials||"?").slice(0,2).toUpperCase();
-  return<div title={tip} style={{width:size,height:size,borderRadius:"50%",background:(color||"#6366f1")+"22",border:`2px solid ${color||"#6366f1"}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:size*.33,fontWeight:700,color:color||"#6366f1",flexShrink:0}}>{txt}</div>;
+  const c=color||"#6366f1";
+  if(photo) return(
+    <div title={tip} style={{width:size,height:size,borderRadius:"50%",flexShrink:0,overflow:"hidden",border:`2px solid ${c}`,boxShadow:`0 0 0 1px ${c}22`}}>
+      <img src={photo} alt={txt} style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>{e.target.style.display="none";e.target.parentNode.innerHTML=`<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:${c}22;font-size:${size*.33}px;font-weight:700;color:${c}">${txt}</div>`;}}/>
+    </div>
+  );
+  // Gradient avatars based on initials for visual variety
+  const gradients=[
+    `linear-gradient(135deg,${c},${c}cc)`,
+    `linear-gradient(135deg,${c}dd,${c}88)`,
+  ];
+  const gIdx=(txt.charCodeAt(0)||0)%2;
+  return(
+    <div title={tip} style={{width:size,height:size,borderRadius:"50%",background:gradients[gIdx],display:"flex",alignItems:"center",justifyContent:"center",fontSize:size*.34,fontWeight:800,color:"#fff",flexShrink:0,boxShadow:`0 1px 4px ${c}44,0 0 0 2px ${c}33`,letterSpacing:"-.02em",userSelect:"none"}}>
+      {txt}
+    </div>
+  );
 }
 
 function Chip({label,color}){
@@ -1910,7 +2009,7 @@ function FBar({data,filters,setF,showMonth=true}){
 
 /* ===========================================
    TASK CARD  - with ✓ Quick Complete button */
-function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isDragging,ghost,onPomodoro,onPin,onMoveTop,onDuplicate}){
+function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isDragging,ghost,onPomodoro,onPin,onMoveTop,onDuplicate,onUrgent}){
   const cardRef=useRef(null);
   const assignees=data.collaborators.filter(c=>toArr(task.assignees).includes(c.id));
   const labels=data.labels.filter(l=>toArr(task.labels).includes(l.id));
@@ -2040,7 +2139,7 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
             <span style={{fontSize:10,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".05em"}}>Resp.</span>
             {assignees.slice(0,3).map(u=>(
               <div key={u.id} style={{display:"flex",alignItems:"center",gap:4,padding:"2px 8px 2px 3px",borderRadius:20,background:u.color+"15",border:`1.5px solid ${u.color}40`}}>
-                <Av initials={u.initials} color={u.color} size={18}/>
+                <Av initials={u.initials} color={u.color} size={18} photo={u.photo}/>
                 <span style={{fontSize:11,fontWeight:700,color:u.color,maxWidth:80,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name||u.initials||"?"}</span>
               </div>
             ))}
@@ -2050,7 +2149,27 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
 
         <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:8}}>
           <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:700,background:p.bg,color:p.t}}><span style={{display:"inline-block",width:5,height:5,borderRadius:"50%",background:p.d,marginRight:4,verticalAlign:"middle"}}/>{p.l}</span>
-          {task.dueDate&&<span style={{fontSize:11,color:over?"#ef4444":"#94a3b8",fontWeight:over?800:400}}>📅 {fmtDate(task.dueDate)}{task.dueTime?` ${task.dueTime}`:""}</span>}
+          {task.dueDate&&(()=>{
+            const today=todayStr();
+            const isToday=task.dueDate===today;
+            const tomorrow=new Date();tomorrow.setDate(tomorrow.getDate()+1);
+            const isTomorrow=task.dueDate===tomorrow.toISOString().slice(0,10);
+            const diffMs=new Date(task.dueDate+"T23:59:59")-new Date();
+            const diffH=Math.floor(diffMs/3600000);
+            const diffD=Math.floor(diffMs/86400000);
+            let countdown=null;
+            if(!done&&task.dueDate>=today){
+              if(isToday){
+                const hLeft=Math.max(0,Math.floor((new Date(task.dueDate+"T23:59:59")-new Date())/3600000));
+                countdown=<span style={{fontSize:10,padding:"1px 7px",borderRadius:20,background:"#fef3c7",color:"#d97706",fontWeight:900,border:"1px solid #fde68a",animation:"pulse 2s infinite",marginLeft:4}}>⏰ hoje</span>;
+              } else if(isTomorrow){
+                countdown=<span style={{fontSize:10,padding:"1px 7px",borderRadius:20,background:"#ede9fe",color:"#7c3aed",fontWeight:800,border:"1px solid #ddd6fe",marginLeft:4}}>↑ amanhã</span>;
+              } else if(diffD<=3){
+                countdown=<span style={{fontSize:10,padding:"1px 7px",borderRadius:20,background:"#fff7ed",color:"#f97316",fontWeight:800,border:"1px solid #fed7aa",marginLeft:4}}>em {diffD}d</span>;
+              }
+            }
+            return<span style={{fontSize:11,color:over?"#ef4444":"#94a3b8",fontWeight:over?800:400,display:"inline-flex",alignItems:"center"}}>📅 {fmtDate(task.dueDate)}{task.dueTime?` ${task.dueTime}`:""}{countdown}</span>;
+          })()}
           {slaUrgent&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#fef3c7",color:"#b45309",fontWeight:800,animation:"pulse 1.5s infinite"}}>⏱ SLA</span>}
           {task.slaHours&&!slaUrgent&&!done&&<span style={{fontSize:10,color:"#f59e0b",fontWeight:700}}>⏱ {task.slaHours}h</span>}
           {toArr(task.assignees).length===0&&!done&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#f1f5f9",color:"#94a3b8",fontWeight:700,border:"1px dashed #cbd5e1"}}>👤 Sem responsável</span>}
@@ -2091,6 +2210,10 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
 
         {!ghost&&(
           <div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",gap:4}}>
+            {/* Urgente toggle */}
+            {onComplete&&<button onClick={e=>{e.stopPropagation();if(onUrgent)onUrgent(task.id,task.priority!=="critica");}} title={task.priority==="critica"?"Remover urgência":"Marcar como urgente"} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:task.priority==="critica"?"#ef4444":"#e2e8f0",padding:"2px 4px",borderRadius:5,transition:"color .15s"}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color=task.priority==="critica"?"#ef4444":"#e2e8f0"}>🔴</button>}
+            {/* Copiar link */}
+            <button onClick={e=>{e.stopPropagation();const url=new URL(window.location.href);url.hash=`task-${task.id}`;navigator.clipboard.writeText(url.toString()).then(()=>{const b=e.currentTarget;b.textContent="✓";b.style.color="#22c55e";setTimeout(()=>{b.textContent="🔗";b.style.color="#e2e8f0";},1200);});}} title="Copiar link da tarefa" style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#e2e8f0",padding:"2px 4px",borderRadius:5,transition:"color .15s"}} onMouseEnter={e=>e.currentTarget.style.color="#6366f1"} onMouseLeave={e=>e.currentTarget.style.color="#e2e8f0"}>🔗</button>
             {onMoveTop&&!task.pinned&&<button onClick={e=>{e.stopPropagation();onMoveTop(task.id);}} title="Mover para o topo da coluna" style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#e2e8f0",padding:"2px 4px",borderRadius:5,transition:"color .15s",fontWeight:900}} onMouseEnter={e=>e.currentTarget.style.color="#6366f1"} onMouseLeave={e=>e.currentTarget.style.color="#e2e8f0"}>⬆</button>}
             {onPin&&<button onClick={e=>{e.stopPropagation();onPin(task.id,!task.pinned);}} title={task.pinned?"Desafixar do topo":"Fixar no topo"} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:task.pinned?"#f59e0b":"#e2e8f0",padding:"2px 4px",borderRadius:5,transition:"color .15s"}} onMouseEnter={e=>e.currentTarget.style.color="#f59e0b"} onMouseLeave={e=>e.currentTarget.style.color=task.pinned?"#f59e0b":"#e2e8f0"}>📌</button>}
             {onDuplicate&&<button onClick={e=>{e.stopPropagation();onDuplicate(task);}} title="Duplicar tarefa" style={{background:"none",border:"none",cursor:"pointer",fontSize:13,color:"#e2e8f0",padding:"2px 4px",borderRadius:5,transition:"color .15s",fontWeight:700,lineHeight:1}} onMouseEnter={e=>{e.currentTarget.style.color="#6366f1";e.currentTarget.style.background="#eef2ff";}} onMouseLeave={e=>{e.currentTarget.style.color="#e2e8f0";e.currentTarget.style.background="none";}}>⧉</button>}
@@ -2144,7 +2267,7 @@ function QuickCreateBar({data,onAdd}){
   );
 }
 
-function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusChange,myCollabId,myCollab,onArchive,onPomodoro,onPin,onMoveTop}){
+function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusChange,myCollabId,myCollab,onArchive,onPomodoro,onPin,onMoveTop,onUrgent}){
   const [kanbanFilter,setKanbanFilter]=useState("week");
   const [ownerFilter,setOwnerFilter]=useState("all");
   const [collabFilter,setCollabFilter]=useState(""); // NEW: filter by specific collaborator
@@ -2231,6 +2354,10 @@ function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusC
           {mySectors.length>0&&<button style={btnStyle(ownerFilter==="sector","#14b8a6")} onClick={()=>{setOwnerFilter("sector");setCollabFilter("");}}>🏢 Meu setor</button>}
           <button style={btnStyle(ownerFilter==="unassigned","#94a3b8")} onClick={()=>{setOwnerFilter("unassigned");setCollabFilter("");}}>👤 Sem responsável</button>
           <span style={{fontSize:11,color:"#94a3b8",marginLeft:"auto"}}>⠿ Segure e arraste o card para mover</span>
+          <button onClick={()=>{
+            const allVisible=data.tasks.filter(t=>t.status!=="archived");
+            exportTasksCSV(allVisible,data);
+          }} title="Exportar Kanban como CSV" style={{background:"none",border:"1.5px solid #e2e8f0",borderRadius:7,padding:"3px 10px",fontSize:11,fontWeight:700,color:"#64748b",cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:5,flexShrink:0,transition:"all .15s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor="#6366f1";e.currentTarget.style.color="#6366f1";}} onMouseLeave={e=>{e.currentTarget.style.borderColor="#e2e8f0";e.currentTarget.style.color="#64748b";}}>⬇ CSV</button>
         </div>
         {/* Filtro por colaborador específico */}
         <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap",marginTop:6}}>
@@ -2336,6 +2463,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusC
                     onPin={(id,val)=>onPin&&onPin(id,val)}
                     onMoveTop={(id)=>onMoveTop&&onMoveTop(id,st.id)}
                     onDuplicate={onDuplicate}
+                    onUrgent={onUrgent}
                   />
                 ))}
                 {tasks.length===0&&(
@@ -3634,12 +3762,12 @@ function SectorsPage({ data, setData }) {
 }
 
 // --- COLABORADORES ----------------------------------------------
-function CollaboratorsPage({ data, setData }) {
+function CollaboratorsPage({ data, setData, toast=()=>{} }) {
   const [open,setOpen]=useState(false);
   const [editing,setEditing]=useState(null);
   const PERM_DEFAULTS={canAdvanceStatus:true,canComplete:true,canDelete:false,canArchive:false,canEdit:true};
-  const [form,setForm]=useState({name:"",role:"",companies:[],sectors:[],color:"#8b5cf6",initials:"",email:"",password:"",userId:"",accessLevel:"user",permissions:{...PERM_DEFAULTS}});
-  const openNew=()=>{setEditing(null);setForm({name:"",role:"",companies:[],sectors:[],color:"#8b5cf6",initials:"",email:"",password:"",userId:"",accessLevel:"user",permissions:{...PERM_DEFAULTS}});setOpen(true);};
+  const [form,setForm]=useState({name:"",role:"",companies:[],sectors:[],color:"#8b5cf6",initials:"",email:"",password:"",userId:"",accessLevel:"user",permissions:{...PERM_DEFAULTS},photo:""});
+  const openNew=()=>{setEditing(null);setForm({name:"",role:"",companies:[],sectors:[],color:"#8b5cf6",initials:"",email:"",password:"",userId:"",accessLevel:"user",permissions:{...PERM_DEFAULTS},photo:""});setOpen(true);};
   const openEdit=(u)=>{
     setEditing(u);
     setForm({name:u.name,role:u.role,
@@ -3647,7 +3775,7 @@ function CollaboratorsPage({ data, setData }) {
       sectors:toArr(u.sectors).length>0?toArr(u.sectors):(u.sector?[u.sector]:[]),
       color:u.color,initials:u.initials,email:u.email||"",
       password:"",userId:u.userId||"",accessLevel:u.accessLevel||"user",
-      permissions:{...PERM_DEFAULTS,...(u.permissions||{})}});
+      permissions:{...PERM_DEFAULTS,...(u.permissions||{})},photo:u.photo||""});
     setOpen(true);
   };
   const togUCo=(id)=>setForm(f=>({...f,companies:toArr(f.companies).includes(id)?toArr(f.companies).filter(x=>x!==id):[...toArr(f.companies),id]}));
@@ -3706,7 +3834,7 @@ function CollaboratorsPage({ data, setData }) {
           return (
             <div key={u.id} style={{background:"var(--bg2)",borderRadius:14,padding:18,border:"1px solid var(--border)",boxShadow:"0 1px 4px rgba(0,0,0,.06)",textAlign:"center"}}>
               <div style={{display:"flex",justifyContent:"center",marginBottom:12}}>
-                <Av initials={u.initials} color={u.color} size={54}/>
+                <Av initials={u.initials} color={u.color} size={54} photo={u.photo}/>
               </div>
               <div style={{fontWeight:900,fontSize:14,color:"#0f172a",marginBottom:2}}>{u.name}</div>
               <div style={{fontSize:12,color:"#94a3b8",marginBottom:4}}>{u.role}</div>
@@ -3828,6 +3956,19 @@ function CollaboratorsPage({ data, setData }) {
             </div>
           </div>
           <Inp label="Iniciais (auto se vazio)" value={form.initials} onChange={v=>setForm(f=>({...f,initials:v}))} placeholder="Ex: AL"/>
+          {/* Avatar preview + photo URL */}
+          <div>
+            <label style={{fontSize:12,fontWeight:700,color:"#374151",display:"block",marginBottom:8}}>Foto do avatar (URL opcional)</label>
+            <div style={{display:"flex",gap:12,alignItems:"center"}}>
+              <Av initials={form.initials||form.name.slice(0,2)} color={form.color} size={52} photo={form.photo}/>
+              <div style={{flex:1}}>
+                <input value={form.photo||""} onChange={e=>setForm(f=>({...f,photo:e.target.value}))} placeholder="https://... ou deixe vazio para usar iniciais"
+                  style={{width:"100%",padding:"8px 12px",borderRadius:9,fontSize:12,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",color:"#0f172a",background:"var(--bg2)",transition:"border .15s",boxSizing:"border-box"}}
+                  onFocus={e=>e.target.style.borderColor="#6366f1"} onBlur={e=>e.target.style.borderColor="#e5e7eb"}/>
+                <div style={{fontSize:10,color:"#94a3b8",marginTop:4}}>Pode usar uma URL de foto do Google, GitHub, LinkedIn etc.</div>
+              </div>
+            </div>
+          </div>
           <CPick value={form.color} onChange={v=>setForm(f=>({...f,color:v}))}/>
           <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
             <Btn onClick={()=>setOpen(false)} v="ghost">Cancelar</Btn>
@@ -5238,8 +5379,51 @@ function ChatWidget({data,setData,currentUser,currentUserId,myCollab,unreadCount
     if(open) setData(d=>({...d,notifications:(d.notifications||[]).map(n=>n.page==="chat"&&n.toId===currentUserId?{...n,read:true}:n)}));
   },[open]);
 
+  // Typing indicator - broadcast via chatMessages with special type
+  const [typingUsers,setTypingUsers]=useState([]);
+  const typingTimeoutRef=useRef(null);
+  const lastTypingBroadcast=useRef(0);
+
+  const broadcastTyping=(isTyping)=>{
+    const now=Date.now();
+    if(isTyping&&now-lastTypingBroadcast.current<2000) return; // throttle
+    lastTypingBroadcast.current=now;
+    const key=`mdtec_typing_${activeSector}`;
+    const all=JSON.parse(localStorage.getItem(key)||"{}");
+    if(isTyping){
+      all[currentUserId||currentUser]={name:currentUser,at:now};
+    } else {
+      delete all[currentUserId||currentUser];
+    }
+    localStorage.setItem(key,JSON.stringify(all));
+    window.dispatchEvent(new StorageEvent("storage",{key,newValue:JSON.stringify(all)}));
+  };
+
+  useEffect(()=>{
+    const handler=(e)=>{
+      const key=`mdtec_typing_${activeSector}`;
+      if(e.key!==key) return;
+      const all=JSON.parse(e.newValue||"{}");
+      const now=Date.now();
+      const active=Object.entries(all)
+        .filter(([id,v])=>now-v.at<4000&&id!==(currentUserId||currentUser))
+        .map(([,v])=>v.name);
+      setTypingUsers(active);
+    };
+    window.addEventListener("storage",handler);
+    return()=>window.removeEventListener("storage",handler);
+  },[activeSector,currentUserId,currentUser]);
+
+  const handleMsgChange=(v)=>{
+    setMsg(v);
+    broadcastTyping(v.length>0);
+    if(typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current=setTimeout(()=>broadcastTyping(false),3000);
+  };
+
   const sendMsg=()=>{
     if(!msg.trim()) return;
+    broadcastTyping(false);
     const text=msg.trim();
     const mentionNames=[];
     const re=/@([\w\s]+?)(?=\s|$|@)/g;
@@ -5394,7 +5578,17 @@ function ChatWidget({data,setData,currentUser,currentUserId,myCollab,unreadCount
               {!activeSector
                 ?<div style={{flex:1,fontSize:12,color:"#94a3b8",padding:"6px 0"}}>Selecione um canal acima</div>
                 :<>
-                  <MentionInput value={msg} onChange={setMsg} onSubmit={sendMsg} collaborators={data.collaborators} placeholder={`#${sector?.name||"canal"}... @nome para mencionar`}/>
+                  <div style={{flex:1,position:"relative"}}>
+                    {typingUsers.length>0&&(
+                      <div style={{position:"absolute",bottom:"100%",left:0,right:0,padding:"4px 10px",fontSize:11,color:"#6366f1",fontWeight:600,display:"flex",alignItems:"center",gap:5,background:"var(--bg2)",borderRadius:"8px 8px 0 0",border:"1px solid var(--border)",borderBottom:"none"}}>
+                        <span style={{display:"flex",gap:2}}>
+                          {[0,1,2].map(i=><span key={i} style={{width:4,height:4,borderRadius:"50%",background:"#6366f1",display:"inline-block",animation:`pulse ${0.6+i*.2}s ease-in-out infinite`,animationDelay:`${i*.15}s`}}/>)}
+                        </span>
+                        {typingUsers.length===1?`${typingUsers[0]} está digitando...`:`${typingUsers.join(", ")} estão digitando...`}
+                      </div>
+                    )}
+                    <MentionInput value={msg} onChange={handleMsgChange} onSubmit={sendMsg} collaborators={data.collaborators} placeholder={`#${sector?.name||"canal"}... @nome para mencionar`}/>
+                  </div>
                   <Btn onClick={sendMsg} disabled={!msg.trim()} sz="sm" xs={{padding:"7px 14px",flexShrink:0}}>↑</Btn>
                 </>
               }
@@ -6849,6 +7043,18 @@ function App(){
     return()=>window.removeEventListener("keydown",handler);
   },[]);
 
+  // Hash navigation: open task from URL anchor #task-ID
+  useEffect(()=>{
+    const hash=window.location.hash;
+    if(!hash.startsWith("#task-")) return;
+    const taskId=hash.slice(6);
+    const task=data.tasks.find(t=>t.id===taskId);
+    if(task&&synced){
+      openEdit&&openEdit(task);
+      window.location.hash=""; // clear hash after opening
+    }
+  },[synced]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Auto-archive: tarefas concluídas há mais de archiveDays (padrão 7) dias
   // DEVE ficar ANTES dos early returns (regra dos hooks React)
   useEffect(()=>{
@@ -7515,6 +7721,7 @@ function App(){
           ?t.checklist.map(c=>({...c,done:false}))
           :t.checklist,
     }:t)}));
+    if(next==="done") playSoundDone();
     toast(`→ ${LABELS[next]}!`,"ok");
   };
 
@@ -7710,6 +7917,11 @@ function App(){
               });
               toast("⬆ Tarefa movida para o topo!","ok");
             }}
+            onUrgent={(id,isUrgent)=>{
+              setData(d=>({...d,tasks:d.tasks.map(t=>t.id===id?{...t,priority:isUrgent?"critica":t.priority==="critica"?"media":t.priority}:t)}));
+              if(isUrgent) playSoundUrgent();
+              toast(isUrgent?"🔴 Marcada como urgente!":"Urgência removida.","ok");
+            }}
           />
         </>}
         {page==="lista"         && <ListView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onComplete={quickComplete} onBulkUpdate={bulkUpdate}/>}
@@ -7724,7 +7936,7 @@ function App(){
         {page==="modelos"       && <TemplatesPage data={data} setData={setData} onUseTemplate={useTemplate}/>}
         {page==="empresas"      && <CompaniesPage data={data} setData={setData}/>}
         {page==="setores"       && <SectorsPage data={data} setData={setData}/>}
-        {page==="colaboradores" && <CollaboratorsPage data={data} setData={setData}/>}
+        {page==="colaboradores" && <CollaboratorsPage data={data} setData={setData} toast={toast}/>}
         {page==="marcadores"    && <LabelsPage data={data} setData={setData}/>}
         {page==="recorrencias"  && <RecurrencesPage data={data} setData={setData}/>}
         {page==="painel-rec"    && <PainelRecorrencias data={data} setData={setData} onEdit={openEdit} toast={toast}/>}
@@ -7764,7 +7976,7 @@ function App(){
         const opts=[
           {id:1,icon:"🗑",label:"Somente esta tarefa",desc:"As demais ocorrências da série continuam normais.",color:"#6366f1",bg:"#eef2ff",border:"#c7d2fe"},
           {id:2,icon:"🔥",label:`Esta e as ${futuras.length} futuras`,desc:`Remove esta e as ${futuras.length} ocorrência(s) futuras não concluídas. Histórico de ${passadas} tarefa(s) concluída(s) é preservado.`,color:"#f59e0b",bg:"#fffbeb",border:"#fde68a",disabled:futuras.length===0},
-          {id:3,icon:"💣",label:`Toda a série (${serie.length} tarefas)`,desc:"Remove TODAS as ocorrências, incluindo concluídas e arquivadas. Ação irreversível.",color:"#ef4444",bg:"#fef2f2",border:"#fecaca"},
+          {id:3,icon:"💣",label:`Toda a série (${serie.length} tarefas)`,desc:"Remove TODAS as ocorrências, incluindo concluídas e arquivadas. Ação irreversível.",color:"#ef4444",bg:"#fef2f2",border:"#fecaca",adminOnly:true},
         ];
         return(
           <div onClick={e=>e.target===e.currentTarget&&closeRecDeleteModal()} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.7)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}>
@@ -7786,20 +7998,26 @@ function App(){
               {/* Opções */}
               <div style={{padding:"18px 24px",display:"flex",flexDirection:"column",gap:10}}>
                 <p style={{fontSize:12,color:"#64748b",marginBottom:4,fontWeight:600}}>Escolha o que deseja excluir:</p>
-                {opts.map(o=>(
-                  <button key={o.id} onClick={()=>!o.disabled&&execRecDelete(o.id)} disabled={o.disabled}
-                    style={{display:"flex",alignItems:"flex-start",gap:12,padding:"13px 16px",borderRadius:12,border:`2px solid ${o.disabled?"#f1f5f9":o.border}`,background:o.disabled?"#f8fafc":o.bg,cursor:o.disabled?"not-allowed":"pointer",textAlign:"left",fontFamily:"inherit",transition:"all .15s",opacity:o.disabled?.5:1,width:"100%"}}
-                    onMouseEnter={e=>{if(!o.disabled){e.currentTarget.style.border=`2px solid ${o.color}`;e.currentTarget.style.boxShadow=`0 4px 14px ${o.color}22`;}}}
-                    onMouseLeave={e=>{if(!o.disabled){e.currentTarget.style.border=`2px solid ${o.border}`;e.currentTarget.style.boxShadow="none";}}}
+                {opts.map(o=>{
+                  const isLocked=o.adminOnly&&!isAdmin;
+                  const isDisabled=o.disabled||isLocked;
+                  return(
+                  <button key={o.id} onClick={()=>!isDisabled&&execRecDelete(o.id)} disabled={isDisabled}
+                    style={{display:"flex",alignItems:"flex-start",gap:12,padding:"13px 16px",borderRadius:12,border:`2px solid ${isDisabled?"#f1f5f9":o.border}`,background:isDisabled?"#f8fafc":o.bg,cursor:isDisabled?"not-allowed":"pointer",textAlign:"left",fontFamily:"inherit",transition:"all .15s",opacity:isDisabled?.45:1,width:"100%"}}
+                    onMouseEnter={e=>{if(!isDisabled){e.currentTarget.style.border=`2px solid ${o.color}`;e.currentTarget.style.boxShadow=`0 4px 14px ${o.color}22`;}}}
+                    onMouseLeave={e=>{if(!isDisabled){e.currentTarget.style.border=`2px solid ${o.border}`;e.currentTarget.style.boxShadow="none";}}}
                   >
                     <span style={{fontSize:22,flexShrink:0,lineHeight:1.2}}>{o.icon}</span>
                     <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:13,fontWeight:800,color:o.disabled?"#94a3b8":o.color,marginBottom:3}}>{o.label}</div>
-                      <div style={{fontSize:11,color:"#64748b",lineHeight:1.5}}>{o.desc}</div>
+                      <div style={{fontSize:13,fontWeight:800,color:isDisabled?"#94a3b8":o.color,marginBottom:3,display:"flex",alignItems:"center",gap:6}}>
+                        {o.label}
+                        {isLocked&&<span style={{fontSize:10,padding:"1px 7px",borderRadius:20,background:"#f5f3ff",color:"#7c3aed",fontWeight:700,border:"1px solid #ddd6fe"}}>🔒 Somente Admin</span>}
+                      </div>
+                      <div style={{fontSize:11,color:"#64748b",lineHeight:1.5}}>{isLocked?"Apenas administradores podem excluir toda a série recorrente.":o.desc}</div>
                     </div>
-                    {!o.disabled&&<span style={{fontSize:16,color:o.color,flexShrink:0,alignSelf:"center",fontWeight:900}}>→</span>}
+                    {!isDisabled&&<span style={{fontSize:16,color:o.color,flexShrink:0,alignSelf:"center",fontWeight:900}}>→</span>}
                   </button>
-                ))}
+                );})}
               </div>
               {/* Footer */}
               <div style={{padding:"12px 24px 18px",borderTop:"1px solid var(--border)",display:"flex",justifyContent:"flex-end"}}>

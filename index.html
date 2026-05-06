@@ -185,7 +185,7 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 <div id="root"></div>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.23.9/babel.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script type="text/babel" data-presets="react">
 const {useState,useMemo,useEffect,useRef,useCallback}=React;
@@ -6769,7 +6769,7 @@ function CargaPage({data}){
    APP ROOT */
 
 function App(){
-  const {user,loading:authLoading,signIn,signUp,signOut} = useAuth();
+  const {user,loading:authLoading,signIn,signOut} = useAuth();
   const [data,setData,synced] = useSharedData();
   const {acquire,forceAcquire,release,getLock} = useLocks();
   const {list:toasts,add:toast} = useToast();
@@ -6781,6 +6781,7 @@ function App(){
   const [showSearch,setShowSearch] = useState(false);
   const [focusMode,setFocusMode] = useState(false);
   const [pomodoroTask,setPomodoroTask] = useState(null);
+  const [recDeleteModal,setRecDeleteModal]=useState({open:false,taskId:null,title:"",serie:[],futuras:[]});
   const topbarRef = useRef(null);
 
   // Keep --topbar-h CSS var in sync with actual topbar height
@@ -7374,7 +7375,6 @@ function App(){
   };
 
   /* ── Estado do modal de exclusão de série recorrente ── */
-  const [recDeleteModal,setRecDeleteModal]=useState({open:false,taskId:null,title:"",serie:[],futuras:[]});
   const closeRecDeleteModal=()=>setRecDeleteModal({open:false,taskId:null,title:"",serie:[],futuras:[]});
   const execRecDelete=(opcao)=>{
     const {taskId,serie,futuras}=recDeleteModal;

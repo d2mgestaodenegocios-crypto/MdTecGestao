@@ -8044,36 +8044,47 @@ function App(){
 }
 
 
+
 /* ===========================================
-   CONTABIL PAGE — Controle de Contabilização */
+   CONTABIL PAGE — Controle de Contabilização (Enhanced) */
 function ContabilPage({toast}){
-  const TODOS_MESES_C=["01/2025","02/2025","03/2025","04/2025","05/2025","06/2025","07/2025","08/2025","09/2025","10/2025","11/2025","12/2025","01/2026","02/2026","03/2026","04/2026","05/2026","06/2026","07/2026","08/2026","09/2026","10/2026","11/2026","12/2026"];
+  // ─── Constants ───────────────────────────────────────────────
+  const STORAGE_KEY="mdtec_contabil_v2";
+  const ANOS=["2025","2026"];
+  const TODOS_MESES_C=[
+    "01/2025","02/2025","03/2025","04/2025","05/2025","06/2025",
+    "07/2025","08/2025","09/2025","10/2025","11/2025","12/2025",
+    "01/2026","02/2026","03/2026","04/2026","05/2026","06/2026",
+    "07/2026","08/2026","09/2026","10/2026","11/2026","12/2026"
+  ];
   const MESES_NOMES_C={"01":"JAN","02":"FEV","03":"MAR","04":"ABR","05":"MAI","06":"JUN","07":"JUL","08":"AGO","09":"SET","10":"OUT","11":"NOV","12":"DEZ"};
   const getMesNomeC=(m)=>{const p=m.split("/");return p.length!==2?m:`${MESES_NOMES_C[p[0]]}/${p[1]}`;};
   const getMesesC=(pi)=>{const i=TODOS_MESES_C.indexOf(pi);return i===-1?[pi]:TODOS_MESES_C.slice(i);};
+  const getAnoMes=(m)=>m.split("/")[1]||"";
 
-  const [cGrupos,setCGrupos]=useState([{id:1,nome:"Holding ABC"},{id:2,nome:"Grupo XYZ"}]);
-  const [cEmpresas,setCEmpresas]=useState([
-    {id:1,nome:"Alpha Contábil",grupoId:1,regime:"lucro",periodoInicial:"01/2025",expandido:false},
-    {id:2,nome:"Beta Serviços",grupoId:1,regime:"simples",periodoInicial:"01/2025",expandido:false},
-    {id:3,nome:"Gamma LTDA",grupoId:2,regime:"lucro",periodoInicial:"11/2025",expandido:false},
-    {id:4,nome:"Delta Consulting",grupoId:null,regime:"simples",periodoInicial:"01/2025",expandido:false},
-    {id:5,nome:"Omega Solutions",grupoId:2,regime:"lucro",periodoInicial:"12/2025",expandido:false},
-    {id:6,nome:"Igreja Esperança",grupoId:null,regime:"imune",periodoInicial:"01/2025",expandido:false},
-    {id:7,nome:"Associação Cultural",grupoId:null,regime:"isenta",periodoInicial:"11/2025",expandido:false},
-  ]);
-  const [nextEmpId,setNextEmpId]=useState(8);
-  const [nextGrpId,setNextGrpId]=useState(3);
+  // ─── Group colors palette ─────────────────────────────────────
+  const GRP_COLORS=["#6366f1","#0ea5e9","#10b981","#f59e0b","#f43f5e","#8b5cf6","#14b8a6","#84cc16","#ec4899","#f97316"];
+  const getGrpColor=(gid)=>{if(!gid)return"#94a3b8";const idx=(gid-1)%GRP_COLORS.length;return GRP_COLORS[idx];};
 
-  // Initialize meses data
-  const initDados=useCallback((emps)=>{
+  // ─── Initial data ─────────────────────────────────────────────
+  const initEmpresas=[
+    {id:1,nome:"Alpha Contábil",grupoId:1,subgrupoId:null,regime:"lucro",periodoInicial:"01/2025",expandido:false},
+    {id:2,nome:"Beta Serviços",grupoId:1,subgrupoId:null,regime:"simples",periodoInicial:"01/2025",expandido:false},
+    {id:3,nome:"Gamma LTDA",grupoId:2,subgrupoId:null,regime:"lucro",periodoInicial:"11/2025",expandido:false},
+    {id:4,nome:"Delta Consulting",grupoId:null,subgrupoId:null,regime:"simples",periodoInicial:"01/2025",expandido:false},
+    {id:5,nome:"Omega Solutions",grupoId:2,subgrupoId:null,regime:"lucro",periodoInicial:"12/2025",expandido:false},
+    {id:6,nome:"Igreja Esperança",grupoId:null,subgrupoId:null,regime:"imune",periodoInicial:"01/2025",expandido:false},
+    {id:7,nome:"Associação Cultural",grupoId:null,subgrupoId:null,regime:"isenta",periodoInicial:"11/2025",expandido:false},
+  ];
+  const initGrupos=[{id:1,nome:"Holding ABC",parentId:null},{id:2,nome:"Grupo XYZ",parentId:null}];
+
+  const initDados=(emps)=>{
     const d=[];
     for(const emp of emps){
       for(const mes of getMesesC(emp.periodoInicial)){
         d.push({id:`${emp.id}_${mes}`,empresaId:emp.id,competencia:mes,fiscal:"nao-iniciado",extratos:"nao-iniciado",patrimonio:"nao-iniciado",folha:"nao-iniciado",clienteEnviou:"nao",analisado:false});
       }
     }
-    // seed some data
     const set=(eid,mes,f)=>{const i=d.findIndex(x=>x.empresaId===eid&&x.competencia===mes);if(i!==-1)Object.assign(d[i],f);};
     for(let i=0;i<11;i++){const m=TODOS_MESES_C[i];set(1,m,{fiscal:"ok",extratos:"ok",patrimonio:"ok",folha:"ok",clienteEnviou:"sim"});}
     for(let i=0;i<5;i++){set(1,TODOS_MESES_C[i],{analisado:true});}
@@ -8083,51 +8094,102 @@ function ContabilPage({toast}){
     set(6,"12/2025",{fiscal:"ok",extratos:"ok",patrimonio:"ok",folha:"ok",clienteEnviou:"sim",analisado:true});
     set(7,"11/2025",{fiscal:"ok",extratos:"ok",patrimonio:"ok",folha:"ok",clienteEnviou:"sim",analisado:true});
     return d;
+  };
+
+  // Register global revert helper for EmpresaRow
+  useEffect(()=>{
+    window.__contabilRevert=(eid,mes,campo,fromValue)=>{
+      setCDados(prev=>prev.map(d=>{
+        if(d.empresaId!==eid||d.competencia!==mes) return d;
+        if(d.analisado) return d;
+        const revert=fromValue==="ok"?"pendente":fromValue==="pendente"?"nao-iniciado":"nao-iniciado";
+        return {...d,[campo]:revert};
+      }));
+      toast("↩ Status revertido!","ok");
+    };
+    return()=>{delete window.__contabilRevert;};
   },[]);
 
-  const [cDados,setCDados]=useState(()=>initDados([
-    {id:1,nome:"Alpha Contábil",grupoId:1,regime:"lucro",periodoInicial:"01/2025",expandido:false},
-    {id:2,nome:"Beta Serviços",grupoId:1,regime:"simples",periodoInicial:"01/2025",expandido:false},
-    {id:3,nome:"Gamma LTDA",grupoId:2,regime:"lucro",periodoInicial:"11/2025",expandido:false},
-    {id:4,nome:"Delta Consulting",grupoId:null,regime:"simples",periodoInicial:"01/2025",expandido:false},
-    {id:5,nome:"Omega Solutions",grupoId:2,regime:"lucro",periodoInicial:"12/2025",expandido:false},
-    {id:6,nome:"Igreja Esperança",grupoId:null,regime:"imune",periodoInicial:"01/2025",expandido:false},
-    {id:7,nome:"Associação Cultural",grupoId:null,regime:"isenta",periodoInicial:"11/2025",expandido:false},
-  ]));
-  const [cObs,setCObs]=useState([
-    {empresaId:1,competencia:"01/2025",texto:"Cliente solicitou revisão extra dos lançamentos fiscais"},
-    {empresaId:1,competencia:"03/2025",texto:"Aguardando documentação complementar do exterior"},
-    {empresaId:3,competencia:"11/2025",texto:"Nota fiscal eletrônica com erro, em correção"},
-  ]);
-  const [cEcdEcf,setCEcdEcf]=useState({}); // {ecd_ID, ecf_ID}
+  // ─── Load from localStorage ───────────────────────────────────
+  const loadState=()=>{
+    try{
+      const raw=localStorage.getItem(STORAGE_KEY);
+      if(raw){
+        const p=JSON.parse(raw);
+        return{
+          empresas:p.empresas||initEmpresas,
+          grupos:p.grupos||initGrupos,
+          dados:p.dados||initDados(initEmpresas),
+          obs:p.obs||[{empresaId:1,competencia:"01/2025",texto:"Cliente solicitou revisão extra dos lançamentos fiscais"},{empresaId:1,competencia:"03/2025",texto:"Aguardando documentação complementar do exterior"},{empresaId:3,competencia:"11/2025",texto:"Nota fiscal eletrônica com erro, em correção"}],
+          ecdEcf:p.ecdEcf||{},
+          nextEmpId:p.nextEmpId||8,
+          nextGrpId:p.nextGrpId||3,
+        };
+      }
+    }catch(e){}
+    const obs=[{empresaId:1,competencia:"01/2025",texto:"Cliente solicitou revisão extra dos lançamentos fiscais"},{empresaId:1,competencia:"03/2025",texto:"Aguardando documentação complementar do exterior"},{empresaId:3,competencia:"11/2025",texto:"Nota fiscal eletrônica com erro, em correção"}];
+    return{empresas:initEmpresas,grupos:initGrupos,dados:initDados(initEmpresas),obs,ecdEcf:{},nextEmpId:8,nextGrpId:3};
+  };
 
-  // Filters & UI state
+  const init=loadState();
+
+  // ─── State ───────────────────────────────────────────────────
+  const [cGrupos,setCGrupos]=useState(init.grupos);
+  const [cEmpresas,setCEmpresas]=useState(init.empresas);
+  const [nextEmpId,setNextEmpId]=useState(init.nextEmpId);
+  const [nextGrpId,setNextGrpId]=useState(init.nextGrpId);
+  const [cDados,setCDados]=useState(init.dados);
+  const [cObs,setCObs]=useState(init.obs);
+  const [cEcdEcf,setCEcdEcf]=useState(init.ecdEcf);
+
+  // Filters
   const [filterEmp,setFilterEmp]=useState("");
   const [filterGrp,setFilterGrp]=useState("");
   const [filterReg,setFilterReg]=useState("");
+
+  // Modals
   const [showNovaEmpModal,setShowNovaEmpModal]=useState(false);
   const [showGrupoModal,setShowGrupoModal]=useState(false);
   const [showRelGeral,setShowRelGeral]=useState(false);
   const [showRelObs,setShowRelObs]=useState(false);
-  const [obsModal,setObsModal]=useState(null); // {empresaId, competencia}
+  const [obsModal,setObsModal]=useState(null);
   const [obsTextoEdit,setObsTextoEdit]=useState("");
-  const [novaEmpForm,setNovaEmpForm]=useState({nome:"",grupoId:"",regime:"simples",periodoInicial:"01/2025"});
-  const [novoGrupoNome,setNovoGrupoNome]=useState("");
   const [showImportModal,setShowImportModal]=useState(false);
+  const [novaEmpForm,setNovaEmpForm]=useState({nome:"",grupoId:"",subgrupoId:"",regime:"simples",periodoInicial:"01/2025"});
+  const [novoGrupoForm,setNovoGrupoForm]=useState({nome:"",parentId:""});
 
-  // Helpers
+  // Delete
+  const [deleteModal,setDeleteModal]=useState(null); // {type:"empresa"|"grupo"|"batch", ids:[], title, confirmWord}
+  const [deleteTyped,setDeleteTyped]=useState("");
+  const [deleteShake,setDeleteShake]=useState(false);
+  const [selectedEmps,setSelectedEmps]=useState(new Set());
+  const [batchMode,setBatchMode]=useState(false);
+
+  // Revert
+  const [revertModal,setRevertModal]=useState(null); // {empresaId, competencia, campo, fromValue}
+
+  // Obs summary
+  const [obsResModal,setObsResModal]=useState(false);
+
+  // ─── Persist to localStorage ──────────────────────────────────
+  useEffect(()=>{
+    try{
+      localStorage.setItem(STORAGE_KEY,JSON.stringify({empresas:cEmpresas,grupos:cGrupos,dados:cDados,obs:cObs,ecdEcf:cEcdEcf,nextEmpId,nextGrpId}));
+    }catch(e){}
+  },[cEmpresas,cGrupos,cDados,cObs,cEcdEcf,nextEmpId,nextGrpId]);
+
+  // ─── Helpers ──────────────────────────────────────────────────
   const REGIMES_ECD=["lucro","imune","isenta"];
   const precisaECD=(r)=>REGIMES_ECD.includes(r);
   const getGrupoNomeC=(gid)=>gid?cGrupos.find(g=>g.id===gid)?.nome||"—":"—";
   const getRegimeLbl=(r)=>({"simples":"🟢 Simples","lucro":"🔵 Lucro","imune":"🛡️ Imune","isenta":"📋 Isenta"})[r]||r;
-  const getRegimeCls=(r)=>({"simples":"c-reg-simples","lucro":"c-reg-lucro","imune":"c-reg-imune","isenta":"c-reg-isenta"})[r]||"";
   const getDadosEmp=(eid)=>cDados.filter(d=>d.empresaId===eid).sort((a,b)=>TODOS_MESES_C.indexOf(a.competencia)-TODOS_MESES_C.indexOf(b.competencia));
   const contarOk=(item)=>[item.fiscal,item.extratos,item.patrimonio,item.folha].filter(x=>x==="ok").length+(item.clienteEnviou==="sim"?1:0);
   const estaContab=(item)=>contarOk(item)===5;
   const calcProg=(item)=>Math.round((contarOk(item)/5)*100);
   const temObs=(eid,comp)=>cObs.some(o=>o.empresaId===eid&&o.competencia===comp);
   const getObsTxt=(eid,comp)=>cObs.find(o=>o.empresaId===eid&&o.competencia===comp)?.texto||"";
-  const isLiberado=(eid)=>{const emp=cEmpresas.find(e=>e.id===eid);if(!emp)return false;const d=getDadosEmp(eid);return d.length>0&&d.every(x=>x.analisado);};
+  const isLiberado=(eid)=>{const d=getDadosEmp(eid);return d.length>0&&d.every(x=>x.analisado);};
   const getECDSt=(eid)=>{const emp=cEmpresas.find(e=>e.id===eid);if(!emp||!precisaECD(emp.regime))return"nao-aplica";if(!isLiberado(eid))return"bloqueado";return cEcdEcf[`ecd_${eid}`]||"pendente";};
   const getECFSt=(eid)=>{const emp=cEmpresas.find(e=>e.id===eid);if(!emp||!precisaECD(emp.regime))return"nao-aplica";if(!isLiberado(eid))return"bloqueado";return cEcdEcf[`ecf_${eid}`]||"pendente";};
   const getStatsEmp=(eid)=>{const d=getDadosEmp(eid);return{total:d.length,contabilizados:d.filter(x=>estaContab(x)).length,analisados:d.filter(x=>x.analisado).length,pendentes:d.filter(x=>!estaContab(x)).length};};
@@ -8135,30 +8197,73 @@ function ContabilPage({toast}){
   const getProgClr=(p)=>p===100?"#22c55e":p>=30?"#f59e0b":"#ef4444";
   const avancarSt=(s)=>s==="nao-iniciado"?"pendente":s==="pendente"?"ok":"ok";
   const getStTxt=(s)=>({"ok":"✅ Ok","pendente":"⏳ Pend.","nao-iniciado":"❌ Não"})[s]||s;
-  const getStCls=(s)=>({"ok":"c-st-ok","pendente":"c-st-pend","nao-iniciado":"c-st-nao"})[s]||"";
 
-  // Actions
+  // Year summary per empresa
+  const getResumoAno=(eid,ano)=>{
+    const d=getDadosEmp(eid).filter(x=>getAnoMes(x.competencia)===ano);
+    return{total:d.length,analisados:d.filter(x=>x.analisado).length,contabilizados:d.filter(x=>estaContab(x)).length};
+  };
+
+  // ─── Styles ───────────────────────────────────────────────────
+  const cSt={
+    regSimples:{background:"#d1fae5",color:"#065f46",padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700},
+    regLucro:{background:"#e0e7ff",color:"#3730a3",padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700},
+    regImune:{background:"#dbeafe",color:"#1e40af",padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700},
+    regIsenta:{background:"#fef3c7",color:"#92400e",padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700},
+    stOk:{background:"#d1fae5",color:"#065f46",padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer",display:"inline-block",minWidth:78,textAlign:"center"},
+    stPend:{background:"#fff4e0",color:"#b45f06",padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer",display:"inline-block",minWidth:78,textAlign:"center"},
+    stNao:{background:"#f1f3f5",color:"#495057",padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer",display:"inline-block",minWidth:78,textAlign:"center"},
+  };
+  const getRegStyle=(r)=>({simples:cSt.regSimples,lucro:cSt.regLucro,imune:cSt.regImune,isenta:cSt.regIsenta}[r]||cSt.regSimples);
+  const getStStyle=(s)=>({ok:cSt.stOk,pendente:cSt.stPend,"nao-iniciado":cSt.stNao}[s]||cSt.stNao);
+
+  // ─── Actions ──────────────────────────────────────────────────
   const alterarStatus=(eid,comp,campo)=>{
     setCDados(prev=>prev.map(d=>{
       if(d.empresaId!==eid||d.competencia!==comp) return d;
-      if(d.analisado){toast("⚠️ Mês já analisado!","warn");return d;}
-      return {...d,[campo]:avancarSt(d[campo])};
+      if(d.analisado){toast("⚠️ Mês já analisado! Use 'Reverter' para desfazer.","warn");return d;}
+      const prev_val=d[campo];
+      const next_val=avancarSt(prev_val);
+      return {...d,[campo]:next_val};
     }));
   };
+
+  const reverterStatus=(eid,comp,campo,fromValue)=>{
+    setCDados(prev=>prev.map(d=>{
+      if(d.empresaId!==eid||d.competencia!==comp) return d;
+      if(d.analisado){toast("⚠️ Mês já analisado, não é possível reverter.","warn");return d;}
+      const revert=fromValue==="ok"?"pendente":fromValue==="pendente"?"nao-iniciado":"nao-iniciado";
+      return {...d,[campo]:revert};
+    }));
+    toast("↩ Status revertido!","ok");
+  };
+
+  const reverterAnalise=(eid,comp)=>{
+    setCDados(prev=>prev.map(d=>{
+      if(d.empresaId!==eid||d.competencia!==comp) return d;
+      return {...d,analisado:false};
+    }));
+    toast("↩ Análise revertida — mês voltou a 'Analisar'","ok");
+    setRevertModal(null);
+  };
+
   const alterarCliente=(eid,comp)=>{
     setCDados(prev=>prev.map(d=>{
       if(d.empresaId!==eid||d.competencia!==comp||d.analisado) return d;
       return {...d,clienteEnviou:d.clienteEnviou==="sim"?"nao":"sim"};
     }));
   };
+
   const analisarMes=(eid,comp)=>{
     const item=cDados.find(d=>d.empresaId===eid&&d.competencia===comp);
     if(!item||item.analisado) return;
-    if(!estaContab(item)){toast("❌ Complete as 5 etapas!","err");return;}
+    if(!estaContab(item)){toast("❌ Complete as 5 etapas primeiro!","err");return;}
     setCDados(prev=>prev.map(d=>d.empresaId===eid&&d.competencia===comp?{...d,analisado:true}:d));
     toast(`🔍 ${cEmpresas.find(e=>e.id===eid)?.nome} - ${comp} ANALISADO!`,"ok");
   };
+
   const toggleEmpC=(eid)=>setCEmpresas(prev=>prev.map(e=>e.id===eid?{...e,expandido:!e.expandido}:e));
+
   const alterarECDECF=(eid,tipo)=>{
     const emp=cEmpresas.find(e=>e.id===eid);
     if(!emp||!precisaECD(emp.regime)){toast("⚠️ Simples não precisa","warn");return;}
@@ -8168,7 +8273,7 @@ function ContabilPage({toast}){
     toast(`${tipo.toUpperCase()} atualizado!`,"ok");
   };
 
-  // Observações
+  // ─── Observações ──────────────────────────────────────────────
   const abrirObs=(eid,comp)=>{setObsModal({empresaId:eid,competencia:comp});setObsTextoEdit(getObsTxt(eid,comp));};
   const salvarObs=()=>{
     if(!obsModal) return;
@@ -8186,33 +8291,78 @@ function ContabilPage({toast}){
     toast("Observação salva!","ok");
   };
 
-  // Nova empresa
+  // ─── Empresa CRUD ─────────────────────────────────────────────
   const adicionarEmpC=()=>{
     if(!novaEmpForm.nome.trim()){toast("Digite o nome","err");return;}
     if(cEmpresas.some(e=>e.nome.toLowerCase()===novaEmpForm.nome.toLowerCase())){toast("Empresa já existe!","err");return;}
     const novoId=nextEmpId;
     const grupoId=novaEmpForm.grupoId?parseInt(novaEmpForm.grupoId):null;
-    const novaEmp={id:novoId,nome:novaEmpForm.nome.trim(),grupoId,regime:novaEmpForm.regime,periodoInicial:novaEmpForm.periodoInicial,expandido:false};
+    const subgrupoId=novaEmpForm.subgrupoId?parseInt(novaEmpForm.subgrupoId):null;
+    const novaEmp={id:novoId,nome:novaEmpForm.nome.trim(),grupoId,subgrupoId,regime:novaEmpForm.regime,periodoInicial:novaEmpForm.periodoInicial,expandido:false};
     setCEmpresas(prev=>[...prev,novaEmp]);
     const mesesNovos=getMesesC(novaEmpForm.periodoInicial);
     setCDados(prev=>[...prev,...mesesNovos.map(mes=>({id:`${novoId}_${mes}`,empresaId:novoId,competencia:mes,fiscal:"nao-iniciado",extratos:"nao-iniciado",patrimonio:"nao-iniciado",folha:"nao-iniciado",clienteEnviou:"nao",analisado:false}))]);
     setNextEmpId(n=>n+1);
     setShowNovaEmpModal(false);
-    setNovaEmpForm({nome:"",grupoId:"",regime:"simples",periodoInicial:"01/2025"});
+    setNovaEmpForm({nome:"",grupoId:"",subgrupoId:"",regime:"simples",periodoInicial:"01/2025"});
     toast(`➕ ${novaEmp.nome} adicionada`,"ok");
   };
-  const adicionarGrupoC=()=>{
-    if(!novoGrupoNome.trim()) return;
-    if(!cGrupos.some(g=>g.nome.toLowerCase()===novoGrupoNome.toLowerCase())){
-      setCGrupos(prev=>[...prev,{id:nextGrpId,nome:novoGrupoNome.trim()}]);
-      setNextGrpId(n=>n+1);
-      toast(`Grupo "${novoGrupoNome}" criado!`,"ok");
-    } else { toast("Grupo já existe!","warn"); }
-    setShowGrupoModal(false);
-    setNovoGrupoNome("");
+
+  // Delete single empresa
+  const confirmarDeleteEmp=(emp)=>{
+    setDeleteTyped("");setDeleteShake(false);
+    setDeleteModal({type:"empresa",ids:[emp.id],title:`Excluir "${emp.nome}"`,single:true});
+  };
+  // Delete batch
+  const confirmarDeleteBatch=()=>{
+    if(selectedEmps.size===0){toast("Nenhuma empresa selecionada","warn");return;}
+    setDeleteTyped("");setDeleteShake(false);
+    const names=cEmpresas.filter(e=>selectedEmps.has(e.id)).map(e=>e.nome);
+    setDeleteModal({type:"batch",ids:[...selectedEmps],title:`Excluir ${selectedEmps.size} empresa(s): ${names.slice(0,3).join(", ")}${names.length>3?"...":""}`});
+  };
+  // Delete single grupo
+  const confirmarDeleteGrupo=(grp)=>{
+    setDeleteTyped("");setDeleteShake(false);
+    setDeleteModal({type:"grupo",ids:[grp.id],title:`Excluir grupo "${grp.nome}" (empresas serão desvinculadas)`});
+  };
+  const executarDelete=()=>{
+    if(!deleteModal) return;
+    const word="EXCLUIR";
+    if(deleteTyped.trim().toUpperCase()!==word){setDeleteShake(true);setTimeout(()=>setDeleteShake(false),500);return;}
+    if(deleteModal.type==="empresa"||deleteModal.type==="batch"){
+      const ids=new Set(deleteModal.ids);
+      setCEmpresas(prev=>prev.filter(e=>!ids.has(e.id)));
+      setCDados(prev=>prev.filter(d=>!ids.has(d.empresaId)));
+      setCObs(prev=>prev.filter(o=>!ids.has(o.empresaId)));
+      setSelectedEmps(new Set());
+      setBatchMode(false);
+      toast(`🗑 ${deleteModal.ids.length} empresa(s) excluída(s)!`,"ok");
+    } else if(deleteModal.type==="grupo"){
+      const gid=deleteModal.ids[0];
+      setCGrupos(prev=>prev.filter(g=>g.id!==gid));
+      // Desvincular empresas desse grupo
+      setCEmpresas(prev=>prev.map(e=>e.grupoId===gid?{...e,grupoId:null}:e));
+      // Remove subgrupos que têm esse pai
+      setCGrupos(prev=>prev.map(g=>g.parentId===gid?{...g,parentId:null}:g));
+      toast(`🗑 Grupo excluído!`,"ok");
+    }
+    setDeleteModal(null);
+    setDeleteTyped("");
   };
 
-  // Stats globais
+  // ─── Grupo CRUD ───────────────────────────────────────────────
+  const adicionarGrupoC=()=>{
+    if(!novoGrupoForm.nome.trim()){toast("Digite o nome do grupo","err");return;}
+    if(cGrupos.some(g=>g.nome.toLowerCase()===novoGrupoForm.nome.toLowerCase())){toast("Grupo já existe!","warn");return;}
+    const parentId=novoGrupoForm.parentId?parseInt(novoGrupoForm.parentId):null;
+    setCGrupos(prev=>[...prev,{id:nextGrpId,nome:novoGrupoForm.nome.trim(),parentId}]);
+    setNextGrpId(n=>n+1);
+    setShowGrupoModal(false);
+    setNovoGrupoForm({nome:"",parentId:""});
+    toast(`Grupo "${novoGrupoForm.nome}" criado!`,"ok");
+  };
+
+  // ─── Filters ──────────────────────────────────────────────────
   const empresasFiltradas=useMemo(()=>cEmpresas.filter(e=>{
     if(filterEmp&&!e.nome.toLowerCase().includes(filterEmp.toLowerCase())) return false;
     if(filterGrp==="__sem__"&&e.grupoId!==null) return false;
@@ -8229,44 +8379,91 @@ function ContabilPage({toast}){
 
   const empresasECD=useMemo(()=>empresasFiltradas.filter(e=>isLiberado(e.id)&&precisaECD(e.regime)),[empresasFiltradas,cDados]);
 
-  // Styles
-  const cSt={
-    regSimples:{background:"#d1fae5",color:"#065f46",padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700},
-    regLucro:{background:"#e0e7ff",color:"#3730a3",padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700},
-    regImune:{background:"#dbeafe",color:"#1e40af",padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700},
-    regIsenta:{background:"#fef3c7",color:"#92400e",padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700},
-    stOk:{background:"#d1fae5",color:"#065f46",padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer",display:"inline-block",minWidth:78,textAlign:"center"},
-    stPend:{background:"#fff4e0",color:"#b45f06",padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer",display:"inline-block",minWidth:78,textAlign:"center"},
-    stNao:{background:"#f1f3f5",color:"#495057",padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer",display:"inline-block",minWidth:78,textAlign:"center"},
-  };
-  const getRegStyle=(r)=>({simples:cSt.regSimples,lucro:cSt.regLucro,imune:cSt.regImune,isenta:cSt.regIsenta}[r]||cSt.regSimples);
-  const getStStyle=(s)=>({ok:cSt.stOk,pendente:cSt.stPend,"nao-iniciado":cSt.stNao}[s]||cSt.stNao);
+  // Grupos raiz e subgrupos
+  const gruposRaiz=useMemo(()=>cGrupos.filter(g=>!g.parentId),[cGrupos]);
+  const getSubgrupos=(pid)=>cGrupos.filter(g=>g.parentId===pid);
 
+  // ─── Selection ───────────────────────────────────────────────
+  const toggleSel=(id)=>setSelectedEmps(prev=>{const n=new Set(prev);n.has(id)?n.delete(id):n.add(id);return n;});
+  const selAll=()=>setSelectedEmps(new Set(empresasFiltradas.map(e=>e.id)));
+  const selNone=()=>setSelectedEmps(new Set());
+
+  // ─── Import ──────────────────────────────────────────────────
+  const handleImportCSV=(e)=>{
+    const file=e.target.files[0];if(!file)return;
+    const reader=new FileReader();
+    reader.onload=ev=>{
+      const lines=ev.target.result.split("\n").filter(l=>l.trim());
+      let importados=0,erros=[];
+      for(let i=1;i<lines.length;i++){
+        const cols=lines[i].split(",").map(c=>c.trim().replace(/^"|"$/g,""));
+        const [nome,grupoNome,regime,periodoInicial]=cols;
+        if(!nome){erros.push(`Linha ${i+1}: sem nome`);continue;}
+        if(!regime||!["simples","lucro","imune","isenta"].includes(regime.toLowerCase())){erros.push(`${nome}: regime inválido`);continue;}
+        const pi=periodoInicial?.trim();
+        if(!pi||!TODOS_MESES_C.includes(pi)){erros.push(`${nome}: período inválido (${pi})`);continue;}
+        if(cEmpresas.some(emp=>emp.nome.toLowerCase()===nome.toLowerCase())){erros.push(`${nome}: já existe`);continue;}
+        let gid=null;
+        if(grupoNome&&grupoNome.trim()){
+          let g=cGrupos.find(x=>x.nome.toLowerCase()===grupoNome.trim().toLowerCase());
+          if(!g){g={id:nextGrpId,nome:grupoNome.trim(),parentId:null};setCGrupos(prev=>[...prev,g]);setNextGrpId(n=>n+1);}
+          gid=g.id;
+        }
+        const novoId=nextEmpId+importados;
+        setCEmpresas(prev=>[...prev,{id:novoId,nome,grupoId:gid,subgrupoId:null,regime:regime.toLowerCase(),periodoInicial:pi,expandido:false}]);
+        setCDados(prev=>[...prev,...TODOS_MESES_C.slice(TODOS_MESES_C.indexOf(pi)).map(mes=>({id:`${novoId}_${mes}`,empresaId:novoId,competencia:mes,fiscal:"nao-iniciado",extratos:"nao-iniciado",patrimonio:"nao-iniciado",folha:"nao-iniciado",clienteEnviou:"nao",analisado:false}))]);
+        importados++;
+      }
+      setNextEmpId(n=>n+importados);
+      if(importados>0) toast(`✅ ${importados} empresa(s) importada(s)!`,"ok");
+      if(erros.length>0) toast(`⚠️ ${erros.length} erro(s). Verifique o CSV.`,"warn");
+      setShowImportModal(false);
+    };
+    reader.readAsText(file,"UTF-8");
+    e.target.value="";
+  };
+
+  // ─── RENDER ───────────────────────────────────────────────────
   return(
     <div>
-      {/* Header */}
+      {/* ── Header ── */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:12}}>
         <div>
           <h2 style={{fontSize:20,fontWeight:900,color:"var(--text)",margin:0}}>📊 Controle de Contabilização</h2>
           <p style={{fontSize:13,color:"#64748b",marginTop:4}}>Acompanhe todas as etapas mensais · ECD/ECF · Observações · Grupos</p>
         </div>
-        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
           <Btn onClick={()=>setShowRelGeral(true)} v="ghost" sz="sm" xs={{background:"#f59e0b",color:"#fff",border:"none"}}>📊 Rel. Geral</Btn>
-          <Btn onClick={()=>setShowRelObs(true)} v="ghost" sz="sm" xs={{background:"#8b5cf6",color:"#fff",border:"none"}}>📋 Observações</Btn>
+          <Btn onClick={()=>setObsResModal(true)} v="ghost" sz="sm" xs={{background:"#8b5cf6",color:"#fff",border:"none"}}>
+            📋 Observações{cObs.length>0&&<span style={{marginLeft:4,background:"rgba(255,255,255,.3)",borderRadius:10,padding:"1px 6px",fontSize:10,fontWeight:900}}>{cObs.length}</span>}
+          </Btn>
           <Btn onClick={()=>setShowImportModal(true)} v="ghost" sz="sm" xs={{background:"#10b981",color:"#fff",border:"none"}}>📤 Importar</Btn>
           <Btn onClick={()=>setShowNovaEmpModal(true)} sz="sm">+ Empresa</Btn>
           <Btn onClick={()=>setShowGrupoModal(true)} v="ghost" sz="sm">👥 Grupo</Btn>
+          <Btn onClick={()=>{setBatchMode(b=>!b);setSelectedEmps(new Set());}} v="ghost" sz="sm" xs={{background:batchMode?"#fef2f2":"#f8fafc",color:batchMode?"#dc2626":"var(--text3)",border:`1px solid ${batchMode?"#fca5a5":"var(--border2)"}`}}>
+            {batchMode?"✕ Sair lote":"☑ Selecionar"}
+          </Btn>
         </div>
       </div>
 
-      {/* Filtros */}
+      {/* ── Batch action bar ── */}
+      {batchMode&&(
+        <div style={{display:"flex",gap:8,alignItems:"center",padding:"10px 14px",background:"#fef2f2",borderRadius:10,border:"1px solid #fca5a5",marginBottom:12,flexWrap:"wrap"}}>
+          <span style={{fontSize:12,fontWeight:700,color:"#dc2626"}}>🗂 Modo lote: {selectedEmps.size} selecionada(s)</span>
+          <Btn onClick={selAll} v="ghost" sz="sm">Selec. todas</Btn>
+          <Btn onClick={selNone} v="ghost" sz="sm">Limpar seleção</Btn>
+          {selectedEmps.size>0&&<Btn onClick={confirmarDeleteBatch} sz="sm" xs={{background:"#dc2626",color:"#fff",border:"none"}}>🗑 Excluir selecionadas</Btn>}
+        </div>
+      )}
+
+      {/* ── Filtros ── */}
       <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",padding:"12px 16px",background:"var(--bg2)",borderRadius:12,border:"1px solid var(--border)",marginBottom:16}}>
         <span style={{fontSize:12,fontWeight:700,color:"#64748b"}}>🔍 Empresa:</span>
         <input value={filterEmp} onChange={e=>setFilterEmp(e.target.value)} placeholder="Filtrar..." style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",width:140}}/>
         <span style={{fontSize:12,fontWeight:700,color:"#64748b"}}>👥 Grupo:</span>
         <select value={filterGrp} onChange={e=>setFilterGrp(e.target.value)} style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}}>
           <option value="">Todos</option>
-          {cGrupos.map(g=><option key={g.id} value={g.id}>{g.nome}</option>)}
+          {cGrupos.map(g=><option key={g.id} value={g.id}>{g.parentId?"  ↳ ":""}{g.nome}</option>)}
           <option value="__sem__">-- Sem grupo --</option>
         </select>
         <span style={{fontSize:12,fontWeight:700,color:"#64748b"}}>🏢 Regime:</span>
@@ -8280,7 +8477,7 @@ function ContabilPage({toast}){
         {(filterEmp||filterGrp||filterReg)&&<Btn onClick={()=>{setFilterEmp("");setFilterGrp("");setFilterReg("");}} v="ghost" sz="sm">× Limpar</Btn>}
       </div>
 
-      {/* KPIs */}
+      {/* ── KPIs ── */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:10,marginBottom:20}}>
         {[{v:statsGlobais.total,l:"Empresas",c:"#6366f1"},{v:statsGlobais.meses,l:"Total Meses",c:"#0ea5e9"},{v:statsGlobais.contab,l:"Contabilizados",c:"#8b5cf6"},{v:statsGlobais.analisados,l:"Analisados",c:"#22c55e"},{v:statsGlobais.liberados,l:"Períodos Lib.",c:"#f59e0b"}].map(({v,l,c})=>(
           <div key={l} style={{background:"var(--bg2)",borderRadius:12,padding:"14px",border:"1px solid var(--border)",textAlign:"center",boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
@@ -8290,7 +8487,7 @@ function ContabilPage({toast}){
         ))}
       </div>
 
-      {/* ECD/ECF Section */}
+      {/* ── ECD/ECF ── */}
       {empresasECD.length>0&&(
         <div style={{background:"var(--bg2)",borderRadius:14,border:"1px solid var(--border)",marginBottom:20,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
           <div style={{background:"#7c3aed",padding:"12px 18px",display:"flex",alignItems:"center",gap:10}}>
@@ -8312,10 +8509,15 @@ function ContabilPage({toast}){
                   const s=getStatsEmp(emp.id);
                   const ecdSt=getECDSt(emp.id);
                   const ecfSt=getECFSt(emp.id);
+                  const grpColor=getGrpColor(emp.grupoId);
                   return(
                     <tr key={emp.id} style={{borderBottom:"1px solid var(--border)"}}>
                       <td style={{padding:"10px 12px",fontWeight:700,fontSize:13,color:"var(--text)"}}>{emp.nome}</td>
-                      <td style={{padding:"10px 12px"}}><span style={{background:"#e0e7ff",color:"#3730a3",padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700}}>{getGrupoNomeC(emp.grupoId)}</span></td>
+                      <td style={{padding:"10px 12px"}}>
+                        {emp.grupoId
+                          ?<span style={{background:grpColor+"22",color:grpColor,border:`1px solid ${grpColor}44`,padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700}}>{getGrupoNomeC(emp.grupoId)}</span>
+                          :<span style={{color:"#94a3b8",fontSize:11}}>—</span>}
+                      </td>
                       <td style={{padding:"10px 12px"}}><span style={getRegStyle(emp.regime)}>{getRegimeLbl(emp.regime)}</span></td>
                       <td style={{padding:"10px 12px",fontSize:12,color:"#64748b"}}>{getPeriodoLbl(emp.periodoInicial)}</td>
                       <td style={{padding:"10px 12px",fontWeight:800,fontSize:13}}>{s.analisados}/{s.total}</td>
@@ -8331,112 +8533,94 @@ function ContabilPage({toast}){
         </div>
       )}
 
-      {/* Empresas */}
+      {/* ── Grupos Raiz + Empresas agrupadas ── */}
       {empresasFiltradas.length===0&&<div style={{textAlign:"center",padding:"60px",color:"#94a3b8",border:"2px dashed var(--border)",borderRadius:14,fontSize:14}}>📭 Nenhuma empresa encontrada</div>}
-      {empresasFiltradas.map(emp=>{
-        const stats=getStatsEmp(emp.id);
-        const pct=stats.total>0?Math.round((stats.analisados/stats.total)*100):0;
-        const mesesEmp=getMesesC(emp.periodoInicial);
-        const dadosEmp=getDadosEmp(emp.id);
-        const obsCount=cObs.filter(o=>o.empresaId===emp.id).length;
+
+      {/* Render groups section */}
+      {gruposRaiz.map(grp=>{
+        const color=getGrpColor(grp.id);
+        const empsGrp=empresasFiltradas.filter(e=>e.grupoId===grp.id);
+        // subgrupos dentro desse grupo raiz
+        const subGrps=getSubgrupos(grp.id);
+        const empsSubGrp=subGrps.flatMap(sg=>empresasFiltradas.filter(e=>e.grupoId===sg.id));
+        const allEmps=[...empsGrp,...empsSubGrp];
+        if(allEmps.length===0&&filterGrp&&parseInt(filterGrp)!==grp.id&&!subGrps.some(s=>parseInt(filterGrp)===s.id)) return null;
+        if(allEmps.length===0&&!filterGrp&&!filterEmp&&!filterReg) return null;
+        if(allEmps.length===0) return null;
         return(
-          <div key={emp.id} style={{background:"var(--bg2)",borderRadius:14,marginBottom:12,border:"1px solid var(--border)",overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
-            {/* Header */}
-            <div onClick={()=>toggleEmpC(emp.id)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 20px",cursor:"pointer",background:"var(--bg3)",flexWrap:"wrap",gap:10,transition:"background .1s"}} onMouseEnter={e=>e.currentTarget.style.background="var(--bg2)"} onMouseLeave={e=>e.currentTarget.style.background="var(--bg3)"}>
-              <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-                <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                  <span style={{fontSize:15,fontWeight:800,color:"var(--text)"}}>🏢 {emp.nome}</span>
-                  <span style={getRegStyle(emp.regime)}>{getRegimeLbl(emp.regime)}</span>
-                  <span style={{background:"#e0e7ff",color:"#3730a3",padding:"2px 8px",borderRadius:12,fontSize:11,fontWeight:700}}>{getGrupoNomeC(emp.grupoId)}</span>
-                  <span style={{background:"#e2e8f0",color:"#475569",padding:"2px 8px",borderRadius:12,fontSize:11}}>📅 {getPeriodoLbl(emp.periodoInicial)}</span>
-                  {obsCount>0&&<span style={{background:"#f59e0b",color:"#fff",padding:"2px 8px",borderRadius:12,fontSize:10,fontWeight:700}}>📝 {obsCount}</span>}
-                </div>
-                <div style={{display:"flex",gap:16}}>
-                  {[{v:stats.analisados,l:"Analisa."},{v:stats.contabilizados,l:"Contab."},{v:stats.pendentes,l:"Pendentes"}].map(({v,l})=>(
-                    <div key={l} style={{textAlign:"center"}}>
-                      <div style={{fontSize:17,fontWeight:900,color:"var(--text)"}}>{v}</div>
-                      <div style={{fontSize:9,color:"#94a3b8",fontWeight:700,textTransform:"uppercase"}}>{l}</div>
-                    </div>
-                  ))}
-                </div>
-                <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <div style={{width:80,height:7,borderRadius:4,background:"#e2e8f0",overflow:"hidden"}}><div style={{height:"100%",borderRadius:4,background:getProgClr(pct),width:`${pct}%`,transition:"width .4s"}}/></div>
-                  <span style={{fontSize:11,fontWeight:700,color:"#64748b"}}>{pct}%</span>
-                </div>
+          <div key={grp.id} style={{marginBottom:20}}>
+            {/* Group header */}
+            <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",background:color+"18",borderRadius:"12px 12px 0 0",border:`1.5px solid ${color}44`,borderBottom:"none",marginBottom:0}}>
+              <div style={{width:10,height:10,borderRadius:"50%",background:color,flexShrink:0}}/>
+              <span style={{fontSize:13,fontWeight:900,color,letterSpacing:".02em"}}>{grp.nome}</span>
+              <span style={{fontSize:11,color:"#94a3b8",marginLeft:4}}>{allEmps.length} empresa(s)</span>
+              <div style={{marginLeft:"auto",display:"flex",gap:6}}>
+                <button onClick={()=>confirmarDeleteGrupo(grp)} title="Excluir grupo" style={{background:"none",border:"none",cursor:"pointer",color:"#f87171",fontSize:13,padding:"2px 6px",borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.background="#fef2f2"} onMouseLeave={e=>e.currentTarget.style.background="none"}>🗑</button>
               </div>
-              <span style={{fontSize:20,color:"#94a3b8",transition:"transform .3s",transform:emp.expandido?"rotate(180deg)":"none"}}>▼</span>
             </div>
 
-            {/* Detalhes (meses) */}
-            {emp.expandido&&(
-              <div style={{borderTop:"1px solid var(--border)",padding:"16px 20px"}}>
-                <div style={{overflowX:"auto"}}>
-                  <table style={{width:"100%",borderCollapse:"collapse",minWidth:980,fontSize:12}}>
-                    <thead>
-                      <tr style={{background:"#1e3a5f"}}>
-                        {["Mês","📋 Fiscal","💰 Extratos","🏢 Patrimônio","👥 Folha","📬 Cliente","Progresso","📝","🔍 Análise"].map(h=>(
-                          <th key={h} style={{padding:"9px 8px",color:"#fff",fontSize:11,textAlign:"center",fontWeight:700}}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {mesesEmp.map(mes=>{
-                        const dado=dadosEmp.find(d=>d.competencia===mes);
-                        if(!dado) return null;
-                        const contab=estaContab(dado);
-                        const prog=calcProg(dado);
-                        const hasObs=temObs(emp.id,mes);
-                        const rowBg=dado.analisado?"#f0fdf4":contab?"#fffbeb":hasObs?"#fffbeb":"transparent";
-                        return(
-                          <tr key={mes} style={{borderBottom:"1px solid var(--border)",background:rowBg}}>
-                            <td style={{padding:"9px 8px",fontWeight:700,textAlign:"center",color:"var(--text)"}}>{getMesNomeC(mes)}</td>
-                            {["fiscal","extratos","patrimonio","folha"].map(campo=>(
-                              <td key={campo} style={{padding:"9px 6px",textAlign:"center"}}>
-                                <div onClick={()=>alterarStatus(emp.id,mes,campo)} style={getStStyle(dado[campo])}>{getStTxt(dado[campo])}</div>
-                              </td>
-                            ))}
-                            <td style={{padding:"9px 6px",textAlign:"center"}}>
-                              <div onClick={()=>alterarCliente(emp.id,mes)} style={{...getStStyle(dado.clienteEnviou==="sim"?"ok":"nao-iniciado"),cursor:"pointer"}}>{dado.clienteEnviou==="sim"?"✅ Enviou":"❌ Não"}</div>
-                            </td>
-                            <td style={{padding:"9px 8px",textAlign:"center"}}>
-                              <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:5}}>
-                                <span style={{fontSize:10,color:"#64748b",fontWeight:700,minWidth:26}}>{prog}%</span>
-                                <div style={{width:44,height:5,borderRadius:3,background:"#e2e8f0",overflow:"hidden"}}><div style={{height:"100%",borderRadius:3,background:getProgClr(prog),width:`${prog}%`}}/></div>
-                              </div>
-                            </td>
-                            <td style={{padding:"9px 8px",textAlign:"center"}}>
-                              <span onClick={()=>abrirObs(emp.id,mes)} title={hasObs?getObsTxt(emp.id,mes):"Adicionar observação"} style={{fontSize:16,cursor:"pointer",color:hasObs?"#f59e0b":"#94a3b8"}}>📝</span>
-                            </td>
-                            <td style={{padding:"9px 8px",textAlign:"center"}}>
-                              {dado.analisado
-                                ?<span style={{background:"#d1fae5",color:"#065f46",padding:"3px 10px",borderRadius:20,fontSize:10,fontWeight:700}}>✅ Analisado</span>
-                                :contab
-                                  ?<button onClick={()=>analisarMes(emp.id,mes)} style={{background:"#f59e0b",color:"#fff",border:"none",padding:"4px 10px",borderRadius:6,cursor:"pointer",fontSize:10,fontWeight:700,fontFamily:"inherit"}}>🔍 Analisar</button>
-                                  :<span style={{background:"#fff4e0",color:"#b45f06",padding:"3px 10px",borderRadius:20,fontSize:10,fontWeight:700}}>⏳ Aguardando</span>
-                              }
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
+            {/* Empresas diretas do grupo */}
+            <div style={{border:`1.5px solid ${color}44`,borderTop:"none",borderRadius:"0 0 12px 12px",overflow:"hidden",background:"var(--bg2)"}}>
+              {empsGrp.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} isLast={idx===empsGrp.length-1&&subGrps.length===0} {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,grpColor:color}}/>)}
+
+              {/* Subgroups */}
+              {subGrps.map(sg=>{
+                const sgColor=getGrpColor(sg.id);
+                const empsSg=empresasFiltradas.filter(e=>e.grupoId===sg.id);
+                if(empsSg.length===0) return null;
+                return(
+                  <div key={sg.id} style={{marginLeft:0,borderTop:`1.5px solid ${color}33`}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 16px 8px 28px",background:sgColor+"0d",borderBottom:`1px solid ${sgColor}33`}}>
+                      <span style={{fontSize:11,color:"#94a3b8"}}>↳</span>
+                      <div style={{width:7,height:7,borderRadius:"50%",background:sgColor}}/>
+                      <span style={{fontSize:12,fontWeight:800,color:sgColor}}>{sg.nome}</span>
+                      <span style={{fontSize:10,color:"#94a3b8"}}>{empsSg.length} empresa(s)</span>
+                      <button onClick={()=>confirmarDeleteGrupo(sg)} title="Excluir subgrupo" style={{background:"none",border:"none",cursor:"pointer",color:"#f87171",fontSize:11,padding:"2px 6px",borderRadius:6,marginLeft:"auto"}} onMouseEnter={e=>e.currentTarget.style.background="#fef2f2"} onMouseLeave={e=>e.currentTarget.style.background="none"}>🗑</button>
+                    </div>
+                    {empsSg.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} isLast={idx===empsSg.length-1} indent {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,grpColor:sgColor}}/>)}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         );
       })}
 
-      {/* Modal Nova Empresa */}
-      <Modal open={showNovaEmpModal} onClose={()=>setShowNovaEmpModal(false)} title="➕ Nova Empresa" width={440}>
+      {/* Empresas sem grupo */}
+      {(()=>{
+        const semGrp=empresasFiltradas.filter(e=>!e.grupoId);
+        if(semGrp.length===0) return null;
+        return(
+          <div style={{marginBottom:20}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 14px",background:"var(--bg3)",borderRadius:"10px 10px 0 0",border:"1px solid var(--border)",borderBottom:"none"}}>
+              <span style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".08em"}}>Sem Grupo</span>
+              <span style={{fontSize:11,color:"#94a3b8"}}>{semGrp.length} empresa(s)</span>
+            </div>
+            <div style={{border:"1px solid var(--border)",borderTop:"none",borderRadius:"0 0 10px 10px",overflow:"hidden",background:"var(--bg2)"}}>
+              {semGrp.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} isLast={idx===semGrp.length-1} {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,grpColor:"#94a3b8"}}/>)}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Modal Nova Empresa ── */}
+      <Modal open={showNovaEmpModal} onClose={()=>setShowNovaEmpModal(false)} title="➕ Nova Empresa" width={460}>
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
           <Inp label="Nome *" value={novaEmpForm.nome} onChange={v=>setNovaEmpForm(f=>({...f,nome:v}))} placeholder="Nome da empresa"/>
-          <Fld label="Grupo">
-            <select value={novaEmpForm.grupoId} onChange={e=>setNovaEmpForm(f=>({...f,grupoId:e.target.value}))} style={{padding:"8px 12px",borderRadius:9,border:"2px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",width:"100%"}}>
+          <Fld label="Grupo principal">
+            <select value={novaEmpForm.grupoId} onChange={e=>setNovaEmpForm(f=>({...f,grupoId:e.target.value,subgrupoId:""}))} style={{padding:"8px 12px",borderRadius:9,border:"2px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",width:"100%"}}>
               <option value="">-- Sem grupo --</option>
-              {cGrupos.map(g=><option key={g.id} value={g.id}>{g.nome}</option>)}
+              {gruposRaiz.map(g=><option key={g.id} value={g.id}>{g.nome}</option>)}
             </select>
           </Fld>
+          {novaEmpForm.grupoId&&getSubgrupos(parseInt(novaEmpForm.grupoId)).length>0&&(
+            <Fld label="Subgrupo (opcional)">
+              <select value={novaEmpForm.subgrupoId} onChange={e=>setNovaEmpForm(f=>({...f,subgrupoId:e.target.value}))} style={{padding:"8px 12px",borderRadius:9,border:"2px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",width:"100%"}}>
+                <option value="">-- Direto no grupo principal --</option>
+                {getSubgrupos(parseInt(novaEmpForm.grupoId)).map(sg=><option key={sg.id} value={sg.id}>{sg.nome}</option>)}
+              </select>
+            </Fld>
+          )}
           <Fld label="Regime">
             <select value={novaEmpForm.regime} onChange={e=>setNovaEmpForm(f=>({...f,regime:e.target.value}))} style={{padding:"8px 12px",borderRadius:9,border:"2px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",width:"100%"}}>
               <option value="simples">🟢 Simples Nacional</option>
@@ -8457,10 +8641,27 @@ function ContabilPage({toast}){
         </div>
       </Modal>
 
-      {/* Modal Novo Grupo */}
-      <Modal open={showGrupoModal} onClose={()=>setShowGrupoModal(false)} title="👥 Novo Grupo" width={380}>
+      {/* ── Modal Novo Grupo / Subgrupo ── */}
+      <Modal open={showGrupoModal} onClose={()=>setShowGrupoModal(false)} title="👥 Criar Grupo ou Subgrupo" width={420}>
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
-          <Inp label="Nome do grupo" value={novoGrupoNome} onChange={setNovoGrupoNome} placeholder="Ex: Holding ABC"/>
+          <div style={{padding:"10px 14px",borderRadius:10,background:"#e0e7ff",border:"1px solid #c7d2fe",fontSize:12,color:"#3730a3",lineHeight:1.6}}>
+            <strong>💡 Dica:</strong> Deixe "Grupo pai" em branco para criar um grupo principal. Selecione um grupo pai para criar um subgrupo dentro dele.
+          </div>
+          <Inp label="Nome do grupo/subgrupo *" value={novoGrupoForm.nome} onChange={v=>setNovoGrupoForm(f=>({...f,nome:v}))} placeholder="Ex: Holding ABC, Filiais Sul..."/>
+          <Fld label="Grupo pai (para subgrupo)">
+            <select value={novoGrupoForm.parentId} onChange={e=>setNovoGrupoForm(f=>({...f,parentId:e.target.value}))} style={{padding:"8px 12px",borderRadius:9,border:"2px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",width:"100%"}}>
+              <option value="">-- Grupo principal (sem pai) --</option>
+              {gruposRaiz.map(g=><option key={g.id} value={g.id}>{g.nome}</option>)}
+            </select>
+          </Fld>
+          {/* Preview color */}
+          {novoGrupoForm.nome.trim()&&(
+            <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderRadius:8,background:"var(--bg3)",border:"1px solid var(--border)"}}>
+              <div style={{width:10,height:10,borderRadius:"50%",background:GRP_COLORS[nextGrpId%GRP_COLORS.length]}}/>
+              <span style={{fontSize:12,fontWeight:700,color:GRP_COLORS[nextGrpId%GRP_COLORS.length]}}>{novoGrupoForm.nome}</span>
+              {novoGrupoForm.parentId&&<span style={{fontSize:11,color:"#94a3b8"}}> (subgrupo de {gruposRaiz.find(g=>g.id===parseInt(novoGrupoForm.parentId))?.nome})</span>}
+            </div>
+          )}
           <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
             <Btn onClick={()=>setShowGrupoModal(false)} v="ghost">Cancelar</Btn>
             <Btn onClick={adicionarGrupoC}>Criar</Btn>
@@ -8468,7 +8669,7 @@ function ContabilPage({toast}){
         </div>
       </Modal>
 
-      {/* Modal Observação */}
+      {/* ── Modal Observação ── */}
       <Modal open={!!obsModal} onClose={()=>setObsModal(null)} title="📝 Observação" width={440}>
         {obsModal&&(
           <div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -8484,7 +8685,93 @@ function ContabilPage({toast}){
         )}
       </Modal>
 
-      {/* Modal Relatório Geral */}
+      {/* ── Modal Resumo Observações ── */}
+      {obsResModal&&(
+        <div onClick={e=>e.target===e.currentTarget&&setObsResModal(false)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.6)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}>
+          <div style={{background:"var(--bg2)",borderRadius:18,width:"100%",maxWidth:700,maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:"0 32px 80px rgba(0,0,0,.3)",overflow:"hidden"}}>
+            <div style={{background:"#8b5cf6",padding:"16px 22px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+              <div>
+                <span style={{fontSize:15,fontWeight:900,color:"#fff"}}>📋 Resumo de Todas as Observações</span>
+                <span style={{fontSize:12,color:"rgba(255,255,255,.7)",marginLeft:10}}>{cObs.length} observação(ões)</span>
+              </div>
+              <button onClick={()=>setObsResModal(false)} style={{background:"none",border:"none",color:"#fff",fontSize:22,cursor:"pointer",lineHeight:1}}>×</button>
+            </div>
+            <div style={{padding:"20px",overflowY:"auto",flex:1}}>
+              {cObs.length===0&&<div style={{textAlign:"center",padding:"40px",color:"#94a3b8"}}>📭 Nenhuma observação cadastrada</div>}
+              {/* Group by empresa */}
+              {cEmpresas.map(emp=>{
+                const obsEmp=cObs.filter(o=>o.empresaId===emp.id);
+                if(obsEmp.length===0) return null;
+                return(
+                  <div key={emp.id} style={{marginBottom:16}}>
+                    <div style={{fontSize:13,fontWeight:800,color:"#6366f1",marginBottom:8,borderBottom:"1px solid var(--border)",paddingBottom:6}}>🏢 {emp.nome}</div>
+                    {obsEmp.map((o,i)=>(
+                      <div key={i} style={{padding:"10px 14px",borderRadius:10,marginBottom:6,background:"#fffbeb",border:"1px solid #fde68a",fontSize:12,color:"#92400e",display:"flex",gap:10,alignItems:"flex-start"}}>
+                        <span style={{fontWeight:800,flexShrink:0,color:"#b45f06"}}>{getMesNomeC(o.competencia)}:</span>
+                        <span style={{flex:1}}>{o.texto}</span>
+                        <button onClick={()=>{abrirObs(o.empresaId,o.competencia);setObsResModal(false);}} title="Editar" style={{background:"none",border:"none",cursor:"pointer",fontSize:14,padding:2,color:"#8b5cf6",flexShrink:0}}>✏️</button>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal Reverter Análise ── */}
+      {revertModal&&(
+        <div onClick={e=>e.target===e.currentTarget&&setRevertModal(null)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.6)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}>
+          <div style={{background:"var(--bg2)",borderRadius:16,width:"100%",maxWidth:420,padding:"24px",boxShadow:"0 32px 80px rgba(0,0,0,.3)",animation:"popIn .22s cubic-bezier(.34,1.56,.64,1)"}}>
+            <div style={{fontSize:32,textAlign:"center",marginBottom:12}}>↩</div>
+            <div style={{fontSize:15,fontWeight:900,color:"var(--text)",marginBottom:8,textAlign:"center"}}>Reverter Análise?</div>
+            <div style={{fontSize:13,color:"#64748b",marginBottom:20,textAlign:"center",lineHeight:1.6}}>
+              O mês <strong>{getMesNomeC(revertModal.competencia)}</strong> de <strong>{cEmpresas.find(e=>e.id===revertModal.empresaId)?.nome}</strong> voltará para <strong>"Analisar"</strong> e poderá ser editado novamente.
+            </div>
+            <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+              <Btn onClick={()=>setRevertModal(null)} v="ghost">Cancelar</Btn>
+              <Btn onClick={()=>reverterAnalise(revertModal.empresaId,revertModal.competencia)} xs={{background:"#f59e0b",color:"#fff",border:"none"}}>↩ Reverter</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal Delete ── */}
+      {deleteModal&&(
+        <div onClick={e=>e.target===e.currentTarget&&setDeleteModal(null)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.72)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}}>
+          <div style={{background:"var(--bg2)",borderRadius:20,width:"100%",maxWidth:440,boxShadow:"0 32px 80px rgba(0,0,0,.35)",animation:"popIn .22s cubic-bezier(.34,1.56,.64,1)",overflow:"hidden"}}>
+            <div style={{background:"linear-gradient(135deg,#fef2f2,#fff0f0)",padding:"20px 24px 16px",borderBottom:"1px solid #fecaca",display:"flex",alignItems:"center",gap:14}}>
+              <div style={{width:46,height:46,borderRadius:13,background:"linear-gradient(135deg,#ef4444,#dc2626)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0,boxShadow:"0 4px 12px rgba(239,68,68,.35)"}}>🗑</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:15,fontWeight:900,color:"#991b1b"}}>Confirmar exclusão</div>
+                <div style={{fontSize:12,color:"#ef4444",marginTop:2,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{deleteModal.title}</div>
+              </div>
+              <button onClick={()=>setDeleteModal(null)} style={{background:"none",border:"none",cursor:"pointer",color:"#fca5a5",fontSize:20}} >×</button>
+            </div>
+            <div style={{padding:"20px 24px"}}>
+              <div style={{padding:"14px 16px",borderRadius:12,background:"#fef2f2",border:"1.5px solid #fecaca",marginBottom:16}}>
+                <p style={{fontSize:13,color:"#7f1d1d",lineHeight:1.6,margin:0}}>
+                  ⚠️ Esta ação é <strong>irreversível</strong>. Todos os dados desta(s) empresa(s) serão permanentemente excluídos.
+                </p>
+              </div>
+              <p style={{fontSize:13,color:"#374151",marginBottom:10,lineHeight:1.6}}>
+                Para confirmar, digite <strong style={{color:"#ef4444",letterSpacing:2,fontFamily:"monospace"}}>EXCLUIR</strong>:
+              </p>
+              <input autoFocus value={deleteTyped} onChange={e=>setDeleteTyped(e.target.value)} onKeyDown={e=>e.key==="Enter"&&executarDelete()}
+                placeholder="EXCLUIR"
+                style={{width:"100%",padding:"11px 14px",borderRadius:10,fontSize:14,fontWeight:800,letterSpacing:3,border:`2px solid ${deleteTyped.toUpperCase()==="EXCLUIR"?"#22c55e":"#e5e7eb"}`,outline:"none",fontFamily:"monospace",textTransform:"uppercase",color:"#0f172a",background:deleteTyped.toUpperCase()==="EXCLUIR"?"#f0fdf4":"#fff",animation:deleteShake?"shake .4s ease":"none",boxSizing:"border-box"}}
+              />
+              <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16}}>
+                <Btn onClick={()=>setDeleteModal(null)} v="ghost">Cancelar</Btn>
+                <Btn onClick={executarDelete} xs={{background:"#dc2626",color:"#fff",border:"none",opacity:deleteTyped.toUpperCase()==="EXCLUIR"?1:.5}}>🗑 Excluir</Btn>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal Relatório Geral ── */}
       {showRelGeral&&(
         <div onClick={e=>e.target===e.currentTarget&&setShowRelGeral(false)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.6)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}>
           <div style={{background:"var(--bg2)",borderRadius:18,width:"100%",maxWidth:860,maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:"0 32px 80px rgba(0,0,0,.3)",overflow:"hidden"}}>
@@ -8493,33 +8780,55 @@ function ContabilPage({toast}){
               <button onClick={()=>setShowRelGeral(false)} style={{background:"none",border:"none",color:"#fff",fontSize:22,cursor:"pointer",lineHeight:1}}>×</button>
             </div>
             <div style={{padding:"20px",overflowY:"auto",flex:1}}>
-              {/* Resumo */}
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:10,marginBottom:20,padding:"14px",borderRadius:12,background:"#e0e7ff",border:"1px solid #c7d2fe"}}>
                 {[{l:"Empresas",v:statsGlobais.total},{l:"Total Meses",v:statsGlobais.meses},{l:"Contabilizados",v:statsGlobais.contab},{l:"Analisados",v:statsGlobais.analisados},{l:"Liberados",v:statsGlobais.liberados},{l:"Observações",v:cObs.length}].map(({l,v})=>(
                   <div key={l}><strong style={{fontSize:13}}>{l}:</strong> <span style={{fontSize:14,fontWeight:900,color:"#3730a3"}}>{v}</span></div>
                 ))}
               </div>
-              {/* Por empresa */}
+              {/* Resumo por ano */}
+              <div style={{marginBottom:20}}>
+                {ANOS.map(ano=>{
+                  const totalAno=cEmpresas.reduce((acc,e)=>{const r=getResumoAno(e.id,ano);return{total:acc.total+r.total,analisados:acc.analisados+r.analisados,contabilizados:acc.contabilizados+r.contabilizados};},{total:0,analisados:0,contabilizados:0});
+                  if(totalAno.total===0) return null;
+                  return(
+                    <div key={ano} style={{padding:"10px 14px",borderRadius:10,marginBottom:8,background:"#f0fdf4",border:"1px solid #86efac",display:"flex",gap:16,alignItems:"center",flexWrap:"wrap"}}>
+                      <span style={{fontSize:14,fontWeight:900,color:"#065f46"}}>📅 {ano}</span>
+                      <span style={{fontSize:12,color:"#374151"}}>Analisados: <strong>{totalAno.analisados}/{totalAno.total}</strong></span>
+                      <span style={{fontSize:12,color:"#374151"}}>Contabilizados: <strong>{totalAno.contabilizados}/{totalAno.total}</strong></span>
+                      <div style={{flex:1,minWidth:120}}>
+                        <div style={{height:6,borderRadius:3,background:"#e2e8f0",overflow:"hidden"}}>
+                          <div style={{height:"100%",borderRadius:3,background:"#22c55e",width:`${totalAno.total>0?Math.round((totalAno.analisados/totalAno.total)*100):0}%`,transition:"width .4s"}}/>
+                        </div>
+                      </div>
+                      <span style={{fontSize:11,fontWeight:700,color:"#22c55e"}}>{totalAno.total>0?Math.round((totalAno.analisados/totalAno.total)*100):0}%</span>
+                    </div>
+                  );
+                })}
+              </div>
               {cEmpresas.map(emp=>{
                 const s=getStatsEmp(emp.id);
                 const pct=s.total>0?Math.round((s.analisados/s.total)*100):0;
                 const obsEmp=cObs.filter(o=>o.empresaId===emp.id);
+                const grpColor=getGrpColor(emp.grupoId);
                 return(
                   <div key={emp.id} style={{border:"1px solid var(--border)",borderRadius:12,marginBottom:14,overflow:"hidden"}}>
                     <div style={{background:"var(--bg3)",padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
                       <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                         <strong style={{fontSize:14}}>🏢 {emp.nome}</strong>
                         <span style={getRegStyle(emp.regime)}>{getRegimeLbl(emp.regime)}</span>
-                        <span style={{background:"#e0e7ff",color:"#3730a3",padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700}}>{getGrupoNomeC(emp.grupoId)}</span>
+                        {emp.grupoId&&<span style={{background:grpColor+"22",color:grpColor,border:`1px solid ${grpColor}44`,padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700}}>{getGrupoNomeC(emp.grupoId)}</span>}
                       </div>
                       <div style={{display:"flex",gap:12,alignItems:"center"}}>
-                        <span style={{fontSize:12,color:"#64748b"}}>📅 {getPeriodoLbl(emp.periodoInicial)}</span>
                         <span style={{fontSize:12,fontWeight:700,color:getProgClr(pct)}}>{pct}% completo</span>
                         {isLiberado(emp.id)&&<span style={{background:"#d1fae5",color:"#065f46",padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700}}>✅ Liberado</span>}
-                        {obsEmp.length>0&&<span style={{background:"#fef3c7",color:"#92400e",padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700}}>📝 {obsEmp.length}</span>}
+                        {obsEmp.length>0&&<span style={{background:"#fef3c7",color:"#92400e",padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700}}>📝 {obsEmp.length} obs.</span>}
                       </div>
                     </div>
                     <div style={{padding:"12px 16px"}}>
+                      {/* Resumo por ano para essa empresa */}
+                      <div style={{display:"flex",gap:16,marginBottom:8,flexWrap:"wrap"}}>
+                        {ANOS.map(ano=>{const r=getResumoAno(emp.id,ano);if(r.total===0)return null;return(<span key={ano} style={{fontSize:11,background:"#e0e7ff",color:"#3730a3",padding:"2px 8px",borderRadius:8,fontWeight:700}}>{ano}: {r.analisados}/{r.total} analisados</span>);})}
+                      </div>
                       <div style={{display:"flex",gap:16,marginBottom:10,flexWrap:"wrap",fontSize:12}}>
                         <span><strong>Contabilizados:</strong> {s.contabilizados}/{s.total}</span>
                         <span><strong>Analisados:</strong> {s.analisados}/{s.total}</span>
@@ -8546,97 +8855,25 @@ function ContabilPage({toast}){
         </div>
       )}
 
-      {/* Modal Observações */}
-      {showRelObs&&(
-        <div onClick={e=>e.target===e.currentTarget&&setShowRelObs(false)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.6)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}>
-          <div style={{background:"var(--bg2)",borderRadius:18,width:"100%",maxWidth:700,maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:"0 32px 80px rgba(0,0,0,.3)",overflow:"hidden"}}>
-            <div style={{background:"#8b5cf6",padding:"16px 22px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
-              <span style={{fontSize:15,fontWeight:900,color:"#fff"}}>📋 Relatório de Observações</span>
-              <button onClick={()=>setShowRelObs(false)} style={{background:"none",border:"none",color:"#fff",fontSize:22,cursor:"pointer",lineHeight:1}}>×</button>
-            </div>
-            <div style={{padding:"20px",overflowY:"auto",flex:1}}>
-              {cObs.length===0&&<div style={{textAlign:"center",padding:"40px",color:"#94a3b8"}}>📭 Nenhuma observação cadastrada</div>}
-              {cObs.map((obs,i)=>{
-                const emp=cEmpresas.find(e=>e.id===obs.empresaId);
-                return emp?(
-                  <div key={i} style={{padding:"12px 16px",borderRadius:10,marginBottom:8,background:"var(--bg3)",border:"1px solid var(--border)"}}>
-                    <div style={{fontSize:12,fontWeight:800,color:"#6366f1",marginBottom:4}}>{emp.nome} — {getMesNomeC(obs.competencia)}</div>
-                    <div style={{fontSize:13,color:"var(--text)"}}>{obs.texto}</div>
-                  </div>
-                ):null;
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal Importar */}
+      {/* ── Modal Importar ── */}
       {showImportModal&&(
         <div onClick={e=>e.target===e.currentTarget&&setShowImportModal(false)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.6)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}>
           <div style={{background:"var(--bg2)",borderRadius:18,width:"100%",maxWidth:700,maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:"0 32px 80px rgba(0,0,0,.3)",overflow:"hidden"}}>
             <div style={{background:"#10b981",padding:"16px 22px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
-              <span style={{fontSize:15,fontWeight:900,color:"#fff"}}>📤 Importar Empresas via Excel/CSV</span>
+              <span style={{fontSize:15,fontWeight:900,color:"#fff"}}>📤 Importar Empresas via CSV</span>
               <button onClick={()=>setShowImportModal(false)} style={{background:"none",border:"none",color:"#fff",fontSize:22,cursor:"pointer",lineHeight:1}}>×</button>
             </div>
             <div style={{padding:"20px",overflowY:"auto",flex:1}}>
               <div style={{padding:"14px",borderRadius:10,background:"#fef3c7",marginBottom:16,fontSize:13,color:"#92400e",lineHeight:1.6}}>
-                <strong>⚠️ Formato esperado (CSV):</strong><br/>
+                <strong>⚠️ Formato CSV:</strong><br/>
                 Colunas: <strong>EMPRESA, GRUPO, REGIME, PERIODO_INICIAL</strong><br/>
-                Regimes válidos: simples, lucro, imune, isenta<br/>
-                Período: MM/AAAA (ex: 01/2025, 11/2025)
-              </div>
-              <div style={{border:"2px solid #e2e8f0",borderRadius:10,padding:"12px",marginBottom:14,fontSize:12,overflowX:"auto"}}>
-                <table style={{borderCollapse:"collapse",width:"100%"}}>
-                  <thead><tr style={{background:"#f1f5f9"}}>{["EMPRESA","GRUPO","REGIME","PERIODO_INICIAL"].map(h=><th key={h} style={{padding:"6px 10px",textAlign:"left",fontWeight:700,borderBottom:"1px solid #e2e8f0"}}>{h}</th>)}</tr></thead>
-                  <tbody>
-                    {[["Empresa Alpha","Holding ABC","lucro","01/2025"],["Empresa Beta","Grupo XYZ","simples","03/2025"],["Empresa Gama","","imune","11/2025"]].map((row,i)=>(
-                      <tr key={i}>{row.map((c,j)=><td key={j} style={{padding:"5px 10px",borderBottom:"1px solid #f1f5f9"}}>{c}</td>)}</tr>
-                    ))}
-                  </tbody>
-                </table>
+                Regimes: simples, lucro, imune, isenta · Período: MM/AAAA
               </div>
               <div style={{display:"flex",gap:10,marginBottom:10,flexWrap:"wrap"}}>
-                <button onClick={()=>{
-                  const csvContent = "EMPRESA,GRUPO,REGIME,PERIODO_INICIAL\nEmpresa Alpha,Holding ABC,lucro,01/2025\nEmpresa Beta,Grupo XYZ,simples,03/2025\nEmpresa Gama,,imune,11/2025\nEmpresa Delta,Holding ABC,isenta,01/2026";
-                  const blob=new Blob([csvContent],{type:"text/csv;charset=utf-8;"});
-                  const link=document.createElement("a");link.href=URL.createObjectURL(blob);link.download="modelo_importacao.csv";link.click();URL.revokeObjectURL(link.href);
-                  toast("📎 Modelo CSV baixado!","ok");
-                }} style={{padding:"8px 16px",borderRadius:8,border:"none",background:"#10b981",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>📎 Baixar Modelo CSV</button>
+                <button onClick={()=>{const c="EMPRESA,GRUPO,REGIME,PERIODO_INICIAL\nEmpresa Alpha,Holding ABC,lucro,01/2025\nEmpresa Beta,Grupo XYZ,simples,03/2025";const b=new Blob([c],{type:"text/csv"});const l=document.createElement("a");l.href=URL.createObjectURL(b);l.download="modelo.csv";l.click();URL.revokeObjectURL(l.href);toast("📎 Modelo CSV baixado!","ok");}} style={{padding:"8px 16px",borderRadius:8,border:"none",background:"#10b981",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>📎 Baixar Modelo</button>
                 <label style={{padding:"8px 16px",borderRadius:8,border:"none",background:"#6366f1",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer"}}>
-                  📂 Selecionar Arquivo CSV
-                  <input type="file" accept=".csv,.txt" style={{display:"none"}} onChange={e=>{
-                    const file=e.target.files[0];if(!file)return;
-                    const reader=new FileReader();
-                    reader.onload=ev=>{
-                      const lines=ev.target.result.split("\n").filter(l=>l.trim());
-                      let importados=0,erros=[];
-                      for(let i=1;i<lines.length;i++){
-                        const cols=lines[i].split(",").map(c=>c.trim().replace(/^"|"$/g,""));
-                        const [nome,grupoNome,regime,periodoInicial]=cols;
-                        if(!nome){erros.push(`Linha ${i+1}: sem nome`);continue;}
-                        if(!regime||!["simples","lucro","imune","isenta"].includes(regime.toLowerCase())){erros.push(`${nome}: regime inválido`);continue;}
-                        const pi=periodoInicial?.trim();
-                        if(!pi||!TODOS_MESES_C.includes(pi)){erros.push(`${nome}: período inválido (${pi})`);continue;}
-                        if(cEmpresas.some(emp=>emp.nome.toLowerCase()===nome.toLowerCase())){erros.push(`${nome}: já existe`);continue;}
-                        let gid=null;
-                        if(grupoNome&&grupoNome.trim()){
-                          let g=cGrupos.find(x=>x.nome.toLowerCase()===grupoNome.trim().toLowerCase());
-                          if(!g){g={id:nextGrpId,nome:grupoNome.trim()};setCGrupos(prev=>[...prev,g]);setNextGrpId(n=>n+1);}
-                          gid=g.id;
-                        }
-                        const novoId=nextEmpId+importados;
-                        setCEmpresas(prev=>[...prev,{id:novoId,nome,grupoId:gid,regime:regime.toLowerCase(),periodoInicial:pi,expandido:false}]);
-                        setCDados(prev=>[...prev,...TODOS_MESES_C.slice(TODOS_MESES_C.indexOf(pi)).map(mes=>({id:`${novoId}_${mes}`,empresaId:novoId,competencia:mes,fiscal:"nao-iniciado",extratos:"nao-iniciado",patrimonio:"nao-iniciado",folha:"nao-iniciado",clienteEnviou:"nao",analisado:false}))]);
-                        importados++;
-                      }
-                      setNextEmpId(n=>n+importados);
-                      if(importados>0) toast(`✅ ${importados} empresa(s) importada(s)!`,"ok");
-                      if(erros.length>0) toast(`⚠️ ${erros.length} erro(s). Verifique o CSV.`,"warn");
-                      setShowImportModal(false);
-                    };
-                    reader.readAsText(file,"UTF-8");
-                    e.target.value="";
-                  }}/>
+                  📂 Selecionar CSV
+                  <input type="file" accept=".csv,.txt" style={{display:"none"}} onChange={handleImportCSV}/>
                 </label>
               </div>
             </div>
@@ -8645,6 +8882,149 @@ function ContabilPage({toast}){
       )}
     </div>
   );
+}
+
+/* Sub-component: EmpresaRow */
+function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,grpColor}){
+  const stats=getStatsEmp(emp.id);
+  const pct=stats.total>0?Math.round((stats.analisados/stats.total)*100):0;
+  const mesesEmp=getMesesC(emp.periodoInicial);
+  const dadosEmp=getDadosEmp(emp.id);
+  const obsCount=cObs.filter(o=>o.empresaId===emp.id).length;
+  const isSelected=selectedEmps.has(emp.id);
+
+  return(
+    <div style={{borderBottom:isLast?"none":"1px solid var(--border)",background:isSelected?"#eff6ff":undefined}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:indent?"14px 20px 14px 36px":"14px 20px",cursor:"pointer",flexWrap:"wrap",gap:10,transition:"background .1s",background:emp.expandido?"var(--bg2)":undefined}}
+        onMouseEnter={e=>!batchMode&&(e.currentTarget.style.background="rgba(99,102,241,.04)")}
+        onMouseLeave={e=>!batchMode&&!emp.expandido&&(e.currentTarget.style.background="transparent")}
+      >
+        {/* Checkbox (batch mode) */}
+        {batchMode&&(
+          <input type="checkbox" checked={isSelected} onChange={()=>toggleSel(emp.id)} onClick={e=>e.stopPropagation()} style={{width:16,height:16,cursor:"pointer",accentColor:"#6366f1",flexShrink:0}}/>
+        )}
+        {/* Main info — click to toggle */}
+        <div onClick={()=>toggleEmpC(emp.id)} style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",flex:1,minWidth:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+            <span style={{fontSize:14,fontWeight:800,color:"var(--text)"}}>🏢 {emp.nome}</span>
+            <span style={getRegStyle(emp.regime)}>{getRegimeLbl(emp.regime)}</span>
+            {emp.grupoId&&<span style={{background:grpColor+"22",color:grpColor,border:`1px solid ${grpColor}44`,padding:"2px 8px",borderRadius:12,fontSize:11,fontWeight:700}}>{getGrupoNomeC(emp.grupoId)}</span>}
+            <span style={{background:"#e2e8f0",color:"#475569",padding:"2px 8px",borderRadius:12,fontSize:11}}>📅 {emp.periodoInicial}</span>
+            {obsCount>0&&<span style={{background:"#f59e0b",color:"#fff",padding:"2px 8px",borderRadius:12,fontSize:10,fontWeight:700,border:"1.5px solid #d97706"}}>📝 {obsCount} obs.</span>}
+          </div>
+          <div style={{display:"flex",gap:14}}>
+            {[{v:stats.analisados,l:"Analisa."},{v:stats.contabilizados,l:"Contab."},{v:stats.pendentes,l:"Pendentes"}].map(({v,l})=>(
+              <div key={l} style={{textAlign:"center"}}>
+                <div style={{fontSize:16,fontWeight:900,color:"var(--text)"}}>{v}</div>
+                <div style={{fontSize:9,color:"#94a3b8",fontWeight:700,textTransform:"uppercase"}}>{l}</div>
+              </div>
+            ))}
+          </div>
+          {/* Year summary badges */}
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {ANOS.map(ano=>{const r=getResumoAno(emp.id,ano);if(r.total===0)return null;const pctAno=Math.round((r.analisados/r.total)*100);return(<span key={ano} style={{background:pctAno===100?"#d1fae5":"#e0e7ff",color:pctAno===100?"#065f46":"#3730a3",padding:"2px 8px",borderRadius:8,fontSize:10,fontWeight:700,border:`1px solid ${pctAno===100?"#86efac":"#c7d2fe"}`}}>{ano}: {r.analisados}/{r.total} {pctAno===100?"✅":""}</span>);})}
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+            <div style={{width:70,height:6,borderRadius:3,background:"#e2e8f0",overflow:"hidden"}}><div style={{height:"100%",borderRadius:3,background:getProgClr(pct),width:`${pct}%`,transition:"width .4s"}}/></div>
+            <span style={{fontSize:11,fontWeight:700,color:"#64748b"}}>{pct}%</span>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
+          <button onClick={e=>{e.stopPropagation();confirmarDeleteEmp(emp);}} title="Excluir empresa" style={{background:"none",border:"none",cursor:"pointer",color:"#fca5a5",fontSize:14,padding:"3px 7px",borderRadius:6,transition:"all .1s"}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#fca5a5"}>🗑</button>
+          <span onClick={()=>toggleEmpC(emp.id)} style={{fontSize:18,color:"#94a3b8",transition:"transform .3s",transform:emp.expandido?"rotate(180deg)":"none",cursor:"pointer"}}>▼</span>
+        </div>
+      </div>
+
+      {/* Detalhes (meses por ano) */}
+      {emp.expandido&&(
+        <div style={{borderTop:"1px solid var(--border)",padding:"16px 20px",background:"var(--bg3)"}}>
+          {ANOS.map(ano=>{
+            const mesesAno=mesesEmp.filter(m=>m.endsWith("/"+ano));
+            if(mesesAno.length===0) return null;
+            const rAno=getResumoAno(emp.id,ano);
+            return(
+              <div key={ano} style={{marginBottom:16}}>
+                {/* Year header */}
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8,padding:"6px 12px",background:"#1e3a5f",borderRadius:8,color:"#fff"}}>
+                  <span style={{fontSize:12,fontWeight:900}}>📅 {ano}</span>
+                  <span style={{fontSize:11,color:"rgba(255,255,255,.7)"}}>{rAno.analisados}/{rAno.total} analisados · {rAno.contabilizados} contabilizados</span>
+                  {rAno.analisados===rAno.total&&rAno.total>0&&<span style={{marginLeft:"auto",fontSize:11,background:"#22c55e",color:"#fff",padding:"2px 8px",borderRadius:6,fontWeight:700}}>✅ Ano completo</span>}
+                </div>
+                <div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",minWidth:980,fontSize:12}}>
+                    <thead>
+                      <tr style={{background:"#1e3a5f"}}>
+                        {["Mês","📋 Fiscal","💰 Extratos","🏢 Patrimônio","👥 Folha","📬 Cliente","Progresso","📝","🔍 Análise"].map(h=>(
+                          <th key={h} style={{padding:"9px 8px",color:"#fff",fontSize:11,textAlign:"center",fontWeight:700}}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {mesesAno.map(mes=>{
+                        const dado=dadosEmp.find(d=>d.competencia===mes);
+                        if(!dado) return null;
+                        const contab=estaContab(dado);
+                        const prog=calcProg(dado);
+                        const hasObs=temObs(emp.id,mes);
+                        const rowBg=dado.analisado?"rgba(34,197,94,.07)":hasObs?"rgba(245,158,11,.05)":"transparent";
+                        return(
+                          <tr key={mes} style={{borderBottom:"1px solid var(--border)",background:rowBg}}>
+                            <td style={{padding:"9px 8px",fontWeight:700,textAlign:"center",color:"var(--text)"}}>{getMesNomeC(mes)}</td>
+                            {["fiscal","extratos","patrimonio","folha"].map(campo=>(
+                              <td key={campo} style={{padding:"9px 6px",textAlign:"center"}}>
+                                <div style={{position:"relative",display:"inline-block"}}>
+                                  <div onClick={()=>alterarStatus(emp.id,mes,campo)} style={getStStyle(dado[campo])}>{getStTxt(dado[campo])}</div>
+                                  {/* Revert arrow for non-nao-iniciado, non-analisado */}
+                                  {!dado.analisado&&dado[campo]!=="nao-iniciado"&&(
+                                    <span onClick={e=>{e.stopPropagation();const r=dado[campo]==="ok"?"pendente":"nao-iniciado";const prev=dado[campo];setCDados&&null;// handled in parent via prop
+                                    // We need to call reverterStatus from parent — pass it up via callback
+                                    // For now use the setRevertModal trick: actually reverterStatus is not available here, so we embed it inline
+                                    // Actually alterarStatus goes forward, so revert = go back. Let's call a small helper:
+                                    window.__contabilRevert&&window.__contabilRevert(emp.id,mes,campo,prev);}} title="Reverter status" style={{position:"absolute",top:-8,right:-8,fontSize:10,cursor:"pointer",background:"#f59e0b",color:"#fff",borderRadius:"50%",width:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",zIndex:1,fontWeight:900,lineHeight:1}}>↩</span>
+                                  )}
+                                </div>
+                              </td>
+                            ))}
+                            <td style={{padding:"9px 6px",textAlign:"center"}}>
+                              <div onClick={()=>!dado.analisado&&alterarCliente(emp.id,mes)} style={{...getStStyle(dado.clienteEnviou==="sim"?"ok":"nao-iniciado"),cursor:dado.analisado?"default":"pointer"}}>{dado.clienteEnviou==="sim"?"✅ Enviou":"❌ Não"}</div>
+                            </td>
+                            <td style={{padding:"9px 8px",textAlign:"center"}}>
+                              <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:5}}>
+                                <span style={{fontSize:10,color:"#64748b",fontWeight:700,minWidth:26}}>{prog}%</span>
+                                <div style={{width:44,height:5,borderRadius:3,background:"#e2e8f0",overflow:"hidden"}}><div style={{height:"100%",borderRadius:3,background:getProgClr(prog),width:`${prog}%`}}/></div>
+                              </div>
+                            </td>
+                            <td style={{padding:"9px 8px",textAlign:"center"}}>
+                              <span onClick={()=>abrirObs(emp.id,mes)} title={hasObs?getObsTxt(emp.id,mes):"Adicionar observação"}
+                                style={{fontSize:16,cursor:"pointer",color:hasObs?"#f59e0b":"#94a3b8",filter:hasObs?"drop-shadow(0 0 4px #f59e0b88)":"none",transition:"all .15s"}}>📝</span>
+                            </td>
+                            <td style={{padding:"9px 8px",textAlign:"center"}}>
+                              {dado.analisado
+                                ?<div style={{display:"flex",gap:4,alignItems:"center",justifyContent:"center"}}>
+                                   <span style={{background:"#d1fae5",color:"#065f46",padding:"3px 10px",borderRadius:20,fontSize:10,fontWeight:700}}>✅ Analisado</span>
+                                   <button onClick={()=>setRevertModal({empresaId:emp.id,competencia:mes})} title="Reverter análise" style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#f59e0b",padding:"2px 4px",borderRadius:4}} onMouseEnter={e=>e.currentTarget.style.background="#fffbeb"} onMouseLeave={e=>e.currentTarget.style.background="none"}>↩</button>
+                                 </div>
+                                :contab
+                                  ?<button onClick={()=>analisarMes(emp.id,mes)} style={{background:"#f59e0b",color:"#fff",border:"none",padding:"4px 10px",borderRadius:6,cursor:"pointer",fontSize:10,fontWeight:700,fontFamily:"inherit"}}>🔍 Analisar</button>
+                                  :<span style={{background:"#fff4e0",color:"#b45f06",padding:"3px 10px",borderRadius:20,fontSize:10,fontWeight:700}}>⏳ Aguardando</span>
+                              }
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);

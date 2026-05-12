@@ -286,6 +286,7 @@ const RINTS=[
 ];
 const NAV_GROUPS=[
   {label:"Visualizações",items:[{id:"dashboard",icon:"✦",label:"Dashboard"},{id:"kanban",icon:"⊞",label:"Kanban"},{id:"lista",icon:"☰",label:"Lista"},{id:"calendario",icon:"📅",label:"Calendário"},{id:"gantt",icon:"🗓",label:"Linha do Tempo"},{id:"tabela",icon:"▦",label:"Tabela"},{id:"hoje",icon:"🌅",label:"Hoje"},{id:"minhas",icon:"👤",label:"Minhas Tarefas"},{id:"arquivadas",icon:"📦",label:"Arquivadas"}]},
+  {label:"Contabilidade",items:[{id:"contabil",icon:"📒",label:"Contábil"}]},
   {label:"Cadastros",items:[{id:"modelos",icon:"◧",label:"Modelos"},{id:"empresas",icon:"⬡",label:"Empresas"},{id:"setores",icon:"◫",label:"Setores"},{id:"colaboradores",icon:"◉",label:"Colaboradores"},{id:"marcadores",icon:"◈",label:"Marcadores"},{id:"recorrencias",icon:"↻",label:"Recorrências"},{id:"painel-rec",icon:"⊹",label:"Painel Recorrências"},{id:"servicos",icon:"S",label:"Serviços"}]},
   {label:"Relatórios",items:[{id:"relatorio",icon:"📧",label:"Relatório por Empresa"},{id:"carga",icon:"⚖",label:"Carga de Trabalho"}]},
   {label:"Sistema",items:[{id:"auditoria",icon:"🛡",label:"Auditoria"},{id:"configuracoes",icon:"⚙",label:"Configurações"}]},
@@ -883,6 +884,459 @@ function ArchivedPage({data,setData,toast}){
   );
 }
 
+
+/* ===========================================
+   MÓDULO CONTABILIDADE — SUB-MÓDULO CONTÁBIL */
+function ContabilPage({data,setData,toast}){
+  const uid2=()=>Math.random().toString(36).slice(2,10);
+  const MESES_NOMES=["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+  const today=new Date();
+  const anoAtual=today.getFullYear();
+  const mesAtual=today.getMonth();
+
+  const [subAba,setSubAba]=useState("lancamentos");
+  const [modalOpen,setModalOpen]=useState(false);
+  const [editItem,setEditItem]=useState(null);
+  const [filterEmp,setFilterEmp]=useState("");
+  const [filterMes,setFilterMes]=useState("");
+  const [filterAno,setFilterAno]=useState(String(anoAtual));
+  const [filterTipo,setFilterTipo]=useState("");
+  const [form,setForm]=useState({empresaId:"",descricao:"",debito:"",credito:"",valor:"",mes:mesAtual,ano:anoAtual,tipo:"debito",historico:"",documento:""});
+
+  // Lançamentos contábeis salvos no data
+  const lancamentos=data.lancamentosContabeis||[];
+
+  function salvarLancamento(){
+    if(!form.empresaId){toast("Selecione uma empresa.","warn");return;}
+    if(!form.descricao.trim()){toast("Informe a descrição.","warn");return;}
+    if(!form.valor||isNaN(Number(form.valor))||Number(form.valor)<=0){toast("Informe um valor válido.","warn");return;}
+    if(!form.debito.trim()){toast("Informe a conta débito.","warn");return;}
+    if(!form.credito.trim()){toast("Informe a conta crédito.","warn");return;}
+
+    if(editItem){
+      setData(d=>({...d,lancamentosContabeis:(d.lancamentosContabeis||[]).map(l=>l.id===editItem.id?{...l,...form,valor:Number(form.valor),updatedAt:new Date().toISOString()}:l)}));
+      toast("✅ Lançamento atualizado!","ok");
+    } else {
+      const novo={id:uid2(),criadoEm:new Date().toISOString(),...form,valor:Number(form.valor)};
+      setData(d=>({...d,lancamentosContabeis:[...(d.lancamentosContabeis||[]),novo]}));
+      toast("✅ Lançamento registrado!","ok");
+    }
+    setModalOpen(false);
+    setEditItem(null);
+    setForm({empresaId:"",descricao:"",debito:"",credito:"",valor:"",mes:mesAtual,ano:anoAtual,tipo:"debito",historico:"",documento:""});
+  }
+
+  function abrirEditar(l){
+    setEditItem(l);
+    setForm({empresaId:l.empresaId,descricao:l.descricao,debito:l.debito,credito:l.credito,valor:String(l.valor),mes:l.mes,ano:l.ano,tipo:l.tipo,historico:l.historico||"",documento:l.documento||""});
+    setModalOpen(true);
+  }
+
+  function excluir(id){
+    if(!window.confirm("Excluir este lançamento?")) return;
+    setData(d=>({...d,lancamentosContabeis:(d.lancamentosContabeis||[]).filter(l=>l.id!==id)}));
+    toast("🗑 Lançamento excluído.","warn");
+  }
+
+  const lancFiltrados=lancamentos.filter(l=>{
+    const emp=data.companies.find(c=>c.id===l.empresaId);
+    if(filterEmp&&l.empresaId!==filterEmp) return false;
+    if(filterMes!==""&&Number(l.mes)!==Number(filterMes)) return false;
+    if(filterAno&&String(l.ano)!==String(filterAno)) return false;
+    if(filterTipo&&l.tipo!==filterTipo) return false;
+    return true;
+  });
+
+  const totalDebito=lancFiltrados.filter(l=>l.tipo==="debito").reduce((a,l)=>a+l.valor,0);
+  const totalCredito=lancFiltrados.filter(l=>l.tipo==="credito").reduce((a,l)=>a+l.valor,0);
+  const saldo=totalCredito-totalDebito;
+
+  const fmtMoeda=v=>v.toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
+
+  // ─── SUB-ABAS ─────────────────────────────────
+  const subAbas=[
+    {id:"lancamentos",icon:"📒",label:"Lançamentos Contábeis"},
+    {id:"balancete",icon:"⚖",label:"Balancete"},
+    {id:"extrato",icon:"📄",label:"Extrato por Empresa"},
+  ];
+
+  return(
+    <div>
+      <PH title="Contabilidade" icon="📒"/>
+
+      {/* Sub-abas */}
+      <div style={{display:"flex",gap:6,marginBottom:22,background:"var(--bg2)",borderRadius:12,padding:5,border:"1px solid var(--border)",width:"fit-content",flexWrap:"wrap"}}>
+        {subAbas.map(s=>(
+          <button key={s.id} onClick={()=>setSubAba(s.id)} style={{padding:"7px 16px",borderRadius:9,border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:700,transition:"all .15s",
+            background:subAba===s.id?"#6366f1":"transparent",
+            color:subAba===s.id?"#fff":"#64748b",
+            boxShadow:subAba===s.id?"0 2px 8px rgba(99,102,241,.3)":"none"
+          }}>
+            {s.icon} {s.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ══ SUB-ABA: LANÇAMENTOS ══ */}
+      {subAba==="lancamentos"&&(
+        <div>
+          {/* KPIs */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:12,marginBottom:20}}>
+            {[
+              {label:"Total de Lançamentos",value:lancFiltrados.length,color:"#6366f1",icon:"📒"},
+              {label:"Total Débitos",value:fmtMoeda(totalDebito),color:"#ef4444",icon:"📤"},
+              {label:"Total Créditos",value:fmtMoeda(totalCredito),color:"#22c55e",icon:"📥"},
+              {label:"Saldo",value:fmtMoeda(saldo),color:saldo>=0?"#22c55e":"#ef4444",icon:"⚖"},
+            ].map((k,i)=>(
+              <div key={i} style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:14,padding:"16px 18px",boxShadow:"var(--card-shadow)"}}>
+                <div style={{fontSize:11,color:"#94a3b8",fontWeight:700,marginBottom:6,textTransform:"uppercase",letterSpacing:".05em"}}>{k.icon} {k.label}</div>
+                <div style={{fontSize:22,fontWeight:900,color:k.color}}>{k.value}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Filtros */}
+          <div style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px",marginBottom:16,display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+            <select value={filterEmp} onChange={e=>setFilterEmp(e.target.value)} style={{padding:"6px 10px",borderRadius:8,border:"1px solid var(--border2)",background:"var(--input-bg)",color:"var(--input-text)",fontSize:13,fontFamily:"inherit"}}>
+              <option value="">🏢 Todas as empresas</option>
+              {data.companies.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <select value={filterMes} onChange={e=>setFilterMes(e.target.value)} style={{padding:"6px 10px",borderRadius:8,border:"1px solid var(--border2)",background:"var(--input-bg)",color:"var(--input-text)",fontSize:13,fontFamily:"inherit"}}>
+              <option value="">📅 Todos os meses</option>
+              {MESES_NOMES.map((m,i)=><option key={i} value={i}>{m}</option>)}
+            </select>
+            <select value={filterAno} onChange={e=>setFilterAno(e.target.value)} style={{padding:"6px 10px",borderRadius:8,border:"1px solid var(--border2)",background:"var(--input-bg)",color:"var(--input-text)",fontSize:13,fontFamily:"inherit"}}>
+              {[anoAtual-1,anoAtual,anoAtual+1].map(a=><option key={a} value={a}>{a}</option>)}
+            </select>
+            <select value={filterTipo} onChange={e=>setFilterTipo(e.target.value)} style={{padding:"6px 10px",borderRadius:8,border:"1px solid var(--border2)",background:"var(--input-bg)",color:"var(--input-text)",fontSize:13,fontFamily:"inherit"}}>
+              <option value="">🔄 Todos os tipos</option>
+              <option value="debito">📤 Débito</option>
+              <option value="credito">📥 Crédito</option>
+            </select>
+            <button onClick={()=>{setFilterEmp("");setFilterMes("");setFilterAno(String(anoAtual));setFilterTipo("");}} style={{padding:"6px 12px",borderRadius:8,border:"1px solid var(--border2)",background:"transparent",color:"#94a3b8",cursor:"pointer",fontSize:12,fontFamily:"inherit"}}>✕ Limpar</button>
+            <button onClick={()=>{setEditItem(null);setForm({empresaId:"",descricao:"",debito:"",credito:"",valor:"",mes:mesAtual,ano:anoAtual,tipo:"debito",historico:"",documento:""});setModalOpen(true);}} style={{marginLeft:"auto",padding:"7px 18px",borderRadius:9,border:"none",background:"#6366f1",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:13,fontFamily:"inherit",display:"flex",alignItems:"center",gap:6}}>
+              ＋ Novo Lançamento
+            </button>
+          </div>
+
+          {/* Tabela */}
+          {lancFiltrados.length===0?(
+            <div style={{textAlign:"center",padding:"50px 20px",color:"#94a3b8"}}>
+              <div style={{fontSize:48,marginBottom:12}}>📒</div>
+              <div style={{fontSize:16,fontWeight:700,marginBottom:6}}>Nenhum lançamento encontrado</div>
+              <div style={{fontSize:13}}>Clique em "＋ Novo Lançamento" para registrar o primeiro.</div>
+            </div>
+          ):(
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                <thead>
+                  <tr style={{background:"var(--bg3)",borderBottom:"2px solid var(--border)"}}>
+                    {["Empresa","Competência","Descrição","Conta Débito","Conta Crédito","Tipo","Valor","Doc.","Ações"].map(h=>(
+                      <th key={h} style={{padding:"10px 12px",textAlign:"left",fontWeight:800,color:"#64748b",fontSize:11,textTransform:"uppercase",letterSpacing:".05em",whiteSpace:"nowrap"}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {lancFiltrados.map((l,i)=>{
+                    const emp=data.companies.find(c=>c.id===l.empresaId);
+                    const mesNome=MESES_NOMES[Number(l.mes)]||"-";
+                    const isDebito=l.tipo==="debito";
+                    return(
+                      <tr key={l.id} style={{borderBottom:"1px solid var(--border)",transition:"background .12s"}}
+                        onMouseEnter={e=>e.currentTarget.style.background="rgba(99,102,241,.04)"}
+                        onMouseLeave={e=>e.currentTarget.style.background="transparent"}
+                      >
+                        <td style={{padding:"10px 12px"}}>
+                          {emp?<span style={{display:"inline-flex",alignItems:"center",gap:6}}>
+                            <span style={{width:22,height:22,borderRadius:6,background:emp.color,color:"#fff",fontSize:9,fontWeight:900,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{emp.logo}</span>
+                            <span style={{fontWeight:700,color:"var(--text)",fontSize:12}}>{emp.name}</span>
+                          </span>:<span style={{color:"#94a3b8"}}>—</span>}
+                        </td>
+                        <td style={{padding:"10px 12px",color:"#64748b",fontSize:12,whiteSpace:"nowrap"}}>{mesNome}/{l.ano}</td>
+                        <td style={{padding:"10px 12px",fontWeight:600,maxWidth:200}}>
+                          <div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={l.descricao}>{l.descricao}</div>
+                          {l.historico&&<div style={{fontSize:11,color:"#94a3b8",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={l.historico}>{l.historico}</div>}
+                        </td>
+                        <td style={{padding:"10px 12px",fontSize:12,color:"#64748b",fontFamily:"monospace"}}>{l.debito}</td>
+                        <td style={{padding:"10px 12px",fontSize:12,color:"#64748b",fontFamily:"monospace"}}>{l.credito}</td>
+                        <td style={{padding:"10px 12px"}}>
+                          <span style={{padding:"3px 9px",borderRadius:20,fontSize:11,fontWeight:700,
+                            background:isDebito?"#fef2f2":"#f0fdf4",
+                            color:isDebito?"#dc2626":"#16a34a"}}>
+                            {isDebito?"📤 Débito":"📥 Crédito"}
+                          </span>
+                        </td>
+                        <td style={{padding:"10px 12px",fontWeight:800,color:isDebito?"#dc2626":"#16a34a",whiteSpace:"nowrap"}}>{fmtMoeda(l.valor)}</td>
+                        <td style={{padding:"10px 12px",fontSize:12,color:"#94a3b8"}}>{l.documento||"—"}</td>
+                        <td style={{padding:"10px 12px"}}>
+                          <div style={{display:"flex",gap:5}}>
+                            <button onClick={()=>abrirEditar(l)} style={{padding:"4px 9px",borderRadius:7,border:"1px solid #e2e8f0",background:"transparent",cursor:"pointer",fontSize:12,color:"#6366f1",fontFamily:"inherit"}} title="Editar">✏</button>
+                            <button onClick={()=>excluir(l.id)} style={{padding:"4px 9px",borderRadius:7,border:"1px solid #fee2e2",background:"transparent",cursor:"pointer",fontSize:12,color:"#dc2626",fontFamily:"inherit"}} title="Excluir">🗑</button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr style={{background:"var(--bg3)",borderTop:"2px solid var(--border)"}}>
+                    <td colSpan={5} style={{padding:"10px 12px",fontWeight:800,fontSize:13}}>TOTAIS</td>
+                    <td style={{padding:"10px 12px"}}/>
+                    <td style={{padding:"10px 12px",fontWeight:900,color:saldo>=0?"#16a34a":"#dc2626",fontSize:14,whiteSpace:"nowrap"}}>
+                      <div style={{fontSize:11,color:"#ef4444",fontWeight:700}}>D: {fmtMoeda(totalDebito)}</div>
+                      <div style={{fontSize:11,color:"#16a34a",fontWeight:700}}>C: {fmtMoeda(totalCredito)}</div>
+                      <div style={{marginTop:4}}>Saldo: {fmtMoeda(saldo)}</div>
+                    </td>
+                    <td colSpan={2}/>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ══ SUB-ABA: BALANCETE ══ */}
+      {subAba==="balancete"&&(
+        <div>
+          <div style={{marginBottom:16,display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+            <select value={filterEmp} onChange={e=>setFilterEmp(e.target.value)} style={{padding:"7px 12px",borderRadius:9,border:"1px solid var(--border2)",background:"var(--input-bg)",color:"var(--input-text)",fontSize:13,fontFamily:"inherit"}}>
+              <option value="">🏢 Todas as empresas</option>
+              {data.companies.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <select value={filterAno} onChange={e=>setFilterAno(e.target.value)} style={{padding:"7px 12px",borderRadius:9,border:"1px solid var(--border2)",background:"var(--input-bg)",color:"var(--input-text)",fontSize:13,fontFamily:"inherit"}}>
+              {[anoAtual-1,anoAtual,anoAtual+1].map(a=><option key={a} value={a}>{a}</option>)}
+            </select>
+          </div>
+
+          {/* Balancete por mês */}
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+              <thead>
+                <tr style={{background:"#1e293b",color:"#fff"}}>
+                  <th style={{padding:"10px 14px",textAlign:"left",fontWeight:700,fontSize:11,textTransform:"uppercase",letterSpacing:".05em"}}>Mês</th>
+                  <th style={{padding:"10px 14px",textAlign:"right",fontWeight:700,fontSize:11,textTransform:"uppercase"}}>Débitos</th>
+                  <th style={{padding:"10px 14px",textAlign:"right",fontWeight:700,fontSize:11,textTransform:"uppercase"}}>Créditos</th>
+                  <th style={{padding:"10px 14px",textAlign:"right",fontWeight:700,fontSize:11,textTransform:"uppercase"}}>Saldo</th>
+                  <th style={{padding:"10px 14px",textAlign:"center",fontWeight:700,fontSize:11,textTransform:"uppercase"}}>Lançamentos</th>
+                </tr>
+              </thead>
+              <tbody>
+                {MESES_NOMES.map((nome,idx)=>{
+                  const doMes=lancamentos.filter(l=>{
+                    if(filterEmp&&l.empresaId!==filterEmp) return false;
+                    if(String(l.ano)!==String(filterAno)) return false;
+                    return Number(l.mes)===idx;
+                  });
+                  const deb=doMes.filter(l=>l.tipo==="debito").reduce((a,l)=>a+l.valor,0);
+                  const cred=doMes.filter(l=>l.tipo==="credito").reduce((a,l)=>a+l.valor,0);
+                  const sal=cred-deb;
+                  const isHoje=idx===mesAtual&&Number(filterAno)===anoAtual;
+                  return(
+                    <tr key={idx} style={{borderBottom:"1px solid var(--border)",background:isHoje?"rgba(99,102,241,.06)":"transparent",transition:"background .12s"}}
+                      onMouseEnter={e=>{if(!isHoje)e.currentTarget.style.background="rgba(99,102,241,.03)"}}
+                      onMouseLeave={e=>{if(!isHoje)e.currentTarget.style.background="transparent"}}
+                    >
+                      <td style={{padding:"11px 14px",fontWeight:isHoje?800:600,color:isHoje?"#6366f1":"var(--text)"}}>
+                        {isHoje&&<span style={{fontSize:10,background:"#6366f1",color:"#fff",padding:"1px 7px",borderRadius:20,marginRight:8,fontWeight:700}}>ATUAL</span>}
+                        {nome}
+                      </td>
+                      <td style={{padding:"11px 14px",textAlign:"right",color:"#dc2626",fontWeight:700}}>{deb>0?fmtMoeda(deb):"—"}</td>
+                      <td style={{padding:"11px 14px",textAlign:"right",color:"#16a34a",fontWeight:700}}>{cred>0?fmtMoeda(cred):"—"}</td>
+                      <td style={{padding:"11px 14px",textAlign:"right",fontWeight:900,color:sal>0?"#16a34a":sal<0?"#dc2626":"#94a3b8"}}>{doMes.length>0?fmtMoeda(sal):"—"}</td>
+                      <td style={{padding:"11px 14px",textAlign:"center",color:"#64748b"}}>{doMes.length>0?doMes.length:"—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                {(()=>{
+                  const doAno=lancamentos.filter(l=>{
+                    if(filterEmp&&l.empresaId!==filterEmp) return false;
+                    return String(l.ano)===String(filterAno);
+                  });
+                  const dT=doAno.filter(l=>l.tipo==="debito").reduce((a,l)=>a+l.valor,0);
+                  const cT=doAno.filter(l=>l.tipo==="credito").reduce((a,l)=>a+l.valor,0);
+                  const sT=cT-dT;
+                  return(
+                    <tr style={{background:"var(--bg3)",borderTop:"2px solid var(--border)"}}>
+                      <td style={{padding:"11px 14px",fontWeight:900,fontSize:14}}>TOTAL {filterAno}</td>
+                      <td style={{padding:"11px 14px",textAlign:"right",color:"#dc2626",fontWeight:900,fontSize:14}}>{fmtMoeda(dT)}</td>
+                      <td style={{padding:"11px 14px",textAlign:"right",color:"#16a34a",fontWeight:900,fontSize:14}}>{fmtMoeda(cT)}</td>
+                      <td style={{padding:"11px 14px",textAlign:"right",fontWeight:900,fontSize:14,color:sT>=0?"#16a34a":"#dc2626"}}>{fmtMoeda(sT)}</td>
+                      <td style={{padding:"11px 14px",textAlign:"center",color:"#64748b",fontWeight:700}}>{doAno.length}</td>
+                    </tr>
+                  );
+                })()}
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ══ SUB-ABA: EXTRATO POR EMPRESA ══ */}
+      {subAba==="extrato"&&(
+        <div>
+          <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
+            <select value={filterEmp} onChange={e=>setFilterEmp(e.target.value)} style={{padding:"7px 12px",borderRadius:9,border:"1px solid var(--border2)",background:"var(--input-bg)",color:"var(--input-text)",fontSize:13,fontFamily:"inherit"}}>
+              <option value="">🏢 Todas as empresas</option>
+              {data.companies.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <select value={filterAno} onChange={e=>setFilterAno(e.target.value)} style={{padding:"7px 12px",borderRadius:9,border:"1px solid var(--border2)",background:"var(--input-bg)",color:"var(--input-text)",fontSize:13,fontFamily:"inherit"}}>
+              {[anoAtual-1,anoAtual,anoAtual+1].map(a=><option key={a} value={a}>{a}</option>)}
+            </select>
+          </div>
+
+          {(filterEmp?[data.companies.find(c=>c.id===filterEmp)].filter(Boolean):data.companies).map(emp=>{
+            const doEmp=lancamentos.filter(l=>l.empresaId===emp.id&&String(l.ano)===String(filterAno));
+            const dE=doEmp.filter(l=>l.tipo==="debito").reduce((a,l)=>a+l.valor,0);
+            const cE=doEmp.filter(l=>l.tipo==="credito").reduce((a,l)=>a+l.valor,0);
+            const sE=cE-dE;
+            return(
+              <div key={emp.id} style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:14,marginBottom:16,overflow:"hidden",boxShadow:"var(--card-shadow)"}}>
+                <div style={{padding:"14px 18px",background:emp.color+"18",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+                  <span style={{width:36,height:36,borderRadius:10,background:emp.color,color:"#fff",fontSize:12,fontWeight:900,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>{emp.logo}</span>
+                  <div>
+                    <div style={{fontWeight:800,fontSize:15,color:"var(--text)"}}>{emp.name}</div>
+                    <div style={{fontSize:12,color:"#64748b"}}>Extrato {filterAno} • {doEmp.length} lançamento(s)</div>
+                  </div>
+                  <div style={{marginLeft:"auto",display:"flex",gap:16,flexWrap:"wrap"}}>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{fontSize:10,color:"#94a3b8",fontWeight:700}}>DÉBITOS</div>
+                      <div style={{fontWeight:800,color:"#dc2626",fontSize:14}}>{fmtMoeda(dE)}</div>
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{fontSize:10,color:"#94a3b8",fontWeight:700}}>CRÉDITOS</div>
+                      <div style={{fontWeight:800,color:"#16a34a",fontSize:14}}>{fmtMoeda(cE)}</div>
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{fontSize:10,color:"#94a3b8",fontWeight:700}}>SALDO</div>
+                      <div style={{fontWeight:900,color:sE>=0?"#16a34a":"#dc2626",fontSize:14}}>{fmtMoeda(sE)}</div>
+                    </div>
+                  </div>
+                </div>
+                {doEmp.length===0?(
+                  <div style={{padding:"24px",textAlign:"center",color:"#94a3b8",fontSize:13}}>Sem lançamentos em {filterAno}.</div>
+                ):(
+                  <div style={{overflowX:"auto"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <thead>
+                        <tr style={{background:"var(--bg3)"}}>
+                          {["Mês","Descrição","Débito","Crédito","Valor","Documento"].map(h=>(
+                            <th key={h} style={{padding:"8px 12px",textAlign:"left",fontWeight:700,color:"#64748b",fontSize:11,textTransform:"uppercase"}}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {doEmp.sort((a,b)=>a.mes-b.mes).map(l=>(
+                          <tr key={l.id} style={{borderBottom:"1px solid var(--border)"}}>
+                            <td style={{padding:"9px 12px",color:"#64748b",whiteSpace:"nowrap"}}>{MESES_NOMES[Number(l.mes)]||"-"}</td>
+                            <td style={{padding:"9px 12px",fontWeight:600,maxWidth:200}}>
+                              <div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.descricao}</div>
+                            </td>
+                            <td style={{padding:"9px 12px",fontFamily:"monospace",fontSize:11,color:"#64748b"}}>{l.debito}</td>
+                            <td style={{padding:"9px 12px",fontFamily:"monospace",fontSize:11,color:"#64748b"}}>{l.credito}</td>
+                            <td style={{padding:"9px 12px",fontWeight:800,color:l.tipo==="debito"?"#dc2626":"#16a34a",whiteSpace:"nowrap"}}>
+                              {l.tipo==="debito"?"−":"+"}  {fmtMoeda(l.valor)}
+                            </td>
+                            <td style={{padding:"9px 12px",color:"#94a3b8"}}>{l.documento||"—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ══ MODAL DE LANÇAMENTO ══ */}
+      {modalOpen&&(
+        <div onClick={e=>{if(e.target===e.currentTarget){setModalOpen(false);setEditItem(null);}}} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.7)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}>
+          <div style={{background:"var(--bg2)",borderRadius:20,width:"100%",maxWidth:560,boxShadow:"0 32px 80px rgba(0,0,0,.35)",animation:"popIn .22s cubic-bezier(.34,1.56,.64,1)",maxHeight:"90vh",overflowY:"auto"}}>
+            <div style={{padding:"20px 24px 16px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div style={{fontWeight:900,fontSize:17,color:"var(--text)"}}>📒 {editItem?"Editar":"Novo"} Lançamento Contábil</div>
+              <button onClick={()=>{setModalOpen(false);setEditItem(null);}} style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:22,lineHeight:1,padding:"2px 6px"}}>×</button>
+            </div>
+            <div style={{padding:"20px 24px",display:"flex",flexDirection:"column",gap:14}}>
+              {/* Empresa */}
+              <div>
+                <label style={{fontSize:12,fontWeight:700,color:"#64748b",display:"block",marginBottom:5}}>🏢 EMPRESA *</label>
+                <select value={form.empresaId} onChange={e=>setForm(f=>({...f,empresaId:e.target.value}))} style={{width:"100%",padding:"9px 12px",borderRadius:9,border:"1px solid var(--input-border)",background:"var(--input-bg)",color:"var(--input-text)",fontSize:13,fontFamily:"inherit"}}>
+                  <option value="">Selecione...</option>
+                  {data.companies.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              {/* Competência */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                <div>
+                  <label style={{fontSize:12,fontWeight:700,color:"#64748b",display:"block",marginBottom:5}}>📅 MÊS *</label>
+                  <select value={form.mes} onChange={e=>setForm(f=>({...f,mes:Number(e.target.value)}))} style={{width:"100%",padding:"9px 12px",borderRadius:9,border:"1px solid var(--input-border)",background:"var(--input-bg)",color:"var(--input-text)",fontSize:13,fontFamily:"inherit"}}>
+                    {MESES_NOMES.map((m,i)=><option key={i} value={i}>{m}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{fontSize:12,fontWeight:700,color:"#64748b",display:"block",marginBottom:5}}>📅 ANO *</label>
+                  <select value={form.ano} onChange={e=>setForm(f=>({...f,ano:Number(e.target.value)}))} style={{width:"100%",padding:"9px 12px",borderRadius:9,border:"1px solid var(--input-border)",background:"var(--input-bg)",color:"var(--input-text)",fontSize:13,fontFamily:"inherit"}}>
+                    {[anoAtual-1,anoAtual,anoAtual+1].map(a=><option key={a} value={a}>{a}</option>)}
+                  </select>
+                </div>
+              </div>
+              {/* Descrição */}
+              <div>
+                <label style={{fontSize:12,fontWeight:700,color:"#64748b",display:"block",marginBottom:5}}>📝 DESCRIÇÃO *</label>
+                <input value={form.descricao} onChange={e=>setForm(f=>({...f,descricao:e.target.value}))} placeholder="Ex: Pagamento de fornecedor" style={{width:"100%",padding:"9px 12px",borderRadius:9,border:"1px solid var(--input-border)",background:"var(--input-bg)",color:"var(--input-text)",fontSize:13,fontFamily:"inherit"}}/>
+              </div>
+              {/* Contas D/C */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                <div>
+                  <label style={{fontSize:12,fontWeight:700,color:"#64748b",display:"block",marginBottom:5}}>📤 CONTA DÉBITO *</label>
+                  <input value={form.debito} onChange={e=>setForm(f=>({...f,debito:e.target.value}))} placeholder="Ex: 1.1.1.01" style={{width:"100%",padding:"9px 12px",borderRadius:9,border:"1px solid var(--input-border)",background:"var(--input-bg)",color:"var(--input-text)",fontSize:13,fontFamily:"inherit",fontFamily:"monospace"}}/>
+                </div>
+                <div>
+                  <label style={{fontSize:12,fontWeight:700,color:"#64748b",display:"block",marginBottom:5}}>📥 CONTA CRÉDITO *</label>
+                  <input value={form.credito} onChange={e=>setForm(f=>({...f,credito:e.target.value}))} placeholder="Ex: 2.1.1.01" style={{width:"100%",padding:"9px 12px",borderRadius:9,border:"1px solid var(--input-border)",background:"var(--input-bg)",color:"var(--input-text)",fontSize:13,fontFamily:"inherit",fontFamily:"monospace"}}/>
+                </div>
+              </div>
+              {/* Tipo e Valor */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                <div>
+                  <label style={{fontSize:12,fontWeight:700,color:"#64748b",display:"block",marginBottom:5}}>🔄 TIPO *</label>
+                  <select value={form.tipo} onChange={e=>setForm(f=>({...f,tipo:e.target.value}))} style={{width:"100%",padding:"9px 12px",borderRadius:9,border:"1px solid var(--input-border)",background:"var(--input-bg)",color:"var(--input-text)",fontSize:13,fontFamily:"inherit"}}>
+                    <option value="debito">📤 Débito</option>
+                    <option value="credito">📥 Crédito</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{fontSize:12,fontWeight:700,color:"#64748b",display:"block",marginBottom:5}}>💰 VALOR (R$) *</label>
+                  <input type="number" min="0.01" step="0.01" value={form.valor} onChange={e=>setForm(f=>({...f,valor:e.target.value}))} placeholder="0,00" style={{width:"100%",padding:"9px 12px",borderRadius:9,border:"1px solid var(--input-border)",background:"var(--input-bg)",color:"var(--input-text)",fontSize:13,fontFamily:"inherit"}}/>
+                </div>
+              </div>
+              {/* Historico e Documento */}
+              <div>
+                <label style={{fontSize:12,fontWeight:700,color:"#64748b",display:"block",marginBottom:5}}>📋 HISTÓRICO</label>
+                <input value={form.historico} onChange={e=>setForm(f=>({...f,historico:e.target.value}))} placeholder="Histórico complementar do lançamento..." style={{width:"100%",padding:"9px 12px",borderRadius:9,border:"1px solid var(--input-border)",background:"var(--input-bg)",color:"var(--input-text)",fontSize:13,fontFamily:"inherit"}}/>
+              </div>
+              <div>
+                <label style={{fontSize:12,fontWeight:700,color:"#64748b",display:"block",marginBottom:5}}>🗂 DOCUMENTO</label>
+                <input value={form.documento} onChange={e=>setForm(f=>({...f,documento:e.target.value}))} placeholder="NF, recibo, contrato..." style={{width:"100%",padding:"9px 12px",borderRadius:9,border:"1px solid var(--input-border)",background:"var(--input-bg)",color:"var(--input-text)",fontSize:13,fontFamily:"inherit"}}/>
+              </div>
+              {/* Botões */}
+              <div style={{display:"flex",gap:10,justifyContent:"flex-end",paddingTop:6}}>
+                <button onClick={()=>{setModalOpen(false);setEditItem(null);}} style={{padding:"9px 20px",borderRadius:9,border:"1.5px solid var(--border2)",background:"transparent",color:"#64748b",cursor:"pointer",fontSize:13,fontWeight:700,fontFamily:"inherit"}}>Cancelar</button>
+                <button onClick={salvarLancamento} style={{padding:"9px 22px",borderRadius:9,border:"none",background:"#6366f1",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:800,fontFamily:"inherit",boxShadow:"0 4px 12px rgba(99,102,241,.35)"}}>
+                  {editItem?"💾 Salvar alterações":"➕ Registrar"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* ===========================================
    RELATÓRIO IMPRIMÍVEL POR EMPRESA */
@@ -7941,6 +8395,7 @@ function App(){
         {page==="recorrencias"  && <RecurrencesPage data={data} setData={setData}/>}
         {page==="painel-rec"    && <PainelRecorrencias data={data} setData={setData} onEdit={openEdit} toast={toast}/>}
         {page==="arquivadas"    && <ArchivedPage data={data} setData={setData} toast={toast}/>}
+        {page==="contabil"      && <ContabilPage data={data} setData={setData} toast={toast}/>}
         {page==="configuracoes" && <ConfigPage data={data} setData={setData} toast={toast} deduplicateTasks={deduplicateTasks}/>}
         {page==="auditoria"     && <AuditoriaPage data={data} setData={setData}/>}
       </main>

@@ -8096,7 +8096,7 @@ function ContabilPage({toast}){
     return d;
   };
 
-  // Register global revert helper for EmpresaRow
+  // ─── Register global revert helper for EmpresaRow ────────────
   useEffect(()=>{
     window.__contabilRevert=(eid,mes,campo,fromValue)=>{
       setCDados(prev=>prev.map(d=>{
@@ -8110,7 +8110,58 @@ function ContabilPage({toast}){
     return()=>{delete window.__contabilRevert;};
   },[]);
 
-  // ─── Load from localStorage ───────────────────────────────────
+  // ─── Supabase persistence ─────────────────────────────────────
+  const CONTABIL_ROW_ID=2; // row id=2 in app_data table for contabil data
+  const [dbSynced,setDbSynced]=useState(false);
+  const pendingContabilSave=useRef(null);
+
+  // Load from Supabase on mount
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const {data:row,error}=await sb.from("app_data").select("payload").eq("id",CONTABIL_ROW_ID).maybeSingle();
+        if(error){console.warn("Contabil load error:",error);setDbSynced(true);return;}
+        if(row?.payload){
+          const p=row.payload;
+          if(p.empresas&&Array.isArray(p.empresas)) setCEmpresas(p.empresas);
+          if(p.grupos&&Array.isArray(p.grupos)) setCGrupos(p.grupos);
+          if(p.dados&&Array.isArray(p.dados)) setCDados(p.dados);
+          if(p.obs&&Array.isArray(p.obs)) setCObs(p.obs);
+          if(p.ecdEcf&&typeof p.ecdEcf==="object") setCEcdEcf(p.ecdEcf);
+          if(p.nextEmpId) setNextEmpId(p.nextEmpId);
+          if(p.nextGrpId) setNextGrpId(p.nextGrpId);
+          toast("☁️ Dados contábeis carregados!","ok");
+        } else {
+          // First time — upsert seed
+          await sb.from("app_data").upsert({id:CONTABIL_ROW_ID,payload:{empresas:init.empresas,grupos:init.grupos,dados:init.dados,obs:init.obs,ecdEcf:init.ecdEcf,nextEmpId:init.nextEmpId,nextGrpId:init.nextGrpId}});
+        }
+      }catch(e){console.warn("Contabil DB load failed:",e);}
+      setDbSynced(true);
+    })();
+  },[]);
+
+  // Save to Supabase + localStorage whenever state changes (debounced)
+  const saveContabilToDb=useCallback((empresas,grupos,dados,obs,ecdEcf,nextEmpId,nextGrpId)=>{
+    const payload={empresas,grupos,dados,obs,ecdEcf,nextEmpId,nextGrpId,_savedAt:Date.now()};
+    // localStorage always
+    try{localStorage.setItem(STORAGE_KEY,JSON.stringify(payload));}catch(e){}
+    // Supabase debounced
+    if(pendingContabilSave.current) clearTimeout(pendingContabilSave.current);
+    pendingContabilSave.current=setTimeout(async()=>{
+      try{
+        const {error}=await sb.from("app_data").upsert({id:CONTABIL_ROW_ID,payload});
+        if(error) console.warn("Contabil save error:",error);
+      }catch(e){console.warn("Contabil save failed:",e);}
+    },800);
+  },[]);
+
+  // Trigger save on any state change (after initial db load)
+  useEffect(()=>{
+    if(!dbSynced) return;
+    saveContabilToDb(cEmpresas,cGrupos,cDados,cObs,cEcdEcf,nextEmpId,nextGrpId);
+  },[cEmpresas,cGrupos,cDados,cObs,cEcdEcf,nextEmpId,nextGrpId,dbSynced]);
+
+  // ─── Load from localStorage (initial fallback) ────────────────
   const loadState=()=>{
     try{
       const raw=localStorage.getItem(STORAGE_KEY);
@@ -8170,13 +8221,6 @@ function ContabilPage({toast}){
 
   // Obs summary
   const [obsResModal,setObsResModal]=useState(false);
-
-  // ─── Persist to localStorage ──────────────────────────────────
-  useEffect(()=>{
-    try{
-      localStorage.setItem(STORAGE_KEY,JSON.stringify({empresas:cEmpresas,grupos:cGrupos,dados:cDados,obs:cObs,ecdEcf:cEcdEcf,nextEmpId,nextGrpId}));
-    }catch(e){}
-  },[cEmpresas,cGrupos,cDados,cObs,cEcdEcf,nextEmpId,nextGrpId]);
 
   // ─── Helpers ──────────────────────────────────────────────────
   const REGIMES_ECD=["lucro","imune","isenta"];
@@ -8977,11 +9021,7 @@ function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgC
                                   <div onClick={()=>alterarStatus(emp.id,mes,campo)} style={getStStyle(dado[campo])}>{getStTxt(dado[campo])}</div>
                                   {/* Revert arrow for non-nao-iniciado, non-analisado */}
                                   {!dado.analisado&&dado[campo]!=="nao-iniciado"&&(
-                                    <span onClick={e=>{e.stopPropagation();const r=dado[campo]==="ok"?"pendente":"nao-iniciado";const prev=dado[campo];setCDados&&null;// handled in parent via prop
-                                    // We need to call reverterStatus from parent — pass it up via callback
-                                    // For now use the setRevertModal trick: actually reverterStatus is not available here, so we embed it inline
-                                    // Actually alterarStatus goes forward, so revert = go back. Let's call a small helper:
-                                    window.__contabilRevert&&window.__contabilRevert(emp.id,mes,campo,prev);}} title="Reverter status" style={{position:"absolute",top:-8,right:-8,fontSize:10,cursor:"pointer",background:"#f59e0b",color:"#fff",borderRadius:"50%",width:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",zIndex:1,fontWeight:900,lineHeight:1}}>↩</span>
+                                    <span onClick={e=>{e.stopPropagation();const prev=dado[campo];window.__contabilRevert&&window.__contabilRevert(emp.id,mes,campo,prev);}} title="Reverter status" style={{position:"absolute",top:-8,right:-8,fontSize:10,cursor:"pointer",background:"#f59e0b",color:"#fff",borderRadius:"50%",width:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",zIndex:1,fontWeight:900,lineHeight:1}}>↩</span>
                                   )}
                                 </div>
                               </td>
@@ -9025,7 +9065,6 @@ function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgC
   );
 }
 
-}
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script>

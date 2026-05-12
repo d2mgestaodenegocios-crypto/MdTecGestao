@@ -8731,33 +8731,101 @@ function ContabilPage({toast}){
       {/* ── Modal Resumo Observações ── */}
       {obsResModal&&(
         <div onClick={e=>e.target===e.currentTarget&&setObsResModal(false)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.6)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}>
-          <div style={{background:"var(--bg2)",borderRadius:18,width:"100%",maxWidth:700,maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:"0 32px 80px rgba(0,0,0,.3)",overflow:"hidden"}}>
-            <div style={{background:"#8b5cf6",padding:"16px 22px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
-              <div>
-                <span style={{fontSize:15,fontWeight:900,color:"#fff"}}>📋 Resumo de Todas as Observações</span>
-                <span style={{fontSize:12,color:"rgba(255,255,255,.7)",marginLeft:10}}>{cObs.length} observação(ões)</span>
+          <div style={{background:"var(--bg2)",borderRadius:18,width:"100%",maxWidth:720,maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:"0 32px 80px rgba(0,0,0,.3)",overflow:"hidden"}}>
+            <div style={{background:"linear-gradient(135deg,#8b5cf6,#6d28d9)",padding:"16px 22px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+              <div style={{display:"flex",alignItems:"center",gap:12}}>
+                <span style={{fontSize:22}}>📋</span>
+                <div>
+                  <div style={{fontSize:15,fontWeight:900,color:"#fff"}}>Resumo de Todas as Observações</div>
+                  <div style={{fontSize:12,color:"rgba(255,255,255,.7)",marginTop:2}}>{cObs.length} observação(ões) · agrupado por grupo</div>
+                </div>
               </div>
-              <button onClick={()=>setObsResModal(false)} style={{background:"none",border:"none",color:"#fff",fontSize:22,cursor:"pointer",lineHeight:1}}>×</button>
+              <button onClick={()=>setObsResModal(false)} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",fontSize:18,cursor:"pointer",lineHeight:1,borderRadius:8,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
             </div>
-            <div style={{padding:"20px",overflowY:"auto",flex:1}}>
-              {cObs.length===0&&<div style={{textAlign:"center",padding:"40px",color:"#94a3b8"}}>📭 Nenhuma observação cadastrada</div>}
-              {/* Group by empresa */}
-              {cEmpresas.map(emp=>{
-                const obsEmp=cObs.filter(o=>o.empresaId===emp.id);
-                if(obsEmp.length===0) return null;
-                return(
-                  <div key={emp.id} style={{marginBottom:16}}>
-                    <div style={{fontSize:13,fontWeight:800,color:"#6366f1",marginBottom:8,borderBottom:"1px solid var(--border)",paddingBottom:6}}>🏢 {emp.nome}</div>
-                    {obsEmp.map((o,i)=>(
-                      <div key={i} style={{padding:"10px 14px",borderRadius:10,marginBottom:6,background:"#fffbeb",border:"1px solid #fde68a",fontSize:12,color:"#92400e",display:"flex",gap:10,alignItems:"flex-start"}}>
-                        <span style={{fontWeight:800,flexShrink:0,color:"#b45f06"}}>{getMesNomeC(o.competencia)}:</span>
-                        <span style={{flex:1}}>{o.texto}</span>
-                        <button onClick={()=>{abrirObs(o.empresaId,o.competencia);setObsResModal(false);}} title="Editar" style={{background:"none",border:"none",cursor:"pointer",fontSize:14,padding:2,color:"#8b5cf6",flexShrink:0}}>✏️</button>
+            <div style={{padding:"20px",overflowY:"auto",flex:1,display:"flex",flexDirection:"column",gap:16}}>
+              {cObs.length===0&&<div style={{textAlign:"center",padding:"40px",color:"#94a3b8",fontSize:14}}>📭 Nenhuma observação cadastrada</div>}
+              {/* Group by grupo → empresa */}
+              {(()=>{
+                // Build grupos + empresas sem grupo
+                const grupos=[...cGrupos.filter(g=>!g.parentId)];
+                const sections=[];
+                // grupos raiz
+                for(const grp of grupos){
+                  const color=getGrpColor(grp.id);
+                  // empresas diretas + subgrupos
+                  const subGrpIds=cGrupos.filter(g=>g.parentId===grp.id).map(g=>g.id);
+                  const empsGrp=cEmpresas.filter(e=>e.grupoId===grp.id||subGrpIds.includes(e.grupoId));
+                  const obsGrp=cObs.filter(o=>empsGrp.some(e=>e.id===o.empresaId));
+                  if(obsGrp.length===0) continue;
+                  sections.push(
+                    <div key={`grp-${grp.id}`} style={{borderRadius:14,overflow:"hidden",border:`1.5px solid ${color}44`}}>
+                      {/* Cabeçalho do grupo */}
+                      <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",background:color+"18",borderBottom:`1px solid ${color}33`}}>
+                        <div style={{width:10,height:10,borderRadius:"50%",background:color,flexShrink:0}}/>
+                        <span style={{fontSize:13,fontWeight:900,color}}>{grp.nome}</span>
+                        <span style={{marginLeft:"auto",background:color+"22",color,borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700,border:`1px solid ${color}44`}}>{obsGrp.length} obs.</span>
                       </div>
-                    ))}
-                  </div>
-                );
-              })}
+                      {/* Empresas dentro do grupo */}
+                      <div style={{padding:"12px 16px",display:"flex",flexDirection:"column",gap:10}}>
+                        {empsGrp.map(emp=>{
+                          const obsEmp=cObs.filter(o=>o.empresaId===emp.id);
+                          if(obsEmp.length===0) return null;
+                          return(
+                            <div key={emp.id}>
+                              <div style={{fontSize:12,fontWeight:800,color:"#475569",marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
+                                🏢 {emp.nome}
+                                <span style={{background:"#f1f5f9",color:"#64748b",borderRadius:10,padding:"1px 8px",fontSize:10,fontWeight:700}}>{obsEmp.length}</span>
+                              </div>
+                              {obsEmp.map((o,i)=>(
+                                <div key={i} style={{padding:"10px 14px",borderRadius:10,marginBottom:5,background:"#fffbeb",border:"1.5px solid #fde68a",fontSize:12,color:"#92400e",display:"flex",gap:10,alignItems:"flex-start"}}>
+                                  <span style={{fontWeight:800,flexShrink:0,color:"#b45f06",minWidth:70}}>{getMesNomeC(o.competencia)}:</span>
+                                  <span style={{flex:1,lineHeight:1.5}}>{o.texto}</span>
+                                  <button onClick={()=>{abrirObs(o.empresaId,o.competencia);setObsResModal(false);}} title="Editar" style={{background:"none",border:"none",cursor:"pointer",fontSize:14,padding:2,color:"#8b5cf6",flexShrink:0,borderRadius:4}} onMouseEnter={e=>e.currentTarget.style.background="#f3e8ff"} onMouseLeave={e=>e.currentTarget.style.background="none"}>✏️</button>
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                }
+                // Empresas sem grupo
+                const empsSemGrp=cEmpresas.filter(e=>!e.grupoId);
+                const obsSemGrp=cObs.filter(o=>empsSemGrp.some(e=>e.id===o.empresaId));
+                if(obsSemGrp.length>0){
+                  sections.push(
+                    <div key="sem-grupo" style={{borderRadius:14,overflow:"hidden",border:"1.5px solid #e2e8f0"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",background:"#f8fafc",borderBottom:"1px solid #e2e8f0"}}>
+                        <span style={{fontSize:12,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".05em"}}>Sem Grupo</span>
+                        <span style={{marginLeft:"auto",background:"#e2e8f0",color:"#64748b",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>{obsSemGrp.length} obs.</span>
+                      </div>
+                      <div style={{padding:"12px 16px",display:"flex",flexDirection:"column",gap:10}}>
+                        {empsSemGrp.map(emp=>{
+                          const obsEmp=cObs.filter(o=>o.empresaId===emp.id);
+                          if(obsEmp.length===0) return null;
+                          return(
+                            <div key={emp.id}>
+                              <div style={{fontSize:12,fontWeight:800,color:"#475569",marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
+                                🏢 {emp.nome}
+                                <span style={{background:"#f1f5f9",color:"#64748b",borderRadius:10,padding:"1px 8px",fontSize:10,fontWeight:700}}>{obsEmp.length}</span>
+                              </div>
+                              {obsEmp.map((o,i)=>(
+                                <div key={i} style={{padding:"10px 14px",borderRadius:10,marginBottom:5,background:"#fffbeb",border:"1.5px solid #fde68a",fontSize:12,color:"#92400e",display:"flex",gap:10,alignItems:"flex-start"}}>
+                                  <span style={{fontWeight:800,flexShrink:0,color:"#b45f06",minWidth:70}}>{getMesNomeC(o.competencia)}:</span>
+                                  <span style={{flex:1,lineHeight:1.5}}>{o.texto}</span>
+                                  <button onClick={()=>{abrirObs(o.empresaId,o.competencia);setObsResModal(false);}} title="Editar" style={{background:"none",border:"none",cursor:"pointer",fontSize:14,padding:2,color:"#8b5cf6",flexShrink:0,borderRadius:4}} onMouseEnter={e=>e.currentTarget.style.background="#f3e8ff"} onMouseLeave={e=>e.currentTarget.style.background="none"}>✏️</button>
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                }
+                return sections;
+              })()}
             </div>
           </div>
         </div>
@@ -8936,6 +9004,10 @@ function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgC
   const obsCount=cObs.filter(o=>o.empresaId===emp.id).length;
   const isSelected=selectedEmps.has(emp.id);
 
+  // Which year tab is active — default to first year that has months
+  const anosComMeses=ANOS.filter(a=>mesesEmp.some(m=>m.endsWith("/"+a)));
+  const [abaAno,setAbaAno]=useState(anosComMeses[0]||ANOS[0]);
+
   return(
     <div style={{borderBottom:isLast?"none":"1px solid var(--border)",background:isSelected?"#eff6ff":undefined}}>
       {/* Header */}
@@ -8954,7 +9026,17 @@ function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgC
             <span style={getRegStyle(emp.regime)}>{getRegimeLbl(emp.regime)}</span>
             {emp.grupoId&&<span style={{background:grpColor+"22",color:grpColor,border:`1px solid ${grpColor}44`,padding:"2px 8px",borderRadius:12,fontSize:11,fontWeight:700}}>{getGrupoNomeC(emp.grupoId)}</span>}
             <span style={{background:"#e2e8f0",color:"#475569",padding:"2px 8px",borderRadius:12,fontSize:11}}>📅 {emp.periodoInicial}</span>
-            {obsCount>0&&<span style={{background:"#f59e0b",color:"#fff",padding:"2px 8px",borderRadius:12,fontSize:10,fontWeight:700,border:"1.5px solid #d97706"}}>📝 {obsCount} obs.</span>}
+            {/* Destaque de observações — badge laranja pulsante */}
+            {obsCount>0&&(
+              <span style={{
+                display:"inline-flex",alignItems:"center",gap:4,
+                background:"linear-gradient(135deg,#f59e0b,#d97706)",
+                color:"#fff",padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:800,
+                border:"2px solid #fbbf24",
+                boxShadow:"0 0 0 3px rgba(245,158,11,.25)",
+                animation:"lockPulse 2s infinite"
+              }}>📝 {obsCount} obs.</span>
+            )}
           </div>
           <div style={{display:"flex",gap:14}}>
             {[{v:stats.analisados,l:"Analisa."},{v:stats.contabilizados,l:"Contab."},{v:stats.pendentes,l:"Pendentes"}].map(({v,l})=>(
@@ -8979,18 +9061,47 @@ function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgC
         </div>
       </div>
 
-      {/* Detalhes (meses por ano) */}
+      {/* Detalhes com abas por ano */}
       {emp.expandido&&(
-        <div style={{borderTop:"1px solid var(--border)",padding:"16px 20px",background:"var(--bg3)"}}>
-          {ANOS.map(ano=>{
-            const mesesAno=mesesEmp.filter(m=>m.endsWith("/"+ano));
-            if(mesesAno.length===0) return null;
-            const rAno=getResumoAno(emp.id,ano);
+        <div style={{borderTop:"1px solid var(--border)",background:"var(--bg3)"}}>
+          {/* ── Tabs de ano ── */}
+          <div style={{display:"flex",gap:0,borderBottom:"2px solid var(--border)",padding:"0 20px",background:"var(--bg2)"}}>
+            {anosComMeses.map(ano=>{
+              const rAno=getResumoAno(emp.id,ano);
+              const pctAno=rAno.total>0?Math.round((rAno.analisados/rAno.total)*100):0;
+              const ativo=abaAno===ano;
+              return(
+                <button key={ano} onClick={()=>setAbaAno(ano)} style={{
+                  padding:"10px 20px",border:"none",cursor:"pointer",fontFamily:"inherit",
+                  fontSize:12,fontWeight:ativo?800:600,
+                  color:ativo?"#6366f1":"#64748b",
+                  background:"transparent",
+                  borderBottom:ativo?"3px solid #6366f1":"3px solid transparent",
+                  marginBottom:-2,
+                  transition:"all .15s",
+                  display:"flex",alignItems:"center",gap:6
+                }}>
+                  📅 {ano}
+                  <span style={{
+                    background:pctAno===100?"#d1fae5":ativo?"#e0e7ff":"#f1f5f9",
+                    color:pctAno===100?"#065f46":ativo?"#3730a3":"#64748b",
+                    padding:"1px 7px",borderRadius:20,fontSize:10,fontWeight:800
+                  }}>{rAno.analisados}/{rAno.total}</span>
+                  {pctAno===100&&<span style={{fontSize:11}}>✅</span>}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* ── Conteúdo da aba ── */}
+          {(()=>{
+            const mesesAno=mesesEmp.filter(m=>m.endsWith("/"+abaAno));
+            const rAno=getResumoAno(emp.id,abaAno);
             return(
-              <div key={ano} style={{marginBottom:16}}>
-                {/* Year header */}
-                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8,padding:"6px 12px",background:"#1e3a5f",borderRadius:8,color:"#fff"}}>
-                  <span style={{fontSize:12,fontWeight:900}}>📅 {ano}</span>
+              <div style={{padding:"16px 20px"}}>
+                {/* Info bar do ano */}
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,padding:"6px 14px",background:"#1e3a5f",borderRadius:8,color:"#fff"}}>
+                  <span style={{fontSize:12,fontWeight:900}}>📅 {abaAno}</span>
                   <span style={{fontSize:11,color:"rgba(255,255,255,.7)"}}>{rAno.analisados}/{rAno.total} analisados · {rAno.contabilizados} contabilizados</span>
                   {rAno.analisados===rAno.total&&rAno.total>0&&<span style={{marginLeft:"auto",fontSize:11,background:"#22c55e",color:"#fff",padding:"2px 8px",borderRadius:6,fontWeight:700}}>✅ Ano completo</span>}
                 </div>
@@ -9010,7 +9121,7 @@ function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgC
                         const contab=estaContab(dado);
                         const prog=calcProg(dado);
                         const hasObs=temObs(emp.id,mes);
-                        const rowBg=dado.analisado?"rgba(34,197,94,.07)":hasObs?"rgba(245,158,11,.05)":"transparent";
+                        const rowBg=dado.analisado?"rgba(34,197,94,.07)":hasObs?"rgba(245,158,11,.08)":"transparent";
                         return(
                           <tr key={mes} style={{borderBottom:"1px solid var(--border)",background:rowBg}}>
                             <td style={{padding:"9px 8px",fontWeight:700,textAlign:"center",color:"var(--text)"}}>{getMesNomeC(mes)}</td>
@@ -9018,7 +9129,6 @@ function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgC
                               <td key={campo} style={{padding:"9px 6px",textAlign:"center"}}>
                                 <div style={{position:"relative",display:"inline-block"}}>
                                   <div onClick={()=>alterarStatus(emp.id,mes,campo)} style={getStStyle(dado[campo])}>{getStTxt(dado[campo])}</div>
-                                  {/* Revert arrow for non-nao-iniciado, non-analisado */}
                                   {!dado.analisado&&dado[campo]!=="nao-iniciado"&&(
                                     <span onClick={e=>{e.stopPropagation();const prev=dado[campo];window.__contabilRevert&&window.__contabilRevert(emp.id,mes,campo,prev);}} title="Reverter status" style={{position:"absolute",top:-8,right:-8,fontSize:10,cursor:"pointer",background:"#f59e0b",color:"#fff",borderRadius:"50%",width:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",zIndex:1,fontWeight:900,lineHeight:1}}>↩</span>
                                   )}
@@ -9036,7 +9146,15 @@ function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgC
                             </td>
                             <td style={{padding:"9px 8px",textAlign:"center"}}>
                               <span onClick={()=>abrirObs(emp.id,mes)} title={hasObs?getObsTxt(emp.id,mes):"Adicionar observação"}
-                                style={{fontSize:16,cursor:"pointer",color:hasObs?"#f59e0b":"#94a3b8",filter:hasObs?"drop-shadow(0 0 4px #f59e0b88)":"none",transition:"all .15s"}}>📝</span>
+                                style={{
+                                  fontSize:hasObs?18:16,cursor:"pointer",
+                                  color:hasObs?"#f59e0b":"#94a3b8",
+                                  filter:hasObs?"drop-shadow(0 0 6px #f59e0baa)":"none",
+                                  transition:"all .15s",
+                                  background:hasObs?"rgba(245,158,11,.12)":"transparent",
+                                  borderRadius:6,padding:"2px 4px",
+                                  border:hasObs?"1.5px solid #fcd34d":"1.5px solid transparent"
+                                }}>📝</span>
                             </td>
                             <td style={{padding:"9px 8px",textAlign:"center"}}>
                               {dado.analisado
@@ -9057,7 +9175,7 @@ function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgC
                 </div>
               </div>
             );
-          })}
+          })()}
         </div>
       )}
     </div>

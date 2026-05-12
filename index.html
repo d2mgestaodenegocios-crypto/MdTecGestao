@@ -8206,7 +8206,15 @@ function ContabilPage({toast}){
   const [obsTextoEdit,setObsTextoEdit]=useState("");
   const [showImportModal,setShowImportModal]=useState(false);
   const [novaEmpForm,setNovaEmpForm]=useState({nome:"",grupoId:"",subgrupoId:"",regime:"simples",periodoInicial:"01/2025"});
-  const [novoGrupoForm,setNovoGrupoForm]=useState({nome:"",parentId:""});
+  const [novoGrupoForm,setNovoGrupoForm]=useState({nome:"",parentId:"",subgrupos:[]});
+  const [novoGrupoSubInput,setNovoGrupoSubInput]=useState("");
+
+  // Column header labels (editavel)
+  const DEFAULT_COL_LABELS={fiscal:"Fiscal",extratos:"Extratos",patrimonio:"Patrimonio",folha:"Folha",cliente:"Cliente"};
+  const [colLabels,setColLabels]=useState(()=>{try{const s=localStorage.getItem("mdtec_contabil_cols");return s?JSON.parse(s):DEFAULT_COL_LABELS;}catch(e){return DEFAULT_COL_LABELS;}});
+  const [editingCols,setEditingCols]=useState(false);
+  const [colDraft,setColDraft]=useState(()=>{try{const s=localStorage.getItem("mdtec_contabil_cols");return s?JSON.parse(s):{fiscal:"Fiscal",extratos:"Extratos",patrimonio:"Patrimonio",folha:"Folha",cliente:"Cliente"};}catch(e){return {fiscal:"Fiscal",extratos:"Extratos",patrimonio:"Patrimonio",folha:"Folha",cliente:"Cliente"};}});
+  const saveColLabels=()=>{setColLabels(colDraft);try{localStorage.setItem("mdtec_contabil_cols",JSON.stringify(colDraft));}catch(e){}setEditingCols(false);};
 
   // Delete
   const [deleteModal,setDeleteModal]=useState(null); // {type:"empresa"|"grupo"|"batch", ids:[], title, confirmWord}
@@ -8398,11 +8406,21 @@ function ContabilPage({toast}){
     if(!novoGrupoForm.nome.trim()){toast("Digite o nome do grupo","err");return;}
     if(cGrupos.some(g=>g.nome.toLowerCase()===novoGrupoForm.nome.toLowerCase())){toast("Grupo já existe!","warn");return;}
     const parentId=novoGrupoForm.parentId?parseInt(novoGrupoForm.parentId):null;
-    setCGrupos(prev=>[...prev,{id:nextGrpId,nome:novoGrupoForm.nome.trim(),parentId}]);
-    setNextGrpId(n=>n+1);
+    const novoId=nextGrpId;
+    const novosGrupos=[{id:novoId,nome:novoGrupoForm.nome.trim(),parentId}];
+    let nextId=nextGrpId+1;
+    // Criar subgrupos vinculados ao grupo pai criado (somente se for grupo raiz)
+    if(!parentId&&novoGrupoForm.subgrupos&&novoGrupoForm.subgrupos.length>0){
+      for(const sub of novoGrupoForm.subgrupos){
+        if(sub.trim()) novosGrupos.push({id:nextId++,nome:sub.trim(),parentId:novoId});
+      }
+    }
+    setCGrupos(prev=>[...prev,...novosGrupos]);
+    setNextGrpId(nextId);
     setShowGrupoModal(false);
-    setNovoGrupoForm({nome:"",parentId:""});
-    toast(`Grupo "${novoGrupoForm.nome}" criado!`,"ok");
+    setNovoGrupoForm({nome:"",parentId:"",subgrupos:[]});
+    setNovoGrupoSubInput("");
+    toast(`Grupo "${novoGrupoForm.nome}" criado${novosGrupos.length>1?` com ${novosGrupos.length-1} subgrupo(s)`:""}!`,"ok");
   };
 
   // ─── Filters ──────────────────────────────────────────────────
@@ -8480,6 +8498,7 @@ function ContabilPage({toast}){
           <Btn onClick={()=>setObsResModal(true)} v="ghost" sz="sm" xs={{background:"#8b5cf6",color:"#fff",border:"none"}}>
             📋 Observações{cObs.length>0&&<span style={{marginLeft:4,background:"rgba(255,255,255,.3)",borderRadius:10,padding:"1px 6px",fontSize:10,fontWeight:900}}>{cObs.length}</span>}
           </Btn>
+          <Btn onClick={()=>{setColDraft({...colLabels});setEditingCols(true);}} v="ghost" sz="sm" xs={{background:"#0ea5e9",color:"#fff",border:"none"}}>✏️ Colunas</Btn>
           <Btn onClick={()=>setShowImportModal(true)} v="ghost" sz="sm" xs={{background:"#10b981",color:"#fff",border:"none"}}>📤 Importar</Btn>
           <Btn onClick={()=>setShowNovaEmpModal(true)} sz="sm">+ Empresa</Btn>
           <Btn onClick={()=>setShowGrupoModal(true)} v="ghost" sz="sm">👥 Grupo</Btn>
@@ -8604,7 +8623,7 @@ function ContabilPage({toast}){
 
             {/* Empresas diretas do grupo */}
             <div style={{border:`1.5px solid ${color}44`,borderTop:"none",borderRadius:"0 0 12px 12px",overflow:"hidden",background:"var(--bg2)"}}>
-              {empsGrp.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} isLast={idx===empsGrp.length-1&&subGrps.length===0} {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,grpColor:color}}/>)}
+              {empsGrp.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} isLast={idx===empsGrp.length-1&&subGrps.length===0} {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor:color}}/>)}
 
               {/* Subgroups */}
               {subGrps.map(sg=>{
@@ -8620,7 +8639,7 @@ function ContabilPage({toast}){
                       <span style={{fontSize:10,color:"#94a3b8"}}>{empsSg.length} empresa(s)</span>
                       <button onClick={()=>confirmarDeleteGrupo(sg)} title="Excluir subgrupo" style={{background:"none",border:"none",cursor:"pointer",color:"#f87171",fontSize:11,padding:"2px 6px",borderRadius:6,marginLeft:"auto"}} onMouseEnter={e=>e.currentTarget.style.background="#fef2f2"} onMouseLeave={e=>e.currentTarget.style.background="none"}>🗑</button>
                     </div>
-                    {empsSg.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} isLast={idx===empsSg.length-1} indent {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,grpColor:sgColor}}/>)}
+                    {empsSg.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} isLast={idx===empsSg.length-1} indent {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor:sgColor}}/>)}
                   </div>
                 );
               })}
@@ -8640,7 +8659,7 @@ function ContabilPage({toast}){
               <span style={{fontSize:11,color:"#94a3b8"}}>{semGrp.length} empresa(s)</span>
             </div>
             <div style={{border:"1px solid var(--border)",borderTop:"none",borderRadius:"0 0 10px 10px",overflow:"hidden",background:"var(--bg2)"}}>
-              {semGrp.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} isLast={idx===semGrp.length-1} {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,grpColor:"#94a3b8"}}/>)}
+              {semGrp.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} isLast={idx===semGrp.length-1} {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor:"#94a3b8"}}/>)}
             </div>
           </div>
         );
@@ -8685,29 +8704,88 @@ function ContabilPage({toast}){
       </Modal>
 
       {/* ── Modal Novo Grupo / Subgrupo ── */}
-      <Modal open={showGrupoModal} onClose={()=>setShowGrupoModal(false)} title="👥 Criar Grupo ou Subgrupo" width={420}>
-        <div style={{display:"flex",flexDirection:"column",gap:12}}>
-          <div style={{padding:"10px 14px",borderRadius:10,background:"#e0e7ff",border:"1px solid #c7d2fe",fontSize:12,color:"#3730a3",lineHeight:1.6}}>
-            <strong>💡 Dica:</strong> Deixe "Grupo pai" em branco para criar um grupo principal. Selecione um grupo pai para criar um subgrupo dentro dele.
+      <Modal open={showGrupoModal} onClose={()=>{setShowGrupoModal(false);setNovoGrupoForm({nome:"",parentId:"",subgrupos:[]});setNovoGrupoSubInput("");}} title="👥 Criar Grupo ou Subgrupo" width={480}>
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          {/* Tipo: grupo principal ou subgrupo */}
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={()=>setNovoGrupoForm(f=>({...f,parentId:""}))} style={{flex:1,padding:"9px",borderRadius:9,border:`2px solid ${!novoGrupoForm.parentId?"#6366f1":"#e5e7eb"}`,background:!novoGrupoForm.parentId?"#eef2ff":"var(--bg2)",color:!novoGrupoForm.parentId?"#4338ca":"var(--text3)",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",transition:"all .15s"}}>🏛 Grupo Principal</button>
+            <button onClick={()=>setNovoGrupoForm(f=>({...f,parentId:f.parentId||(gruposRaiz[0]?.id?.toString()||""),subgrupos:[]}))} style={{flex:1,padding:"9px",borderRadius:9,border:`2px solid ${novoGrupoForm.parentId?"#6366f1":"#e5e7eb"}`,background:novoGrupoForm.parentId?"#eef2ff":"var(--bg2)",color:novoGrupoForm.parentId?"#4338ca":"var(--text3)",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",transition:"all .15s"}}>↳ Subgrupo</button>
           </div>
-          <Inp label="Nome do grupo/subgrupo *" value={novoGrupoForm.nome} onChange={v=>setNovoGrupoForm(f=>({...f,nome:v}))} placeholder="Ex: Holding ABC, Filiais Sul..."/>
-          <Fld label="Grupo pai (para subgrupo)">
-            <select value={novoGrupoForm.parentId} onChange={e=>setNovoGrupoForm(f=>({...f,parentId:e.target.value}))} style={{padding:"8px 12px",borderRadius:9,border:"2px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",width:"100%"}}>
-              <option value="">-- Grupo principal (sem pai) --</option>
-              {gruposRaiz.map(g=><option key={g.id} value={g.id}>{g.nome}</option>)}
-            </select>
-          </Fld>
-          {/* Preview color */}
+
+          <Inp label="Nome *" value={novoGrupoForm.nome} onChange={v=>setNovoGrupoForm(f=>({...f,nome:v}))} placeholder={novoGrupoForm.parentId?"Ex: Filiais Sul, Unidade RJ...":"Ex: Holding ABC, Grupo XYZ..."}/>
+
+          {/* Se subgrupo: escolher grupo pai */}
+          {novoGrupoForm.parentId&&(
+            <Fld label="Grupo pai *">
+              <select value={novoGrupoForm.parentId} onChange={e=>setNovoGrupoForm(f=>({...f,parentId:e.target.value}))} style={{padding:"8px 12px",borderRadius:9,border:"2px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",width:"100%"}}>
+                {gruposRaiz.map(g=><option key={g.id} value={g.id}>{g.nome}</option>)}
+              </select>
+            </Fld>
+          )}
+
+          {/* Se grupo principal: adicionar subgrupos opcionais já na criação */}
+          {!novoGrupoForm.parentId&&(
+            <Fld label="Subgrupos (opcional — adicione já na criação)">
+              <div style={{display:"flex",gap:6,marginBottom:6}}>
+                <input value={novoGrupoSubInput} onChange={e=>setNovoGrupoSubInput(e.target.value)}
+                  onKeyDown={e=>{if(e.key==="Enter"&&novoGrupoSubInput.trim()){setNovoGrupoForm(f=>({...f,subgrupos:[...f.subgrupos,novoGrupoSubInput.trim()]}));setNovoGrupoSubInput("");}}}
+                  placeholder="Nome do subgrupo... (Enter para adicionar)"
+                  style={{flex:1,padding:"7px 10px",borderRadius:8,border:"2px solid #e5e7eb",fontSize:12,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}}/>
+                <button onClick={()=>{if(novoGrupoSubInput.trim()){setNovoGrupoForm(f=>({...f,subgrupos:[...f.subgrupos,novoGrupoSubInput.trim()]}));setNovoGrupoSubInput("");}}} style={{padding:"7px 14px",borderRadius:8,border:"none",background:"#6366f1",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>+ Add</button>
+              </div>
+              {novoGrupoForm.subgrupos.length>0&&(
+                <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                  {novoGrupoForm.subgrupos.map((s,i)=>(
+                    <span key={i} style={{background:"#e0e7ff",color:"#3730a3",borderRadius:20,padding:"3px 10px",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:5,border:"1px solid #c7d2fe"}}>
+                      ↳ {s}
+                      <button onClick={()=>setNovoGrupoForm(f=>({...f,subgrupos:f.subgrupos.filter((_,j)=>j!==i)}))} style={{background:"none",border:"none",cursor:"pointer",color:"#6366f1",fontSize:14,lineHeight:1,padding:0,fontWeight:900}}>×</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </Fld>
+          )}
+
+          {/* Preview */}
           {novoGrupoForm.nome.trim()&&(
-            <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderRadius:8,background:"var(--bg3)",border:"1px solid var(--border)"}}>
-              <div style={{width:10,height:10,borderRadius:"50%",background:GRP_COLORS[nextGrpId%GRP_COLORS.length]}}/>
-              <span style={{fontSize:12,fontWeight:700,color:GRP_COLORS[nextGrpId%GRP_COLORS.length]}}>{novoGrupoForm.nome}</span>
-              {novoGrupoForm.parentId&&<span style={{fontSize:11,color:"#94a3b8"}}> (subgrupo de {gruposRaiz.find(g=>g.id===parseInt(novoGrupoForm.parentId))?.nome})</span>}
+            <div style={{padding:"10px 14px",borderRadius:10,background:"var(--bg3)",border:"1px solid var(--border)"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:novoGrupoForm.subgrupos.length>0?6:0}}>
+                <div style={{width:10,height:10,borderRadius:"50%",background:GRP_COLORS[nextGrpId%GRP_COLORS.length]}}/>
+                <span style={{fontSize:12,fontWeight:800,color:GRP_COLORS[nextGrpId%GRP_COLORS.length]}}>{novoGrupoForm.nome}</span>
+                {novoGrupoForm.parentId&&<span style={{fontSize:11,color:"#94a3b8"}}> ← {gruposRaiz.find(g=>g.id===parseInt(novoGrupoForm.parentId))?.nome}</span>}
+              </div>
+              {!novoGrupoForm.parentId&&novoGrupoForm.subgrupos.map((s,i)=>(
+                <div key={i} style={{display:"flex",alignItems:"center",gap:6,paddingLeft:16,marginTop:3}}>
+                  <span style={{fontSize:10,color:"#94a3b8"}}>↳</span>
+                  <span style={{fontSize:11,fontWeight:700,color:"#64748b"}}>{s}</span>
+                </div>
+              ))}
             </div>
           )}
+
           <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
-            <Btn onClick={()=>setShowGrupoModal(false)} v="ghost">Cancelar</Btn>
+            <Btn onClick={()=>{setShowGrupoModal(false);setNovoGrupoForm({nome:"",parentId:"",subgrupos:[]});setNovoGrupoSubInput("");}} v="ghost">Cancelar</Btn>
             <Btn onClick={adicionarGrupoC}>Criar</Btn>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Modal Editar Colunas ── */}
+      <Modal open={editingCols} onClose={()=>setEditingCols(false)} title="✏️ Editar Cabeçalhos das Colunas" width={420}>
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <div style={{padding:"10px 14px",borderRadius:10,background:"#e0f2fe",border:"1px solid #bae6fd",fontSize:12,color:"#0369a1",lineHeight:1.6}}>
+            <strong>💡</strong> Personalize os nomes das colunas. Será salvo como padrão para todas as empresas.
+          </div>
+          {["fiscal","extratos","patrimonio","folha","cliente"].map(k=>(
+            <Fld key={k} label={`Coluna "${k}"`}>
+              <input value={colDraft[k]||""} onChange={e=>setColDraft(d=>({...d,[k]:e.target.value}))}
+                style={{width:"100%",padding:"8px 12px",borderRadius:9,border:"2px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",boxSizing:"border-box"}}/>
+            </Fld>
+          ))}
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:4}}>
+            <Btn onClick={()=>{setColDraft({fiscal:"Fiscal",extratos:"Extratos",patrimonio:"Patrimônio",folha:"Folha",cliente:"Cliente"});}} v="ghost" sz="sm">↩ Restaurar padrão</Btn>
+            <Btn onClick={()=>setEditingCols(false)} v="ghost">Cancelar</Btn>
+            <Btn onClick={saveColLabels} xs={{background:"#0ea5e9",color:"#fff",border:"none"}}>💾 Salvar como padrão</Btn>
           </div>
         </div>
       </Modal>
@@ -8996,7 +9074,7 @@ function ContabilPage({toast}){
 }
 
 /* Sub-component: EmpresaRow */
-function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,grpColor}){
+function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor}){
   const stats=getStatsEmp(emp.id);
   const pct=stats.total>0?Math.round((stats.analisados/stats.total)*100):0;
   const mesesEmp=getMesesC(emp.periodoInicial);
@@ -9109,7 +9187,7 @@ function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgC
                   <table style={{width:"100%",borderCollapse:"collapse",minWidth:980,fontSize:12}}>
                     <thead>
                       <tr style={{background:"#1e3a5f"}}>
-                        {["Mês","📋 Fiscal","💰 Extratos","🏢 Patrimônio","👥 Folha","📬 Cliente","Progresso","📝","🔍 Análise"].map(h=>(
+                        {["Mês",`📋 ${(colLabels&&colLabels.fiscal)||"Fiscal"}`,`💰 ${(colLabels&&colLabels.extratos)||"Extratos"}`,`🏢 ${(colLabels&&colLabels.patrimonio)||"Patrimônio"}`,`👥 ${(colLabels&&colLabels.folha)||"Folha"}`,`📬 ${(colLabels&&colLabels.cliente)||"Cliente"}`,"Progresso","📝","🔍 Análise"].map(h=>(
                           <th key={h} style={{padding:"9px 8px",color:"#fff",fontSize:11,textAlign:"center",fontWeight:700}}>{h}</th>
                         ))}
                       </tr>

@@ -8095,71 +8095,6 @@ function ContabilPage({toast}){
     return d;
   };
 
-  // ─── Register global revert helper for EmpresaRow ────────────
-  useEffect(()=>{
-    window.__contabilRevert=(eid,mes,campo,fromValue)=>{
-      setCDados(prev=>prev.map(d=>{
-        if(d.empresaId!==eid||d.competencia!==mes) return d;
-        if(d.analisado) return d;
-        const revert=fromValue==="ok"?"pendente":fromValue==="pendente"?"nao-iniciado":"nao-iniciado";
-        return {...d,[campo]:revert};
-      }));
-      toast("↩ Status revertido!","ok");
-    };
-    return()=>{delete window.__contabilRevert;};
-  },[]);
-
-  // ─── Supabase persistence ─────────────────────────────────────
-  const CONTABIL_ROW_ID=2; // row id=2 in app_data table for contabil data
-  const [dbSynced,setDbSynced]=useState(false);
-  const pendingContabilSave=useRef(null);
-
-  // Load from Supabase on mount
-  useEffect(()=>{
-    (async()=>{
-      try{
-        const {data:row,error}=await sb.from("app_data").select("payload").eq("id",CONTABIL_ROW_ID).maybeSingle();
-        if(error){console.warn("Contabil load error:",error);setDbSynced(true);return;}
-        if(row?.payload){
-          const p=row.payload;
-          if(p.empresas&&Array.isArray(p.empresas)) setCEmpresas(p.empresas);
-          if(p.grupos&&Array.isArray(p.grupos)) setCGrupos(p.grupos);
-          if(p.dados&&Array.isArray(p.dados)) setCDados(p.dados);
-          if(p.obs&&Array.isArray(p.obs)) setCObs(p.obs);
-          if(p.ecdEcf&&typeof p.ecdEcf==="object") setCEcdEcf(p.ecdEcf);
-          if(p.nextEmpId) setNextEmpId(p.nextEmpId);
-          if(p.nextGrpId) setNextGrpId(p.nextGrpId);
-          toast("☁️ Dados contábeis carregados!","ok");
-        } else {
-          // First time — upsert seed
-          await sb.from("app_data").upsert({id:CONTABIL_ROW_ID,payload:{empresas:init.empresas,grupos:init.grupos,dados:init.dados,obs:init.obs,ecdEcf:init.ecdEcf,nextEmpId:init.nextEmpId,nextGrpId:init.nextGrpId}});
-        }
-      }catch(e){console.warn("Contabil DB load failed:",e);}
-      setDbSynced(true);
-    })();
-  },[]);
-
-  // Save to Supabase + localStorage whenever state changes (debounced)
-  const saveContabilToDb=useCallback((empresas,grupos,dados,obs,ecdEcf,nextEmpId,nextGrpId)=>{
-    const payload={empresas,grupos,dados,obs,ecdEcf,nextEmpId,nextGrpId,_savedAt:Date.now()};
-    // localStorage always
-    try{localStorage.setItem(STORAGE_KEY,JSON.stringify(payload));}catch(e){}
-    // Supabase debounced
-    if(pendingContabilSave.current) clearTimeout(pendingContabilSave.current);
-    pendingContabilSave.current=setTimeout(async()=>{
-      try{
-        const {error}=await sb.from("app_data").upsert({id:CONTABIL_ROW_ID,payload});
-        if(error) console.warn("Contabil save error:",error);
-      }catch(e){console.warn("Contabil save failed:",e);}
-    },800);
-  },[]);
-
-  // Trigger save on any state change (after initial db load)
-  useEffect(()=>{
-    if(!dbSynced) return;
-    saveContabilToDb(cEmpresas,cGrupos,cDados,cObs,cEcdEcf,nextEmpId,nextGrpId);
-  },[cEmpresas,cGrupos,cDados,cObs,cEcdEcf,nextEmpId,nextGrpId,dbSynced]);
-
   // ─── Load from localStorage (initial fallback) ────────────────
   const loadState=()=>{
     try{
@@ -8191,6 +8126,71 @@ function ContabilPage({toast}){
   const [cDados,setCDados]=useState(init.dados);
   const [cObs,setCObs]=useState(init.obs);
   const [cEcdEcf,setCEcdEcf]=useState(init.ecdEcf);
+
+  // ─── Supabase persistence ─────────────────────────────────────
+  const CONTABIL_ROW_ID=2; // row id=2 in app_data table for contabil data
+  const [dbSynced,setDbSynced]=useState(false);
+  const pendingContabilSave=useRef(null);
+
+  // Save to Supabase + localStorage whenever state changes (debounced)
+  const saveContabilToDb=useCallback((empresas,grupos,dados,obs,ecdEcf,nextEmpId,nextGrpId)=>{
+    const payload={empresas,grupos,dados,obs,ecdEcf,nextEmpId,nextGrpId,_savedAt:Date.now()};
+    // localStorage always
+    try{localStorage.setItem(STORAGE_KEY,JSON.stringify(payload));}catch(e){}
+    // Supabase debounced
+    if(pendingContabilSave.current) clearTimeout(pendingContabilSave.current);
+    pendingContabilSave.current=setTimeout(async()=>{
+      try{
+        const {error}=await sb.from("app_data").upsert({id:CONTABIL_ROW_ID,payload});
+        if(error) console.warn("Contabil save error:",error);
+      }catch(e){console.warn("Contabil save failed:",e);}
+    },800);
+  },[]);
+
+  // ─── Register global revert helper for EmpresaRow ────────────
+  useEffect(()=>{
+    window.__contabilRevert=(eid,mes,campo,fromValue)=>{
+      setCDados(prev=>prev.map(d=>{
+        if(d.empresaId!==eid||d.competencia!==mes) return d;
+        if(d.analisado) return d;
+        const revert=fromValue==="ok"?"pendente":fromValue==="pendente"?"nao-iniciado":"nao-iniciado";
+        return {...d,[campo]:revert};
+      }));
+      toast("↩ Status revertido!","ok");
+    };
+    return()=>{delete window.__contabilRevert;};
+  },[]);
+
+  // Load from Supabase on mount
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const {data:row,error}=await sb.from("app_data").select("payload").eq("id",CONTABIL_ROW_ID).maybeSingle();
+        if(error){console.warn("Contabil load error:",error);setDbSynced(true);return;}
+        if(row?.payload){
+          const p=row.payload;
+          if(p.empresas&&Array.isArray(p.empresas)) setCEmpresas(p.empresas);
+          if(p.grupos&&Array.isArray(p.grupos)) setCGrupos(p.grupos);
+          if(p.dados&&Array.isArray(p.dados)) setCDados(p.dados);
+          if(p.obs&&Array.isArray(p.obs)) setCObs(p.obs);
+          if(p.ecdEcf&&typeof p.ecdEcf==="object") setCEcdEcf(p.ecdEcf);
+          if(p.nextEmpId) setNextEmpId(p.nextEmpId);
+          if(p.nextGrpId) setNextGrpId(p.nextGrpId);
+          toast("☁️ Dados contábeis carregados!","ok");
+        } else {
+          // First time — upsert seed
+          await sb.from("app_data").upsert({id:CONTABIL_ROW_ID,payload:{empresas:init.empresas,grupos:init.grupos,dados:init.dados,obs:init.obs,ecdEcf:init.ecdEcf,nextEmpId:init.nextEmpId,nextGrpId:init.nextGrpId}});
+        }
+      }catch(e){console.warn("Contabil DB load failed:",e);}
+      setDbSynced(true);
+    })();
+  },[]);
+
+  // Trigger save on any state change (after initial db load)
+  useEffect(()=>{
+    if(!dbSynced) return;
+    saveContabilToDb(cEmpresas,cGrupos,cDados,cObs,cEcdEcf,nextEmpId,nextGrpId);
+  },[cEmpresas,cGrupos,cDados,cObs,cEcdEcf,nextEmpId,nextGrpId,dbSynced]);
 
   // Filters
   const [filterEmp,setFilterEmp]=useState("");

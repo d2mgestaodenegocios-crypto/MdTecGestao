@@ -306,6 +306,21 @@ function normalizeTaskCompanies(task){
   if(Array.isArray(task.companies)) return task;
   return {...task,companies:task.company?[task.company]:[]};
 }
+// Adicione isto por volta da linha 305
+const ContabilPage = ({ data }) => {
+  // Aqui definimos a cEmpresas que o erro dizia "não ter"
+  const cEmpresas = data?.companies || [];
+
+  return (
+    <div style={{ padding: '24px', animation: 'fadeIn 0.3s ease' }}>
+      <h2 style={{ fontSize: '22px', fontWeight: 900, marginBottom: '16px' }}>Painel Contábil</h2>
+      <div style={{ background: 'var(--bg2)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border)' }}>
+        <p style={{ color: 'var(--text3)' }}>Total de empresas monitorizadas: <strong>{cEmpresas.length}</strong></p>
+        {/* Adicione aqui a sua lógica de análise contábil futura */}
+      </div>
+    </div>
+  );
+};
 
 /* -- Seed Data -- */
 const SEED={

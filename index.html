@@ -288,7 +288,7 @@ const NAV_GROUPS=[
   {label:"Visualizações",items:[{id:"dashboard",icon:"✦",label:"Dashboard"},{id:"kanban",icon:"⊞",label:"Kanban"},{id:"lista",icon:"☰",label:"Lista"},{id:"calendario",icon:"📅",label:"Calendário"},{id:"gantt",icon:"🗓",label:"Linha do Tempo"},{id:"tabela",icon:"▦",label:"Tabela"},{id:"hoje",icon:"🌅",label:"Hoje"},{id:"minhas",icon:"👤",label:"Minhas Tarefas"},{id:"arquivadas",icon:"📦",label:"Arquivadas"}]},
   {label:"Cadastros",items:[{id:"modelos",icon:"◧",label:"Modelos"},{id:"empresas",icon:"⬡",label:"Empresas"},{id:"setores",icon:"◫",label:"Setores"},{id:"colaboradores",icon:"◉",label:"Colaboradores"},{id:"marcadores",icon:"◈",label:"Marcadores"},{id:"recorrencias",icon:"↻",label:"Recorrências"},{id:"painel-rec",icon:"⊹",label:"Painel Recorrências"},{id:"servicos",icon:"S",label:"Serviços"}]},
   {label:"Relatórios",items:[{id:"relatorio",icon:"📧",label:"Relatório por Empresa"},{id:"carga",icon:"⚖",label:"Carga de Trabalho"}]},
-  {label:"Contabilidade",items:[{id:"contabil",icon:"📊",label:"Contábil"}]},
+  {label:"Contabilidade",items:[{id:"contabil",icon:"📊",label:"Contábil"},{id:"fiscal-tributario",icon:"📋",label:"Fiscal Tributário"},{id:"folha-pagamento",icon:"👥",label:"Folha de Pagamento"}]},
   {label:"Sistema",items:[{id:"auditoria",icon:"🛡",label:"Auditoria"},{id:"configuracoes",icon:"⚙",label:"Configurações"}]},
 ];
 
@@ -6968,7 +6968,9 @@ function App(){
   const {acquire,forceAcquire,release,getLock} = useLocks();
   const {list:toasts,add:toast} = useToast();
   const {ask:askDelete, modal:deleteModal} = useConfirmDelete();
-  const [page,setPage]      = useState("dashboard");
+  // Auto-redirect guest to contabil page
+  const _initPage=(()=>{const p=new URLSearchParams(window.location.search);return p.get("guest")==="1"?"contabil":"dashboard";})();
+  const [page,setPage]      = useState(_initPage);
   const [taskModal,setTM]   = useState({open:false,task:null,defStatus:"todo",lockInfo:null});
   const [sideCol,setSideCol]= useState(false);
   const [darkMode,setDarkMode] = useState(()=>localStorage.getItem("mdtec_dark")==="1");
@@ -7944,6 +7946,8 @@ function App(){
         {page==="configuracoes" && <ConfigPage data={data} setData={setData} toast={toast} deduplicateTasks={deduplicateTasks}/>}
         {page==="auditoria"     && <AuditoriaPage data={data} setData={setData}/>}
         {page==="contabil"      && <ContabilPage toast={toast}/>}
+        {page==="fiscal-tributario" && <FiscalTributarioPage toast={toast} data={data}/>}
+        {page==="folha-pagamento" && <FolhaPage toast={toast} data={data}/> }
       </main>
 
       {/* Modal de tarefa */}
@@ -8065,17 +8069,9 @@ function ContabilPage({toast}){
   const GRP_COLORS=["#6366f1","#0ea5e9","#10b981","#f59e0b","#f43f5e","#8b5cf6","#14b8a6","#84cc16","#ec4899","#f97316"];
   const getGrpColor=(gid)=>{if(!gid)return"#94a3b8";const idx=(gid-1)%GRP_COLORS.length;return GRP_COLORS[idx];};
 
-  // ─── Initial data ─────────────────────────────────────────────
-  const initEmpresas=[
-    {id:1,nome:"Alpha Contábil",grupoId:1,subgrupoId:null,regime:"lucro",periodoInicial:"01/2025",expandido:false},
-    {id:2,nome:"Beta Serviços",grupoId:1,subgrupoId:null,regime:"simples",periodoInicial:"01/2025",expandido:false},
-    {id:3,nome:"Gamma LTDA",grupoId:2,subgrupoId:null,regime:"lucro",periodoInicial:"11/2025",expandido:false},
-    {id:4,nome:"Delta Consulting",grupoId:null,subgrupoId:null,regime:"simples",periodoInicial:"01/2025",expandido:false},
-    {id:5,nome:"Omega Solutions",grupoId:2,subgrupoId:null,regime:"lucro",periodoInicial:"12/2025",expandido:false},
-    {id:6,nome:"Igreja Esperança",grupoId:null,subgrupoId:null,regime:"imune",periodoInicial:"01/2025",expandido:false},
-    {id:7,nome:"Associação Cultural",grupoId:null,subgrupoId:null,regime:"isenta",periodoInicial:"11/2025",expandido:false},
-  ];
-  const initGrupos=[{id:1,nome:"Holding ABC",parentId:null},{id:2,nome:"Grupo XYZ",parentId:null}];
+  // ─── Initial data (começa vazio — dados reais vêm do Supabase) ──
+  const initEmpresas=[];
+  const initGrupos=[];
 
   const initDados=(emps)=>{
     const d=[];
@@ -8105,15 +8101,14 @@ function ContabilPage({toast}){
           empresas:p.empresas||initEmpresas,
           grupos:p.grupos||initGrupos,
           dados:p.dados||initDados(initEmpresas),
-          obs:p.obs||[{empresaId:1,competencia:"01/2025",texto:"Cliente solicitou revisão extra dos lançamentos fiscais"},{empresaId:1,competencia:"03/2025",texto:"Aguardando documentação complementar do exterior"},{empresaId:3,competencia:"11/2025",texto:"Nota fiscal eletrônica com erro, em correção"}],
+          obs:p.obs||[],
           ecdEcf:p.ecdEcf||{},
           nextEmpId:p.nextEmpId||8,
           nextGrpId:p.nextGrpId||3,
         };
       }
     }catch(e){}
-    const obs=[{empresaId:1,competencia:"01/2025",texto:"Cliente solicitou revisão extra dos lançamentos fiscais"},{empresaId:1,competencia:"03/2025",texto:"Aguardando documentação complementar do exterior"},{empresaId:3,competencia:"11/2025",texto:"Nota fiscal eletrônica com erro, em correção"}];
-    return{empresas:initEmpresas,grupos:initGrupos,dados:initDados(initEmpresas),obs,ecdEcf:{},nextEmpId:8,nextGrpId:3};
+    return{empresas:initEmpresas,grupos:initGrupos,dados:initDados(initEmpresas),obs:[],ecdEcf:{},nextEmpId:1,nextGrpId:1};
   };
 
   const init=loadState();
@@ -8169,7 +8164,7 @@ function ContabilPage({toast}){
         if(error){console.warn("Contabil load error:",error);setDbSynced(true);return;}
         if(row?.payload){
           const p=row.payload;
-          if(p.empresas&&Array.isArray(p.empresas)) setCEmpresas(p.empresas);
+          if(p.empresas&&Array.isArray(p.empresas)) setCEmpresas(p.empresas.map(e=>({...e,expandido:false})));
           if(p.grupos&&Array.isArray(p.grupos)) setCGrupos(p.grupos);
           if(p.dados&&Array.isArray(p.dados)) setCDados(p.dados);
           if(p.obs&&Array.isArray(p.obs)) setCObs(p.obs);
@@ -8178,8 +8173,8 @@ function ContabilPage({toast}){
           if(p.nextGrpId) setNextGrpId(p.nextGrpId);
           toast("☁️ Dados contábeis carregados!","ok");
         } else {
-          // First time — upsert seed
-          await sb.from("app_data").upsert({id:CONTABIL_ROW_ID,payload:{empresas:init.empresas,grupos:init.grupos,dados:init.dados,obs:init.obs,ecdEcf:init.ecdEcf,nextEmpId:init.nextEmpId,nextGrpId:init.nextGrpId}});
+          // First time — banco vazio, inicia com estado limpo
+          setDbSynced(true);
         }
       }catch(e){console.warn("Contabil DB load failed:",e);}
       setDbSynced(true);
@@ -8192,6 +8187,37 @@ function ContabilPage({toast}){
     saveContabilToDb(cEmpresas,cGrupos,cDados,cObs,cEcdEcf,nextEmpId,nextGrpId);
   },[cEmpresas,cGrupos,cDados,cObs,cEcdEcf,nextEmpId,nextGrpId,dbSynced]);
 
+  // ── Auto-reload from Supabase every 2 minutes ────────────────
+  useEffect(()=>{
+    const poll=setInterval(async()=>{
+      try{
+        const {data:row,error}=await sb.from("app_data").select("payload").eq("id",CONTABIL_ROW_ID).maybeSingle();
+        if(error||!row?.payload) return;
+        const p=row.payload;
+        if(p.empresas&&Array.isArray(p.empresas)) setCEmpresas(p.empresas.map(e=>({...e,expandido:false})));
+        if(p.grupos&&Array.isArray(p.grupos)) setCGrupos(p.grupos);
+        if(p.dados&&Array.isArray(p.dados)) setCDados(p.dados);
+        if(p.obs&&Array.isArray(p.obs)) setCObs(p.obs);
+        if(p.ecdEcf&&typeof p.ecdEcf==="object") setCEcdEcf(p.ecdEcf);
+        if(p.nextEmpId) setNextEmpId(p.nextEmpId);
+        if(p.nextGrpId) setNextGrpId(p.nextGrpId);
+      }catch(e){}
+    },120000); // 2 min
+    return()=>clearInterval(poll);
+  },[]);
+
+  // ── Guest mode: read ?guest=1&grp=X from URL ─────────────────
+  const urlParams=new URLSearchParams(window.location.search);
+  const isGuestMode=urlParams.get("guest")==="1";
+  const guestGrpId=isGuestMode?parseInt(urlParams.get("grp")):null;
+  // Expose to EmpresaRow sub-component
+  useEffect(()=>{window.__isGuest=isGuestMode;},[isGuestMode]);
+
+  // Auto-open guest group on load
+  useEffect(()=>{
+    if(isGuestMode&&guestGrpId) setGrpOpen({[guestGrpId]:true});
+  },[isGuestMode,guestGrpId]);
+
   // Filters
   const [filterEmp,setFilterEmp]=useState("");
   const [filterGrp,setFilterGrp]=useState("");
@@ -8201,6 +8227,9 @@ function ContabilPage({toast}){
   const [showNovaEmpModal,setShowNovaEmpModal]=useState(false);
   const [showGrupoModal,setShowGrupoModal]=useState(false);
   const [showRelGeral,setShowRelGeral]=useState(false);
+  const [showResetModal,setShowResetModal]=useState(false);
+  const [resetTyped,setResetTyped]=useState("");
+  const [resetShake,setResetShake]=useState(false);
   const [showRelObs,setShowRelObs]=useState(false);
   const [obsModal,setObsModal]=useState(null);
   const [obsTextoEdit,setObsTextoEdit]=useState("");
@@ -8401,6 +8430,21 @@ function ContabilPage({toast}){
     setDeleteTyped("");
   };
 
+  // ─── Reset total ─────────────────────────────────────────────
+  const executarReset=async()=>{
+    if(resetTyped.trim().toUpperCase()!=="LIMPAR"){setResetShake(true);setTimeout(()=>setResetShake(false),500);return;}
+    // Limpa estado local
+    setCEmpresas([]);setCGrupos([]);setCDados([]);setCObs([]);setCEcdEcf({});setNextEmpId(1);setNextGrpId(1);
+    // Limpa localStorage
+    try{localStorage.removeItem(STORAGE_KEY);}catch(e){}
+    // Limpa Supabase
+    try{
+      await sb.from("app_data").upsert({id:CONTABIL_ROW_ID,payload:{empresas:[],grupos:[],dados:[],obs:[],ecdEcf:{},nextEmpId:1,nextGrpId:1,_savedAt:Date.now()}});
+      toast("🗑 Dados contábeis limpos com sucesso!","ok");
+    }catch(e){toast("⚠️ Limpeza local ok, erro no banco.","warn");}
+    setShowResetModal(false);setResetTyped("");
+  };
+
   // ─── Grupo CRUD ───────────────────────────────────────────────
   const adicionarGrupoC=()=>{
     if(!novoGrupoForm.nome.trim()){toast("Digite o nome do grupo","err");return;}
@@ -8424,13 +8468,21 @@ function ContabilPage({toast}){
   };
 
   // ─── Filters ──────────────────────────────────────────────────
+  // Guest mode: compute allowed empresa IDs
+  const guestEmpIds=useMemo(()=>{
+    if(!isGuestMode||!guestGrpId) return null;
+    const subIds=cGrupos.filter(g=>g.parentId===guestGrpId).map(g=>g.id);
+    return new Set(cEmpresas.filter(e=>e.grupoId===guestGrpId||subIds.includes(e.grupoId)).map(e=>e.id));
+  },[isGuestMode,guestGrpId,cEmpresas,cGrupos]);
+
   const empresasFiltradas=useMemo(()=>cEmpresas.filter(e=>{
+    if(guestEmpIds&&!guestEmpIds.has(e.id)) return false;
     if(filterEmp&&!e.nome.toLowerCase().includes(filterEmp.toLowerCase())) return false;
     if(filterGrp==="__sem__"&&e.grupoId!==null) return false;
     if(filterGrp&&filterGrp!=="__sem__"&&e.grupoId!==parseInt(filterGrp)) return false;
     if(filterReg&&e.regime!==filterReg) return false;
     return true;
-  }),[cEmpresas,filterEmp,filterGrp,filterReg]);
+  }),[cEmpresas,filterEmp,filterGrp,filterReg,guestEmpIds]);
 
   const statsGlobais=useMemo(()=>{
     let tm=0,tc=0,ta=0,tl=0;
@@ -8487,6 +8539,17 @@ function ContabilPage({toast}){
   // ─── RENDER ───────────────────────────────────────────────────
   return(
     <div>
+      {/* ── Guest mode banner ── */}
+      {isGuestMode&&(
+        <div style={{padding:"12px 18px",background:"linear-gradient(90deg,#f59e0b,#d97706)",borderRadius:12,marginBottom:16,display:"flex",alignItems:"center",gap:12,color:"#fff",boxShadow:"0 2px 12px rgba(245,158,11,.3)"}}>
+          <span style={{fontSize:22}}>👥</span>
+          <div>
+            <div style={{fontSize:13,fontWeight:900}}>Modo Convidado — {cGrupos.find(g=>g.id===guestGrpId)?.nome||"Grupo"}</div>
+            <div style={{fontSize:11,opacity:.85}}>Você pode editar status e adicionar observações. Criação e exclusão estão bloqueadas.</div>
+          </div>
+        </div>
+      )}
+
       {/* ── Header ── */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:12}}>
         <div>
@@ -8494,17 +8557,14 @@ function ContabilPage({toast}){
           <p style={{fontSize:13,color:"#64748b",marginTop:4}}>Acompanhe todas as etapas mensais · ECD/ECF · Observações · Grupos</p>
         </div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-          <Btn onClick={()=>setShowRelGeral(true)} v="ghost" sz="sm" xs={{background:"#f59e0b",color:"#fff",border:"none"}}>📊 Rel. Geral</Btn>
-          <Btn onClick={()=>setObsResModal(true)} v="ghost" sz="sm" xs={{background:"#8b5cf6",color:"#fff",border:"none"}}>
-            📋 Observações{cObs.length>0&&<span style={{marginLeft:4,background:"rgba(255,255,255,.3)",borderRadius:10,padding:"1px 6px",fontSize:10,fontWeight:900}}>{cObs.length}</span>}
-          </Btn>
-          <Btn onClick={()=>{setColDraft({...colLabels});setEditingCols(true);}} v="ghost" sz="sm" xs={{background:"#0ea5e9",color:"#fff",border:"none"}}>✏️ Colunas</Btn>
-          <Btn onClick={()=>setShowImportModal(true)} v="ghost" sz="sm" xs={{background:"#10b981",color:"#fff",border:"none"}}>📤 Importar</Btn>
-          <Btn onClick={()=>setShowNovaEmpModal(true)} sz="sm">+ Empresa</Btn>
-          <Btn onClick={()=>setShowGrupoModal(true)} v="ghost" sz="sm">👥 Grupo</Btn>
-          <Btn onClick={()=>{setBatchMode(b=>!b);setSelectedEmps(new Set());}} v="ghost" sz="sm" xs={{background:batchMode?"#fef2f2":"#f8fafc",color:batchMode?"#dc2626":"var(--text3)",border:`1px solid ${batchMode?"#fca5a5":"var(--border2)"}`}}>
-            {batchMode?"✕ Sair lote":"☑ Selecionar"}
-          </Btn>
+          {!isGuestMode&&<Btn onClick={()=>setShowRelGeral(true)} v="ghost" sz="sm" xs={{background:"#f59e0b",color:"#fff",border:"none"}}>📊 Rel. Geral</Btn>}
+          {!isGuestMode&&<Btn onClick={()=>{setResetTyped("");setShowResetModal(true);}} v="ghost" sz="sm" xs={{background:"#fef2f2",color:"#dc2626",border:"1px solid #fecaca"}}>🗑 Limpar</Btn>}
+          <Btn onClick={()=>setObsResModal(true)} v="ghost" sz="sm" xs={{background:"#8b5cf6",color:"#fff",border:"none"}}>📋 Observações{cObs.length>0&&<span style={{marginLeft:4,background:"rgba(255,255,255,.3)",borderRadius:10,padding:"1px 6px",fontSize:10,fontWeight:900}}>{cObs.length}</span>}</Btn>
+          {!isGuestMode&&<Btn onClick={()=>{setColDraft({...colLabels});setEditingCols(true);}} v="ghost" sz="sm" xs={{background:"#0ea5e9",color:"#fff",border:"none"}}>✏️ Colunas</Btn>}
+          {!isGuestMode&&<Btn onClick={()=>setShowImportModal(true)} v="ghost" sz="sm" xs={{background:"#10b981",color:"#fff",border:"none"}}>📤 Importar</Btn>}
+          {!isGuestMode&&<Btn onClick={()=>setShowNovaEmpModal(true)} sz="sm">+ Empresa</Btn>}
+          {!isGuestMode&&<Btn onClick={()=>setShowGrupoModal(true)} v="ghost" sz="sm">👥 Grupo</Btn>}
+          {!isGuestMode&&<Btn onClick={()=>{setBatchMode(b=>!b);setSelectedEmps(new Set());}} v="ghost" sz="sm" xs={{background:batchMode?"#fef2f2":"#f8fafc",color:batchMode?"#dc2626":"var(--text3)",border:`1px solid ${batchMode?"#fca5a5":"var(--border2)"}`}}>{batchMode?"✕ Sair lote":"☑ Selecionar"}</Btn>
         </div>
       </div>
 
@@ -8611,18 +8671,20 @@ function ContabilPage({toast}){
         if(allEmps.length===0) return null;
         return(
           <div key={grp.id} style={{marginBottom:20}}>
-            {/* Group header */}
-            <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",background:color+"18",borderRadius:"12px 12px 0 0",border:`1.5px solid ${color}44`,borderBottom:"none",marginBottom:0}}>
+            {/* Group header — collapsible */}
+            <div onClick={()=>toggleGrp(grp.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",background:color+"18",borderRadius:isGrpOpen(grp.id)?"12px 12px 0 0":"12px",border:`1.5px solid ${color}44`,borderBottom:isGrpOpen(grp.id)?"none":undefined,marginBottom:0,cursor:"pointer",transition:"all .15s",userSelect:"none"}}>
               <div style={{width:10,height:10,borderRadius:"50%",background:color,flexShrink:0}}/>
               <span style={{fontSize:13,fontWeight:900,color,letterSpacing:".02em"}}>{grp.nome}</span>
               <span style={{fontSize:11,color:"#94a3b8",marginLeft:4}}>{allEmps.length} empresa(s)</span>
-              <div style={{marginLeft:"auto",display:"flex",gap:6}}>
-                <button onClick={()=>confirmarDeleteGrupo(grp)} title="Excluir grupo" style={{background:"none",border:"none",cursor:"pointer",color:"#f87171",fontSize:13,padding:"2px 6px",borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.background="#fef2f2"} onMouseLeave={e=>e.currentTarget.style.background="none"}>🗑</button>
+              <div style={{marginLeft:"auto",display:"flex",gap:6,alignItems:"center"}}>
+                <button onClick={e=>{e.stopPropagation();setLinkModal({grp});}} title="Gerar link de acesso" style={{background:color+"22",border:`1px solid ${color}44`,cursor:"pointer",color,fontSize:11,padding:"3px 9px",borderRadius:8,fontWeight:700,display:"flex",alignItems:"center",gap:4}} onMouseEnter={e=>e.currentTarget.style.background=color+"44"} onMouseLeave={e=>e.currentTarget.style.background=color+"22"}>🔗 Link</button>
+                <button onClick={e=>{e.stopPropagation();confirmarDeleteGrupo(grp);}} title="Excluir grupo" style={{background:"none",border:"none",cursor:"pointer",color:"#f87171",fontSize:13,padding:"2px 6px",borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.background="#fef2f2"} onMouseLeave={e=>e.currentTarget.style.background="none"}>🗑</button>
+                <span style={{fontSize:14,color:"#94a3b8",transition:"transform .25s",transform:isGrpOpen(grp.id)?"rotate(180deg)":"none"}}>▼</span>
               </div>
             </div>
 
-            {/* Empresas diretas do grupo */}
-            <div style={{border:`1.5px solid ${color}44`,borderTop:"none",borderRadius:"0 0 12px 12px",overflow:"hidden",background:"var(--bg2)"}}>
+            {/* Empresas diretas do grupo — only shown when open */}
+            {isGrpOpen(grp.id)&&<div style={{border:`1.5px solid ${color}44`,borderTop:"none",borderRadius:"0 0 12px 12px",overflow:"hidden",background:"var(--bg2)"}}>
               {empsGrp.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} isLast={idx===empsGrp.length-1&&subGrps.length===0} {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor:color}}/>)}
 
               {/* Subgroups */}
@@ -8643,7 +8705,7 @@ function ContabilPage({toast}){
                   </div>
                 );
               })}
-            </div>
+            </div>}
           </div>
         );
       })}
@@ -8806,6 +8868,33 @@ function ContabilPage({toast}){
         )}
       </Modal>
 
+      {/* ── Modal Link de Grupo (acesso sem senha) ── */}
+      {linkModal&&(
+        <div onClick={e=>e.target===e.currentTarget&&setLinkModal(null)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.65)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}}>
+          <div style={{background:"var(--bg2)",borderRadius:18,width:"100%",maxWidth:500,boxShadow:"0 32px 80px rgba(0,0,0,.3)",overflow:"hidden"}}>
+            <div style={{background:`linear-gradient(135deg,${getGrpColor(linkModal.grp.id)},${getGrpColor(linkModal.grp.id)}cc)`,padding:"16px 22px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div>
+                <div style={{fontSize:15,fontWeight:900,color:"#fff"}}>🔗 Link de Acesso — {linkModal.grp.nome}</div>
+                <div style={{fontSize:12,color:"rgba(255,255,255,.75)",marginTop:2}}>Usuários sem senha poderão editar apenas este grupo</div>
+              </div>
+              <button onClick={()=>setLinkModal(null)} style={{background:"rgba(255,255,255,.2)",border:"none",color:"#fff",fontSize:18,cursor:"pointer",borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+            </div>
+            <div style={{padding:"20px"}}>
+              <div style={{padding:"10px 14px",background:"var(--bg3)",border:"1.5px solid var(--border)",borderRadius:10,fontSize:12,fontFamily:"monospace",wordBreak:"break-all",color:"#374151",marginBottom:12,lineHeight:1.6}}>
+                {getGuestLink(linkModal.grp.id)}
+              </div>
+              <div style={{padding:"10px 14px",borderRadius:10,background:"#fef9c3",border:"1px solid #fde047",fontSize:12,color:"#713f12",marginBottom:14,lineHeight:1.6}}>
+                <strong>⚠️ Permissões do link:</strong> Ver e editar status (Contábil/Fiscal/Folha), adicionar observações. <strong>Não pode</strong> criar, excluir empresas ou grupos.
+              </div>
+              <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+                <Btn onClick={()=>setLinkModal(null)} v="ghost">Fechar</Btn>
+                <Btn onClick={()=>{navigator.clipboard.writeText(getGuestLink(linkModal.grp.id));toast("🔗 Link copiado!","ok");}} xs={{background:getGrpColor(linkModal.grp.id),color:"#fff",border:"none"}}>📋 Copiar Link</Btn>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Modal Resumo Observações ── */}
       {obsResModal&&(
         <div onClick={e=>e.target===e.currentTarget&&setObsResModal(false)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.6)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}>
@@ -8921,6 +9010,34 @@ function ContabilPage({toast}){
             <div style={{display:"flex",gap:10,justifyContent:"center"}}>
               <Btn onClick={()=>setRevertModal(null)} v="ghost">Cancelar</Btn>
               <Btn onClick={()=>reverterAnalise(revertModal.empresaId,revertModal.competencia)} xs={{background:"#f59e0b",color:"#fff",border:"none"}}>↩ Reverter</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal Reset Total ── */}
+      {showResetModal&&(
+        <div onClick={e=>e.target===e.currentTarget&&setShowResetModal(false)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.8)",zIndex:4000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}}>
+          <div style={{background:"var(--bg2)",borderRadius:20,width:"100%",maxWidth:440,boxShadow:"0 32px 80px rgba(0,0,0,.5)",animation:"popIn .22s cubic-bezier(.34,1.56,.64,1)",overflow:"hidden"}}>
+            <div style={{background:"linear-gradient(135deg,#7f1d1d,#991b1b)",padding:"20px 24px 16px",display:"flex",alignItems:"center",gap:14}}>
+              <div style={{width:50,height:50,borderRadius:14,background:"rgba(255,255,255,.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,flexShrink:0}}>⚠️</div>
+              <div><div style={{fontSize:16,fontWeight:900,color:"#fff"}}>Limpar todos os dados contábeis</div><div style={{fontSize:12,color:"rgba(255,255,255,.7)",marginTop:2}}>Esta ação não pode ser desfeita</div></div>
+              <button onClick={()=>setShowResetModal(false)} style={{marginLeft:"auto",background:"none",border:"none",cursor:"pointer",color:"rgba(255,255,255,.6)",fontSize:22}}>×</button>
+            </div>
+            <div style={{padding:"22px 24px"}}>
+              <div style={{padding:"14px 16px",borderRadius:12,background:"#fef2f2",border:"1.5px solid #fecaca",marginBottom:18}}>
+                <p style={{fontSize:13,color:"#7f1d1d",lineHeight:1.7,margin:0}}>
+                  ⚠️ Isso vai <strong>apagar permanentemente</strong> todas as empresas, grupos, meses, observações e ECD/ECF do módulo Contábil — tanto no navegador quanto no banco de dados.
+                </p>
+              </div>
+              <p style={{fontSize:13,color:"#374151",marginBottom:10}}>Digite <strong style={{color:"#ef4444",letterSpacing:2,fontFamily:"monospace"}}>LIMPAR</strong> para confirmar:</p>
+              <input autoFocus value={resetTyped} onChange={e=>setResetTyped(e.target.value)} onKeyDown={e=>e.key==="Enter"&&executarReset()} placeholder="LIMPAR"
+                style={{width:"100%",padding:"11px 14px",borderRadius:10,fontSize:14,fontWeight:800,letterSpacing:3,border:`2px solid ${resetTyped.toUpperCase()==="LIMPAR"?"#22c55e":"#e5e7eb"}`,outline:"none",fontFamily:"monospace",textTransform:"uppercase",color:"#0f172a",background:resetTyped.toUpperCase()==="LIMPAR"?"#f0fdf4":"#fff",animation:resetShake?"shake .4s ease":"none",boxSizing:"border-box"}}
+              />
+              <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16}}>
+                <Btn onClick={()=>setShowResetModal(false)} v="ghost">Cancelar</Btn>
+                <Btn onClick={executarReset} xs={{background:"#dc2626",color:"#fff",border:"none",opacity:resetTyped.toUpperCase()==="LIMPAR"?1:.5}}>🗑 Limpar tudo</Btn>
+              </div>
             </div>
           </div>
         </div>
@@ -9134,7 +9251,7 @@ function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgC
           </div>
         </div>
         <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
-          <button onClick={e=>{e.stopPropagation();confirmarDeleteEmp(emp);}} title="Excluir empresa" style={{background:"none",border:"none",cursor:"pointer",color:"#fca5a5",fontSize:14,padding:"3px 7px",borderRadius:6,transition:"all .1s"}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#fca5a5"}>🗑</button>
+          {!window.__isGuest&&<button onClick={e=>{e.stopPropagation();confirmarDeleteEmp(emp);}} title="Excluir empresa" style={{background:"none",border:"none",cursor:"pointer",color:"#fca5a5",fontSize:14,padding:"3px 7px",borderRadius:6,transition:"all .1s"}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#fca5a5"}>🗑</button>}
           <span onClick={()=>toggleEmpC(emp.id)} style={{fontSize:18,color:"#94a3b8",transition:"transform .3s",transform:emp.expandido?"rotate(180deg)":"none",cursor:"pointer"}}>▼</span>
         </div>
       </div>
@@ -9256,6 +9373,813 @@ function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgC
           })()}
         </div>
       )}
+    </div>
+  );
+}
+
+
+/* =====================================================
+   FOLHA DE PAGAMENTO PAGE
+   ===================================================== */
+function FolhaPage({toast, data}){
+  const {useState,useMemo,useEffect,useRef,useCallback}=React;
+
+  const STORAGE_KEY="mdtec_folha_v1";
+  const SUPABASE_ROW_ID=3;
+  const ANOS=["2025","2026"];
+  const TODOS_MESES=[
+    "01/2025","02/2025","03/2025","04/2025","05/2025","06/2025",
+    "07/2025","08/2025","09/2025","10/2025","11/2025","12/2025",
+    "01/2026","02/2026","03/2026","04/2026","05/2026","06/2026",
+    "07/2026","08/2026","09/2026","10/2026","11/2026","12/2026"
+  ];
+  const MN_MAP={"01":"JAN","02":"FEV","03":"MAR","04":"ABR","05":"MAI","06":"JUN","07":"JUL","08":"AGO","09":"SET","10":"OUT","11":"NOV","12":"DEZ"};
+  const fmtMes=(m)=>{const p=m.split("/");return p.length!==2?m:`${MN_MAP[p[0]]}/${p[1]}`;};
+  const getMesesFrom=(pi)=>{const i=TODOS_MESES.indexOf(pi);return i===-1?[pi]:TODOS_MESES.slice(i);};
+
+  // ── Colunas editáveis ──────────────────────────────────────────
+  const DEFAULT_COLS=[
+    {key:"admissao",   label:"Admissão",  icon:"➕", color:"#22c55e"},
+    {key:"demissao",   label:"Demissão",  icon:"➖", color:"#ef4444"},
+    {key:"ferias",     label:"Férias",    icon:"🏖", color:"#f59e0b"},
+    {key:"decimo",     label:"13º Sal.",  icon:"🎁", color:"#8b5cf6"},
+    {key:"fgts",       label:"FGTS",      icon:"🏦", color:"#0ea5e9"},
+    {key:"folha",      label:"Folha",     icon:"📋", color:"#6366f1"},
+  ];
+  const [colsCfg,setColsCfg]=useState(()=>{
+    try{const s=localStorage.getItem("mdtec_folha_cols");return s?JSON.parse(s):DEFAULT_COLS;}catch(e){return DEFAULT_COLS;}
+  });
+  const [editColsModal,setEditColsModal]=useState(false);
+  const [colsDraft,setColsDraft]=useState(DEFAULT_COLS);
+  const saveColsCfg=()=>{
+    setColsCfg(colsDraft);
+    try{localStorage.setItem("mdtec_folha_cols",JSON.stringify(colsDraft));}catch(e){}
+    setEditColsModal(false);
+    toast("✅ Colunas salvas!","ok");
+  };
+
+  // ── Empresas (reaproveitadas do data.companies) ──────────────
+  const empresasBase=useMemo(()=>data?.companies||[],[data]);
+
+  // ── Estado principal ─────────────────────────────────────────
+  const initEmpresas=()=>empresasBase.map(c=>({
+    id:c.id, nome:c.name||c.nome||"Empresa", cor:c.color||"#6366f1",
+    periodoInicial:"01/2025", expandido:false
+  }));
+
+  const loadState=()=>{
+    try{
+      const raw=localStorage.getItem(STORAGE_KEY);
+      if(raw){const p=JSON.parse(raw);return p;}
+    }catch(e){}
+    return{empresas:initEmpresas(), dados:{}, obs:[]};
+  };
+
+  const init=loadState();
+  const [empresas,setEmpresas]=useState(init.empresas||initEmpresas());
+  const [dados,setDados]=useState(init.dados||{});   // {`empId_mes_colKey`: status}
+  const [obs,setObs]=useState(init.obs||[]);          // [{empId,mes,texto}]
+  const [filterEmp,setFilterEmp]=useState("");
+  const [abaAnoMap,setAbaAnoMap]=useState({});        // {empId: ano}
+
+  // ── Nova empresa modal ────────────────────────────────────────
+  const [showNovaEmp,setShowNovaEmp]=useState(false);
+  const [novaEmpForm,setNovaEmpForm]=useState({nome:"",cor:"#6366f1",periodoInicial:"01/2025"});
+
+  // ── Obs modal ─────────────────────────────────────────────────
+  const [obsModal,setObsModal]=useState(null); // {empId,mes}
+  const [obsEdit,setObsEdit]=useState("");
+
+  // ── Delete modal ──────────────────────────────────────────────
+  const [deleteModal,setDeleteModal]=useState(null);
+  const [deleteTyped,setDeleteTyped]=useState("");
+
+  // ── Save to localStorage ──────────────────────────────────────
+  const pendingSave=useRef(null);
+  useEffect(()=>{
+    if(pendingSave.current) clearTimeout(pendingSave.current);
+    pendingSave.current=setTimeout(()=>{
+      try{localStorage.setItem(STORAGE_KEY,JSON.stringify({empresas,dados,obs}));}catch(e){}
+    },400);
+  },[empresas,dados,obs]);
+
+  // ── Helpers ───────────────────────────────────────────────────
+  const getCell=(eid,mes,col)=>dados[`${eid}_${mes}_${col}`]||"nao-iniciado";
+  const cycleCell=(eid,mes,col)=>{
+    const cur=getCell(eid,mes,col);
+    const seq=["nao-iniciado","pendente","ok","nao-aplica"];
+    const next=seq[(seq.indexOf(cur)+1)%seq.length];
+    setDados(prev=>({...prev,[`${eid}_${mes}_${col}`]:next}));
+  };
+  const revertCell=(eid,mes,col)=>{
+    const cur=getCell(eid,mes,col);
+    const seq=["nao-iniciado","pendente","ok","nao-aplica"];
+    const idx=seq.indexOf(cur);
+    const prev=seq[idx<=0?0:idx-1];
+    setDados(d=>({...d,[`${eid}_${mes}_${col}`]:prev}));
+    toast("↩ Revertido!","ok");
+  };
+  const calcProgMes=(eid,mes)=>{
+    const ativas=colsCfg.filter(c=>getCell(eid,mes,c.key)!=="nao-aplica");
+    if(ativas.length===0) return 100;
+    const ok=ativas.filter(c=>getCell(eid,mes,c.key)==="ok").length;
+    return Math.round((ok/ativas.length)*100);
+  };
+  const getStatsEmp=(eid)=>{
+    const meses=getMesesFrom(empresas.find(e=>e.id===eid)?.periodoInicial||"01/2025");
+    const total=meses.length;
+    const concluidos=meses.filter(m=>calcProgMes(eid,m)===100).length;
+    const pendentes=meses.filter(m=>{const p=calcProgMes(eid,m);return p>0&&p<100;}).length;
+    return{total,concluidos,pendentes,pct:total>0?Math.round((concluidos/total)*100):0};
+  };
+  const getResumoAno=(eid,ano)=>{
+    const meses=getMesesFrom(empresas.find(e=>e.id===eid)?.periodoInicial||"01/2025").filter(m=>m.endsWith("/"+ano));
+    const total=meses.length;
+    const concluidos=meses.filter(m=>calcProgMes(eid,m)===100).length;
+    return{total,concluidos};
+  };
+  const temObs=(eid,mes)=>obs.some(o=>o.empId===eid&&o.mes===mes);
+  const getObsTxt=(eid,mes)=>obs.find(o=>o.empId===eid&&o.mes===mes)?.texto||"";
+  const getProgClr=(p)=>p===100?"#22c55e":p>=50?"#f59e0b":p>0?"#ef4444":"#cbd5e1";
+
+  const ST_STYLES={
+    "nao-iniciado":{background:"#f8fafc",color:"#94a3b8",border:"1.5px solid #e2e8f0",padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"},
+    "pendente":    {background:"#fff7ed",color:"#c2410c",border:"1.5px solid #fed7aa",padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"},
+    "ok":          {background:"#f0fdf4",color:"#15803d",border:"1.5px solid #86efac",padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"},
+    "nao-aplica":  {background:"#f1f5f9",color:"#cbd5e1",border:"1.5px dashed #cbd5e1", padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"},
+  };
+  const ST_LABELS={"nao-iniciado":"✗ Não","pendente":"⏳ Pend.","ok":"✅ Ok","nao-aplica":"— N/A"};
+  const getStStyle=(s)=>ST_STYLES[s]||ST_STYLES["nao-iniciado"];
+  const getStTxt=(s)=>ST_LABELS[s]||s;
+
+  const getAbaAno=(eid)=>{
+    const emp=empresas.find(e=>e.id===eid);
+    const anos=ANOS.filter(a=>getMesesFrom(emp?.periodoInicial||"01/2025").some(m=>m.endsWith("/"+a)));
+    return abaAnoMap[eid]||anos[0]||ANOS[0];
+  };
+  const setAbaAno=(eid,ano)=>setAbaAnoMap(m=>({...m,[eid]:ano}));
+
+  const toggleEmp=(eid)=>setEmpresas(prev=>prev.map(e=>e.id===eid?{...e,expandido:!e.expandido}:e));
+
+  const adicionarEmp=()=>{
+    if(!novaEmpForm.nome.trim()){toast("Digite o nome","err");return;}
+    const newId="fp_"+Date.now();
+    setEmpresas(prev=>[...prev,{id:newId,nome:novaEmpForm.nome.trim(),cor:novaEmpForm.cor,periodoInicial:novaEmpForm.periodoInicial,expandido:false}]);
+    setNovaEmpForm({nome:"",cor:"#6366f1",periodoInicial:"01/2025"});
+    setShowNovaEmp(false);
+    toast(`🏢 ${novaEmpForm.nome} adicionada!`,"ok");
+  };
+
+  const abrirObs=(eid,mes)=>{
+    setObsEdit(getObsTxt(eid,mes));
+    setObsModal({empId:eid,mes});
+  };
+  const salvarObs=()=>{
+    if(!obsModal) return;
+    const {empId,mes}=obsModal;
+    setObs(prev=>{
+      const filtered=prev.filter(o=>!(o.empId===empId&&o.mes===mes));
+      return obsEdit.trim()?[...filtered,{empId,mes,texto:obsEdit.trim()}]:filtered;
+    });
+    setObsModal(null);
+    toast("📝 Observação salva!","ok");
+  };
+
+  const executarDelete=()=>{
+    if(!deleteModal||deleteTyped.toUpperCase()!=="EXCLUIR") return;
+    setEmpresas(prev=>prev.filter(e=>e.id!==deleteModal.id));
+    setDados(prev=>{const nd={...prev};Object.keys(nd).filter(k=>k.startsWith(deleteModal.id+"_")).forEach(k=>delete nd[k]);return nd;});
+    setObs(prev=>prev.filter(o=>o.empId!==deleteModal.id));
+    setDeleteModal(null);setDeleteTyped("");
+    toast("🗑 Empresa excluída!","ok");
+  };
+
+  // ── Stats globais ─────────────────────────────────────────────
+  const statsGlobais=useMemo(()=>{
+    let total=0,concluidos=0,pendentes=0;
+    for(const e of empresas){const s=getStatsEmp(e.id);total+=s.total;concluidos+=s.concluidos;pendentes+=s.pendentes;}
+    return{empresas:empresas.length,total,concluidos,pendentes,pct:total>0?Math.round((concluidos/total)*100):0};
+  },[empresas,dados,colsCfg]);
+
+  const empsFiltradas=useMemo(()=>
+    empresas.filter(e=>!filterEmp||e.nome.toLowerCase().includes(filterEmp.toLowerCase()))
+  ,[empresas,filterEmp]);
+
+  // ── RENDER ────────────────────────────────────────────────────
+  return(
+    <div>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:12}}>
+        <div>
+          <h2 style={{fontSize:20,fontWeight:900,color:"var(--text)",margin:0}}>👥 Folha de Pagamento</h2>
+          <p style={{fontSize:13,color:"#64748b",marginTop:4}}>Controle mensal de admissões, demissões, férias, 13º, FGTS e folha por empresa</p>
+        </div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <Btn onClick={()=>{setColsDraft(JSON.parse(JSON.stringify(colsCfg)));setEditColsModal(true);}} v="ghost" sz="sm" xs={{background:"#0ea5e9",color:"#fff",border:"none"}}>✏️ Colunas</Btn>
+          <Btn onClick={()=>setShowNovaEmp(true)} sz="sm">+ Empresa</Btn>
+        </div>
+      </div>
+
+      {/* KPIs */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:10,marginBottom:20}}>
+        {[
+          {v:statsGlobais.empresas,l:"Empresas",c:"#6366f1"},
+          {v:statsGlobais.total,   l:"Total Meses",c:"#0ea5e9"},
+          {v:statsGlobais.concluidos,l:"Concluídos",c:"#22c55e"},
+          {v:statsGlobais.pendentes, l:"Em Andamento",c:"#f59e0b"},
+          {v:`${statsGlobais.pct}%`,  l:"Progresso Geral",c:"#8b5cf6"},
+        ].map(({v,l,c})=>(
+          <div key={l} style={{background:"var(--bg2)",borderRadius:12,padding:"14px",border:"1px solid var(--border)",textAlign:"center",boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
+            <div style={{fontSize:24,fontWeight:900,color:c,lineHeight:1}}>{v}</div>
+            <div style={{fontSize:11,fontWeight:700,color:"#64748b",marginTop:4}}>{l}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filtro */}
+      <div style={{display:"flex",gap:8,alignItems:"center",padding:"10px 14px",background:"var(--bg2)",borderRadius:12,border:"1px solid var(--border)",marginBottom:16}}>
+        <span style={{fontSize:12,fontWeight:700,color:"#64748b"}}>🔍</span>
+        <input value={filterEmp} onChange={e=>setFilterEmp(e.target.value)} placeholder="Filtrar empresa..." style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",width:180}}/>
+        {filterEmp&&<Btn onClick={()=>setFilterEmp("")} v="ghost" sz="sm">× Limpar</Btn>}
+        <span style={{marginLeft:"auto",fontSize:11,color:"#94a3b8"}}>{empsFiltradas.length} empresa(s)</span>
+      </div>
+
+      {/* Lista de empresas */}
+      {empsFiltradas.length===0&&<div style={{textAlign:"center",padding:"60px",color:"#94a3b8",border:"2px dashed var(--border)",borderRadius:14,fontSize:14}}>📭 Nenhuma empresa encontrada. Clique em "+ Empresa" para adicionar.</div>}
+
+      {empsFiltradas.map((emp,idx)=>{
+        const stats=getStatsEmp(emp.id);
+        const mesesEmp=getMesesFrom(emp.periodoInicial);
+        const anosComMeses=ANOS.filter(a=>mesesEmp.some(m=>m.endsWith("/"+a)));
+        const abaAtiva=getAbaAno(emp.id);
+        const obsCount=obs.filter(o=>o.empId===emp.id).length;
+        const isLast=idx===empsFiltradas.length-1;
+        return(
+          <div key={emp.id} style={{marginBottom:16,borderRadius:14,overflow:"hidden",border:"1.5px solid var(--border)",boxShadow:"0 1px 6px rgba(0,0,0,.05)"}}>
+            {/* Cabeçalho empresa */}
+            <div onClick={()=>toggleEmp(emp.id)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 20px",cursor:"pointer",background:emp.expandido?"var(--bg2)":"var(--bg2)",flexWrap:"wrap",gap:10,transition:"background .15s"}}
+              onMouseEnter={e=>e.currentTarget.style.background="rgba(99,102,241,.04)"}
+              onMouseLeave={e=>e.currentTarget.style.background="var(--bg2)"}
+            >
+              <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",flex:1}}>
+                <div style={{width:10,height:10,borderRadius:"50%",background:emp.cor,flexShrink:0}}/>
+                <span style={{fontSize:14,fontWeight:800,color:"var(--text)"}}>🏢 {emp.nome}</span>
+                <span style={{background:"#e2e8f0",color:"#475569",padding:"2px 8px",borderRadius:12,fontSize:11}}>📅 {emp.periodoInicial}</span>
+                {obsCount>0&&<span style={{display:"inline-flex",alignItems:"center",gap:4,background:"linear-gradient(135deg,#f59e0b,#d97706)",color:"#fff",padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:800,border:"2px solid #fbbf24",boxShadow:"0 0 0 3px rgba(245,158,11,.25)",animation:"lockPulse 2s infinite"}}>📝 {obsCount} obs.</span>}
+                <div style={{display:"flex",gap:12}}>
+                  {[{v:stats.concluidos,l:"Concluídos"},{v:stats.pendentes,l:"Andamento"},{v:stats.total-stats.concluidos-stats.pendentes,l:"Não inic."}].map(({v,l})=>(
+                    <div key={l} style={{textAlign:"center"}}>
+                      <div style={{fontSize:15,fontWeight:900,color:"var(--text)"}}>{v}</div>
+                      <div style={{fontSize:9,color:"#94a3b8",fontWeight:700,textTransform:"uppercase"}}>{l}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  {anosComMeses.map(ano=>{const r=getResumoAno(emp.id,ano);if(r.total===0)return null;const pct=Math.round((r.concluidos/r.total)*100);return(<span key={ano} style={{background:pct===100?"#d1fae5":"#e0e7ff",color:pct===100?"#065f46":"#3730a3",padding:"2px 8px",borderRadius:8,fontSize:10,fontWeight:700,border:`1px solid ${pct===100?"#86efac":"#c7d2fe"}`}}>{ano}: {r.concluidos}/{r.total} {pct===100?"✅":""}</span>);})}
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:5}}>
+                  <div style={{width:60,height:5,borderRadius:3,background:"#e2e8f0",overflow:"hidden"}}><div style={{height:"100%",borderRadius:3,background:getProgClr(stats.pct),width:`${stats.pct}%`,transition:"width .4s"}}/></div>
+                  <span style={{fontSize:10,fontWeight:700,color:"#64748b"}}>{stats.pct}%</span>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
+                <button onClick={e=>{e.stopPropagation();setDeleteTyped("");setDeleteModal({id:emp.id,nome:emp.nome});}} title="Excluir" style={{background:"none",border:"none",cursor:"pointer",color:"#fca5a5",fontSize:14,padding:"3px 7px",borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#fca5a5"}>🗑</button>
+                <span style={{fontSize:18,color:"#94a3b8",transform:emp.expandido?"rotate(180deg)":"none",transition:"transform .3s"}}>▼</span>
+              </div>
+            </div>
+
+            {/* Conteúdo expandido */}
+            {emp.expandido&&(
+              <div style={{borderTop:"1px solid var(--border)",background:"var(--bg3)"}}>
+                {/* Tabs de ano */}
+                <div style={{display:"flex",gap:0,borderBottom:"2px solid var(--border)",padding:"0 20px",background:"var(--bg2)"}}>
+                  {anosComMeses.map(ano=>{
+                    const r=getResumoAno(emp.id,ano);
+                    const pct=r.total>0?Math.round((r.concluidos/r.total)*100):0;
+                    const ativo=abaAtiva===ano;
+                    return(
+                      <button key={ano} onClick={()=>setAbaAno(emp.id,ano)} style={{padding:"10px 20px",border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:ativo?800:600,color:ativo?"#6366f1":"#64748b",background:"transparent",borderBottom:ativo?"3px solid #6366f1":"3px solid transparent",marginBottom:-2,transition:"all .15s",display:"flex",alignItems:"center",gap:6}}>
+                        📅 {ano}
+                        <span style={{background:pct===100?"#d1fae5":ativo?"#e0e7ff":"#f1f5f9",color:pct===100?"#065f46":ativo?"#3730a3":"#64748b",padding:"1px 7px",borderRadius:20,fontSize:10,fontWeight:800}}>{r.concluidos}/{r.total}</span>
+                        {pct===100&&<span>✅</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Tabela do ano ativo */}
+                {(()=>{
+                  const mesesAno=mesesEmp.filter(m=>m.endsWith("/"+abaAtiva));
+                  const r=getResumoAno(emp.id,abaAtiva);
+                  const pctAno=r.total>0?Math.round((r.concluidos/r.total)*100):0;
+                  return(
+                    <div style={{padding:"16px 20px"}}>
+                      {/* Info bar */}
+                      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,padding:"6px 14px",background:"linear-gradient(90deg,#1e3a5f,#1e40af)",borderRadius:8,color:"#fff"}}>
+                        <span style={{fontSize:12,fontWeight:900}}>📅 {abaAtiva}</span>
+                        <span style={{fontSize:11,color:"rgba(255,255,255,.7)"}}>{r.concluidos}/{r.total} concluídos</span>
+                        {pctAno===100&&r.total>0&&<span style={{marginLeft:"auto",fontSize:11,background:"#22c55e",color:"#fff",padding:"2px 8px",borderRadius:6,fontWeight:700}}>✅ Ano completo</span>}
+                      </div>
+                      <div style={{overflowX:"auto"}}>
+                        <table style={{width:"100%",borderCollapse:"collapse",minWidth:700+(colsCfg.length*90),fontSize:12}}>
+                          <thead>
+                            <tr style={{background:"linear-gradient(90deg,#1e3a5f,#1e40af)"}}>
+                              <th style={{padding:"9px 12px",color:"#fff",fontSize:11,textAlign:"left",fontWeight:700,whiteSpace:"nowrap"}}>Mês</th>
+                              {colsCfg.map(col=>(
+                                <th key={col.key} style={{padding:"9px 8px",color:"#fff",fontSize:11,textAlign:"center",fontWeight:700,whiteSpace:"nowrap"}}>
+                                  {col.icon} {col.label}
+                                </th>
+                              ))}
+                              <th style={{padding:"9px 8px",color:"#fff",fontSize:11,textAlign:"center",fontWeight:700}}>Progresso</th>
+                              <th style={{padding:"9px 8px",color:"#fff",fontSize:11,textAlign:"center",fontWeight:700}}>📝</th>
+                              <th style={{padding:"9px 8px",color:"#fff",fontSize:11,textAlign:"center",fontWeight:700}}>Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {mesesAno.map(mes=>{
+                              const prog=calcProgMes(emp.id,mes);
+                              const hasObs=temObs(emp.id,mes);
+                              const rowBg=prog===100?"rgba(34,197,94,.06)":prog>0?"rgba(245,158,11,.05)":"transparent";
+                              return(
+                                <tr key={mes} style={{borderBottom:"1px solid var(--border)",background:rowBg}}>
+                                  <td style={{padding:"9px 12px",fontWeight:700,color:"var(--text)",whiteSpace:"nowrap"}}>{fmtMes(mes)}</td>
+                                  {colsCfg.map(col=>{
+                                    const st=getCell(emp.id,mes,col.key);
+                                    return(
+                                      <td key={col.key} style={{padding:"9px 6px",textAlign:"center"}}>
+                                        <div style={{position:"relative",display:"inline-block"}}>
+                                          <div onClick={()=>cycleCell(emp.id,mes,col.key)} style={getStStyle(st)}>{getStTxt(st)}</div>
+                                          {st!=="nao-iniciado"&&st!=="nao-aplica"&&(
+                                            <span onClick={e=>{e.stopPropagation();revertCell(emp.id,mes,col.key);}} title="Reverter" style={{position:"absolute",top:-8,right:-8,fontSize:10,cursor:"pointer",background:"#f59e0b",color:"#fff",borderRadius:"50%",width:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",zIndex:1,fontWeight:900,lineHeight:1}}>↩</span>
+                                          )}
+                                        </div>
+                                      </td>
+                                    );
+                                  })}
+                                  <td style={{padding:"9px 8px",textAlign:"center"}}>
+                                    <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:5}}>
+                                      <span style={{fontSize:10,color:"#64748b",fontWeight:700,minWidth:30}}>{prog}%</span>
+                                      <div style={{width:44,height:5,borderRadius:3,background:"#e2e8f0",overflow:"hidden"}}><div style={{height:"100%",borderRadius:3,background:getProgClr(prog),width:`${prog}%`,transition:"width .4s"}}/></div>
+                                    </div>
+                                  </td>
+                                  <td style={{padding:"9px 8px",textAlign:"center"}}>
+                                    <span onClick={()=>abrirObs(emp.id,mes)} title={hasObs?getObsTxt(emp.id,mes):"Adicionar observação"}
+                                      style={{fontSize:hasObs?18:16,cursor:"pointer",color:hasObs?"#f59e0b":"#94a3b8",filter:hasObs?"drop-shadow(0 0 6px #f59e0baa)":"none",transition:"all .15s",background:hasObs?"rgba(245,158,11,.12)":"transparent",borderRadius:6,padding:"2px 4px",border:hasObs?"1.5px solid #fcd34d":"1.5px solid transparent"}}>📝</span>
+                                  </td>
+                                  <td style={{padding:"9px 8px",textAlign:"center"}}>
+                                    {prog===100
+                                      ?<span style={{background:"#d1fae5",color:"#065f46",padding:"3px 10px",borderRadius:20,fontSize:10,fontWeight:700}}>✅ Concluído</span>
+                                      :prog>0
+                                        ?<span style={{background:"#fffbeb",color:"#b45f06",padding:"3px 10px",borderRadius:20,fontSize:10,fontWeight:700}}>⏳ Em andamento</span>
+                                        :<span style={{background:"#f8fafc",color:"#94a3b8",padding:"3px 10px",borderRadius:20,fontSize:10,fontWeight:700}}>— Não iniciado</span>
+                                    }
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {/* ── Modal Nova Empresa ── */}
+      <Modal open={showNovaEmp} onClose={()=>setShowNovaEmp(false)} title="➕ Nova Empresa" width={440}>
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <Inp label="Nome *" value={novaEmpForm.nome} onChange={v=>setNovaEmpForm(f=>({...f,nome:v}))} placeholder="Nome da empresa"/>
+          <Fld label="Período inicial">
+            <select value={novaEmpForm.periodoInicial} onChange={e=>setNovaEmpForm(f=>({...f,periodoInicial:e.target.value}))} style={{padding:"8px 12px",borderRadius:9,border:"2px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",width:"100%"}}>
+              {TODOS_MESES.map(m=><option key={m} value={m}>{fmtMes(m)}</option>)}
+            </select>
+          </Fld>
+          <Fld label="Cor">
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              {["#6366f1","#0ea5e9","#10b981","#f59e0b","#ef4444","#8b5cf6","#14b8a6","#ec4899","#f97316","#64748b"].map(c=>(
+                <button key={c} onClick={()=>setNovaEmpForm(f=>({...f,cor:c}))} style={{width:24,height:24,borderRadius:"50%",background:c,border:novaEmpForm.cor===c?"3px solid #0f172a":"2px solid transparent",cursor:"pointer",flexShrink:0}}/>
+              ))}
+            </div>
+          </Fld>
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:8}}>
+            <Btn onClick={()=>setShowNovaEmp(false)} v="ghost">Cancelar</Btn>
+            <Btn onClick={adicionarEmp}>Adicionar</Btn>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Modal Editar Colunas ── */}
+      <Modal open={editColsModal} onClose={()=>setEditColsModal(false)} title="✏️ Editar Colunas da Folha" width={500}>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <div style={{padding:"10px 14px",borderRadius:10,background:"#e0f2fe",border:"1px solid #bae6fd",fontSize:12,color:"#0369a1",lineHeight:1.6}}>
+            <strong>💡</strong> Personalize até 6 colunas. Use o ícone emoji, nome e cor para cada coluna.
+          </div>
+          {colsDraft.map((col,i)=>(
+            <div key={i} style={{display:"flex",gap:8,alignItems:"center",padding:"10px 12px",borderRadius:10,background:"var(--bg3)",border:"1px solid var(--border)"}}>
+              <input value={col.icon} onChange={e=>setColsDraft(d=>d.map((c,j)=>j===i?{...c,icon:e.target.value}:c))} style={{width:40,textAlign:"center",padding:"6px",borderRadius:8,border:"2px solid #e5e7eb",fontSize:16,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}} maxLength={2}/>
+              <input value={col.label} onChange={e=>setColsDraft(d=>d.map((c,j)=>j===i?{...c,label:e.target.value}:c))} style={{flex:1,padding:"6px 10px",borderRadius:8,border:"2px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}} placeholder="Nome da coluna"/>
+              <input type="color" value={col.color} onChange={e=>setColsDraft(d=>d.map((c,j)=>j===i?{...c,color:e.target.value}:c))} style={{width:32,height:32,borderRadius:8,border:"2px solid #e5e7eb",cursor:"pointer",padding:2,background:"var(--bg2)"}}/>
+            </div>
+          ))}
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:4}}>
+            <Btn onClick={()=>setColsDraft(JSON.parse(JSON.stringify(DEFAULT_COLS)))} v="ghost" sz="sm">↩ Restaurar</Btn>
+            <Btn onClick={()=>setEditColsModal(false)} v="ghost">Cancelar</Btn>
+            <Btn onClick={saveColsCfg} xs={{background:"#0ea5e9",color:"#fff",border:"none"}}>💾 Salvar</Btn>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Modal Observação ── */}
+      <Modal open={!!obsModal} onClose={()=>setObsModal(null)} title="📝 Observação" width={420}>
+        {obsModal&&(
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            <div style={{padding:"8px 12px",borderRadius:9,background:"var(--bg3)",border:"1px solid var(--border)",fontSize:12,color:"#64748b",fontWeight:600}}>
+              {empresas.find(e=>e.id===obsModal.empId)?.nome} — {fmtMes(obsModal.mes)}
+            </div>
+            <Txt label="Observação" value={obsEdit} onChange={setObsEdit} placeholder="Digite a observação..." rows={4}/>
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+              <Btn onClick={()=>setObsModal(null)} v="ghost">Cancelar</Btn>
+              <Btn onClick={salvarObs}>Salvar</Btn>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* ── Modal Delete ── */}
+      {deleteModal&&(
+        <div onClick={e=>e.target===e.currentTarget&&setDeleteModal(null)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.72)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}}>
+          <div style={{background:"var(--bg2)",borderRadius:20,width:"100%",maxWidth:420,boxShadow:"0 32px 80px rgba(0,0,0,.35)",animation:"popIn .22s cubic-bezier(.34,1.56,.64,1)",overflow:"hidden"}}>
+            <div style={{background:"linear-gradient(135deg,#fef2f2,#fff0f0)",padding:"20px 24px 16px",borderBottom:"1px solid #fecaca",display:"flex",alignItems:"center",gap:14}}>
+              <div style={{width:46,height:46,borderRadius:13,background:"linear-gradient(135deg,#ef4444,#dc2626)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>🗑</div>
+              <div><div style={{fontSize:15,fontWeight:900,color:"#991b1b"}}>Excluir empresa?</div><div style={{fontSize:12,color:"#ef4444",marginTop:2,fontWeight:600}}>{deleteModal.nome}</div></div>
+              <button onClick={()=>setDeleteModal(null)} style={{marginLeft:"auto",background:"none",border:"none",cursor:"pointer",color:"#fca5a5",fontSize:20}}>×</button>
+            </div>
+            <div style={{padding:"20px 24px"}}>
+              <p style={{fontSize:13,color:"#374151",marginBottom:10}}>Para confirmar, digite <strong style={{color:"#ef4444",fontFamily:"monospace",letterSpacing:2}}>EXCLUIR</strong>:</p>
+              <input autoFocus value={deleteTyped} onChange={e=>setDeleteTyped(e.target.value)} onKeyDown={e=>e.key==="Enter"&&executarDelete()} placeholder="EXCLUIR" style={{width:"100%",padding:"11px 14px",borderRadius:10,fontSize:14,fontWeight:800,letterSpacing:3,border:`2px solid ${deleteTyped.toUpperCase()==="EXCLUIR"?"#22c55e":"#e5e7eb"}`,outline:"none",fontFamily:"monospace",textTransform:"uppercase",color:"#0f172a",background:deleteTyped.toUpperCase()==="EXCLUIR"?"#f0fdf4":"#fff",boxSizing:"border-box"}}/>
+              <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16}}>
+                <Btn onClick={()=>setDeleteModal(null)} v="ghost">Cancelar</Btn>
+                <Btn onClick={executarDelete} xs={{background:"#dc2626",color:"#fff",border:"none",opacity:deleteTyped.toUpperCase()==="EXCLUIR"?1:.5}}>🗑 Excluir</Btn>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+/* ===========================================
+   FISCAL TRIBUTÁRIO PAGE */
+function FiscalTributarioPage({toast,data}){
+  const {useState,useMemo,useEffect,useRef,useCallback}=React;
+  const STORAGE_KEY="mdtec_fiscal_v1";
+  const SUPABASE_ROW_ID=4;
+  const ANOS=["2025","2026"];
+  const TODOS_MESES=["01/2025","02/2025","03/2025","04/2025","05/2025","06/2025","07/2025","08/2025","09/2025","10/2025","11/2025","12/2025","01/2026","02/2026","03/2026","04/2026","05/2026","06/2026","07/2026","08/2026","09/2026","10/2026","11/2026","12/2026"];
+  const MN={"01":"JAN","02":"FEV","03":"MAR","04":"ABR","05":"MAI","06":"JUN","07":"JUL","08":"AGO","09":"SET","10":"OUT","11":"NOV","12":"DEZ"};
+  const fmtM=(m)=>{const p=m.split("/");return p.length!==2?m:`${MN[p[0]]}/${p[1]}`;};
+  const getMesesFrom=(pi)=>{const i=TODOS_MESES.indexOf(pi);return i===-1?[pi]:TODOS_MESES.slice(i);};
+  const getAno=(m)=>m.split("/")[1]||"";
+
+  const DEFAULT_COLS=[
+    {key:"nfe",        label:"NF-e Emitidas",    icon:"🧾", color:"#6366f1"},
+    {key:"nfse",       label:"NFS-e Serviços",   icon:"📄", color:"#0ea5e9"},
+    {key:"nfce",       label:"NFC-e Consumidor", icon:"🛒", color:"#10b981"},
+    {key:"apuracao",   label:"Apuração",          icon:"🧮", color:"#f59e0b"},
+    {key:"guias",      label:"Guias Pagas",       icon:"💳", color:"#8b5cf6"},
+    {key:"obrigacoes", label:"Obrigações Acess.", icon:"📋", color:"#ec4899"},
+  ];
+  const [colsCfg,setColsCfg]=useState(()=>{try{const s=localStorage.getItem("mdtec_fiscal_cols");return s?JSON.parse(s):DEFAULT_COLS;}catch(e){return DEFAULT_COLS;}});
+  const [editColsModal,setEditColsModal]=useState(false);
+  const [colsDraft,setColsDraft]=useState(DEFAULT_COLS);
+  const saveColsCfg=()=>{setColsCfg(colsDraft);try{localStorage.setItem("mdtec_fiscal_cols",JSON.stringify(colsDraft));}catch(e){}setEditColsModal(false);toast("✅ Colunas salvas!","ok");};
+
+  const loadState=()=>{try{const raw=localStorage.getItem(STORAGE_KEY);if(raw){const p=JSON.parse(raw);return p;}}catch(e){}return{empresas:[],dados:{},obs:[],nextId:1};};
+  const init=loadState();
+  const [empresas,setEmpresas]=useState(init.empresas||[]);
+  const [dados,setDados]=useState(init.dados||{});
+  const [obs,setObs]=useState(init.obs||[]);
+  const [nextId,setNextId]=useState(init.nextId||1);
+  const [filterEmp,setFilterEmp]=useState("");
+  const [dbSynced,setDbSynced]=useState(false);
+  const [showNovaEmp,setShowNovaEmp]=useState(false);
+  const [novaEmpForm,setNovaEmpForm]=useState({nome:"",regime:"simples",periodoInicial:"01/2025"});
+  const [obsModal,setObsModal]=useState(null);
+  const [obsEdit,setObsEdit]=useState("");
+  const [deleteModal,setDeleteModal]=useState(null);
+  const [deleteTyped,setDeleteTyped]=useState("");
+  const [deleteShake,setDeleteShake]=useState(false);
+  const [showRelModal,setShowRelModal]=useState(false);
+  const [showObsModal,setShowObsModal]=useState(false);
+  const [showResetModal,setShowResetModal]=useState(false);
+  const [resetTyped,setResetTyped]=useState("");
+  const [resetShake,setResetShake]=useState(false);
+  const pendingSave=useRef(null);
+
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const {data:row,error}=await sb.from("app_data").select("payload").eq("id",SUPABASE_ROW_ID).maybeSingle();
+        if(error){console.warn("Fiscal load error:",error);setDbSynced(true);return;}
+        if(row?.payload){
+          const p=row.payload;
+          if(p.empresas&&Array.isArray(p.empresas))setEmpresas(p.empresas.map(e=>({...e,expandido:false})));
+          if(p.dados&&typeof p.dados==="object")setDados(p.dados);
+          if(p.obs&&Array.isArray(p.obs))setObs(p.obs);
+          if(p.nextId)setNextId(p.nextId);
+          toast("☁️ Fiscal carregado!","ok");
+        }
+      }catch(e){console.warn("Fiscal DB load failed:",e);}
+      setDbSynced(true);
+    })();
+  },[]);
+
+  const saveToDb=useCallback((emps,dds,ob,nid)=>{
+    const payload={empresas:emps,dados:dds,obs:ob,nextId:nid,_savedAt:Date.now()};
+    try{localStorage.setItem(STORAGE_KEY,JSON.stringify(payload));}catch(e){}
+    if(pendingSave.current)clearTimeout(pendingSave.current);
+    pendingSave.current=setTimeout(async()=>{
+      try{await sb.from("app_data").upsert({id:SUPABASE_ROW_ID,payload});}catch(e){console.warn("Fiscal save failed:",e);}
+    },800);
+  },[]);
+
+  useEffect(()=>{if(dbSynced)saveToDb(empresas,dados,obs,nextId);},[empresas,dados,obs,nextId,dbSynced]);
+
+  const getDk=(eid,mes,col)=>`${eid}_${mes}_${col}`;
+  const getSt=(eid,mes,col)=>dados[getDk(eid,mes,col)]||"nao";
+  const calcProg=(eid,mes)=>{if(colsCfg.length===0)return 0;return Math.round((colsCfg.filter(c=>getSt(eid,mes,c.key)==="ok").length/colsCfg.length)*100);};
+  const calcProgAno=(eid,ano)=>{
+    const ms=getMesesFrom(empresas.find(e=>e.id===eid)?.periodoInicial||"01/2025").filter(m=>getAno(m)===ano);
+    if(ms.length===0||colsCfg.length===0)return 0;
+    return Math.round((ms.reduce((a,m)=>a+colsCfg.filter(c=>getSt(eid,m,c.key)==="ok").length,0)/(ms.length*colsCfg.length))*100);
+  };
+  const temObs=(eid,mes)=>obs.some(o=>o.empId===eid&&o.mes===mes);
+  const getObsTxt=(eid,mes)=>obs.find(o=>o.empId===eid&&o.mes===mes)?.texto||"";
+  const getProgClr=(p)=>p===100?"#22c55e":p>=30?"#f59e0b":"#ef4444";
+  const REGIME_ST={simples:{bg:"#d1fae5",cl:"#065f46",lbl:"🟢 Simples"},lucro:{bg:"#e0e7ff",cl:"#3730a3",lbl:"🔵 Lucro"},imune:{bg:"#dbeafe",cl:"#1e40af",lbl:"🛡️ Imune"},isenta:{bg:"#fef3c7",cl:"#92400e",lbl:"📋 Isenta"}};
+  const stBadge=(s)=>({ok:{bg:"#d1fae5",cl:"#065f46",txt:"✅ Ok"},pend:{bg:"#fff4e0",cl:"#b45f06",txt:"⏳ Pend."},nao:{bg:"#f1f3f5",cl:"#495057",txt:"❌ Não"}})[s]||{bg:"#f1f3f5",cl:"#495057",txt:"❌ Não"};
+
+  const alterarSt=(eid,mes,col)=>setDados(prev=>{const k=getDk(eid,mes,col);const s=prev[k]||"nao";return{...prev,[k]:s==="nao"?"pend":s==="pend"?"ok":"ok"};});
+  const reverterSt=(eid,mes,col)=>{setDados(prev=>{const k=getDk(eid,mes,col);const s=prev[k]||"nao";return{...prev,[k]:s==="ok"?"pend":"nao"};});toast("↩ Revertido!","ok");};
+
+  const adicionarEmp=()=>{
+    if(!novaEmpForm.nome.trim()){toast("Digite o nome","err");return;}
+    if(empresas.some(e=>e.nome.toLowerCase()===novaEmpForm.nome.toLowerCase())){toast("Empresa já existe!","err");return;}
+    const id=nextId;
+    setEmpresas(prev=>[...prev,{id,nome:novaEmpForm.nome.trim(),regime:novaEmpForm.regime,periodoInicial:novaEmpForm.periodoInicial,expandido:false}]);
+    setNextId(n=>n+1);setShowNovaEmp(false);
+    setNovaEmpForm({nome:"",regime:"simples",periodoInicial:"01/2025"});
+    toast(`➕ ${novaEmpForm.nome} adicionada!`,"ok");
+  };
+
+  const confirmarDelete=(emp)=>{setDeleteTyped("");setDeleteShake(false);setDeleteModal(emp);};
+  const executarDelete=()=>{
+    if(deleteTyped.trim().toUpperCase()!=="EXCLUIR"){setDeleteShake(true);setTimeout(()=>setDeleteShake(false),500);return;}
+    const id=deleteModal.id;
+    setEmpresas(prev=>prev.filter(e=>e.id!==id));
+    setDados(prev=>{const n={...prev};Object.keys(n).filter(k=>k.startsWith(id+"_")).forEach(k=>delete n[k]);return n;});
+    setObs(prev=>prev.filter(o=>o.empId!==id));
+    setDeleteModal(null);toast("🗑 Excluída!","ok");
+  };
+
+  const executarReset=async()=>{
+    if(resetTyped.trim().toUpperCase()!=="LIMPAR"){setResetShake(true);setTimeout(()=>setResetShake(false),500);return;}
+    setEmpresas([]);setDados({});setObs([]);setNextId(1);
+    try{localStorage.removeItem(STORAGE_KEY);}catch(e){}
+    try{await sb.from("app_data").upsert({id:SUPABASE_ROW_ID,payload:{empresas:[],dados:{},obs:[],nextId:1,_savedAt:Date.now()}});toast("🗑 Fiscal limpo!","ok");}catch(e){toast("⚠️ Limpeza local ok.","warn");}
+    setShowResetModal(false);setResetTyped("");
+  };
+
+  const salvarObs=()=>{
+    if(!obsModal)return;
+    const {empId,mes}=obsModal;
+    setObs(prev=>{const idx=prev.findIndex(o=>o.empId===empId&&o.mes===mes);if(obsEdit.trim()){if(idx!==-1)return prev.map((o,i)=>i===idx?{...o,texto:obsEdit}:o);return[...prev,{empId,mes,texto:obsEdit}];}return prev.filter((_,i)=>i!==idx);});
+    setObsModal(null);toast("Observação salva!","ok");
+  };
+
+  const toggleEmp=(id)=>setEmpresas(prev=>prev.map(e=>e.id===id?{...e,expandido:!e.expandido}:e));
+  const empsFilt=useMemo(()=>empresas.filter(e=>!filterEmp||e.nome.toLowerCase().includes(filterEmp.toLowerCase())),[empresas,filterEmp]);
+
+  return(
+    <div>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:12}}>
+        <div>
+          <h2 style={{fontSize:20,fontWeight:900,color:"var(--text)",margin:0}}>📋 Fiscal Tributário</h2>
+          <p style={{fontSize:13,color:"#64748b",marginTop:4}}>Controle mensal de obrigações fiscais por empresa</p>
+        </div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+          <Btn onClick={()=>setShowRelModal(true)} v="ghost" sz="sm" xs={{background:"#f59e0b",color:"#fff",border:"none"}}>📊 Relatório</Btn>
+          <Btn onClick={()=>setShowObsModal(true)} v="ghost" sz="sm" xs={{background:"#8b5cf6",color:"#fff",border:"none"}}>📝 Obs.{obs.length>0&&<span style={{marginLeft:4,background:"rgba(255,255,255,.3)",borderRadius:10,padding:"1px 6px",fontSize:10,fontWeight:900}}>{obs.length}</span>}</Btn>
+          <Btn onClick={()=>{setColsDraft([...colsCfg]);setEditColsModal(true);}} v="ghost" sz="sm" xs={{background:"#0ea5e9",color:"#fff",border:"none"}}>✏️ Colunas</Btn>
+          <Btn onClick={()=>setShowNovaEmp(true)} sz="sm">+ Empresa</Btn>
+          <Btn onClick={()=>{setResetTyped("");setShowResetModal(true);}} v="ghost" sz="sm" xs={{background:"#fef2f2",color:"#dc2626",border:"1px solid #fecaca"}}>🗑 Limpar</Btn>
+        </div>
+      </div>
+
+      {/* Filter + KPIs */}
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",padding:"10px 14px",background:"var(--bg2)",borderRadius:12,border:"1px solid var(--border)",marginBottom:16}}>
+        <span style={{fontSize:12,fontWeight:700,color:"#64748b"}}>🔍</span>
+        <input value={filterEmp} onChange={e=>setFilterEmp(e.target.value)} placeholder="Filtrar empresa..." style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",width:180}}/>
+        {filterEmp&&<Btn onClick={()=>setFilterEmp("")} v="ghost" sz="sm">× Limpar</Btn>}
+        <span style={{marginLeft:"auto",fontSize:11,color:"#94a3b8"}}>{empsFilt.length} empresa(s) · {colsCfg.length} colunas</span>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:10,marginBottom:20}}>
+        {[{v:empresas.length,l:"Empresas",c:"#6366f1"},{v:obs.length,l:"Observações",c:"#8b5cf6"},{v:colsCfg.length,l:"Colunas",c:"#0ea5e9"}].map(({v,l,c})=>(
+          <div key={l} style={{background:"var(--bg2)",borderRadius:12,padding:"14px",border:"1px solid var(--border)",textAlign:"center"}}>
+            <div style={{fontSize:28,fontWeight:900,color:c,lineHeight:1}}>{v}</div>
+            <div style={{fontSize:11,fontWeight:700,color:"#64748b",marginTop:4}}>{l}</div>
+          </div>
+        ))}
+      </div>
+
+      {empsFilt.length===0&&<div style={{textAlign:"center",padding:"60px",color:"#94a3b8",border:"2px dashed var(--border)",borderRadius:14,fontSize:14}}>📭 Nenhuma empresa. Clique em "+ Empresa" para adicionar.</div>}
+
+      {empsFilt.map(emp=>{
+        const r=REGIME_ST[emp.regime]||REGIME_ST.simples;
+        return(
+          <div key={emp.id} style={{marginBottom:14,borderRadius:14,border:"1px solid var(--border)",background:"var(--bg2)",overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
+            <div onClick={()=>toggleEmp(emp.id)} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 18px",cursor:"pointer",flexWrap:"wrap",borderBottom:emp.expandido?"1px solid var(--border)":"none"}}
+              onMouseEnter={e=>e.currentTarget.style.background="rgba(99,102,241,.04)"}
+              onMouseLeave={e=>e.currentTarget.style.background="transparent"}
+            >
+              <span style={{fontSize:14,fontWeight:900,color:"var(--text)"}}>📋 {emp.nome}</span>
+              <span style={{background:r.bg,color:r.cl,padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700}}>{r.lbl}</span>
+              <span style={{background:"#e2e8f0",color:"#475569",padding:"2px 8px",borderRadius:12,fontSize:11}}>📅 {emp.periodoInicial}</span>
+              {ANOS.map(ano=>{const p=calcProgAno(emp.id,ano);const ms=getMesesFrom(emp.periodoInicial).filter(m=>getAno(m)===ano);if(ms.length===0)return null;return(<span key={ano} style={{background:p===100?"#d1fae5":"#e0e7ff",color:p===100?"#065f46":"#3730a3",padding:"2px 8px",borderRadius:8,fontSize:10,fontWeight:700,border:`1px solid ${p===100?"#86efac":"#c7d2fe"}`}}>{ano}: {p}%{p===100?" ✅":""}</span>);})}
+              {obs.filter(o=>o.empId===emp.id).length>0&&<span style={{background:"#f59e0b",color:"#fff",padding:"2px 8px",borderRadius:12,fontSize:10,fontWeight:700}}>📝 {obs.filter(o=>o.empId===emp.id).length}</span>}
+              <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center"}}>
+                <button onClick={e=>{e.stopPropagation();confirmarDelete(emp);}} style={{background:"none",border:"none",cursor:"pointer",color:"#fca5a5",fontSize:14,padding:"3px 6px",borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#fca5a5"}>🗑</button>
+                <span style={{fontSize:18,color:"#94a3b8",transition:"transform .3s",transform:emp.expandido?"rotate(180deg)":"none"}}>▼</span>
+              </div>
+            </div>
+
+            {emp.expandido&&(
+              <div style={{padding:"16px 18px",background:"var(--bg3)"}}>
+                {ANOS.map(ano=>{
+                  const mesesAno=getMesesFrom(emp.periodoInicial).filter(m=>getAno(m)===ano);
+                  if(mesesAno.length===0)return null;
+                  const pAno=calcProgAno(emp.id,ano);
+                  return(
+                    <div key={ano} style={{marginBottom:16}}>
+                      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8,padding:"6px 12px",background:"#1e3a5f",borderRadius:8,color:"#fff"}}>
+                        <span style={{fontSize:12,fontWeight:900}}>📅 {ano}</span>
+                        <span style={{fontSize:11,color:"rgba(255,255,255,.7)"}}>{pAno}% completo</span>
+                        {pAno===100&&<span style={{marginLeft:"auto",fontSize:11,background:"#22c55e",color:"#fff",padding:"2px 8px",borderRadius:6,fontWeight:700}}>✅ Ano completo</span>}
+                      </div>
+                      <div style={{overflowX:"auto"}}>
+                        <table style={{width:"100%",borderCollapse:"collapse",minWidth:700,fontSize:12}}>
+                          <thead>
+                            <tr style={{background:"#1e3a5f"}}>
+                              <th style={{padding:"8px 10px",color:"#fff",fontSize:11,textAlign:"center",fontWeight:700,minWidth:70}}>Mês</th>
+                              {colsCfg.map(col=>(<th key={col.key} style={{padding:"8px 10px",color:"#fff",fontSize:11,textAlign:"center",fontWeight:700}}><span style={{color:col.color||"#fff"}}>{col.icon}</span> {col.label}</th>))}
+                              <th style={{padding:"8px 10px",color:"#fff",fontSize:11,textAlign:"center",fontWeight:700}}>Progresso</th>
+                              <th style={{padding:"8px 6px",color:"#fff",fontSize:11,textAlign:"center",fontWeight:700}}>📝</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {mesesAno.map(mes=>{
+                              const prog=calcProg(emp.id,mes);
+                              const hasObs=temObs(emp.id,mes);
+                              return(
+                                <tr key={mes} style={{borderBottom:"1px solid var(--border)",background:hasObs?"rgba(245,158,11,.04)":"transparent"}}>
+                                  <td style={{padding:"8px 10px",fontWeight:700,textAlign:"center",color:"var(--text)"}}>{fmtM(mes)}</td>
+                                  {colsCfg.map(col=>{
+                                    const st=getSt(emp.id,mes,col.key);
+                                    const bd=stBadge(st);
+                                    return(
+                                      <td key={col.key} style={{padding:"8px 6px",textAlign:"center"}}>
+                                        <div style={{display:"inline-flex",position:"relative"}}>
+                                          <div onClick={()=>alterarSt(emp.id,mes,col.key)} style={{background:bd.bg,color:bd.cl,padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer",minWidth:74,textAlign:"center"}}>{bd.txt}</div>
+                                          {st!=="nao"&&<span onClick={()=>reverterSt(emp.id,mes,col.key)} title="Reverter" style={{position:"absolute",top:-7,right:-7,fontSize:10,cursor:"pointer",background:"#f59e0b",color:"#fff",borderRadius:"50%",width:15,height:15,display:"flex",alignItems:"center",justifyContent:"center",zIndex:1,fontWeight:900,lineHeight:1}}>↩</span>}
+                                        </div>
+                                      </td>
+                                    );
+                                  })}
+                                  <td style={{padding:"8px 10px",textAlign:"center"}}>
+                                    <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:5}}>
+                                      <span style={{fontSize:10,color:"#64748b",fontWeight:700,minWidth:28}}>{prog}%</span>
+                                      <div style={{width:46,height:5,borderRadius:3,background:"#e2e8f0",overflow:"hidden"}}><div style={{height:"100%",borderRadius:3,background:getProgClr(prog),width:`${prog}%`}}/></div>
+                                    </div>
+                                  </td>
+                                  <td style={{padding:"8px 6px",textAlign:"center"}}>
+                                    <span onClick={()=>{setObsModal({empId:emp.id,mes});setObsEdit(getObsTxt(emp.id,mes));}} title={hasObs?getObsTxt(emp.id,mes):"Adicionar observação"} style={{fontSize:16,cursor:"pointer",color:hasObs?"#f59e0b":"#94a3b8",filter:hasObs?"drop-shadow(0 0 4px #f59e0b88)":"none"}}>📝</span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {/* Modal Nova Empresa */}
+      <Modal open={showNovaEmp} onClose={()=>setShowNovaEmp(false)} title="➕ Nova Empresa — Fiscal" width={420}>
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <Inp label="Nome *" value={novaEmpForm.nome} onChange={v=>setNovaEmpForm(f=>({...f,nome:v}))} placeholder="Nome da empresa"/>
+          <Fld label="Regime"><select value={novaEmpForm.regime} onChange={e=>setNovaEmpForm(f=>({...f,regime:e.target.value}))} style={{padding:"8px 12px",borderRadius:9,border:"2px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",width:"100%"}}><option value="simples">🟢 Simples Nacional</option><option value="lucro">🔵 Lucro Real/Presumido</option><option value="imune">🛡️ Imune</option><option value="isenta">📋 Isenta</option></select></Fld>
+          <Fld label="Período inicial"><select value={novaEmpForm.periodoInicial} onChange={e=>setNovaEmpForm(f=>({...f,periodoInicial:e.target.value}))} style={{padding:"8px 12px",borderRadius:9,border:"2px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",width:"100%"}}>{TODOS_MESES.map(m=><option key={m} value={m}>{fmtM(m)}</option>)}</select></Fld>
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:6}}><Btn onClick={()=>setShowNovaEmp(false)} v="ghost">Cancelar</Btn><Btn onClick={adicionarEmp}>Adicionar</Btn></div>
+        </div>
+      </Modal>
+
+      {/* Modal Editar Colunas */}
+      <Modal open={editColsModal} onClose={()=>setEditColsModal(false)} title="✏️ Editar Colunas Fiscais" width={480}>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <p style={{fontSize:12,color:"#64748b",margin:0}}>Configure as colunas de controle fiscal para todas as empresas.</p>
+          {colsDraft.map((col,i)=>(
+            <div key={i} style={{display:"flex",gap:8,alignItems:"center",padding:"10px 12px",borderRadius:10,background:"var(--bg3)",border:"1px solid var(--border)"}}>
+              <input value={col.icon} onChange={e=>setColsDraft(d=>d.map((c,j)=>j===i?{...c,icon:e.target.value}:c))} style={{width:36,padding:"5px",borderRadius:7,border:"1.5px solid #e5e7eb",fontSize:16,textAlign:"center",fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}}/>
+              <input value={col.label} onChange={e=>setColsDraft(d=>d.map((c,j)=>j===i?{...c,label:e.target.value}:c))} style={{flex:1,padding:"5px 9px",borderRadius:7,border:"1.5px solid #e5e7eb",fontSize:12,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}}/>
+              <input type="color" value={col.color||"#6366f1"} onChange={e=>setColsDraft(d=>d.map((c,j)=>j===i?{...c,color:e.target.value}:c))} style={{width:30,height:30,borderRadius:6,border:"none",cursor:"pointer",padding:0}}/>
+            </div>
+          ))}
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:6}}><Btn onClick={()=>setEditColsModal(false)} v="ghost">Cancelar</Btn><Btn onClick={saveColsCfg}>Salvar Colunas</Btn></div>
+        </div>
+      </Modal>
+
+      {/* Modal Observação */}
+      <Modal open={!!obsModal} onClose={()=>setObsModal(null)} title="📝 Observação" width={420}>
+        {obsModal&&(<div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <div style={{padding:"8px 12px",borderRadius:9,background:"var(--bg3)",border:"1px solid var(--border)",fontSize:12,color:"#64748b",fontWeight:600}}>{empresas.find(e=>e.id===obsModal.empId)?.nome} — {fmtM(obsModal.mes)}</div>
+          <Txt label="Observação" value={obsEdit} onChange={setObsEdit} placeholder="Digite a observação..." rows={4}/>
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}><Btn onClick={()=>setObsModal(null)} v="ghost">Cancelar</Btn><Btn onClick={salvarObs}>Salvar</Btn></div>
+        </div>)}
+      </Modal>
+
+      {/* Modal Resumo Observações */}
+      {showObsModal&&(<div onClick={e=>e.target===e.currentTarget&&setShowObsModal(false)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.6)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}>
+        <div style={{background:"var(--bg2)",borderRadius:18,width:"100%",maxWidth:620,maxHeight:"82vh",display:"flex",flexDirection:"column",boxShadow:"0 32px 80px rgba(0,0,0,.3)",overflow:"hidden"}}>
+          <div style={{background:"#8b5cf6",padding:"16px 22px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+            <span style={{fontSize:15,fontWeight:900,color:"#fff"}}>📝 Observações — Fiscal Tributário</span>
+            <button onClick={()=>setShowObsModal(false)} style={{background:"none",border:"none",color:"#fff",fontSize:22,cursor:"pointer"}}>×</button>
+          </div>
+          <div style={{padding:"20px",overflowY:"auto",flex:1}}>
+            {obs.length===0&&<div style={{textAlign:"center",padding:"40px",color:"#94a3b8"}}>Nenhuma observação</div>}
+            {empresas.map(emp=>{const empObs=obs.filter(o=>o.empId===emp.id);if(empObs.length===0)return null;return(<div key={emp.id} style={{marginBottom:14}}><div style={{fontSize:13,fontWeight:800,color:"#6366f1",marginBottom:8,borderBottom:"1px solid var(--border)",paddingBottom:5}}>📋 {emp.nome}</div>{empObs.map((o,i)=>(<div key={i} style={{padding:"8px 12px",borderRadius:9,marginBottom:5,background:"#fffbeb",border:"1px solid #fde68a",fontSize:12,color:"#92400e",display:"flex",gap:8}}><strong style={{flexShrink:0}}>{fmtM(o.mes)}:</strong><span style={{flex:1}}>{o.texto}</span><button onClick={()=>{setObsModal({empId:o.empId,mes:o.mes});setObsEdit(o.texto);setShowObsModal(false);}} style={{background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#8b5cf6",flexShrink:0}}>✏️</button></div>))}</div>);})}
+          </div>
+        </div>
+      </div>)}
+
+      {/* Modal Relatório */}
+      {showRelModal&&(<div onClick={e=>e.target===e.currentTarget&&setShowRelModal(false)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.6)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}>
+        <div style={{background:"var(--bg2)",borderRadius:18,width:"100%",maxWidth:740,maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:"0 32px 80px rgba(0,0,0,.3)",overflow:"hidden"}}>
+          <div style={{background:"#f59e0b",padding:"16px 22px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+            <span style={{fontSize:15,fontWeight:900,color:"#fff"}}>📊 Relatório Fiscal Tributário</span>
+            <button onClick={()=>setShowRelModal(false)} style={{background:"none",border:"none",color:"#fff",fontSize:22,cursor:"pointer"}}>×</button>
+          </div>
+          <div style={{padding:"20px",overflowY:"auto",flex:1}}>
+            {ANOS.map(ano=>{const ms_t=empresas.reduce((a,e)=>a+getMesesFrom(e.periodoInicial).filter(m=>getAno(m)===ano).length,0);const cols_t=ms_t*colsCfg.length;const ok_t=empresas.reduce((a,e)=>a+getMesesFrom(e.periodoInicial).filter(m=>getAno(m)===ano).reduce((b,m)=>b+colsCfg.filter(c=>getSt(e.id,m,c.key)==="ok").length,0),0);const pct=cols_t>0?Math.round((ok_t/cols_t)*100):0;if(ms_t===0)return null;return(<div key={ano} style={{padding:"12px 16px",borderRadius:10,marginBottom:10,background:"#f0fdf4",border:"1px solid #86efac",display:"flex",gap:14,alignItems:"center",flexWrap:"wrap"}}><span style={{fontSize:14,fontWeight:900,color:"#065f46"}}>📅 {ano}</span><span style={{fontSize:12}}>{ok_t}/{cols_t} ok</span><div style={{flex:1,minWidth:100}}><div style={{height:6,borderRadius:3,background:"#e2e8f0"}}><div style={{height:"100%",borderRadius:3,background:"#22c55e",width:`${pct}%`}}/></div></div><span style={{fontSize:11,fontWeight:700,color:"#22c55e"}}>{pct}%</span></div>);})}
+            {empresas.map(emp=>{const obsE=obs.filter(o=>o.empId===emp.id);const r=REGIME_ST[emp.regime]||REGIME_ST.simples;return(<div key={emp.id} style={{border:"1px solid var(--border)",borderRadius:12,marginBottom:12,overflow:"hidden"}}><div style={{background:"var(--bg3)",padding:"10px 16px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}><strong style={{fontSize:13}}>📋 {emp.nome}</strong><span style={{background:r.bg,color:r.cl,padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700}}>{r.lbl}</span>{ANOS.map(ano=>{const p=calcProgAno(emp.id,ano);const ms=getMesesFrom(emp.periodoInicial).filter(m=>getAno(m)===ano);if(ms.length===0)return null;return(<span key={ano} style={{fontSize:11,background:"#e0e7ff",color:"#3730a3",padding:"2px 8px",borderRadius:8,fontWeight:700}}>{ano}: {p}%</span>);})}{obsE.length>0&&<span style={{background:"#fef3c7",color:"#92400e",padding:"2px 8px",borderRadius:10,fontSize:11,fontWeight:700}}>📝 {obsE.length}</span>}</div>{obsE.length>0&&<div style={{padding:"8px 16px"}}>{obsE.map((o,i)=>(<div key={i} style={{padding:"4px 8px",borderRadius:6,background:"#fffbeb",border:"1px solid #fde68a",fontSize:11,color:"#92400e",marginBottom:4}}><strong>{fmtM(o.mes)}:</strong> {o.texto}</div>))}</div>}</div>);})}
+          </div>
+        </div>
+      </div>)}
+
+      {/* Modal Delete */}
+      {deleteModal&&(<div onClick={e=>e.target===e.currentTarget&&setDeleteModal(null)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.72)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}}>
+        <div style={{background:"var(--bg2)",borderRadius:20,width:"100%",maxWidth:420,boxShadow:"0 32px 80px rgba(0,0,0,.35)",animation:"popIn .22s cubic-bezier(.34,1.56,.64,1)",overflow:"hidden"}}>
+          <div style={{background:"linear-gradient(135deg,#fef2f2,#fff0f0)",padding:"20px 24px 16px",borderBottom:"1px solid #fecaca",display:"flex",alignItems:"center",gap:14}}>
+            <div style={{width:46,height:46,borderRadius:13,background:"#ef4444",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>🗑</div>
+            <div><div style={{fontSize:15,fontWeight:900,color:"#991b1b"}}>Confirmar exclusão</div><div style={{fontSize:12,color:"#ef4444",fontWeight:600}}>{deleteModal.nome}</div></div>
+            <button onClick={()=>setDeleteModal(null)} style={{marginLeft:"auto",background:"none",border:"none",cursor:"pointer",color:"#fca5a5",fontSize:20}}>×</button>
+          </div>
+          <div style={{padding:"20px 24px"}}>
+            <p style={{fontSize:13,color:"#374151",marginBottom:10}}>Digite <strong style={{color:"#ef4444",letterSpacing:2,fontFamily:"monospace"}}>EXCLUIR</strong>:</p>
+            <input autoFocus value={deleteTyped} onChange={e=>setDeleteTyped(e.target.value)} onKeyDown={e=>e.key==="Enter"&&executarDelete()} placeholder="EXCLUIR" style={{width:"100%",padding:"11px 14px",borderRadius:10,fontSize:14,fontWeight:800,letterSpacing:3,border:`2px solid ${deleteTyped.toUpperCase()==="EXCLUIR"?"#22c55e":"#e5e7eb"}`,outline:"none",fontFamily:"monospace",textTransform:"uppercase",color:"#0f172a",background:deleteTyped.toUpperCase()==="EXCLUIR"?"#f0fdf4":"#fff",animation:deleteShake?"shake .4s ease":"none",boxSizing:"border-box"}}/>
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:14}}><Btn onClick={()=>setDeleteModal(null)} v="ghost">Cancelar</Btn><Btn onClick={executarDelete} xs={{background:"#dc2626",color:"#fff",border:"none",opacity:deleteTyped.toUpperCase()==="EXCLUIR"?1:.5}}>🗑 Excluir</Btn></div>
+          </div>
+        </div>
+      </div>)}
+
+      {/* Modal Reset */}
+      {showResetModal&&(<div onClick={e=>e.target===e.currentTarget&&setShowResetModal(false)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.8)",zIndex:4000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}}>
+        <div style={{background:"var(--bg2)",borderRadius:20,width:"100%",maxWidth:420,boxShadow:"0 32px 80px rgba(0,0,0,.5)",overflow:"hidden"}}>
+          <div style={{background:"linear-gradient(135deg,#7f1d1d,#991b1b)",padding:"20px 24px 16px",display:"flex",alignItems:"center",gap:14}}>
+            <span style={{fontSize:26}}>⚠️</span>
+            <div><div style={{fontSize:16,fontWeight:900,color:"#fff"}}>Limpar Fiscal Tributário</div><div style={{fontSize:12,color:"rgba(255,255,255,.7)"}}>Ação irreversível</div></div>
+            <button onClick={()=>setShowResetModal(false)} style={{marginLeft:"auto",background:"none",border:"none",cursor:"pointer",color:"rgba(255,255,255,.6)",fontSize:22}}>×</button>
+          </div>
+          <div style={{padding:"22px 24px"}}>
+            <p style={{fontSize:13,color:"#374151",marginBottom:10}}>Digite <strong style={{color:"#ef4444",letterSpacing:2,fontFamily:"monospace"}}>LIMPAR</strong>:</p>
+            <input autoFocus value={resetTyped} onChange={e=>setResetTyped(e.target.value)} onKeyDown={e=>e.key==="Enter"&&executarReset()} placeholder="LIMPAR" style={{width:"100%",padding:"11px 14px",borderRadius:10,fontSize:14,fontWeight:800,letterSpacing:3,border:`2px solid ${resetTyped.toUpperCase()==="LIMPAR"?"#22c55e":"#e5e7eb"}`,outline:"none",fontFamily:"monospace",textTransform:"uppercase",color:"#0f172a",background:resetTyped.toUpperCase()==="LIMPAR"?"#f0fdf4":"#fff",animation:resetShake?"shake .4s ease":"none",boxSizing:"border-box"}}/>
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:14}}><Btn onClick={()=>setShowResetModal(false)} v="ghost">Cancelar</Btn><Btn onClick={executarReset} xs={{background:"#dc2626",color:"#fff",border:"none"}}>🗑 Limpar tudo</Btn></div>
+          </div>
+        </div>
+      </div>)}
     </div>
   );
 }

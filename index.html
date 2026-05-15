@@ -8587,7 +8587,7 @@ function ContabilPage({toast,data}){
           {!isGuestMode&&<Btn onClick={()=>setShowImportModal(true)} v="ghost" sz="sm" xs={{background:"#10b981",color:"#fff",border:"none"}}>📤 Importar</Btn>}
           {!isGuestMode&&<Btn onClick={()=>setShowNovaEmpModal(true)} sz="sm">+ Empresa</Btn>}
           {!isGuestMode&&<Btn onClick={()=>setShowGrupoModal(true)} v="ghost" sz="sm">👥 Grupo</Btn>}
-          {!isGuestMode&&<Btn onClick={()=>{setBatchMode(b=>!b);setSelectedEmps(new Set());}} v="ghost" sz="sm" xs={{background:batchMode?"#fef2f2":"#f8fafc",color:batchMode?"#dc2626":"var(--text3)",border:`1px solid ${batchMode?"#fca5a5":"var(--border2)"}`}}>{batchMode?"✕ Sair lote":"☑ Selecionar"}</Btn>
+          {!isGuestMode&&<Btn onClick={()=>{setBatchMode(b=>!b);setSelectedEmps(new Set());}} v="ghost" sz="sm" xs={{background:batchMode?"#fef2f2":"#f8fafc",color:batchMode?"#dc2626":"var(--text3)",border:`1px solid ${batchMode?"#fca5a5":"var(--border2)"}`}}>{batchMode?"✕ Sair lote":"☑ Selecionar"}</Btn>}
         </div>
       </div>
 

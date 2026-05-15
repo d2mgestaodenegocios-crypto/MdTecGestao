@@ -11024,6 +11024,7 @@ function makePageComponent(PAGE_CFG){
     };
 
     // ── Main render ───────────────────────────────────────────────
+    try{ // safety render wrapper
     return(
       <div>
         {isGuestMode&&(
@@ -11397,7 +11398,7 @@ function makePageComponent(PAGE_CFG){
           </div>
         )}
       </div>
-    );
+    ); } catch(err){ return <div style={{padding:"24px",color:"#ef4444",fontWeight:700,fontSize:13}}>❌ Erro em {PAGE_TITLE}: {err?.message||String(err)}</div>; }
   };
 }
 

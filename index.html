@@ -417,6 +417,23 @@ const SUPABASE_SERVICE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzd
 /* -- Cliente Supabase (via CDN) -- */
 const { createClient } = supabase;
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ── BroadcastChannel: sync entre abas ────────────────────────
+const _bc = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("mdtec_sync") : null;
+function broadcastSync(rowId){ if(_bc) _bc.postMessage({rowId, ts: Date.now()}); }
+
+// ── Smart vencimento ──────────────────────────────────────────
+const FERIADOS_BR=["01/01","21/04","01/05","07/09","12/10","02/11","15/11","25/12"];
+function calcVencimento(dia, mm, yyyy){
+  let d=new Date(parseInt(yyyy),parseInt(mm)-1,parseInt(dia));
+  let t=0;
+  while(t<15){const dow=d.getDay();const k=String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0");if(dow===0||dow===6||FERIADOS_BR.includes(k)){d.setDate(d.getDate()-1);t++;}else break;}
+  return String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear();
+}
+function gerarPrazosAuto(dia, meses){
+  const p={};meses.forEach(m=>{const pts=m.split("/");if(pts.length===2)p[m]=calcVencimento(dia,pts[0],pts[1]);});return p;
+}
+
 // Cliente admin (só usado para criar/gerenciar usuários)
 const sbAdmin = SUPABASE_SERVICE_KEY
   ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {auth:{autoRefreshToken:false,persistSession:false}})
@@ -8062,6 +8079,9 @@ function App(){
 
 /* ===========================================
    CONTABIL PAGE — Controle de Contabilização (Enhanced) */
+</script>
+<script type="text/babel" data-presets="react">
+
 function ContabilPage({toast,data}){
   // ─── Constants ───────────────────────────────────────────────
   const STORAGE_KEY="mdtec_contabil_v2";
@@ -8146,6 +8166,7 @@ function ContabilPage({toast,data}){
       try{
         const {error}=await sb.from("app_data").upsert({id:CONTABIL_ROW_ID,payload});
         if(error) console.warn("Contabil save error:",error);
+        else broadcastSync(CONTABIL_ROW_ID);
       }catch(e){console.warn("Contabil save failed:",e);}
     },800);
   },[]);
@@ -8164,7 +8185,7 @@ function ContabilPage({toast,data}){
     return()=>{delete window.__contabilRevert;};
   },[]);
 
-  // Load from Supabase on mount
+  // Load from Supabase on mount + setup realtime
   useEffect(()=>{
     (async()=>{
       try{
@@ -8195,23 +8216,36 @@ function ContabilPage({toast,data}){
     saveContabilToDb(cEmpresas,cGrupos,cDados,cObs,cEcdEcf,nextEmpId,nextGrpId);
   },[cEmpresas,cGrupos,cDados,cObs,cEcdEcf,nextEmpId,nextGrpId,dbSynced]);
 
-  // ── Auto-reload from Supabase every 2 minutes ────────────────
+  // ── Real-time sync: Supabase realtime + BroadcastChannel ────
+  const applyContabilPayload=(p)=>{
+    if(p.empresas&&Array.isArray(p.empresas)) setCEmpresas(p.empresas.map(e=>({...e,expandido:false})));
+    if(p.grupos&&Array.isArray(p.grupos)) setCGrupos(p.grupos);
+    if(p.dados&&Array.isArray(p.dados)) setCDados(p.dados);
+    if(p.obs&&Array.isArray(p.obs)) setCObs(p.obs);
+    if(p.ecdEcf&&typeof p.ecdEcf==="object") setCEcdEcf(p.ecdEcf);
+    if(p.nextEmpId) setNextEmpId(p.nextEmpId);
+    if(p.nextGrpId) setNextGrpId(p.nextGrpId);
+  };
   useEffect(()=>{
+    // Supabase realtime
+    const ch=sb.channel("contabil_sync")
+      .on("postgres_changes",{event:"UPDATE",schema:"public",table:"app_data",filter:`id=eq.${CONTABIL_ROW_ID}`},payload=>{
+        if(payload.new?.payload) applyContabilPayload(payload.new.payload);
+      }).subscribe();
+    // BroadcastChannel (other tabs)
+    const handler=(e)=>{
+      if(e.data?.rowId===CONTABIL_ROW_ID){
+        sb.from("app_data").select("payload").eq("id",CONTABIL_ROW_ID).maybeSingle().then(({data:row})=>{
+          if(row?.payload) applyContabilPayload(row.payload);
+        });
+      }
+    };
+    if(_bc) _bc.addEventListener("message",handler);
+    // Fallback polling every 60s
     const poll=setInterval(async()=>{
-      try{
-        const {data:row,error}=await sb.from("app_data").select("payload").eq("id",CONTABIL_ROW_ID).maybeSingle();
-        if(error||!row?.payload) return;
-        const p=row.payload;
-        if(p.empresas&&Array.isArray(p.empresas)) setCEmpresas(p.empresas.map(e=>({...e,expandido:false})));
-        if(p.grupos&&Array.isArray(p.grupos)) setCGrupos(p.grupos);
-        if(p.dados&&Array.isArray(p.dados)) setCDados(p.dados);
-        if(p.obs&&Array.isArray(p.obs)) setCObs(p.obs);
-        if(p.ecdEcf&&typeof p.ecdEcf==="object") setCEcdEcf(p.ecdEcf);
-        if(p.nextEmpId) setNextEmpId(p.nextEmpId);
-        if(p.nextGrpId) setNextGrpId(p.nextGrpId);
-      }catch(e){}
-    },120000); // 2 min
-    return()=>clearInterval(poll);
+      try{const{data:row}=await sb.from("app_data").select("payload").eq("id",CONTABIL_ROW_ID).maybeSingle();if(row?.payload)applyContabilPayload(row.payload);}catch(e){}
+    },60000);
+    return()=>{sb.removeChannel(ch);if(_bc)_bc.removeEventListener("message",handler);clearInterval(poll);};
   },[]);
 
   // ── Guest mode: read ?guest=1&grp=X from URL ─────────────────
@@ -10247,6 +10281,7 @@ function FiscalTributarioPage({toast,data}){
 
 
 
+
 /* ── Contabilidade + Tributário + Folha Dashboard Widget ──────────── */
 function ContabilModulosDash(){
   const {useState,useEffect}=React;
@@ -10398,20 +10433,35 @@ function makeGuestView(STORAGE_KEY, ROW_ID, PAGE_TITLE, PAGE_ICON, DEFAULT_COLS,
     const [saving,setSaving]=useState(false);
 
     useEffect(()=>{
+      const applyPayload=(p)=>{
+        if(p.empresas)setEmpresas(p.empresas.map(e=>({...e,expandido:false})));
+        if(p.grupos)setGrupos(p.grupos);
+        if(p.dados)setDados(p.dados);
+        if(p.obs)setObs(p.obs);
+        if(p.prazos)setPrazos(p.prazos);
+      };
       (async()=>{
         try{
           const{data:row}=await sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle();
-          if(row?.payload){
-            const p=row.payload;
-            if(p.empresas)setEmpresas(p.empresas.map(e=>({...e,expandido:false})));
-            if(p.grupos)setGrupos(p.grupos);
-            if(p.dados)setDados(p.dados);
-            if(p.obs)setObs(p.obs);
-            if(p.prazos)setPrazos(p.prazos);
-          }
+          if(row?.payload) applyPayload(row.payload);
         }catch(e){}
         setLoaded(true);
       })();
+      // Real-time updates
+      const ch=sb.channel(`guest_sync_${ROW_ID}`)
+        .on("postgres_changes",{event:"UPDATE",schema:"public",table:"app_data",filter:`id=eq.${ROW_ID}`},payload=>{
+          if(payload.new?.payload) applyPayload(payload.new.payload);
+        }).subscribe();
+      // BroadcastChannel
+      const handler=(e)=>{
+        if(e.data?.rowId===ROW_ID){
+          sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle().then(({data:row})=>{
+            if(row?.payload)applyPayload(row.payload);
+          });
+        }
+      };
+      if(_bc)_bc.addEventListener("message",handler);
+      return()=>{sb.removeChannel(ch);if(_bc)_bc.removeEventListener("message",handler);};
     },[]);
 
     const save=async(newDados,newObs)=>{
@@ -10420,6 +10470,7 @@ function makeGuestView(STORAGE_KEY, ROW_ID, PAGE_TITLE, PAGE_ICON, DEFAULT_COLS,
         const{data:row}=await sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle();
         const base=row?.payload||{};
         await sb.from("app_data").upsert({id:ROW_ID,payload:{...base,dados:newDados,obs:newObs,_t:Date.now()}});
+        broadcastSync(ROW_ID);
       }catch(e){}
       setSaving(false);
     };
@@ -10664,7 +10715,7 @@ function makePageComponent(PAGE_CFG){
       try{localStorage.setItem(STORAGE_KEY,JSON.stringify(payload));}catch(ex){}
       if(pendingSave.current)clearTimeout(pendingSave.current);
       pendingSave.current=setTimeout(async()=>{
-        try{const{error}=await sb.from("app_data").upsert({id:ROW_ID,payload});if(error)console.warn(PAGE_TITLE+"save err:",error);}catch(ex){}
+        try{const{error}=await sb.from("app_data").upsert({id:ROW_ID,payload});if(error)console.warn(PAGE_TITLE+"save err:",error);else broadcastSync(ROW_ID);}catch(ex){}
       },800);
     },[]);
 
@@ -10689,16 +10740,30 @@ function makePageComponent(PAGE_CFG){
 
     useEffect(()=>{if(dbSynced)saveToDB(empresas,grupos,dados,obs,prazos,nextEmpId,nextGrpId);},[empresas,grupos,dados,obs,prazos,nextEmpId,nextGrpId,dbSynced]);
 
+    // ── Real-time sync ────────────────────────────────────────
+    const applyPayload=(p)=>{
+      if(p.empresas)setEmpresas(p.empresas.map(e=>({...e,expandido:false})));
+      if(p.grupos)setGrupos(p.grupos);if(p.dados)setDados(p.dados);
+      if(p.obs)setObs(p.obs);if(p.prazos)setPrazos(p.prazos);
+      if(p.nextEmpId)setNextEmpId(p.nextEmpId);if(p.nextGrpId)setNextGrpId(p.nextGrpId);
+    };
     useEffect(()=>{
+      const ch=sb.channel(`sync_row_${ROW_ID}`)
+        .on("postgres_changes",{event:"UPDATE",schema:"public",table:"app_data",filter:`id=eq.${ROW_ID}`},payload=>{
+          if(payload.new?.payload) applyPayload(payload.new.payload);
+        }).subscribe();
+      const handler=(e)=>{
+        if(e.data?.rowId===ROW_ID){
+          sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle().then(({data:row})=>{
+            if(row?.payload)applyPayload(row.payload);
+          });
+        }
+      };
+      if(_bc)_bc.addEventListener("message",handler);
       const poll=setInterval(async()=>{
-        try{
-          const{data:row}=await sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle();
-          if(!row?.payload)return;const p=row.payload;
-          if(p.empresas)setEmpresas(p.empresas.map(e=>({...e,expandido:false})));
-          if(p.grupos)setGrupos(p.grupos);if(p.dados)setDados(p.dados);if(p.obs)setObs(p.obs);if(p.prazos)setPrazos(p.prazos);
-        }catch(e){}
-      },120000);
-      return()=>clearInterval(poll);
+        try{const{data:row}=await sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle();if(row?.payload)applyPayload(row.payload);}catch(e){}
+      },60000);
+      return()=>{sb.removeChannel(ch);if(_bc)_bc.removeEventListener("message",handler);clearInterval(poll);};
     },[]);
 
     // ── Guest mode ────────────────────────────────────────────────
@@ -10805,6 +10870,21 @@ function makePageComponent(PAGE_CFG){
     // ── Prazo edit modal ──────────────────────────────────────────
     const [prazoModal,setPrazoModal]=useState(null);
     const [prazoVal,setPrazoVal]=useState("");
+    const [diaVencPadrao,setDiaVencPadrao]=useState(()=>{try{return localStorage.getItem(STORAGE_KEY+"_dia")||"";}catch(e){return "";}});
+    const aplicarDiaPadrao=(dia,sobrescrever=false)=>{
+      if(!dia||isNaN(parseInt(dia)))return;
+      const d=parseInt(dia);
+      const todosMeses=new Set();
+      empresas.forEach(e=>getMeses(e.periodoInicial||"01/2025").forEach(m=>todosMeses.add(m)));
+      const novosPrazos=sobrescrever?{}:{...prazos};
+      todosMeses.forEach(m=>{
+        if(sobrescrever||!novosPrazos[m]){const pts=m.split("/");if(pts.length===2)novosPrazos[m]=calcVencimento(d,pts[0],pts[1]);}
+      });
+      setPrazos(novosPrazos);
+      setDiaVencPadrao(String(d));
+      try{localStorage.setItem(STORAGE_KEY+"_dia",String(d));}catch(e){}
+      toast(`⏰ Vencimento dia ${d} aplicado!`,"ok");
+    };
 
     // ── Revert modal ──────────────────────────────────────────────
     const [revertModal,setRevertModal]=useState(null);
@@ -11024,7 +11104,6 @@ function makePageComponent(PAGE_CFG){
     };
 
     // ── Main render ───────────────────────────────────────────────
-    try{ // safety render wrapper
     return(
       <div>
         {isGuestMode&&(
@@ -11045,6 +11124,7 @@ function makePageComponent(PAGE_CFG){
           </div>
           <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
             <Btn onClick={()=>setObsResModal(true)} v="ghost" sz="sm" xs={{background:"#8b5cf6",color:"#fff",border:"none"}}>📋 Observações{obs.length>0&&<span style={{marginLeft:4,background:"rgba(255,255,255,.3)",borderRadius:10,padding:"1px 6px",fontSize:10,fontWeight:900}}>{obs.length}</span>}</Btn>
+            {!isGuestMode&&<Btn onClick={()=>{setPrazoVal("");setPrazoModal({mes:"config"});}} v="ghost" sz="sm" xs={{background:"#f59e0b",color:"#fff",border:"none"}}>⏰ Vencimentos</Btn>}
             {!isGuestMode&&<Btn onClick={()=>{setColsDraft(JSON.parse(JSON.stringify(cols)));setEditColsModal(true);}} v="ghost" sz="sm" xs={{background:"#0ea5e9",color:"#fff",border:"none"}}>✏️ Colunas</Btn>}
             {!isGuestMode&&<Btn onClick={()=>setShowNovaEmpModal(true)} sz="sm">+ Empresa</Btn>}
             {!isGuestMode&&<Btn onClick={()=>setShowGrupoModal(true)} v="ghost" sz="sm">👥 Grupo</Btn>}
@@ -11320,20 +11400,26 @@ function makePageComponent(PAGE_CFG){
         )}
 
         {/* ── Modal Prazo ── */}
-        <Modal open={!!prazoModal} onClose={()=>setPrazoModal(null)} title="⏰ Prazo de Vencimento" width={360}>
+        <Modal open={!!prazoModal} onClose={()=>setPrazoModal(null)} title="⏰ Prazo de Vencimento" width={440}>
           {prazoModal&&(
             <div style={{display:"flex",flexDirection:"column",gap:12}}>
-              <div style={{padding:"8px 12px",borderRadius:9,background:"var(--bg3)",border:"1px solid var(--border)",fontSize:12,color:"#64748b",fontWeight:600}}>
-                Competência: {getMesNome(prazoModal.mes)}
+              {prazoModal.mes!=="config"&&<div style={{padding:"8px 12px",borderRadius:9,background:"var(--bg3)",border:"1px solid var(--border)",fontSize:12,color:"#64748b",fontWeight:600}}>Competência: {getMesNome(prazoModal.mes)}</div>}
+              {prazoModal.mes!=="config"&&<Inp label="Vencimento deste mês (DD/MM/AAAA)" value={prazoVal} onChange={setPrazoVal} placeholder="Ex: 20/01/2025"/>}
+              <div style={{padding:"12px 14px",borderRadius:10,background:"#e0f2fe",border:"1px solid #bae6fd",fontSize:12,color:"#0369a1"}}>
+                <div style={{fontWeight:700,marginBottom:8}}>📅 Vencimento mensal automático</div>
+                <div style={{fontSize:11,marginBottom:8,opacity:.85}}>Define o mesmo dia para todos os meses. Se cair em fim de semana ou feriado, antecipa automaticamente.</div>
+                <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                  <span style={{fontSize:12,fontWeight:700}}>Todo dia:</span>
+                  <input type="number" min="1" max="28" value={diaVencPadrao} onChange={e=>setDiaVencPadrao(e.target.value)} placeholder="15" style={{width:60,padding:"5px 8px",borderRadius:8,border:"2px solid #bae6fd",fontSize:13,fontFamily:"inherit",background:"#fff",outline:"none"}}/>
+                  <Btn onClick={()=>aplicarDiaPadrao(diaVencPadrao,false)} sz="sm" xs={{background:"#0ea5e9",color:"#fff",border:"none"}}>+ Preencher vazios</Btn>
+                  <Btn onClick={()=>aplicarDiaPadrao(diaVencPadrao,true)} sz="sm" xs={{background:"#6366f1",color:"#fff",border:"none"}}>🔄 Sobrescrever todos</Btn>
+                </div>
               </div>
-              <Inp label="Vencimento (DD/MM/AAAA)" value={prazoVal} onChange={setPrazoVal} placeholder="Ex: 20/01/2025"/>
-              <div style={{padding:"10px 14px",borderRadius:10,background:"#fffbeb",border:"1px solid #fde68a",fontSize:12,color:"#92400e"}}>
-                🟡 Alerta 7 dias antes · 🔴 Vermelho após vencer
-              </div>
+              <div style={{padding:"9px 12px",borderRadius:8,background:"#fffbeb",border:"1px solid #fde68a",fontSize:11,color:"#92400e"}}>🟡 Alerta 7 dias antes · 🔴 Vermelho após vencer</div>
               <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-                {prazoVal&&<Btn onClick={()=>{setPrazo(prazoModal.mes,"");setPrazoModal(null);toast("Prazo removido","ok");}} v="ghost" sz="sm" xs={{color:"#ef4444"}}>Remover</Btn>}
-                <Btn onClick={()=>setPrazoModal(null)} v="ghost">Cancelar</Btn>
-                <Btn onClick={()=>{setPrazo(prazoModal.mes,prazoVal);setPrazoModal(null);toast("⏰ Prazo salvo!","ok");}}>Salvar</Btn>
+                {prazoModal.mes!=="config"&&prazoVal&&<Btn onClick={()=>{setPrazo(prazoModal.mes,"");setPrazoModal(null);toast("Prazo removido","ok");}} v="ghost" sz="sm" xs={{color:"#ef4444"}}>Remover</Btn>}
+                <Btn onClick={()=>setPrazoModal(null)} v="ghost">Fechar</Btn>
+                {prazoModal.mes!=="config"&&<Btn onClick={()=>{setPrazo(prazoModal.mes,prazoVal);setPrazoModal(null);toast("⏰ Prazo salvo!","ok");}}>Salvar este mês</Btn>}
               </div>
             </div>
           )}
@@ -11398,7 +11484,7 @@ function makePageComponent(PAGE_CFG){
           </div>
         )}
       </div>
-    ); } catch(err){ return <div style={{padding:"24px",color:"#ef4444",fontWeight:700,fontSize:13}}>❌ Erro em {PAGE_TITLE}: {err?.message||String(err)}</div>; }
+    );
   };
 }
 

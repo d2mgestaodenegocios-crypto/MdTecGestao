@@ -186,6 +186,30 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/@babel/standalone@7.23.9/babel.min.js"></script>
+<script>
+// ── Shared globals — accessible by all Babel script tags ─────
+var _bc = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("mdtec_sync") : null;
+function broadcastSync(rowId){ if(_bc) _bc.postMessage({rowId: rowId, ts: Date.now()}); }
+
+var FERIADOS_BR=["01/01","21/04","01/05","07/09","12/10","02/11","15/11","25/12"];
+function calcVencimento(dia, mm, yyyy){
+  var d=new Date(parseInt(yyyy),parseInt(mm)-1,parseInt(dia));
+  var t=0;
+  while(t<15){
+    var dow=d.getDay();
+    var k=("0"+d.getDate()).slice(-2)+"/"+("0"+(d.getMonth()+1)).slice(-2);
+    if(dow===0||dow===6||FERIADOS_BR.indexOf(k)>=0){d.setDate(d.getDate()-1);t++;}
+    else break;
+  }
+  return ("0"+d.getDate()).slice(-2)+"/"+("0"+(d.getMonth()+1)).slice(-2)+"/"+d.getFullYear();
+}
+function gerarPrazosAuto(dia, meses){
+  var p={};
+  meses.forEach(function(m){var pts=m.split("/");if(pts.length===2)p[m]=calcVencimento(dia,pts[0],pts[1]);});
+  return p;
+}
+</script>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script type="text/babel" data-presets="react">
 const {useState,useMemo,useEffect,useRef,useCallback}=React;
@@ -417,22 +441,6 @@ const SUPABASE_SERVICE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzd
 /* -- Cliente Supabase (via CDN) -- */
 const { createClient } = supabase;
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
-
-// ── BroadcastChannel: sync entre abas ────────────────────────
-const _bc = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("mdtec_sync") : null;
-function broadcastSync(rowId){ if(_bc) _bc.postMessage({rowId, ts: Date.now()}); }
-
-// ── Smart vencimento ──────────────────────────────────────────
-const FERIADOS_BR=["01/01","21/04","01/05","07/09","12/10","02/11","15/11","25/12"];
-function calcVencimento(dia, mm, yyyy){
-  let d=new Date(parseInt(yyyy),parseInt(mm)-1,parseInt(dia));
-  let t=0;
-  while(t<15){const dow=d.getDay();const k=String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0");if(dow===0||dow===6||FERIADOS_BR.includes(k)){d.setDate(d.getDate()-1);t++;}else break;}
-  return String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear();
-}
-function gerarPrazosAuto(dia, meses){
-  const p={};meses.forEach(m=>{const pts=m.split("/");if(pts.length===2)p[m]=calcVencimento(dia,pts[0],pts[1]);});return p;
-}
 
 // Cliente admin (só usado para criar/gerenciar usuários)
 const sbAdmin = SUPABASE_SERVICE_KEY
@@ -10434,7 +10442,7 @@ function makeGuestView(STORAGE_KEY, ROW_ID, PAGE_TITLE, PAGE_ICON, DEFAULT_COLS,
 
     useEffect(()=>{
       const applyPayload=(p)=>{
-        if(p.empresas)setEmpresas(p.empresas.map(e=>({...e,expandido:false})));
+        if(p.empresas)setEmpresas(p.empresas.map(e=>{const{expandido,...rest}=e;return rest;}));
         if(p.grupos)setGrupos(p.grupos);
         if(p.dados)setDados(p.dados);
         if(p.obs)setObs(p.obs);
@@ -10701,6 +10709,7 @@ function makePageComponent(PAGE_CFG){
     };
     const init=loadState();
     const [empresas,setEmpresas]=useState(init.empresas||[]);
+    const [expandedEmps,setExpandedEmps]=useState(new Set()); // expandido separado do DB
     const [grupos,setGrupos]=useState(init.grupos||[]);
     const [dados,setDados]=useState(init.dados||{});
     const [obs,setObs]=useState(init.obs||[]);
@@ -10725,7 +10734,7 @@ function makePageComponent(PAGE_CFG){
           const{data:row,error}=await sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle();
           if(!error&&row?.payload){
             const p=row.payload;
-            if(p.empresas)setEmpresas(p.empresas.map(e=>({...e,expandido:false})));
+            if(p.empresas)setEmpresas(p.empresas.map(e=>{const{expandido,...rest}=e;return rest;}));
             if(p.grupos)setGrupos(p.grupos);
             if(p.dados)setDados(p.dados);
             if(p.obs)setObs(p.obs);
@@ -10742,7 +10751,7 @@ function makePageComponent(PAGE_CFG){
 
     // ── Real-time sync ────────────────────────────────────────
     const applyPayload=(p)=>{
-      if(p.empresas)setEmpresas(p.empresas.map(e=>({...e,expandido:false})));
+      if(p.empresas)setEmpresas(p.empresas.map(e=>{const{expandido,...rest}=e;return rest;}));
       if(p.grupos)setGrupos(p.grupos);if(p.dados)setDados(p.dados);
       if(p.obs)setObs(p.obs);if(p.prazos)setPrazos(p.prazos);
       if(p.nextEmpId)setNextEmpId(p.nextEmpId);if(p.nextGrpId)setNextGrpId(p.nextGrpId);
@@ -10789,7 +10798,7 @@ function makePageComponent(PAGE_CFG){
 
     // ── Prazo ─────────────────────────────────────────────────────
     const getPrazo=(mes)=>prazos[mes]||"";
-    const setPrazo=(mes,val)=>setPrazos(prev=>({...prev,[mes]:val}));
+    const setPrazo=(mes,val)=>setPrazos(prev=>{const n={...prev};if(val)n[mes]=val;else delete n[mes];return n;});
     const isVencendo=(mes)=>{const p=getPrazo(mes);if(!p)return false;const pts=p.split("/");if(pts.length!==3)return false;const d=new Date(parseInt(pts[2]),parseInt(pts[1])-1,parseInt(pts[0]));const diff=(d-new Date())/(86400000);return diff>=0&&diff<=7;};
     const isVencido=(mes)=>{const p=getPrazo(mes);if(!p)return false;const pts=p.split("/");if(pts.length!==3)return false;return new Date(parseInt(pts[2]),parseInt(pts[1])-1,parseInt(pts[0]))<new Date();};
 
@@ -10829,7 +10838,7 @@ function makePageComponent(PAGE_CFG){
     const isGrpOpen=(id)=>!!grpOpen[id];
     const [abaAnoMap,setAbaAnoMap]=useState({});
     const getAbaAno=(eid)=>{const e=empresas.find(x=>x.id===eid);const anos=ANOS.filter(a=>getMeses(e?.periodoInicial||"01/2025").some(m=>m.endsWith("/"+a)));return abaAnoMap[eid]||anos[0]||ANOS[0];};
-    const toggleEmpExp=(eid)=>setEmpresas(prev=>prev.map(e=>e.id===eid?{...e,expandido:!e.expandido}:e));
+    const toggleEmpExp=(eid)=>setExpandedEmps(prev=>{const n=new Set(prev);n.has(eid)?n.delete(eid):n.add(eid);return n;});
 
     const guestEmpIds=useMemo(()=>{
       if(!isGuestMode||!guestGrpId)return null;
@@ -10960,9 +10969,9 @@ function makePageComponent(PAGE_CFG){
       const isSelected=selectedEmps.has(emp.id);
       return(
         <div key={emp.id} style={{borderBottom:isLast?"none":"1px solid var(--border)",background:isSelected?"#eff6ff":undefined}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:indent?"14px 20px 14px 36px":"14px 20px",cursor:"pointer",flexWrap:"wrap",gap:10,transition:"background .1s",background:emp.expandido?"var(--bg2)":undefined}}
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:indent?"14px 20px 14px 36px":"14px 20px",cursor:"pointer",flexWrap:"wrap",gap:10,transition:"background .1s",background:expandedEmps.has(emp.id)?"var(--bg2)":undefined}}
             onMouseEnter={e=>!batchMode&&(e.currentTarget.style.background="rgba(99,102,241,.04)")}
-            onMouseLeave={e=>!batchMode&&!emp.expandido&&(e.currentTarget.style.background="transparent")}
+            onMouseLeave={e=>!batchMode&&!expandedEmps.has(emp.id)&&(e.currentTarget.style.background="transparent")}
           >
             {batchMode&&<input type="checkbox" checked={isSelected} onChange={()=>toggleSel(emp.id)} onClick={e=>e.stopPropagation()} style={{width:16,height:16,cursor:"pointer",accentColor:"#6366f1",flexShrink:0}}/>}
             <div onClick={()=>toggleEmpExp(emp.id)} style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",flex:1,minWidth:0}}>
@@ -10996,10 +11005,10 @@ function makePageComponent(PAGE_CFG){
             <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
               {!isGuestMode&&<button onClick={e=>{e.stopPropagation();setEditEmpForm({nome:emp.nome,cnpj:emp.cnpj||"",regime:emp.regime||"simples",grupoId:emp.grupoId||""});setEditEmpModal({emp});}} title="Editar" style={{background:"none",border:"none",cursor:"pointer",color:"#6366f1",fontSize:13,padding:"3px 7px",borderRadius:6}}>✏️</button>}
               {!isGuestMode&&<button onClick={e=>{e.stopPropagation();setDeleteTyped("");setDeleteEmpModal(emp);}} title="Excluir" style={{background:"none",border:"none",cursor:"pointer",color:"#fca5a5",fontSize:14,padding:"3px 7px",borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#fca5a5"}>🗑</button>}
-              <span onClick={()=>toggleEmpExp(emp.id)} style={{fontSize:18,color:"#94a3b8",transition:"transform .3s",transform:emp.expandido?"rotate(180deg)":"none",cursor:"pointer"}}>▼</span>
+              <span onClick={()=>toggleEmpExp(emp.id)} style={{fontSize:18,color:"#94a3b8",transition:"transform .3s",transform:expandedEmps.has(emp.id)?"rotate(180deg)":"none",cursor:"pointer"}}>▼</span>
             </div>
           </div>
-          {emp.expandido&&(
+          {expandedEmps.has(emp.id)&&(
             <div style={{borderTop:"1px solid var(--border)",background:"var(--bg3)"}}>
               <div style={{display:"flex",borderBottom:"2px solid var(--border)",padding:"0 20px",background:"var(--bg2)"}}>
                 {anosComMeses.map(ano=>{

@@ -8143,6 +8143,7 @@ function ContabilPage({toast,data}){
   const pendingContabilSave=useRef(null);
   const isSavingContabilRef=useRef(false);
   const myLastContabilSaveTs=useRef(null);
+  const skipNextDebounceC=useRef(false);
 
   // Save to Supabase + localStorage whenever state changes (debounced)
   const saveContabilToDb=useCallback((empresas,grupos,dados,obs,ecdEcf,nextEmpId,nextGrpId,immediate=false)=>{
@@ -8158,7 +8159,7 @@ function ContabilPage({toast,data}){
       }catch(e){console.warn("Contabil save failed:",e);}
       isSavingContabilRef.current=false;
     };
-    if(immediate){doSave();}else{pendingContabilSave.current=setTimeout(doSave,800);}
+    if(immediate){skipNextDebounceC.current=true;doSave();}else{pendingContabilSave.current=setTimeout(doSave,800);}
   },[]);
 
   // ─── Register global revert helper for EmpresaRow ────────────
@@ -8203,6 +8204,7 @@ function ContabilPage({toast,data}){
   // Trigger save on any state change (after initial db load)
   useEffect(()=>{
     if(!dbSynced) return;
+    if(isSavingContabilRef.current)return; // immediate save in flight, skip debounce
     saveContabilToDb(cEmpresas,cGrupos,cDados,cObs,cEcdEcf,nextEmpId,nextGrpId);
   },[cEmpresas,cGrupos,cDados,cObs,cEcdEcf,nextEmpId,nextGrpId,dbSynced]);
 
@@ -8405,10 +8407,12 @@ function ContabilPage({toast,data}){
     const novaEmp={id:novoId,nome:novaEmpForm.nome.trim(),grupoId,subgrupoId,regime:novaEmpForm.regime,periodoInicial:novaEmpForm.periodoInicial,expandido:false};
     const mesesNovos=getMesesC(novaEmpForm.periodoInicial);
     const novosRegistros=mesesNovos.map(mes=>({id:`${novoId}_${mes}`,empresaId:novoId,competencia:mes,fiscal:"nao-iniciado",extratos:"nao-iniciado",patrimonio:"nao-iniciado",folha:"nao-iniciado",clienteEnviou:"nao",analisado:false}));
-    setCEmpresas(prev=>{const next=[...prev,novaEmp];
-      setCDados(prev2=>{const nextD=[...prev2,...novosRegistros];
-        saveContabilToDb(next,cGrupos,nextD,cObs,cEcdEcf,novoId+1,nextGrpId,true);return nextD;});
-      return next;});
+    // Calcula os novos arrays antes de chamar setState, salva imediatamente
+    const nextEmpresas=[...cEmpresas,novaEmp];
+    const nextDados=[...cDados,...novosRegistros];
+    saveContabilToDb(nextEmpresas,cGrupos,nextDados,cObs,cEcdEcf,novoId+1,nextGrpId,true);
+    setCEmpresas(nextEmpresas);
+    setCDados(nextDados);
     setNextEmpId(n=>n+1);
     setShowNovaEmpModal(false);
     setNovaEmpForm({nome:"",grupoId:"",subgrupoId:"",regime:"simples",periodoInicial:"01/2025"});
@@ -10518,6 +10522,7 @@ function makePageComponent(PAGE_CFG){
     const pendingSave=useRef(null);
     const isSavingRef=useRef(false);
     const myLastSaveTs=useRef(null);
+    const skipNextDebounce=useRef(false);
 
     const saveToDB=useCallback((e,g,d,o,pr,ne,ng,immediate=false)=>{
       const payload={empresas:e,grupos:g,dados:d,obs:o,prazos:pr,nextEmpId:ne,nextGrpId:ng,_t:Date.now()};
@@ -10529,7 +10534,7 @@ function makePageComponent(PAGE_CFG){
         try{const{error}=await sb.from("app_data").upsert({id:ROW_ID,payload:{...payload,_savedAt:payload._t}});if(!error)broadcastSync(ROW_ID);}catch(ex){}
         isSavingRef.current=false;
       };
-      if(immediate){doSave();}else{pendingSave.current=setTimeout(doSave,800);}
+      if(immediate){skipNextDebounce.current=true;doSave();}else{pendingSave.current=setTimeout(doSave,800);}
     },[]);
 
     const applyPayload=(p)=>{
@@ -10552,7 +10557,7 @@ function makePageComponent(PAGE_CFG){
       return()=>{sb.removeChannel(ch);if(_bc)_bc.removeEventListener("message",h);clearInterval(poll);};
     },[]);
 
-    useEffect(()=>{if(dbSynced)saveToDB(empresas,grupos,dados,obs,prazos,nextEmpId,nextGrpId);},[empresas,grupos,dados,obs,prazos,nextEmpId,nextGrpId,dbSynced]);
+    useEffect(()=>{if(!dbSynced)return;if(isSavingRef.current)return;saveToDB(empresas,grupos,dados,obs,prazos,nextEmpId,nextGrpId);},[empresas,grupos,dados,obs,prazos,nextEmpId,nextGrpId,dbSynced]);
 
     // ── Guest ────────────────────────────────────────────────────
     const up=new URLSearchParams(window.location.search);
@@ -10653,7 +10658,7 @@ function makePageComponent(PAGE_CFG){
       let ne;
       if(novaEmpForm.importarDe){const src=(sysData?.companies||[]).find(c=>c.id===novaEmpForm.importarDe);if(!src){toast("Empresa não encontrada","err");return;}ne={id:nextEmpId,nome:src.name,cnpj:src.cnpj||"",regime:(src.tributacao||"").toLowerCase().includes("simples")?"simples":(src.tributacao||"").toLowerCase().includes("real")?"lucro":"presumido",grupoId:novaEmpForm.grupoId?parseInt(novaEmpForm.grupoId):null,periodoInicial:novaEmpForm.periodoInicial};}
       else{if(!novaEmpForm.nome.trim()){toast("Digite o nome","err");return;}ne={id:nextEmpId,nome:novaEmpForm.nome.trim(),cnpj:novaEmpForm.cnpj||"",regime:novaEmpForm.regime,grupoId:novaEmpForm.grupoId?parseInt(novaEmpForm.grupoId):null,periodoInicial:novaEmpForm.periodoInicial};}
-      setEmpresas(prev=>{const next=[...prev,ne];saveToDB(next,grupos,dados,obs,prazos,nextEmpId+1,nextGrpId,true);return next;});setNextEmpId(n=>n+1);setShowNovaEmpModal(false);setNovaEmpForm({nome:"",cnpj:"",regime:"simples",grupoId:"",periodoInicial:"01/"+CUR_Y,importarDe:""});toast("🏢 "+ne.nome+" adicionada!","ok");
+      const nextEmpresas=[...empresas,ne];saveToDB(nextEmpresas,grupos,dados,obs,prazos,nextEmpId+1,nextGrpId,true);setEmpresas(nextEmpresas);setNextEmpId(n=>n+1);setShowNovaEmpModal(false);setNovaEmpForm({nome:"",cnpj:"",regime:"simples",grupoId:"",periodoInicial:"01/"+CUR_Y,importarDe:""});toast("🏢 "+ne.nome+" adicionada!","ok");
     };
     const salvarEditEmp=()=>{if(!editEmpModal)return;setEmpresas(prev=>prev.map(e=>e.id===editEmpModal.emp.id?{...e,nome:editEmpForm.nome,cnpj:editEmpForm.cnpj,regime:editEmpForm.regime,grupoId:editEmpForm.grupoId?parseInt(editEmpForm.grupoId):null}:e));setEditEmpModal(null);toast("✅ Empresa atualizada!","ok");};
     const executarDelete=()=>{if(!deleteEmpModal||deleteTyped.toUpperCase()!=="EXCLUIR")return;const eid=deleteEmpModal.id;setEmpresas(prev=>prev.filter(e=>e.id!==eid));setDados(prev=>{const nd={...prev};Object.keys(nd).filter(k=>k.startsWith(eid+"_")).forEach(k=>delete nd[k]);return nd;});setObs(prev=>prev.filter(o=>o.eid!==eid));setDeleteEmpModal(null);setDeleteTyped("");toast("🗑 Excluída!","ok");};

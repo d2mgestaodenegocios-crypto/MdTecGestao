@@ -188,7 +188,8 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 <script src="https://unpkg.com/@babel/standalone@7.23.9/babel.min.js"></script>
 <script>
 var _bc=typeof BroadcastChannel!=="undefined"?new BroadcastChannel("mdtec_sync"):null;
-function broadcastSync(rowId){if(_bc)_bc.postMessage({rowId:rowId,ts:Date.now()});}
+var _tabId=Math.random().toString(36).slice(2); // unique per tab/session
+function broadcastSync(rowId){if(_bc)_bc.postMessage({rowId:rowId,ts:Date.now(),tabId:_tabId});}
 var FERIADOS_BR=["01/01","21/04","01/05","07/09","12/10","02/11","15/11","25/12"];
 function calcVencimento(dia,mm,yyyy){
   var d=new Date(parseInt(yyyy),parseInt(mm)-1,parseInt(dia));var t=0;
@@ -8223,7 +8224,7 @@ function ContabilPage({toast,data}){
   };
   useEffect(()=>{
     const ch=sb.channel("cp_rt").on("postgres_changes",{event:"UPDATE",schema:"public",table:"app_data",filter:`id=eq.${CONTABIL_ROW_ID}`},pl=>{if(pl.new?.payload)_applyCP(pl.new.payload);}).subscribe();
-    const h=(e)=>{if(e.data?.rowId===CONTABIL_ROW_ID)sb.from("app_data").select("payload").eq("id",CONTABIL_ROW_ID).maybeSingle().then(({data:r})=>{if(r?.payload)_applyCP(r.payload);});};
+    const h=(e)=>{if(e.data?.rowId===CONTABIL_ROW_ID&&e.data?.tabId!==_tabId)sb.from("app_data").select("payload").eq("id",CONTABIL_ROW_ID).maybeSingle().then(({data:r})=>{if(r?.payload)_applyCP(r.payload);});};
     if(_bc)_bc.addEventListener("message",h);
     const poll=setInterval(async()=>{try{const{data:r}=await sb.from("app_data").select("payload").eq("id",CONTABIL_ROW_ID).maybeSingle();if(r?.payload)_applyCP(r.payload);}catch(e){}},60000);
     return()=>{sb.removeChannel(ch);if(_bc)_bc.removeEventListener("message",h);clearInterval(poll);};
@@ -10361,7 +10362,7 @@ function GuestView({grpId, pageId, toast, toasts}){
   useEffect(()=>{
     (async()=>{try{const{data:row}=await sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle();if(row?.payload)applyP(row.payload);}catch(e){}setLoaded(true);})();
     const ch=sb.channel("gv_"+ROW_ID).on("postgres_changes",{event:"UPDATE",schema:"public",table:"app_data",filter:`id=eq.${ROW_ID}`},pl=>{if(pl.new?.payload)applyP(pl.new.payload);}).subscribe();
-    const h=(e)=>{if(e.data?.rowId===ROW_ID){sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle().then(({data:r})=>{if(r?.payload)applyP(r.payload);});}};
+    const h=(e)=>{if(e.data?.rowId===ROW_ID&&e.data?.tabId!==_tabId){sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle().then(({data:r})=>{if(r?.payload)applyP(r.payload);});}};
     if(_bc)_bc.addEventListener("message",h);
     return()=>{sb.removeChannel(ch);if(_bc)_bc.removeEventListener("message",h);};
   },[]);
@@ -10551,7 +10552,7 @@ function makePageComponent(PAGE_CFG){
     useEffect(()=>{
       (async()=>{try{const{data:row}=await sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle();if(row?.payload)applyPayload(row.payload);}catch(e){}setDbSynced(true);})();
       const ch=sb.channel("sp_"+ROW_ID).on("postgres_changes",{event:"UPDATE",schema:"public",table:"app_data",filter:`id=eq.${ROW_ID}`},pl=>{if(pl.new?.payload)applyPayload(pl.new.payload);}).subscribe();
-      const h=(e)=>{if(e.data?.rowId===ROW_ID)sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle().then(({data:r})=>{if(r?.payload)applyPayload(r.payload);});};
+      const h=(e)=>{if(e.data?.rowId===ROW_ID&&e.data?.tabId!==_tabId)sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle().then(({data:r})=>{if(r?.payload)applyPayload(r.payload);});};
       if(_bc)_bc.addEventListener("message",h);
       const poll=setInterval(async()=>{try{const{data:r}=await sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle();if(r?.payload)applyPayload(r.payload);}catch(e){}},60000);
       return()=>{sb.removeChannel(ch);if(_bc)_bc.removeEventListener("message",h);clearInterval(poll);};

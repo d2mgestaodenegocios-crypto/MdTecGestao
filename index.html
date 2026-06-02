@@ -8160,7 +8160,11 @@ function ContabilPage({toast,data}){
       }catch(e){console.warn("Contabil save failed:",e);}
       isSavingContabilRef.current=false;
     };
-    if(immediate){skipNextDebounceC.current=true;doSave();}else{pendingContabilSave.current=setTimeout(doSave,800);}
+    if(immediate){
+      isSavingContabilRef.current=true;
+      myLastContabilSaveTs.current=payload._savedAt;
+      doSave();
+    }else{pendingContabilSave.current=setTimeout(doSave,800);}
   },[]);
 
   // ─── Register global revert helper for EmpresaRow ────────────
@@ -8211,10 +8215,9 @@ function ContabilPage({toast,data}){
 
   // ── Realtime sync ──────────────────────────────────────────────
   const _applyCP=(p)=>{
-    // Ignora updates enquanto meu save está em trânsito (evita race condition)
     if(isSavingContabilRef.current)return;
-    // Ignora se o timestamp bate com o meu último save
-    if(p._savedAt&&p._savedAt===myLastContabilSaveTs.current)return;
+    const pTs=p._savedAt||p._t||0;
+    if(myLastContabilSaveTs.current&&pTs<=myLastContabilSaveTs.current)return;
     if(p.empresas&&Array.isArray(p.empresas))setCEmpresas(p.empresas.map(e=>({...e,expandido:false})));
     if(p.grupos&&Array.isArray(p.grupos))setCGrupos(p.grupos);
     if(p.dados&&Array.isArray(p.dados))setCDados(p.dados);
@@ -10535,14 +10538,20 @@ function makePageComponent(PAGE_CFG){
         try{const{error}=await sb.from("app_data").upsert({id:ROW_ID,payload:{...payload,_savedAt:payload._t}});if(!error)broadcastSync(ROW_ID);}catch(ex){}
         isSavingRef.current=false;
       };
-      if(immediate){skipNextDebounce.current=true;doSave();}else{pendingSave.current=setTimeout(doSave,800);}
+      if(immediate){
+        // Bloqueia applyPayload IMEDIATAMENTE (síncrono) antes de qualquer await
+        isSavingRef.current=true;
+        myLastSaveTs.current=payload._t;
+        doSave();
+      }else{pendingSave.current=setTimeout(doSave,800);}
     },[]);
 
     const applyPayload=(p)=>{
-      // Ignora updates enquanto meu save ainda está em trânsito (evita race condition)
+      // Ignora updates enquanto meu save está em trânsito
       if(isSavingRef.current)return;
-      // Ignora se o timestamp bate com o meu último save (fui eu quem salvou)
-      if(p._savedAt&&p._savedAt===myLastSaveTs.current)return;
+      // Ignora qualquer payload mais antigo que nosso último save
+      const pTs=p._savedAt||p._t||0;
+      if(myLastSaveTs.current&&pTs<=myLastSaveTs.current)return;
       if(p.empresas)setEmpresas(p.empresas.map(e=>{const{expandido,...r}=e;return r;}));
       if(p.grupos)setGrupos(p.grupos);if(p.dados)setDados(p.dados);
       if(p.obs)setObs(p.obs);if(p.prazos)setPrazos(p.prazos);

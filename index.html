@@ -8170,16 +8170,20 @@ function ContabilPage({toast,data}){
   // ─── Register global revert helper for EmpresaRow ────────────
   useEffect(()=>{
     window.__contabilRevert=(eid,mes,campo,fromValue)=>{
-      setCDados(prev=>prev.map(d=>{
-        if(d.empresaId!==eid||d.competencia!==mes) return d;
-        if(d.analisado) return d;
-        const revert=fromValue==="ok"?"pendente":fromValue==="pendente"?"nao-iniciado":"nao-iniciado";
-        return {...d,[campo]:revert};
-      }));
+      setCDados(prev=>{
+        const nd=prev.map(d=>{
+          if(d.empresaId!==eid||d.competencia!==mes) return d;
+          if(d.analisado) return d;
+          const revert=fromValue==="ok"?"pendente":fromValue==="pendente"?"nao-iniciado":"nao-iniciado";
+          return {...d,[campo]:revert};
+        });
+        saveContabilToDb(cEmpresas,cGrupos,nd,cObs,cEcdEcf,nextEmpId,nextGrpId,true);
+        return nd;
+      });
       toast("↩ Status revertido!","ok");
     };
     return()=>{delete window.__contabilRevert;};
-  },[]);
+  },[cEmpresas,cGrupos,cObs,cEcdEcf,nextEmpId,nextGrpId,saveContabilToDb]);
 
   // Load from Supabase on mount
   useEffect(()=>{
@@ -8209,7 +8213,6 @@ function ContabilPage({toast,data}){
   // Trigger save on any state change (after initial db load)
   useEffect(()=>{
     if(!dbSynced) return;
-    if(isSavingContabilRef.current)return; // immediate save in flight, skip debounce
     saveContabilToDb(cEmpresas,cGrupos,cDados,cObs,cEcdEcf,nextEmpId,nextGrpId);
   },[cEmpresas,cGrupos,cDados,cObs,cEcdEcf,nextEmpId,nextGrpId,dbSynced]);
 
@@ -8264,7 +8267,7 @@ function ContabilPage({toast,data}){
   const [novaEmpForm,setNovaEmpForm]=useState({nome:"",cnpj:"",grupoId:"",subgrupoId:"",regime:"simples",periodoInicial:"01/"+new Date().getFullYear().toString(),importarDe:""});
   const [editEmpCModal,setEditEmpCModal]=useState(null);
   const [editEmpCForm,setEditEmpCForm]=useState({nome:"",cnpj:"",regime:"simples",grupoId:""});
-  const salvarEditEmpC=()=>{if(!editEmpCModal)return;setCEmpresas(prev=>prev.map(e=>e.id===editEmpCModal.emp.id?{...e,nome:editEmpCForm.nome,cnpj:editEmpCForm.cnpj,regime:editEmpCForm.regime,grupoId:editEmpCForm.grupoId?parseInt(editEmpCForm.grupoId):null}:e));setEditEmpCModal(null);toast("✅ Empresa atualizada!","ok");};
+  const salvarEditEmpC=()=>{if(!editEmpCModal)return;const ne=cEmpresas.map(e=>e.id===editEmpCModal.emp.id?{...e,nome:editEmpCForm.nome,cnpj:editEmpCForm.cnpj,regime:editEmpCForm.regime,grupoId:editEmpCForm.grupoId?parseInt(editEmpCForm.grupoId):null}:e);setCEmpresas(ne);saveContabilToDb(ne,cGrupos,cDados,cObs,cEcdEcf,nextEmpId,nextGrpId,true);setEditEmpCModal(null);toast("✅ Empresa atualizada!","ok");};
   const [novoGrupoForm,setNovoGrupoForm]=useState({nome:"",parentId:"",subgrupos:[]});
   const [novoGrupoSubInput,setNovoGrupoSubInput]=useState("");
 
@@ -8329,46 +8332,64 @@ function ContabilPage({toast,data}){
 
   // ─── Actions ──────────────────────────────────────────────────
   const alterarStatus=(eid,comp,campo)=>{
-    setCDados(prev=>prev.map(d=>{
-      if(d.empresaId!==eid||d.competencia!==comp) return d;
-      if(d.analisado){toast("⚠️ Mês já analisado! Use 'Reverter' para desfazer.","warn");return d;}
-      const prev_val=d[campo];
-      const next_val=avancarSt(prev_val);
-      return {...d,[campo]:next_val};
-    }));
+    setCDados(prev=>{
+      const nd=prev.map(d=>{
+        if(d.empresaId!==eid||d.competencia!==comp) return d;
+        if(d.analisado){toast("⚠️ Mês já analisado! Use 'Reverter' para desfazer.","warn");return d;}
+        return {...d,[campo]:avancarSt(d[campo])};
+      });
+      saveContabilToDb(cEmpresas,cGrupos,nd,cObs,cEcdEcf,nextEmpId,nextGrpId,true);
+      return nd;
+    });
   };
 
   const reverterStatus=(eid,comp,campo,fromValue)=>{
-    setCDados(prev=>prev.map(d=>{
-      if(d.empresaId!==eid||d.competencia!==comp) return d;
-      if(d.analisado){toast("⚠️ Mês já analisado, não é possível reverter.","warn");return d;}
-      const revert=fromValue==="ok"?"pendente":fromValue==="pendente"?"nao-iniciado":"nao-iniciado";
-      return {...d,[campo]:revert};
-    }));
+    setCDados(prev=>{
+      const nd=prev.map(d=>{
+        if(d.empresaId!==eid||d.competencia!==comp) return d;
+        if(d.analisado){toast("⚠️ Mês já analisado, não é possível reverter.","warn");return d;}
+        const revert=fromValue==="ok"?"pendente":fromValue==="pendente"?"nao-iniciado":"nao-iniciado";
+        return {...d,[campo]:revert};
+      });
+      saveContabilToDb(cEmpresas,cGrupos,nd,cObs,cEcdEcf,nextEmpId,nextGrpId,true);
+      return nd;
+    });
     toast("↩ Status revertido!","ok");
   };
 
   const reverterAnalise=(eid,comp)=>{
-    setCDados(prev=>prev.map(d=>{
-      if(d.empresaId!==eid||d.competencia!==comp) return d;
-      return {...d,analisado:false};
-    }));
+    setCDados(prev=>{
+      const nd=prev.map(d=>{
+        if(d.empresaId!==eid||d.competencia!==comp) return d;
+        return {...d,analisado:false};
+      });
+      saveContabilToDb(cEmpresas,cGrupos,nd,cObs,cEcdEcf,nextEmpId,nextGrpId,true);
+      return nd;
+    });
     toast("↩ Análise revertida — mês voltou a 'Analisar'","ok");
     setRevertModal(null);
   };
 
   const alterarCliente=(eid,comp)=>{
-    setCDados(prev=>prev.map(d=>{
-      if(d.empresaId!==eid||d.competencia!==comp||d.analisado) return d;
-      return {...d,clienteEnviou:d.clienteEnviou==="sim"?"nao":"sim"};
-    }));
+    setCDados(prev=>{
+      const nd=prev.map(d=>{
+        if(d.empresaId!==eid||d.competencia!==comp||d.analisado) return d;
+        return {...d,clienteEnviou:d.clienteEnviou==="sim"?"nao":"sim"};
+      });
+      saveContabilToDb(cEmpresas,cGrupos,nd,cObs,cEcdEcf,nextEmpId,nextGrpId,true);
+      return nd;
+    });
   };
 
   const analisarMes=(eid,comp)=>{
     const item=cDados.find(d=>d.empresaId===eid&&d.competencia===comp);
     if(!item||item.analisado) return;
     if(!estaContab(item)){toast("❌ Complete as 5 etapas primeiro!","err");return;}
-    setCDados(prev=>prev.map(d=>d.empresaId===eid&&d.competencia===comp?{...d,analisado:true}:d));
+    setCDados(prev=>{
+      const nd=prev.map(d=>d.empresaId===eid&&d.competencia===comp?{...d,analisado:true}:d);
+      saveContabilToDb(cEmpresas,cGrupos,nd,cObs,cEcdEcf,nextEmpId,nextGrpId,true);
+      return nd;
+    });
     toast(`🔍 ${cEmpresas.find(e=>e.id===eid)?.nome} - ${comp} ANALISADO!`,"ok");
   };
 
@@ -8390,12 +8411,15 @@ function ContabilPage({toast,data}){
     const {empresaId,competencia}=obsModal;
     setCObs(prev=>{
       const idx=prev.findIndex(o=>o.empresaId===empresaId&&o.competencia===competencia);
+      let no;
       if(obsTextoEdit.trim()){
-        if(idx!==-1) return prev.map((o,i)=>i===idx?{...o,texto:obsTextoEdit}:o);
-        return [...prev,{empresaId,competencia,texto:obsTextoEdit}];
+        if(idx!==-1) no=prev.map((o,i)=>i===idx?{...o,texto:obsTextoEdit}:o);
+        else no=[...prev,{empresaId,competencia,texto:obsTextoEdit}];
       } else {
-        return prev.filter((_,i)=>i!==idx);
+        no=prev.filter((_,i)=>i!==idx);
       }
+      saveContabilToDb(cEmpresas,cGrupos,cDados,no,cEcdEcf,nextEmpId,nextGrpId,true);
+      return no;
     });
     setObsModal(null);
     toast("Observação salva!","ok");
@@ -9546,14 +9570,18 @@ function FolhaPage({toast, data}){
     const cur=getCell(eid,mes,col);
     const seq=["nao-iniciado","pendente","ok","nao-aplica"];
     const next=seq[(seq.indexOf(cur)+1)%seq.length];
-    setDados(prev=>({...prev,[`${eid}_${mes}_${col}`]:next}));
+    const nd={...dados,[`${eid}_${mes}_${col}`]:next};
+    setDados(nd);
+    try{localStorage.setItem(STORAGE_KEY,JSON.stringify({empresas,dados:nd,obs}));}catch(e){}
   };
   const revertCell=(eid,mes,col)=>{
     const cur=getCell(eid,mes,col);
     const seq=["nao-iniciado","pendente","ok","nao-aplica"];
     const idx=seq.indexOf(cur);
-    const prev=seq[idx<=0?0:idx-1];
-    setDados(d=>({...d,[`${eid}_${mes}_${col}`]:prev}));
+    const pv=seq[idx<=0?0:idx-1];
+    const nd={...dados,[`${eid}_${mes}_${col}`]:pv};
+    setDados(nd);
+    try{localStorage.setItem(STORAGE_KEY,JSON.stringify({empresas,dados:nd,obs}));}catch(e){}
     toast("↩ Revertido!","ok");
   };
   const calcProgMes=(eid,mes)=>{
@@ -9977,13 +10005,15 @@ function FiscalTributarioPage({toast,data}){
     })();
   },[]);
 
-  const saveToDb=useCallback((emps,dds,ob,nid)=>{
+  const saveToDb=useCallback((emps,dds,ob,nid,immediate=false)=>{
     const payload={empresas:emps,dados:dds,obs:ob,nextId:nid,_savedAt:Date.now()};
     try{localStorage.setItem(STORAGE_KEY,JSON.stringify(payload));}catch(e){}
     if(pendingSave.current)clearTimeout(pendingSave.current);
-    pendingSave.current=setTimeout(async()=>{
+    const doSave=async()=>{
       try{await sb.from("app_data").upsert({id:SUPABASE_ROW_ID,payload});}catch(e){console.warn("Fiscal save failed:",e);}
-    },800);
+    };
+    if(immediate){doSave();}
+    else{pendingSave.current=setTimeout(doSave,800);}
   },[]);
 
   useEffect(()=>{if(dbSynced)saveToDb(empresas,dados,obs,nextId);},[empresas,dados,obs,nextId,dbSynced]);
@@ -10002,8 +10032,8 @@ function FiscalTributarioPage({toast,data}){
   const REGIME_ST={simples:{bg:"#d1fae5",cl:"#065f46",lbl:"🟢 Simples"},lucro:{bg:"#e0e7ff",cl:"#3730a3",lbl:"🔵 Lucro"},imune:{bg:"#dbeafe",cl:"#1e40af",lbl:"🛡️ Imune"},isenta:{bg:"#fef3c7",cl:"#92400e",lbl:"📋 Isenta"}};
   const stBadge=(s)=>({ok:{bg:"#d1fae5",cl:"#065f46",txt:"✅ Ok"},pend:{bg:"#fff4e0",cl:"#b45f06",txt:"⏳ Pend."},nao:{bg:"#f1f3f5",cl:"#495057",txt:"❌ Não"}})[s]||{bg:"#f1f3f5",cl:"#495057",txt:"❌ Não"};
 
-  const alterarSt=(eid,mes,col)=>setDados(prev=>{const k=getDk(eid,mes,col);const s=prev[k]||"nao";return{...prev,[k]:s==="nao"?"pend":s==="pend"?"ok":"ok"};});
-  const reverterSt=(eid,mes,col)=>{setDados(prev=>{const k=getDk(eid,mes,col);const s=prev[k]||"nao";return{...prev,[k]:s==="ok"?"pend":"nao"};});toast("↩ Revertido!","ok");};
+  const alterarSt=(eid,mes,col)=>{setDados(prev=>{const k=getDk(eid,mes,col);const s=prev[k]||"nao";const nd={...prev,[k]:s==="nao"?"pend":s==="pend"?"ok":"ok"};saveToDb(empresas,nd,obs,nextId,true);return nd;});};
+  const reverterSt=(eid,mes,col)=>{setDados(prev=>{const k=getDk(eid,mes,col);const s=prev[k]||"nao";const nd={...prev,[k]:s==="ok"?"pend":"nao"};saveToDb(empresas,nd,obs,nextId,true);return nd;});toast("↩ Revertido!","ok");};
 
   const adicionarEmp=()=>{
     if(!novaEmpForm.nome.trim()){toast("Digite o nome","err");return;}
@@ -10036,7 +10066,7 @@ function FiscalTributarioPage({toast,data}){
   const salvarObs=()=>{
     if(!obsModal)return;
     const {empId,mes}=obsModal;
-    setObs(prev=>{const idx=prev.findIndex(o=>o.empId===empId&&o.mes===mes);if(obsEdit.trim()){if(idx!==-1)return prev.map((o,i)=>i===idx?{...o,texto:obsEdit}:o);return[...prev,{empId,mes,texto:obsEdit}];}return prev.filter((_,i)=>i!==idx);});
+    setObs(prev=>{const idx=prev.findIndex(o=>o.empId===empId&&o.mes===mes);let no;if(obsEdit.trim()){if(idx!==-1)no=prev.map((o,i)=>i===idx?{...o,texto:obsEdit}:o);else no=[...prev,{empId,mes,texto:obsEdit}];}else{no=prev.filter((_,i)=>i!==idx);}saveToDb(empresas,dados,no,nextId,true);return no;});
     setObsModal(null);toast("Observação salva!","ok");
   };
 
@@ -10567,7 +10597,7 @@ function makePageComponent(PAGE_CFG){
       return()=>{sb.removeChannel(ch);if(_bc)_bc.removeEventListener("message",h);clearInterval(poll);};
     },[]);
 
-    useEffect(()=>{if(!dbSynced)return;if(isSavingRef.current)return;saveToDB(empresas,grupos,dados,obs,prazos,nextEmpId,nextGrpId);},[empresas,grupos,dados,obs,prazos,nextEmpId,nextGrpId,dbSynced]);
+    useEffect(()=>{if(!dbSynced)return;saveToDB(empresas,grupos,dados,obs,prazos,nextEmpId,nextGrpId);},[empresas,grupos,dados,obs,prazos,nextEmpId,nextGrpId,dbSynced]);
 
     // ── Guest ────────────────────────────────────────────────────
     const up=new URLSearchParams(window.location.search);
@@ -10581,12 +10611,12 @@ function makePageComponent(PAGE_CFG){
     const SL={"nao-iniciado":"✗ Não","pendente":"⏳ Pend.","ok":"✅ Ok","nao-aplica":"— N/A"};
     const gst=(s)=>{const st=SS[s]||SS["nao-iniciado"];return{...st,background:st.bg,padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"};};
     const getCell=(eid,mes,col)=>dados[eid+"_"+mes+"_"+col]||"nao-iniciado";
-    const cycleCell=(eid,mes,col)=>{const cur=getCell(eid,mes,col);setDados(prev=>({...prev,[eid+"_"+mes+"_"+col]:SEQ[(SEQ.indexOf(cur)+1)%SEQ.length]}));};
-    const revertCell=(eid,mes,col)=>{const cur=getCell(eid,mes,col);const idx=SEQ.indexOf(cur);setDados(d=>({...d,[eid+"_"+mes+"_"+col]:SEQ[idx<=0?0:idx-1]}));toast("↩ Revertido!","ok");};
+    const cycleCell=(eid,mes,col)=>{const cur=getCell(eid,mes,col);const next=SEQ[(SEQ.indexOf(cur)+1)%SEQ.length];const nd={...dados,[eid+"_"+mes+"_"+col]:next};setDados(nd);saveToDB(empresas,grupos,nd,obs,prazos,nextEmpId,nextGrpId,true);};
+    const revertCell=(eid,mes,col)=>{const cur=getCell(eid,mes,col);const idx=SEQ.indexOf(cur);const nd={...dados,[eid+"_"+mes+"_"+col]:SEQ[idx<=0?0:idx-1]};setDados(nd);saveToDB(empresas,grupos,nd,obs,prazos,nextEmpId,nextGrpId,true);toast("↩ Revertido!","ok");};
     const estaContab=(eid,mes)=>cols.every(c=>getCell(eid,mes,c.key)==="ok"||getCell(eid,mes,c.key)==="nao-aplica");
     const estaAnalisado=(eid,mes)=>dados[eid+"_"+mes+"__analisado"]===true;
-    const analisarMes=(eid,mes)=>{setDados(d=>({...d,[eid+"_"+mes+"__analisado"]:true}));toast("✅ Mês analisado!","ok");};
-    const reverterAnalise=(eid,mes)=>{setDados(d=>({...d,[eid+"_"+mes+"__analisado"]:false}));toast("↩ Análise revertida!","ok");};
+    const analisarMes=(eid,mes)=>{const nd={...dados,[eid+"_"+mes+"__analisado"]:true};setDados(nd);saveToDB(empresas,grupos,nd,obs,prazos,nextEmpId,nextGrpId,true);toast("✅ Mês analisado!","ok");};
+    const reverterAnalise=(eid,mes)=>{const nd={...dados,[eid+"_"+mes+"__analisado"]:false};setDados(nd);saveToDB(empresas,grupos,nd,obs,prazos,nextEmpId,nextGrpId,true);toast("↩ Análise revertida!","ok");};
     const calcProg=(eid,mes)=>{const atv=cols.filter(c=>getCell(eid,mes,c.key)!=="nao-aplica");if(!atv.length)return 100;return Math.round(atv.filter(c=>getCell(eid,mes,c.key)==="ok").length/atv.length*100);};
     const getProgClr=(p)=>p===100?"#22c55e":p>=50?"#f59e0b":p>0?"#ef4444":"#cbd5e1";
 
@@ -10648,7 +10678,7 @@ function makePageComponent(PAGE_CFG){
     const [linkModal,setLinkModal]=useState(null);
     const getGuestLink=(gid)=>`${window.location.origin}${window.location.pathname}?guest=1&grp=${gid}&page=${PAGE_ID}`;
     const abrirObs=(eid,mes)=>{setObsEdit(getObsTxt(eid,mes));setObsModal({eid,mes});};
-    const salvarObs=()=>{if(!obsModal)return;setObs(prev=>{const f=prev.filter(o=>!(o.eid===obsModal.eid&&o.mes===obsModal.mes));return obsEdit.trim()?[...f,{eid:obsModal.eid,mes:obsModal.mes,texto:obsEdit.trim()}]:f;});setObsModal(null);toast("📝 Obs. salva!","ok");};
+    const salvarObs=()=>{if(!obsModal)return;const f=obs.filter(o=>!(o.eid===obsModal.eid&&o.mes===obsModal.mes));const no=obsEdit.trim()?[...f,{eid:obsModal.eid,mes:obsModal.mes,texto:obsEdit.trim()}]:f;setObs(no);saveToDB(empresas,grupos,dados,no,prazos,nextEmpId,nextGrpId,true);setObsModal(null);toast("📝 Obs. salva!","ok");};
 
     // ── Grupo CRUD ───────────────────────────────────────────────
     const [showGrupoModal,setShowGrupoModal]=useState(false);
@@ -10670,7 +10700,7 @@ function makePageComponent(PAGE_CFG){
       else{if(!novaEmpForm.nome.trim()){toast("Digite o nome","err");return;}ne={id:nextEmpId,nome:novaEmpForm.nome.trim(),cnpj:novaEmpForm.cnpj||"",regime:novaEmpForm.regime,grupoId:novaEmpForm.grupoId?parseInt(novaEmpForm.grupoId):null,periodoInicial:novaEmpForm.periodoInicial};}
       const nextEmpresas=[...empresas,ne];saveToDB(nextEmpresas,grupos,dados,obs,prazos,nextEmpId+1,nextGrpId,true);setEmpresas(nextEmpresas);setNextEmpId(n=>n+1);setShowNovaEmpModal(false);setNovaEmpForm({nome:"",cnpj:"",regime:"simples",grupoId:"",periodoInicial:"01/"+CUR_Y,importarDe:""});toast("🏢 "+ne.nome+" adicionada!","ok");
     };
-    const salvarEditEmp=()=>{if(!editEmpModal)return;setEmpresas(prev=>prev.map(e=>e.id===editEmpModal.emp.id?{...e,nome:editEmpForm.nome,cnpj:editEmpForm.cnpj,regime:editEmpForm.regime,grupoId:editEmpForm.grupoId?parseInt(editEmpForm.grupoId):null}:e));setEditEmpModal(null);toast("✅ Empresa atualizada!","ok");};
+    const salvarEditEmp=()=>{if(!editEmpModal)return;const ne=empresas.map(e=>e.id===editEmpModal.emp.id?{...e,nome:editEmpForm.nome,cnpj:editEmpForm.cnpj,regime:editEmpForm.regime,grupoId:editEmpForm.grupoId?parseInt(editEmpForm.grupoId):null}:e);setEmpresas(ne);saveToDB(ne,grupos,dados,obs,prazos,nextEmpId,nextGrpId,true);setEditEmpModal(null);toast("✅ Empresa atualizada!","ok");};
     const executarDelete=()=>{if(!deleteEmpModal||deleteTyped.toUpperCase()!=="EXCLUIR")return;const eid=deleteEmpModal.id;setEmpresas(prev=>prev.filter(e=>e.id!==eid));setDados(prev=>{const nd={...prev};Object.keys(nd).filter(k=>k.startsWith(eid+"_")).forEach(k=>delete nd[k]);return nd;});setObs(prev=>prev.filter(o=>o.eid!==eid));setDeleteEmpModal(null);setDeleteTyped("");toast("🗑 Excluída!","ok");};
     const confirmarDeleteBatch=()=>{selectedEmps.forEach(eid=>{setEmpresas(prev=>prev.filter(e=>e.id!==eid));setDados(prev=>{const nd={...prev};Object.keys(nd).filter(k=>k.startsWith(eid+"_")).forEach(k=>delete nd[k]);return nd;});setObs(prev=>prev.filter(o=>o.eid!==eid));});setSelectedEmps(new Set());setBatchMode(false);toast("🗑 Excluídas!","ok");};
 

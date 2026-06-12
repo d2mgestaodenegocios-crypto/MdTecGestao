@@ -8993,110 +8993,67 @@ function ContabilPage({toast,data}){
       )}
 
       {/* ── Modal Resumo Observações ── */}
-      {obsResModal&&(
+      {obsResModal&&(()=>{
+          const [obsFiltro,setObsFiltro]=useState("pendentes");
+          const obsFiltradas=obs.filter(o=>{
+            if(obsFiltro==="pendentes")return o.verificado!==true;
+            return true;
+          });
+          const totalPendente=obs.filter(o=>o.verificado!==true).length;
+          return(
         <div onClick={e=>e.target===e.currentTarget&&setObsResModal(false)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.6)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}>
-          <div style={{background:"var(--bg2)",borderRadius:18,width:"100%",maxWidth:720,maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:"0 32px 80px rgba(0,0,0,.3)",overflow:"hidden"}}>
+          <div style={{background:"var(--bg2)",borderRadius:18,width:"100%",maxWidth:720,maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:"0 32px 80px rgba(0,0,0,.3)",overflow:"hidden"}}>
             <div style={{background:"linear-gradient(135deg,#8b5cf6,#6d28d9)",padding:"16px 22px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
-              <div style={{display:"flex",alignItems:"center",gap:12}}>
-                <span style={{fontSize:22}}>📋</span>
-                <div>
-                  <div style={{fontSize:15,fontWeight:900,color:"#fff"}}>Resumo de Todas as Observações</div>
-                  <div style={{fontSize:12,color:"rgba(255,255,255,.7)",marginTop:2}}>{cObs.length} observação(ões) · agrupado por grupo</div>
-                </div>
-              </div>
+              <div style={{fontSize:15,fontWeight:900,color:"#fff"}}>📋 Observações — {PAGE_TITLE} <span style={{fontSize:12,opacity:.8}}>({obs.length})</span></div>
               <button onClick={()=>setObsResModal(false)} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",fontSize:18,cursor:"pointer",lineHeight:1,borderRadius:8,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
             </div>
-            <div style={{padding:"20px",overflowY:"auto",flex:1,display:"flex",flexDirection:"column",gap:16}}>
-              {cObs.length===0&&<div style={{textAlign:"center",padding:"40px",color:"#94a3b8",fontSize:14}}>📭 Nenhuma observação cadastrada</div>}
-              {/* Group by grupo → empresa */}
+            {/* Filtro bar */}
+            <div style={{display:"flex",gap:10,padding:"12px 20px",borderBottom:"1px solid var(--border)",background:"var(--bg3)",alignItems:"center",flexWrap:"wrap"}}>
+              <span style={{fontSize:12,fontWeight:700,color:"#64748b"}}>Filtrar:</span>
+              <button onClick={()=>setObsFiltro("pendentes")} style={{padding:"5px 14px",borderRadius:20,border:`2px solid ${obsFiltro==="pendentes"?"#f59e0b":"var(--border2)"}`,background:obsFiltro==="pendentes"?"#fffbeb":"transparent",color:obsFiltro==="pendentes"?"#d97706":"#64748b",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .15s"}}>⏳ Pendentes {totalPendente>0&&<span style={{marginLeft:4,background:obsFiltro==="pendentes"?"#fcd34d":"#e2e8f0",borderRadius:10,padding:"1px 6px",fontSize:10,fontWeight:900}}>{totalPendente}</span>}</button>
+              <button onClick={()=>setObsFiltro("todas")} style={{padding:"5px 14px",borderRadius:20,border:`2px solid ${obsFiltro==="todas"?"#6366f1":"var(--border2)"}`,background:obsFiltro==="todas"?"#eef2ff":"transparent",color:obsFiltro==="todas"?"#6366f1":"#64748b",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .15s"}}>☰ Todas</button>
+            </div>
+            <div style={{padding:"20px",overflowY:"auto",flex:1}}>
+              {obsFiltradas.length===0&&<div style={{textAlign:"center",padding:"40px",color:"#94a3b8",fontSize:14}}>📭 Nenhuma observação {obsFiltro==="pendentes"?"pendente":""}</div>}
               {(()=>{
-                // Build grupos + empresas sem grupo
-                const grupos=[...cGrupos.filter(g=>!g.parentId)];
                 const sections=[];
-                // grupos raiz
-                for(const grp of grupos){
-                  const color=getGrpColor(grp.id);
-                  // empresas diretas + subgrupos
-                  const subGrpIds=cGrupos.filter(g=>g.parentId===grp.id).map(g=>g.id);
-                  const empsGrp=cEmpresas.filter(e=>e.grupoId===grp.id||subGrpIds.includes(e.grupoId));
-                  const obsGrp=cObs.filter(o=>empsGrp.some(e=>e.id===o.empresaId));
-                  if(obsGrp.length===0) continue;
-                  sections.push(
-                    <div key={`grp-${grp.id}`} style={{borderRadius:14,overflow:"hidden",border:`1.5px solid ${color}44`}}>
-                      {/* Cabeçalho do grupo */}
-                      <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",background:color+"18",borderBottom:`1px solid ${color}33`}}>
-                        <div style={{width:10,height:10,borderRadius:"50%",background:color,flexShrink:0}}/>
-                        <span style={{fontSize:13,fontWeight:900,color}}>{grp.nome}</span>
-                        <span style={{marginLeft:"auto",background:color+"22",color,borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700,border:`1px solid ${color}44`}}>{obsGrp.length} obs.</span>
-                      </div>
-                      {/* Empresas dentro do grupo */}
-                      <div style={{padding:"12px 16px",display:"flex",flexDirection:"column",gap:10}}>
-                        {empsGrp.map(emp=>{
-                          const obsEmp=cObs.filter(o=>o.empresaId===emp.id);
-                          if(obsEmp.length===0) return null;
-                          return(
-                            <div key={emp.id}>
-                              <div style={{fontSize:12,fontWeight:800,color:"#475569",marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
-                                🏢 {emp.nome}
-                                <span style={{background:"#f1f5f9",color:"#64748b",borderRadius:10,padding:"1px 8px",fontSize:10,fontWeight:700}}>{obsEmp.length}</span>
-                              </div>
-                              {obsEmp.map((o,i)=>(
-                                <div key={i} style={{padding:"10px 14px",borderRadius:10,marginBottom:5,background:"#fffbeb",border:"1.5px solid #fde68a",fontSize:12,color:"#92400e",display:"flex",gap:10,alignItems:"flex-start"}}>
-                                  <span style={{fontWeight:800,flexShrink:0,color:"#b45f06",minWidth:70}}>{getMesNomeC(o.competencia)}:</span>
-                                  <span style={{flex:1,lineHeight:1.5}}>{o.texto}</span>
-                                  <button onClick={()=>{abrirObs(o.empresaId,o.competencia);setObsResModal(false);}} title="Editar" style={{background:"none",border:"none",cursor:"pointer",fontSize:14,padding:2,color:"#8b5cf6",flexShrink:0,borderRadius:4}} onMouseEnter={e=>e.currentTarget.style.background="#f3e8ff"} onMouseLeave={e=>e.currentTarget.style.background="none"}>✏️</button>
-                                </div>
-                              ))}
-                            </div>
-                          );
-                        })}
-                      </div>
+                empresas.forEach(emp=>{
+                  const oe=obsFiltradas.filter(o=>o.eid===emp.id);
+                  if(!oe.length)return;
+                  sections.push(<div key={emp.id} style={{marginBottom:18}}>
+                    <div style={{fontSize:13,fontWeight:800,color:"#6366f1",marginBottom:10,borderBottom:"1px solid var(--border)",paddingBottom:6,display:"flex",alignItems:"center",gap:8}}>
+                      <span>🏢 {emp.nome}</span>
+                      {emp.cnpj&&<span style={{fontSize:10,color:"#94a3b8",fontFamily:"monospace",fontWeight:500}}>{emp.cnpj}</span>}
                     </div>
-                  );
-                }
-                // Empresas sem grupo
-                const empsSemGrp=cEmpresas.filter(e=>!e.grupoId);
-                const obsSemGrp=cObs.filter(o=>empsSemGrp.some(e=>e.id===o.empresaId));
-                if(obsSemGrp.length>0){
-                  sections.push(
-                    <div key="sem-grupo" style={{borderRadius:14,overflow:"hidden",border:"1.5px solid #e2e8f0"}}>
-                      <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",background:"#f8fafc",borderBottom:"1px solid #e2e8f0"}}>
-                        <span style={{fontSize:12,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".05em"}}>Sem Grupo</span>
-                        <span style={{marginLeft:"auto",background:"#e2e8f0",color:"#64748b",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>{obsSemGrp.length} obs.</span>
-                      </div>
-                      <div style={{padding:"12px 16px",display:"flex",flexDirection:"column",gap:10}}>
-                        {empsSemGrp.map(emp=>{
-                          const obsEmp=cObs.filter(o=>o.empresaId===emp.id);
-                          if(obsEmp.length===0) return null;
-                          return(
-                            <div key={emp.id}>
-                              <div style={{fontSize:12,fontWeight:800,color:"#475569",marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
-                                🏢 {emp.nome}
-                                <span style={{background:"#f1f5f9",color:"#64748b",borderRadius:10,padding:"1px 8px",fontSize:10,fontWeight:700}}>{obsEmp.length}</span>
-                              </div>
-                              {obsEmp.map((o,i)=>(
-                                <div key={i} style={{padding:"10px 14px",borderRadius:10,marginBottom:5,background:"#fffbeb",border:"1.5px solid #fde68a",fontSize:12,color:"#92400e",display:"flex",gap:10,alignItems:"flex-start"}}>
-                                  <span style={{fontWeight:800,flexShrink:0,color:"#b45f06",minWidth:70}}>{getMesNomeC(o.competencia)}:</span>
-                                  <span style={{flex:1,lineHeight:1.5}}>{o.texto}</span>
-                                  <button onClick={()=>{abrirObs(o.empresaId,o.competencia);setObsResModal(false);}} title="Editar" style={{background:"none",border:"none",cursor:"pointer",fontSize:14,padding:2,color:"#8b5cf6",flexShrink:0,borderRadius:4}} onMouseEnter={e=>e.currentTarget.style.background="#f3e8ff"} onMouseLeave={e=>e.currentTarget.style.background="none"}>✏️</button>
-                                </div>
-                              ))}
+                    {oe.map((o,i)=>{
+                      const isVerif=o.verificado===true;
+                      const colab=(sysData?.collaborators||[]).find(c=>c.id===o.colaborador);
+                      return(
+                        <div key={i} style={{padding:"12px 14px",borderRadius:10,marginBottom:8,background:isVerif?"var(--bg3)":"#fffbeb",border:isVerif?"1px solid var(--border)":"1px solid #fde68a",fontSize:12,display:"flex",gap:10,alignItems:"flex-start",opacity:isVerif?.65:1,transition:"all .2s"}}>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:6}}>
+                              <span style={{fontWeight:800,flexShrink:0,color:isVerif?"#94a3b8":"#b45f06",fontSize:11}}>{getMesNome(o.mes)}</span>
+                              {colab&&<span style={{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 8px",borderRadius:12,background:colab.color+"18",color:colab.color,border:`1px solid ${colab.color}44`,fontSize:10,fontWeight:700}}>👤 {colab.name}</span>}
+                              {isVerif&&<span style={{background:"#f1f5f9",color:"#94a3b8",border:"1px solid #cbd5e1",padding:"1px 7px",borderRadius:12,fontSize:10,fontWeight:700}}>✔️ Verificado</span>}
                             </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                }
+                            <div style={{color:isVerif?"#94a3b8":"#92400e",lineHeight:1.5,fontSize:12,textDecoration:isVerif?"line-through":"none"}}>{o.texto}</div>
+                          </div>
+                          <div style={{display:"flex",flexDirection:"column",gap:6,flexShrink:0,alignItems:"flex-end"}}>
+                            <button onClick={()=>{abrirObs(o.eid,o.mes);}} title="Editar" style={{background:"none",border:"none",cursor:"pointer",color:"#6366f1",fontSize:13,padding:"2px 6px",borderRadius:6}}>✏️</button>
+                            <button onClick={()=>{toggleObsVerificada(o.eid,o.mes);}} title={isVerif?"Marcar como pendente":"Marcar como verificado"} style={{background:"none",border:"none",cursor:"pointer",fontSize:15,padding:"2px 6px",borderRadius:6}}>{isVerif?"☐":"✅"}</button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>);
+                });
                 return sections;
               })()}
             </div>
           </div>
         </div>
-      )}
-
-      {/* ── Modal Reverter Análise ── */}
-      {revertModal&&(
+      );})()}
+      {/* ── Modal Reverter Análise ── */}{revertModal&&(
         <div onClick={e=>e.target===e.currentTarget&&setRevertModal(null)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.6)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}>
           <div style={{background:"var(--bg2)",borderRadius:16,width:"100%",maxWidth:420,padding:"24px",boxShadow:"0 32px 80px rgba(0,0,0,.3)",animation:"popIn .22s cubic-bezier(.34,1.56,.64,1)"}}>
             <div style={{fontSize:32,textAlign:"center",marginBottom:12}}>↩</div>
@@ -10621,7 +10578,17 @@ function makePageComponent(PAGE_CFG){
     const getProgClr=(p)=>p===100?"#22c55e":p>=50?"#f59e0b":p>0?"#ef4444":"#cbd5e1";
 
     // ── Prazo ────────────────────────────────────────────────────
-    const getPrazo=(mes)=>prazos[mes]||"";
+    const getPrazoAuto=(mes)=>{
+      if(prazos[mes]) return prazos[mes];
+      // Auto-calculate: competency month N is due on month N+1, day X
+      const diaPadrao = diaVencPadrao ? parseInt(diaVencPadrao) : 15;
+      const pts = mes.split("/");
+      if(pts.length !== 2) return "";
+      const mm = parseInt(pts[0]); const yy = parseInt(pts[1]);
+      const nextMm = mm === 12 ? 1 : mm + 1; const nextYy = mm === 12 ? yy + 1 : yy;
+      return _calcV(diaPadrao, ("0" + nextMm).slice(-2), String(nextYy));
+    };
+    const getPrazo=(mes)=>getPrazoAuto(mes);
     const setPrazo=(mes,val)=>setPrazos(prev=>{const n={...prev};if(val)n[mes]=val;else delete n[mes];return n;});
     const isVencendo=(mes)=>{const p=getPrazo(mes);if(!p)return false;const pts=p.split("/");if(pts.length!==3)return false;const d=new Date(parseInt(pts[2]),parseInt(pts[1])-1,parseInt(pts[0]));return(d-new Date())/86400000<=7&&d>=new Date();};
     const isVencido=(mes)=>{const p=getPrazo(mes);if(!p)return false;const pts=p.split("/");if(pts.length!==3)return false;return new Date(parseInt(pts[2]),parseInt(pts[1])-1,parseInt(pts[0]))<new Date();};
@@ -10634,7 +10601,7 @@ function makePageComponent(PAGE_CFG){
       if(!dia||isNaN(parseInt(dia)))return;const d=parseInt(dia);
       const todosMeses=new Set();empresas.forEach(e=>getMeses(e.periodoInicial||"01/2025").forEach(m=>todosMeses.add(m)));
       const np=sobrescrever?{}:{...prazos};
-      todosMeses.forEach(m=>{if(sobrescrever||!np[m]){const pts=m.split("/");if(pts.length===2)np[m]=_calcV(d,pts[0],pts[1]);}});
+      todosMeses.forEach(m=>{if(sobrescrever||!np[m]){const pts=m.split("/");if(pts.length===2){const mm=parseInt(pts[0]);const yy=parseInt(pts[1]);const nextMm=mm===12?1:mm+1;const nextYy=mm===12?yy+1:yy;np[m]=_calcV(d,("0"+nextMm).slice(-2),String(nextYy));}}});
       setPrazos(np);setDiaVencPadrao(String(d));try{localStorage.setItem(STORAGE_KEY+"_dia",String(d));}catch(e){}
       toast("⏰ Vencimento dia "+d+" aplicado!","ok");
     };
@@ -10652,6 +10619,17 @@ function makePageComponent(PAGE_CFG){
     };
     const temObs=(eid,mes)=>obs.some(o=>o.eid===eid&&o.mes===mes);
     const getObsTxt=(eid,mes)=>obs.find(o=>o.eid===eid&&o.mes===mes)?.texto||"";
+    const getObsFull=(eid,mes)=>obs.find(o=>o.eid===eid&&o.mes===mes)||null;
+    const isObsVerificada=(eid,mes)=>{const o=getObsFull(eid,mes);return o?o.verificado===true:false;};
+    const toggleObsVerificada=(eid,mes)=>{
+      const no=obs.map(o=>{if(o.eid===eid&&o.mes===mes)return{...o,verificado:!o.verificado};return o;});
+      setObs(no);saveToDB(empresas,grupos,dados,no,prazos,nextEmpId,nextGrpId,true);
+      toast("✓ Status atualizado!","ok");
+    };
+    const setObsColaborador=(eid,mes,cid)=>{
+      const no=obs.map(o=>{if(o.eid===eid&&o.mes===mes)return{...o,colaborador:cid};return o;});
+      setObs(no);saveToDB(empresas,grupos,dados,no,prazos,nextEmpId,nextGrpId,true);
+    };
 
     // ── UI State ─────────────────────────────────────────────────
     const [filterEmp,setFilterEmp]=useState("");
@@ -10678,7 +10656,7 @@ function makePageComponent(PAGE_CFG){
     const [linkModal,setLinkModal]=useState(null);
     const getGuestLink=(gid)=>`${window.location.origin}${window.location.pathname}?guest=1&grp=${gid}&page=${PAGE_ID}`;
     const abrirObs=(eid,mes)=>{setObsEdit(getObsTxt(eid,mes));setObsModal({eid,mes});};
-    const salvarObs=()=>{if(!obsModal)return;const f=obs.filter(o=>!(o.eid===obsModal.eid&&o.mes===obsModal.mes));const no=obsEdit.trim()?[...f,{eid:obsModal.eid,mes:obsModal.mes,texto:obsEdit.trim()}]:f;setObs(no);saveToDB(empresas,grupos,dados,no,prazos,nextEmpId,nextGrpId,true);setObsModal(null);toast("📝 Obs. salva!","ok");};
+    const salvarObs=()=>{if(!obsModal)return;const f=obs.filter(o=>!(o.eid===obsModal.eid&&o.mes===obsModal.mes));const no=obsEdit.trim()?[...f,{eid:obsModal.eid,mes:obsModal.mes,texto:obsEdit.trim(),verificado:false,colaborador:null}]:f;setObs(no);saveToDB(empresas,grupos,dados,no,prazos,nextEmpId,nextGrpId,true);setObsModal(null);toast("📝 Obs. salva!","ok");};
 
     // ── Grupo CRUD ───────────────────────────────────────────────
     const [showGrupoModal,setShowGrupoModal]=useState(false);
@@ -10708,7 +10686,7 @@ function makePageComponent(PAGE_CFG){
     const renderEmpRow=(emp,isLast,indent,grpColor)=>{
       const stats=getStatsEmp(emp.id);const pct=stats.total>0?Math.round((stats.analisados/stats.total)*100):0;
       const mesesEmp=getMeses(emp.periodoInicial);const anosComMeses=ANOS.filter(a=>mesesEmp.some(m=>m.endsWith("/"+a)));
-      const abaAtiva=getAbaAno(emp.id);const obsCount=obs.filter(o=>o.eid===emp.id).length;
+      const abaAtiva=getAbaAno(emp.id);const obsCount=obs.filter(o=>o.eid===emp.id&&o.verificado!==true).length;
       const isSelected=selectedEmps.has(emp.id);const isExpanded=expandedEmps.has(emp.id);
       return(
         <div key={emp.id} style={{borderBottom:isLast?"none":"1px solid var(--border)",background:isSelected?"#eff6ff":undefined}}>
@@ -10777,7 +10755,7 @@ function makePageComponent(PAGE_CFG){
                         {mesesAno.map(mes=>{
                           const prog=calcProg(emp.id,mes);const analisado=estaAnalisado(emp.id,mes);const hasObs=temObs(emp.id,mes);
                           const vencendo=isVencendo(mes);const vencido=isVencido(mes);const prazo=getPrazo(mes);
-                          const rowBg=analisado?"rgba(34,197,94,.07)":vencido&&!analisado?"rgba(239,68,68,.06)":vencendo&&!analisado?"rgba(245,158,11,.09)":hasObs?"rgba(245,158,11,.05)":"transparent";
+                          const rowBg=analisado?"rgba(34,197,94,.07)":vencido&&!analisado?"rgba(239,68,68,.06)":vencendo&&!analisado?"rgba(245,158,11,.09)":hasObs&&!isObsVerificada(emp.id,mes)?"rgba(245,158,11,.05)":"transparent";
                           return(<tr key={mes} style={{borderBottom:"1px solid var(--border)",background:rowBg}}>
                             <td style={{padding:"9px 12px",fontWeight:700,color:"var(--text)",whiteSpace:"nowrap"}}>{getMesNome(mes)}</td>
                             <td style={{padding:"9px 8px",textAlign:"center"}}>
@@ -10787,7 +10765,7 @@ function makePageComponent(PAGE_CFG){
                             </td>
                             {cols.map(col=>{const st=getCell(emp.id,mes,col.key);return(<td key={col.key} style={{padding:"9px 6px",textAlign:"center"}}><div style={{position:"relative",display:"inline-block"}}><div onClick={()=>!analisado&&cycleCell(emp.id,mes,col.key)} style={{...gst(st),cursor:analisado?"default":"pointer"}}>{SL[st]||st}</div>{!analisado&&st!=="nao-iniciado"&&st!=="nao-aplica"&&(<span onClick={e=>{e.stopPropagation();revertCell(emp.id,mes,col.key);}} title="Reverter" style={{position:"absolute",top:-8,right:-8,fontSize:10,cursor:"pointer",background:"#f59e0b",color:"#fff",borderRadius:"50%",width:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",zIndex:1,fontWeight:900,lineHeight:1}}>↩</span>)}</div></td>);})}
                             <td style={{padding:"9px 8px",textAlign:"center"}}><div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:5}}><span style={{fontSize:10,color:"#64748b",fontWeight:700,minWidth:26}}>{prog}%</span><div style={{width:44,height:5,borderRadius:3,background:"#e2e8f0",overflow:"hidden"}}><div style={{height:"100%",borderRadius:3,background:getProgClr(prog),width:`${prog}%`,transition:"width .4s"}}/></div></div></td>
-                            <td style={{padding:"9px 8px",textAlign:"center"}}><span onClick={()=>abrirObs(emp.id,mes)} title={hasObs?getObsTxt(emp.id,mes):"Adicionar obs."} style={{fontSize:hasObs?18:16,cursor:"pointer",color:hasObs?"#f59e0b":"#94a3b8",filter:hasObs?"drop-shadow(0 0 6px #f59e0baa)":"none",background:hasObs?"rgba(245,158,11,.12)":"transparent",borderRadius:6,padding:"2px 4px",border:hasObs?"1.5px solid #fcd34d":"1.5px solid transparent"}}>📝</span></td>
+                            <td style={{padding:"9px 8px",textAlign:"center"}}>{(()=>{const ov=isObsVerificada(emp.id,mes);return<span onClick={()=>abrirObs(emp.id,mes)} title={hasObs?getObsTxt(emp.id,mes):"Adicionar obs."} style={{fontSize:hasObs?18:16,cursor:"pointer",color:hasObs?(ov?"#94a3b8":"#f59e0b"):"#94a3b8",filter:hasObs&&!ov?"drop-shadow(0 0 6px #f59e0baa)":"none",background:hasObs?(ov?"rgba(148,163,184,.1)":"rgba(245,158,11,.12)"):"transparent",borderRadius:6,padding:"2px 4px",border:hasObs?(ov?"1.5px solid #cbd5e1":"1.5px solid #fcd34d"):"1.5px solid transparent",opacity:ov?.5:1}}>{ov?"✔️":"📝"}</span>;})()}</td>
                             <td style={{padding:"9px 8px",textAlign:"center"}}>{analisado?<div style={{display:"flex",gap:4,alignItems:"center",justifyContent:"center"}}><span style={{background:"#d1fae5",color:"#065f46",padding:"3px 10px",borderRadius:20,fontSize:10,fontWeight:700}}>✅ Analisado</span><button onClick={()=>setRevertModal({eid:emp.id,mes})} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#f59e0b",padding:"2px 4px",borderRadius:4}}>↩</button></div>:estaContab(emp.id,mes)?<button onClick={()=>analisarMes(emp.id,mes)} style={{background:"#f59e0b",color:"#fff",border:"none",padding:"4px 10px",borderRadius:6,cursor:"pointer",fontSize:10,fontWeight:700,fontFamily:"inherit"}}>🔍 Analisar</button>:<span style={{background:"#fff4e0",color:"#b45f06",padding:"3px 10px",borderRadius:20,fontSize:10,fontWeight:700}}>⏳ Aguardando</span>}</td>
                           </tr>);
                         })}
@@ -10808,7 +10786,7 @@ function makePageComponent(PAGE_CFG){
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:12}}>
           <div><h2 style={{fontSize:20,fontWeight:900,color:"var(--text)",margin:0}}>{HEADER_ICON} {PAGE_TITLE}</h2><p style={{fontSize:13,color:"#64748b",marginTop:4}}>{PAGE_DESC}</p></div>
           <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-            <Btn onClick={()=>setObsResModal(true)} v="ghost" sz="sm" xs={{background:"#8b5cf6",color:"#fff",border:"none"}}>📋 Observações{obs.length>0&&<span style={{marginLeft:4,background:"rgba(255,255,255,.3)",borderRadius:10,padding:"1px 6px",fontSize:10,fontWeight:900}}>{obs.length}</span>}</Btn>
+            <Btn onClick={()=>setObsResModal(true)} v="ghost" sz="sm" xs={{background:"#8b5cf6",color:"#fff",border:"none"}}>📋 Observações{(()=>{const np=obs.filter(o=>o.verificado!==true).length;return np>0?<span key="obs-count" style={{marginLeft:4,background:"rgba(255,255,255,.3)",borderRadius:10,padding:"1px 6px",fontSize:10,fontWeight:900}}>{np}</span>:null;})()}</Btn>
             {!isGuestMode&&<Btn onClick={()=>{setPrazoVal("");setPrazoModal({mes:"config"});}} v="ghost" sz="sm" xs={{background:"#f59e0b",color:"#fff",border:"none"}}>⏰ Vencimentos</Btn>}
             {!isGuestMode&&<Btn onClick={()=>{setColsDraft(JSON.parse(JSON.stringify(cols)));setEditColsModal(true);}} v="ghost" sz="sm" xs={{background:"#0ea5e9",color:"#fff",border:"none"}}>✏️ Colunas</Btn>}
             {!isGuestMode&&<Btn onClick={()=>setShowNovaEmpModal(true)} sz="sm">+ Empresa</Btn>}
@@ -10836,49 +10814,115 @@ function makePageComponent(PAGE_CFG){
             <div key={l} style={{background:"var(--bg2)",borderRadius:12,padding:"14px",border:"1px solid var(--border)",textAlign:"center"}}><div style={{fontSize:28,fontWeight:900,color:c,lineHeight:1}}>{v}</div><div style={{fontSize:11,fontWeight:700,color:"#64748b",marginTop:4}}>{l}</div></div>
           ))}
         </div>
-        {/* Visao Rapida */}
-        {empsFiltradas.length>0&&(()=>{
-          const empresasComPendencia=empsFiltradas.map(emp=>{
-            const mesesEmp=getMeses(emp.periodoInicial||"01/2025");
-            const vencidos=[];const vencendo=[];
-            let totalProg=0;let totalAtiv=0;
-            mesesEmp.forEach(mes=>{
-              if(isVencido(mes)&&!estaAnalisado(emp.id,mes)) vencidos.push(mes);
-              else if(isVencendo(mes)&&!estaAnalisado(emp.id,mes)) vencendo.push(mes);
-              const atv=cols.filter(c=>getCell(emp.id,mes,c.key)!=="nao-aplica");
-              if(atv.length){totalAtiv++;totalProg+=Math.round(atv.filter(c=>getCell(emp.id,mes,c.key)==="ok").length/atv.length*100);}
+        {/* --- Visao Rapida Reformulada --- */}
+        {empsFiltradas.length > 0 && (() => {
+          const now = new Date();
+          const curMm = ("0" + (now.getMonth() + 1)).slice(-2);
+          const curYy = String(now.getFullYear());
+          const mesAtual = curMm + "/" + curYy;
+          const diaHoje = now.getDate();
+          const mesAtualNome = getMesNome(mesAtual);
+          const itens = [];
+          empsFiltradas.forEach(emp => {
+            const mesesEmp = getMeses(emp.periodoInicial || "01/2025");
+            if (!mesesEmp.includes(mesAtual)) return;
+            if (estaAnalisado(emp.id, mesAtual)) return;
+            const prazo = getPrazo(mesAtual);
+            if (!prazo) return;
+            const pts = prazo.split("/");
+            if (pts.length !== 3) return;
+            const dVenc = new Date(parseInt(pts[2]), parseInt(pts[1]) - 1, parseInt(pts[0]));
+            const diffMs = dVenc - now;
+            const diffDias = Math.ceil(diffMs / 86400000);
+            let alerta, alertaBg, alertaColor, alertaBorder;
+            if (diffDias < 0) {
+              alerta = "Venceu há " + Math.abs(diffDias) + " dia" + (Math.abs(diffDias) !== 1 ? "s" : "");
+              alertaBg = "#fef2f2"; alertaColor = "#dc2626"; alertaBorder = "#fca5a5";
+            } else if (diffDias === 0) {
+              alerta = "Vence hoje";
+              alertaBg = "#fef2f2"; alertaColor = "#dc2626"; alertaBorder = "#fca5a5";
+            } else if (diffDias <= 7) {
+              alerta = "Vence em " + diffDias + " dia" + (diffDias !== 1 ? "s" : "");
+              alertaBg = "#fffbeb"; alertaColor = "#d97706"; alertaBorder = "#fcd34d";
+            } else {
+              alerta = "Vence em " + diffDias + " dias";
+              alertaBg = "#f0fdf4"; alertaColor = "#16a34a"; alertaBorder = "#86efac";
+            }
+            const prog = calcProg(emp.id, mesAtual);
+            const grp = emp.grupoId ? grupos.find(g => g.id === emp.grupoId) : null;
+            const grpNome = grp ? grp.nome : "";
+            const grpColor = getGrpColor(emp.grupoId);
+            itens.push({
+              emp, prog, prazo, alerta, alertaBg, alertaColor, alertaBorder,
+              diffDias, grpNome, grpColor, vencido: diffDias < 0, vencendo: diffDias >= 0 && diffDias <= 7
             });
-            const progGeral=totalAtiv>0?Math.round(totalProg/totalAtiv):100;
-            return{emp,vencidos,vencendo,progGeral,hasIssue:vencidos.length>0||vencendo.length>0};
-          }).filter(x=>x.hasIssue);
-          if(empresasComPendencia.length===0) return null;
-          return(
-            <div style={{marginBottom:20,borderRadius:14,border:"1.5px solid #fbbf24",overflow:"hidden",background:"var(--bg2)",boxShadow:"0 2px 12px rgba(245,158,11,.12)"}}>
-              <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",background:"linear-gradient(135deg,#fffbeb,#fef3c7)",borderBottom:"1.5px solid #fcd34d"}}>
-                <span style={{fontSize:18}}>⚡</span>
-                <span style={{fontSize:13,fontWeight:900,color:"#92400e"}}>Visao Rapida</span>
-                <span style={{fontSize:11,color:"#b45309",fontWeight:600}}>{empresasComPendencia.length} empresa{empresasComPendencia.length!==1?"s":""} com pendencia</span>
+          });
+          if (itens.length === 0) return null;
+          itens.sort((a, b) => {
+            if (a.vencido && !b.vencido) return -1;
+            if (!a.vencido && b.vencido) return 1;
+            if (a.vencendo && !b.vencendo) return -1;
+            if (!a.vencendo && b.vencendo) return 1;
+            return a.diffDias - b.diffDias;
+          });
+          const totalVencidos = itens.filter(i => i.vencido).length;
+          const totalVencendo = itens.filter(i => i.vencendo).length;
+          return (
+            <div style={{marginBottom: 20, borderRadius: 14, border: "1.5px solid #fbbf24", overflow: "hidden", background: "var(--bg2)", boxShadow: "0 2px 12px rgba(245,158,11,.12)"}}>
+              {/* Header */}
+              <div style={{display: "flex", alignItems: "center", gap: 10, padding: "10px 16px", background: "linear-gradient(135deg,#fffbeb,#fef3c7)", borderBottom: "1.5px solid #fcd34d", flexWrap: "wrap"}}>
+                <span style={{fontSize: 18}}>⚡</span>
+                <span style={{fontSize: 13, fontWeight: 900, color: "#92400e"}}>Visão Rápida</span>
+                <span style={{fontSize: 11, color: "#b45309", fontWeight: 600}}>{itens.length} pendência{itens.length !== 1 ? "s" : ""} em {mesAtualNome}</span>
+                <div style={{marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap"}}>
+                  {totalVencidos > 0 && <span style={{background: "#fef2f2", color: "#dc2626", border: "1.5px solid #fca5a5", padding: "2px 10px", borderRadius: 20, fontSize: 11, fontWeight: 800}}>🔴 {totalVencidos} vencido{totalVencidos !== 1 ? "s" : ""}</span>}
+                  {totalVencendo > 0 && <span style={{background: "#fffbeb", color: "#d97706", border: "1.5px solid #fcd34d", padding: "2px 10px", borderRadius: 20, fontSize: 11, fontWeight: 800}}>🟡 {totalVencendo} vencendo</span>}
+                </div>
               </div>
-              <div style={{padding:"8px 12px"}}>
-                {empresasComPendencia.map(({emp,vencidos,vencendo,progGeral})=>{
-                  const mesesEmp=getMeses(emp.periodoInicial||"01/2025");
-                  const anosComMeses=ANOS.filter(a=>mesesEmp.some(m=>m.endsWith("/"+a)));
-                  const primeiroAnoComPendencia=anosComMeses.find(a=>mesesEmp.filter(m=>m.endsWith("/"+a)).some(m=>vencidos.includes(m)||vencendo.includes(m)))||anosComMeses[0]||ANOS[0];
-                  return(
-                    <div key={emp.id} onClick={()=>{toggleEmpExp(emp.id);setAbaAnoMap(m=>({...m,[emp.id]:primeiroAnoComPendencia}));}} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:10,cursor:"pointer",transition:"background .1s",flexWrap:"wrap"}} onMouseEnter={e=>e.currentTarget.style.background="rgba(99,102,241,.06)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                      <div style={{display:"flex",alignItems:"center",gap:8,flex:1,minWidth:0}}>
-                        <span style={{fontSize:13,fontWeight:800,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{emp.nome}</span>
-                        <span style={getRegStyle(emp.regime)}>{RegLabel[emp.regime]||emp.regime}</span>
-                        <div style={{display:"flex",gap:5,flexShrink:0}}>
-                          {vencidos.length>0&&<span style={{background:"#fef2f2",color:"#dc2626",border:"1.5px solid #fca5a5",padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:800}}>🔴 {vencidos.length} vencido{vencidos.length!==1?"s":""}</span>}
-                          {vencendo.length>0&&<span style={{background:"#fffbeb",color:"#d97706",border:"1.5px solid #fcd34d",padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:800}}>🟡 {vencendo.length} vencendo</span>}
-                        </div>
+              {/* Grid Header */}
+              <div style={{display: "grid", gridTemplateColumns: "minmax(160px,2fr) 100px 100px 140px 100px 80px 30px", gap: 8, padding: "8px 16px", background: "var(--bg3)", borderBottom: "1px solid var(--border)", fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: ".05em", alignItems: "center"}}>
+                <span>Empresa</span>
+                <span style={{textAlign: "center"}}>Regime</span>
+                <span style={{textAlign: "center"}}>Grupo</span>
+                <span style={{textAlign: "center"}}>Alerta</span>
+                <span style={{textAlign: "center"}}>Prazo</span>
+                <span style={{textAlign: "center"}}>Prog.</span>
+                <span></span>
+              </div>
+              {/* Grid Rows */}
+              <div style={{padding: "4px 8px"}}>
+                {itens.map(({emp, prog, prazo, alerta, alertaBg, alertaColor, alertaBorder, diffDias, grpNome, grpColor}) => {
+                  const anosComMeses = ANOS.filter(a => getMeses(emp.periodoInicial || "01/2025").some(m => m.endsWith("/" + a)));
+                  const primeiroAnoComPendencia = anosComMeses.find(a => {
+                    const mesesAno = getMeses(emp.periodoInicial || "01/2025").filter(m => m.endsWith("/" + a));
+                    return mesesAno.some(m => {
+                      const p = getPrazo(m); if (!p) return false;
+                      const pts = p.split("/"); if (pts.length !== 3) return false;
+                      const dv = new Date(parseInt(pts[2]), parseInt(pts[1]) - 1, parseInt(pts[0]));
+                      const dd = Math.ceil((dv - now) / 86400000);
+                      return dd < 0 || (dd >= 0 && dd <= 7);
+                    });
+                  }) || anosComMeses[0] || ANOS[0];
+                  return (
+                    <div key={emp.id} onClick={() => { toggleEmpExp(emp.id); setAbaAnoMap(m => ({...m, [emp.id]: primeiroAnoComPendencia})); }} style={{display: "grid", gridTemplateColumns: "minmax(160px,2fr) 100px 100px 140px 100px 80px 30px", gap: 8, padding: "8px 8px", borderRadius: 8, cursor: "pointer", transition: "background .1s", alignItems: "center"}} onMouseEnter={e => e.currentTarget.style.background = "rgba(99,102,241,.06)"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                      <div style={{display: "flex", alignItems: "center", gap: 8, minWidth: 0}}>
+                        <span style={{fontSize: 13, fontWeight: 800, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"}}>{emp.nome}</span>
                       </div>
-                      <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
-                        <div style={{width:60,height:6,borderRadius:3,background:"#e2e8f0",overflow:"hidden"}}><div style={{height:"100%",borderRadius:3,background:getProgClr(progGeral),width:progGeral+"%",transition:"width .4s"}}/></div>
-                        <span style={{fontSize:11,fontWeight:700,color:"#64748b",minWidth:30}}>{progGeral}%</span>
-                        <span style={{fontSize:11,color:"#94a3b8"}}>▼</span>
+                      <div style={{textAlign: "center"}}>
+                        <span style={getRegStyle(emp.regime)}>{RegLabel[emp.regime] || emp.regime}</span>
                       </div>
+                      <div style={{textAlign: "center"}}>
+                        {grpNome ? <span style={{background: grpColor + "22", color: grpColor, border: `1px solid ${grpColor}44`, padding: "2px 8px", borderRadius: 12, fontSize: 10, fontWeight: 700}}>{grpNome}</span> : <span style={{fontSize: 10, color: "#cbd5e1"}}>—</span>}
+                      </div>
+                      <div style={{textAlign: "center"}}>
+                        <span style={{background: alertaBg, color: alertaColor, border: `1.5px solid ${alertaBorder}`, padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 800, whiteSpace: "nowrap"}}>{alerta}</span>
+                      </div>
+                      <div style={{textAlign: "center", fontSize: 11, fontWeight: 700, color: diffDias < 0 ? "#dc2626" : diffDias <= 7 ? "#d97706" : "#64748b"}}>{prazo}</div>
+                      <div style={{display: "flex", alignItems: "center", gap: 6, justifyContent: "center"}}>
+                        <div style={{width: 50, height: 6, borderRadius: 3, background: "#e2e8f0", overflow: "hidden"}}><div style={{height: "100%", borderRadius: 3, background: getProgClr(prog), width: prog + "%", transition: "width .4s"}}/></div>
+                        <span style={{fontSize: 10, fontWeight: 700, color: "#64748b", minWidth: 26}}>{prog}%</span>
+                      </div>
+                      <div style={{textAlign: "center", color: "#94a3b8", fontSize: 11}}>▼</div>
                     </div>
                   );
                 })}
@@ -10983,8 +11027,40 @@ function makePageComponent(PAGE_CFG){
             <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}><Btn onClick={()=>{setShowGrupoModal(false);setNovoGrupoForm({nome:"",parentId:"",subgrupos:[]});setNovoGrupoSubInput("");}} v="ghost">Cancelar</Btn><Btn onClick={adicionarGrupo}>Criar</Btn></div>
           </div>
         </Modal>
-        <Modal open={!!obsModal} onClose={()=>setObsModal(null)} title="📝 Observação" width={420}>
-          {obsModal&&(<div style={{display:"flex",flexDirection:"column",gap:12}}><div style={{padding:"8px 12px",borderRadius:9,background:"var(--bg3)",border:"1px solid var(--border)",fontSize:12,color:"#64748b",fontWeight:600}}>{empresas.find(e=>e.id===obsModal.eid)?.nome} — {getMesNome(obsModal.mes)}</div><Txt label="Observação" value={obsEdit} onChange={setObsEdit} placeholder="Digite a observação..." rows={4}/><div style={{display:"flex",gap:10,justifyContent:"flex-end"}}><Btn onClick={()=>setObsModal(null)} v="ghost">Cancelar</Btn><Btn onClick={salvarObs}>Salvar</Btn></div></div>)}
+        <Modal open={!!obsModal} onClose={()=>setObsModal(null)} title="📝 Observação" width={480}>
+          {obsModal&&(()=>{
+            const obsAtual=getObsFull(obsModal.eid,obsModal.mes);
+            const [verificado,setVerificado]=useState(obsAtual?.verificado===true);
+            const [colab,setColab]=useState(obsAtual?.colaborador||"");
+            useEffect(()=>{setVerificado(obsAtual?.verificado===true);setColab(obsAtual?.colaborador||"");},[obsModal.eid,obsModal.mes]);
+            return(<div style={{display:"flex",flexDirection:"column",gap:14}}>
+              <div style={{padding:"8px 12px",borderRadius:9,background:"var(--bg3)",border:"1px solid var(--border)",fontSize:12,color:"#64748b",fontWeight:600}}>{empresas.find(e=>e.id===obsModal.eid)?.nome} — {getMesNome(obsModal.mes)}</div>
+              <Txt label="Observação" value={obsEdit} onChange={setObsEdit} placeholder="Digite a observação..." rows={4}/>
+              <div className="g2">
+                <Fld label="Colaborador Responsável">
+                  <select value={colab} onChange={e=>setColab(e.target.value)} style={{padding:"8px 12px",borderRadius:9,border:"2px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",width:"100%"}}>
+                    <option value="">— Sem responsável —</option>
+                    {(sysData?.collaborators||[]).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </Fld>
+                <div style={{display:"flex",alignItems:"flex-end",gap:10,paddingBottom:2}}>
+                  <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",padding:"8px 14px",borderRadius:10,background:verificado?"#f0fdf4":"var(--bg3)",border:`2px solid ${verificado?"#86efac":"var(--border2)"}`,transition:"all .15s",flex:1}}>
+                    <input type="checkbox" checked={verificado} onChange={e=>setVerificado(e.target.checked)} style={{accentColor:"#22c55e",width:18,height:18,cursor:"pointer"}} />
+                    <span style={{fontSize:12,fontWeight:700,color:verificado?"#166534":"#64748b"}}>{verificado?"✅ Verificado":"☐ Verificar"}</span>
+                  </label>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+                <Btn onClick={()=>setObsModal(null)} v="ghost">Cancelar</Btn>
+                <Btn onClick={()=>{
+                  const f=obs.filter(o=>!(o.eid===obsModal.eid&&o.mes===obsModal.mes));
+                  const no=obsEdit.trim()?[...f,{eid:obsModal.eid,mes:obsModal.mes,texto:obsEdit.trim(),verificado,colaborador:colab||null}]:f;
+                  setObs(no);saveToDB(empresas,grupos,dados,no,prazos,nextEmpId,nextGrpId,true);setObsModal(null);
+                  toast(obsEdit.trim()?"📝 Obs. salva!":"📝 Obs. removida!","ok");
+                }}>Salvar</Btn>
+              </div>
+            </div>);
+          })()}
         </Modal>
         {obsResModal&&(<div onClick={e=>e.target===e.currentTarget&&setObsResModal(false)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.6)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}><div style={{background:"var(--bg2)",borderRadius:18,width:"100%",maxWidth:680,maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:"0 32px 80px rgba(0,0,0,.3)",overflow:"hidden"}}><div style={{background:"linear-gradient(135deg,#8b5cf6,#6d28d9)",padding:"16px 22px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}><div style={{fontSize:15,fontWeight:900,color:"#fff"}}>📋 Observações — {PAGE_TITLE} <span style={{fontSize:12,opacity:.8}}>({obs.length})</span></div><button onClick={()=>setObsResModal(false)} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",fontSize:18,cursor:"pointer",lineHeight:1,borderRadius:8,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button></div><div style={{padding:"20px",overflowY:"auto",flex:1}}>{obs.length===0&&<div style={{textAlign:"center",padding:"40px",color:"#94a3b8",fontSize:14}}>📭 Nenhuma observação</div>}{empresas.map(emp=>{const oe=obs.filter(o=>o.eid===emp.id);if(!oe.length)return null;return(<div key={emp.id} style={{marginBottom:16}}><div style={{fontSize:13,fontWeight:800,color:"#6366f1",marginBottom:8,borderBottom:"1px solid var(--border)",paddingBottom:6}}>🏢 {emp.nome}{emp.cnpj&&<span style={{fontSize:10,color:"#94a3b8",marginLeft:8,fontFamily:"monospace"}}>{emp.cnpj}</span>}</div>{oe.map((o,i)=>(<div key={i} style={{padding:"10px 14px",borderRadius:10,marginBottom:6,background:"#fffbeb",border:"1px solid #fde68a",fontSize:12,color:"#92400e",display:"flex",gap:10,alignItems:"flex-start"}}><span style={{fontWeight:800,flexShrink:0,color:"#b45f06"}}>{getMesNome(o.mes)}:</span><span style={{flex:1}}>{o.texto}</span><button onClick={()=>{abrirObs(o.eid,o.mes);setObsResModal(false);}} style={{background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#8b5cf6",flexShrink:0}}>✏️</button></div>))}</div>);})}</div></div></div>)}
         {revertModal&&(<div onClick={e=>e.target===e.currentTarget&&setRevertModal(null)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.6)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}}><div style={{background:"var(--bg2)",borderRadius:16,padding:"24px",maxWidth:380,width:"100%",textAlign:"center",boxShadow:"0 32px 80px rgba(0,0,0,.3)"}}><div style={{fontSize:32,marginBottom:8}}>↩</div><div style={{fontSize:15,fontWeight:900,color:"var(--text)",marginBottom:6}}>Reverter análise?</div><div style={{fontSize:12,color:"#64748b",marginBottom:20}}>{getMesNome(revertModal.mes)} — {empresas.find(e=>e.id===revertModal.eid)?.nome}</div><div style={{display:"flex",gap:10,justifyContent:"center"}}><Btn onClick={()=>setRevertModal(null)} v="ghost">Cancelar</Btn><Btn onClick={()=>{reverterAnalise(revertModal.eid,revertModal.mes);setRevertModal(null);}} xs={{background:"#f59e0b",color:"#fff",border:"none"}}>Reverter</Btn></div></div></div>)}

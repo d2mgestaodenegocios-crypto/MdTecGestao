@@ -10911,19 +10911,27 @@ function makePageComponent(PAGE_CFG){
           const parseData=(p)=>{const pts=(p||"").split("/");return pts.length===3?new Date(parseInt(pts[2]),parseInt(pts[1])-1,parseInt(pts[0])):null;};
           const empresasComPendencia=empsFiltradas.map(emp=>{
             const mesesEmp=getMeses(emp.periodoInicial||"01/2025");
-            const temMesAtual=mesesEmp.includes(mesAtual);
-            const analisadoAtual=temMesAtual&&estaAnalisado(emp.id,mesAtual);
-            const prazoAtual=temMesAtual?getPrazo(mesAtual):"";
+            // Considera apenas meses já vencidos pelo calendário (até o mês atual), não meses futuros
+            const mesesAteAgora=mesesEmp.filter(m=>{
+              const pts=m.split("/");
+              const mm=parseInt(pts[0]),yy=parseInt(pts[1]);
+              return yy<hoje.getFullYear()||(yy===hoje.getFullYear()&&mm<=hoje.getMonth()+1);
+            });
+            // Mês pendente mais antigo (não analisado) dentro do período já decorrido
+            const mesPendente=mesesAteAgora.find(m=>!estaAnalisado(emp.id,m));
+            const temPendencia=!!mesPendente;
+            const prazoAtual=temPendencia?getPrazo(mesPendente):"";
             const dataPrazo=parseData(prazoAtual);
-            const vencidoAtual=temMesAtual&&!analisadoAtual&&isVencido(mesAtual);
-            const vencendoAtual=temMesAtual&&!analisadoAtual&&isVencendo(mesAtual);
+            const vencidoAtual=temPendencia&&(prazoAtual?isVencido(mesPendente):true);
+            const vencendoAtual=temPendencia&&prazoAtual&&isVencendo(mesPendente);
             const diasRestantes=dataPrazo?Math.round((dataPrazo-hoje)/86400000):null;
-            const atv=cols.filter(c=>getCell(emp.id,mesAtual,c.key)!=="nao-aplica");
-            const progAtual=atv.length?Math.round(atv.filter(c=>getCell(emp.id,mesAtual,c.key)==="ok").length/atv.length*100):100;
+            const mesRef=mesPendente||mesAtual;
+            const atv=cols.filter(c=>getCell(emp.id,mesRef,c.key)!=="nao-aplica");
+            const progAtual=atv.length?Math.round(atv.filter(c=>getCell(emp.id,mesRef,c.key)==="ok").length/atv.length*100):100;
             const grupoId=emp.grupoId;
             const grupoNome=grupoId?(grupos.find(g=>g.id===grupoId)?.nome||""):"";
             const grpC=getGrpColor(grupoId);
-            return{emp,vencidoAtual,vencendoAtual,analisadoAtual,temMesAtual,prazoAtual,diasRestantes,progAtual,grupoNome,grpC,hasIssue:vencidoAtual||vencendoAtual};
+            return{emp,vencidoAtual,vencendoAtual,mesPendente,mesRef,prazoAtual,diasRestantes,progAtual,grupoNome,grpC,hasIssue:vencidoAtual||vencendoAtual};
           }).filter(x=>x.hasIssue)
             .sort((a,b)=>{if(a.vencidoAtual!==b.vencidoAtual)return a.vencidoAtual?-1:1;return(a.diasRestantes??99)-(b.diasRestantes??99);});
           if(empresasComPendencia.length===0) return null;
@@ -10938,7 +10946,7 @@ function makePageComponent(PAGE_CFG){
               <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",background:"linear-gradient(135deg,#fffbeb,#fef3c7)",borderBottom:"1.5px solid #fcd34d",flexWrap:"wrap"}}>
                 <span style={{fontSize:18}}>⚡</span>
                 <span style={{fontSize:13,fontWeight:900,color:"#92400e"}}>Visão Rápida</span>
-                <span style={{fontSize:11,color:"#b45309",fontWeight:600}}>· vencimentos de {getMesNome(mesAtual)}</span>
+                <span style={{fontSize:11,color:"#b45309",fontWeight:600}}>· pendências em aberto</span>
                 <div style={{display:"flex",gap:6,marginLeft:"auto"}}>
                   {totalVencidos>0&&<span style={{background:"#fef2f2",color:"#dc2626",border:"1.5px solid #fca5a5",padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:800}}>🔴 {totalVencidos} vencido{totalVencidos!==1?"s":""}</span>}
                   {totalVencendo>0&&<span style={{background:"#fffbeb",color:"#d97706",border:"1.5px solid #fcd34d",padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:800}}>🟡 {totalVencendo} vencendo</span>}
@@ -10950,18 +10958,20 @@ function makePageComponent(PAGE_CFG){
               </div>
               {/* Linhas */}
               <div style={{padding:"4px 4px"}}>
-                {empresasComPendencia.map(({emp,vencidoAtual,vencendoAtual,prazoAtual,diasRestantes,progAtual,grupoNome,grpC})=>{
-                  const anoAtual=String(hoje.getFullYear());
+                {empresasComPendencia.map(({emp,vencidoAtual,vencendoAtual,mesPendente,prazoAtual,diasRestantes,progAtual,grupoNome,grpC})=>{
+                  const anoRef=mesPendente?mesPendente.split("/")[1]:String(hoje.getFullYear());
                   let alerta;
                   if(vencidoAtual){
-                    alerta={txt:diasRestantes===0?"Vence hoje":`Venceu há ${Math.abs(diasRestantes)} dia${Math.abs(diasRestantes)!==1?"s":""}`,bg:"#fef2f2",c:"#dc2626",bd:"#fca5a5",ic:"🔴"};
+                    alerta=diasRestantes!=null
+                      ?{txt:diasRestantes===0?"Vence hoje":`Venceu há ${Math.abs(diasRestantes)} dia${Math.abs(diasRestantes)!==1?"s":""}`,bg:"#fef2f2",c:"#dc2626",bd:"#fca5a5",ic:"🔴"}
+                      :{txt:"Pendente",bg:"#fef2f2",c:"#dc2626",bd:"#fca5a5",ic:"🔴"};
                   } else {
                     const txt=diasRestantes===0?"Vence hoje":diasRestantes===1?"Vence em 1 dia":`Vence em ${diasRestantes??""} dia${diasRestantes!==1?"s":""}`;
                     alerta={txt,bg:"#fffbeb",c:"#d97706",bd:"#fcd34d",ic:"🟡"};
                   }
                   return(
                     <div key={emp.id}
-                      onClick={()=>{toggleEmpExp(emp.id);setAbaAnoMap(m=>({...m,[emp.id]:anoAtual}));}}
+                      onClick={()=>{toggleEmpExp(emp.id);setAbaAnoMap(m=>({...m,[emp.id]:anoRef}));}}
                       style={{display:"grid",gridTemplateColumns:GRID,columnGap:8,alignItems:"center",padding:"7px 8px",borderRadius:8,cursor:"pointer",borderBottom:"1px solid rgba(0,0,0,.04)",transition:"background .12s"}}
                       onMouseEnter={e=>e.currentTarget.style.background="rgba(99,102,241,.06)"}
                       onMouseLeave={e=>e.currentTarget.style.background="transparent"}

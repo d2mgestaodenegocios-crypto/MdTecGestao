@@ -8535,8 +8535,10 @@ function ContabilPage({toast,data}){
         if(sub.trim()) novosGrupos.push({id:nextId++,nome:sub.trim(),parentId:novoId});
       }
     }
-    setCGrupos(prev=>[...prev,...novosGrupos]);
+    const nextGrupos=[...cGrupos,...novosGrupos];
+    setCGrupos(nextGrupos);
     setNextGrpId(nextId);
+    saveContabilToDb(cEmpresas,nextGrupos,cDados,cObs,cEcdEcf,nextEmpId,nextId,true);
     setShowGrupoModal(false);
     setNovoGrupoForm({nome:"",parentId:"",subgrupos:[]});
     setNovoGrupoSubInput("");
@@ -10953,11 +10955,11 @@ function makePageComponent(PAGE_CFG){
                 </div>
               </div>
               {/* Cabeçalho da grade */}
-              <div style={{display:"grid",gridTemplateColumns:GRID,columnGap:8,padding:"4px 12px",background:"#fef9ec",borderBottom:"1px solid #fde68a"}}>
+              <div style={{display:"grid",gridTemplateColumns:GRID,columnGap:8,padding:"6px 8px",background:"#fef9ec",borderBottom:"1px solid #fde68a"}}>
                 {["Empresa","Regime","Grupo","Situação","Prazo","Progresso",""].map((h,i)=>(<span key={i} style={{...thSt,textAlign:i>=4?"center":undefined}}>{h}</span>))}
               </div>
               {/* Linhas */}
-              <div style={{padding:"4px 4px"}}>
+              <div style={{padding:"4px 0"}}>
                 {empresasComPendencia.map(({emp,vencidoAtual,vencendoAtual,mesPendente,prazoAtual,diasRestantes,progAtual,grupoNome,grpC})=>{
                   const anoRef=mesPendente?mesPendente.split("/")[1]:String(hoje.getFullYear());
                   let alerta;
@@ -10972,7 +10974,7 @@ function makePageComponent(PAGE_CFG){
                   return(
                     <div key={emp.id}
                       onClick={()=>{toggleEmpExp(emp.id);setAbaAnoMap(m=>({...m,[emp.id]:anoRef}));}}
-                      style={{display:"grid",gridTemplateColumns:GRID,columnGap:8,alignItems:"center",padding:"7px 8px",borderRadius:8,cursor:"pointer",borderBottom:"1px solid rgba(0,0,0,.04)",transition:"background .12s"}}
+                      style={{display:"grid",gridTemplateColumns:GRID,columnGap:8,alignItems:"center",padding:"7px 8px",borderRadius:0,cursor:"pointer",borderBottom:"1px solid rgba(0,0,0,.04)",transition:"background .12s"}}
                       onMouseEnter={e=>e.currentTarget.style.background="rgba(99,102,241,.06)"}
                       onMouseLeave={e=>e.currentTarget.style.background="transparent"}
                     >

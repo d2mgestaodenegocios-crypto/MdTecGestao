@@ -188,218 +188,100 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
   .drag-handle{cursor:grab!important;pointer-events:all!important;}
   .drag-handle:active{cursor:grabbing!important;}
 
-  /* ===== OVERRIDE AGRESSIVO DE TODOS OS ESTILOS INLINE ===== */
+  /* ===== MELHORIAS APENAS NAS ABAS: FOLHA, FISCAL E CONTÁBIL ===== */
+  /* O script detecta a página e adiciona class page-folha, page-fiscal ou page-contabil */
   
-  /* Sobrescrever TODOS os divs e elementos */
-  div, span, button, input, select, textarea, p, h1, h2, h3, h4, h5, h6 {
-    color: var(--text) !important;
+  /* Melhorias de visual APENAS nas tabelas dessas páginas */
+  body.page-folha .tbl-head,
+  body.page-fiscal .tbl-head,
+  body.page-contabil .tbl-head{
+    background:linear-gradient(180deg,var(--bg3),var(--bg2))!important;
+    border-bottom:2px solid var(--border)!important;
   }
 
-  /* Componentes principais - fundo claro */
-  [style*="background:#eef2ff"],
-  [style*="background:#f0fdf4"],
-  [style*="background:#fff"],
-  [style*="background:#ffffff"],
-  [style*="background:#f8fafc"],
-  [style*="background:#f1f5f9"]{
-    background: var(--bg2) !important;
-    border: 1px solid var(--border) !important;
+  body.page-folha .tbl-row,
+  body.page-fiscal .tbl-row,
+  body.page-contabil .tbl-row{
+    transition:all .15s ease!important;
+    border-bottom:1px solid var(--border)!important;
   }
 
-  /* Sobrescrever backgrounds específicas do React */
-  *[style*="background:rgb(243,244,246)"],
-  *[style*="background:rgb(248,250,252)"],
-  *[style*="background:rgb(255,255,255)"]{
-    background: var(--bg2) !important;
+  body.page-folha .tbl-row:hover,
+  body.page-fiscal .tbl-row:hover,
+  body.page-contabil .tbl-row:hover{
+    background:var(--bg3)!important;
+    box-shadow:inset 0 0 12px rgba(16,185,129,.08)!important;
   }
 
-  /* Tabelas - estilo completo */
-  .tbl-head, [style*="background:#eef2ff"]:not(button){
-    background: linear-gradient(180deg, var(--bg3), var(--bg2)) !important;
-    border-bottom: 2px solid var(--border) !important;
+  /* Botões apenas nessas páginas */
+  body.page-folha button,
+  body.page-fiscal button,
+  body.page-contabil button{
+    transition:all .2s ease!important;
+    border-radius:8px!important;
   }
 
-  .tbl-row, .list-row{
-    border-bottom: 1px solid var(--border) !important;
-    transition: all 0.15s ease !important;
-    background: var(--bg2) !important;
+  /* Cards apenas nessas páginas */
+  body.page-folha .card,
+  body.page-fiscal .card,
+  body.page-contabil .card{
+    background:var(--bg2)!important;
+    border:1px solid var(--border)!important;
+    box-shadow:0 1px 3px rgba(0,0,0,.06)!important;
+    transition:all .2s ease!important;
   }
 
-  .tbl-row:hover, .list-row:hover{
-    background: var(--bg3) !important;
-    box-shadow: inset 0 0 12px rgba(16,185,129, 0.06) !important;
+  body.page-folha .card:hover,
+  body.page-fiscal .card:hover,
+  body.page-contabil .card:hover{
+    border-color:var(--border2)!important;
+    box-shadow:0 2px 8px rgba(0,0,0,.1)!important;
   }
 
-  /* Botões - cores vibrantes */
-  button, input[type="button"], input[type="submit"]{
-    transition: all 0.2s ease !important;
-    border-radius: 8px !important;
+  /* Inputs apenas nessas páginas */
+  body.page-folha input,
+  body.page-fiscal input,
+  body.page-contabil input,
+  body.page-folha select,
+  body.page-fiscal select,
+  body.page-contabil select{
+    border-radius:8px!important;
+    transition:all .2s ease!important;
+    background:var(--input-bg)!important;
+    border:1px solid var(--input-border)!important;
   }
 
-  button[style*="#6366f1"],
-  button[style*="rgb(99, 102, 241)"],
-  button[style*="rgb(99,102,241)"],
-  button[style*="background:#6366f1"],
-  .btn-primary,
-  button:not([style*="background:"]),
-  button:not(.outline){
-    background: var(--accent) !important;
-    color: white !important;
-    box-shadow: 0 2px 8px rgba(16,185,129, 0.2) !important;
+  body.page-folha input:focus,
+  body.page-fiscal input:focus,
+  body.page-contabil input:focus,
+  body.page-folha select:focus,
+  body.page-fiscal select:focus,
+  body.page-contabil select:focus{
+    border-color:var(--accent)!important;
+    background:var(--surface)!important;
+    box-shadow:0 0 0 3px var(--accent-light)!important;
+    outline:none!important;
   }
 
-  button[style*="#6366f1"]:hover,
-  button[style*="rgb(99, 102, 241)"]:hover,
-  button[style*="rgb(99,102,241)"]:hover,
-  .btn-primary:hover{
-    background: #0ea572 !important;
-    box-shadow: 0 4px 12px rgba(16,185,129, 0.3) !important;
-    transform: translateY(-1px) !important;
+  /* Stats/KPIs apenas nessas páginas */
+  body.page-folha [style*="display:flex"][style*="gap:"][style*="font-size:24px"],
+  body.page-fiscal [style*="display:flex"][style*="gap:"][style*="font-size:24px"],
+  body.page-contabil [style*="display:flex"][style*="gap:"][style*="font-size:24px"]{
+    background:var(--bg2)!important;
+    border:1px solid var(--border)!important;
+    border-radius:12px!important;
   }
 
-  button[style*="background:#f8fafc"],
-  button[style*="background:#f1f5f9"],
-  button.outline, button[style*="border"]:not([style*="solid var"]){
-    background: var(--surface) !important;
-    border: 1px solid var(--border) !important;
-    color: var(--text) !important;
+  /* Filter bar apenas nessas páginas */
+  body.page-folha .fbar,
+  body.page-fiscal .fbar,
+  body.page-contabil .fbar{
+    background:var(--bg2)!important;
+    border:1px solid var(--border)!important;
+    border-radius:10px!important;
+    padding:12px!important;
   }
-
-  button[style*="background:#f8fafc"]:hover,
-  button[style*="background:#f1f5f9"]:hover,
-  button.outline:hover{
-    background: var(--bg3) !important;
-    border-color: var(--accent) !important;
-  }
-
-  /* Badges e tags */
-  .badge, span[style*="background:#"]{
-    border-radius: 20px !important;
-    font-weight: 700 !important;
-    padding: 4px 12px !important;
-  }
-
-  /* Cards e containers */
-  .card, [style*="borderRadius:8"], [style*="border:1px solid"]{
-    background: var(--bg2) !important;
-    border: 1px solid var(--border) !important;
-    box-shadow: 0 1px 3px rgba(0,0,0, 0.06) !important;
-    transition: all 0.2s ease !important;
-  }
-
-  .card:hover{
-    border-color: var(--border2) !important;
-    box-shadow: 0 2px 8px rgba(0,0,0, 0.1) !important;
-  }
-
-  /* Inputs - foco com halo */
-  input[type="text"],
-  input[type="email"],
-  input[type="date"],
-  input[type="time"],
-  input[type="number"],
-  textarea,
-  select,
-  input:not([type="checkbox"]):not([type="radio"]){
-    background: var(--input-bg) !important;
-    border: 1px solid var(--input-border) !important;
-    color: var(--input-text) !important;
-    border-radius: 8px !important;
-    transition: all 0.2s ease !important;
-  }
-
-  input:focus,
-  textarea:focus,
-  select:focus{
-    border-color: var(--accent) !important;
-    background: var(--surface) !important;
-    box-shadow: 0 0 0 3px var(--accent-light) !important;
-    outline: none !important;
-  }
-
-  /* Modal */
-  .modal-box, .modal{
-    background: var(--bg2) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: 16px !important;
-    box-shadow: 0 20px 60px rgba(0,0,0, 0.15) !important;
-  }
-
-  .modal-backdrop, .modal-overlay, [style*="background:rgba(0"]{
-    background: rgba(0,0,0, 0.4) !important;
-  }
-
-  /* Kanban cards */
-  .kanban-card, [style*="flex:1"][style*="min-width"]{
-    background: var(--bg2) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: 10px !important;
-    box-shadow: 0 1px 3px rgba(0,0,0, 0.06) !important;
-    transition: all 0.15s ease !important;
-  }
-
-  .kanban-card:hover{
-    box-shadow: 0 4px 12px rgba(0,0,0, 0.12) !important;
-    border-color: var(--border2) !important;
-  }
-
-  /* Sidebar */
-  .sidebar{
-    border-right: 1px solid rgba(255,255,255, 0.05) !important;
-  }
-
-  /* Links */
-  a, [style*="color:#6366f1"]{
-    color: var(--accent) !important;
-  }
-
-  a:hover{
-    color: #0ea572 !important;
-  }
-
-  /* Checkboxes e radios */
-  input[type="checkbox"],
-  input[type="radio"]{
-    accent-color: var(--accent) !important;
-    cursor: pointer !important;
-  }
-
-  /* Progress bars */
-  progress, .progress{
-    accent-color: var(--accent) !important;
-  }
-
-  .progress-bar{
-    background: var(--accent) !important;
-    box-shadow: 0 0 12px var(--accent-light) !important;
-  }
-
-  /* Dark mode - ajustes */
-  body.dark [style*="background:#fff"],
-  body.dark [style*="background:#ffffff"],
-  body.dark [style*="background:rgb(255"]{
-    background: var(--bg2) !important;
-  }
-
-  /* Scrollbar */
-  ::-webkit-scrollbar-thumb{
-    background: var(--border2) !important;
-    border-radius: 4px !important;
-  }
-
-  ::-webkit-scrollbar-thumb:hover{
-    background: var(--border) !important;
-  }
-
-  /* Feedback visual */
-  button:active{
-    transform: scale(0.98) !important;
-  }
-
-  /* Remove shadows padrão e aplica novo */
-  *[style*="box-shadow:0 1px 4px"]{
-    box-shadow: 0 1px 3px rgba(0,0,0, 0.06) !important;
-  }
+</style>
 </style>
 </head>
 <body>
@@ -407,6 +289,30 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/@babel/standalone@7.23.9/babel.min.js"></script>
+
+<!-- Script para detectar página e adicionar classe CSS -->
+<script>
+function detectAndMarkPage(){
+  const pageTitle = document.querySelector('h1, .page-hdr')?.textContent || '';
+  const body = document.body;
+  
+  // Remover classes anteriores
+  body.classList.remove('page-folha', 'page-fiscal', 'page-contabil');
+  
+  // Adicionar classe baseada no texto da página
+  if(pageTitle.includes('Folha') || pageTitle.includes('Pagamento')){
+    body.classList.add('page-folha');
+  } else if(pageTitle.includes('Tributário') || pageTitle.includes('Fiscal')){
+    body.classList.add('page-fiscal');
+  } else if(pageTitle.includes('Contábil') || pageTitle.includes('Contabil')){
+    body.classList.add('page-contabil');
+  }
+}
+
+// Detectar mudanças de página
+setInterval(detectAndMarkPage, 500);
+window.addEventListener('load', detectAndMarkPage);
+</script>
 <script>
 var _bc=typeof BroadcastChannel!=="undefined"?new BroadcastChannel("mdtec_sync"):null;
 var _tabId=Math.random().toString(36).slice(2); // unique per tab/session

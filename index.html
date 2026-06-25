@@ -8419,8 +8419,117 @@ function ContabilPage({toast,data}){
 
   // ─── Side Panel ───────────────────────────────────────────────
   const [selectedEmpPanel,setSelectedEmpPanel]=useState(null);
-  const openSidePanel=(eid)=>setSelectedEmpPanel(eid===selectedEmpPanel?null:eid);
+  const openSidePanel=(eid)=>{setSelectedEmpPanel(prev=>prev===eid?null:eid);setSidePanelTabC("info");};
   const closeSidePanel=()=>setSelectedEmpPanel(null);
+  const [sidePanelTabC,setSidePanelTabC]=useState("info");
+  const [cExtras,setCExtras]=useState(()=>{try{const s=localStorage.getItem("mdtec_contabil_v2_extras");return s?JSON.parse(s):{};}catch(e){return{};}});
+  const saveCExtras=(ne)=>{setCExtras(ne);try{localStorage.setItem("mdtec_contabil_v2_extras",JSON.stringify(ne));}catch(ex){}};
+  const getCExtras=(eid)=>cExtras[eid]||{lembretes:[],pontos:[]};
+  const addCLembrete=(eid,texto)=>{if(!texto.trim())return;const ex=getCExtras(eid);saveCExtras({...cExtras,[eid]:{...ex,lembretes:[...ex.lembretes,{texto:texto.trim(),done:false}]}});};
+  const toggleCLembrete=(eid,idx)=>{const ex=getCExtras(eid);const nl=ex.lembretes.map((l,i)=>i===idx?{...l,done:!l.done}:l);saveCExtras({...cExtras,[eid]:{...ex,lembretes:nl}});};
+  const removeCLembrete=(eid,idx)=>{const ex=getCExtras(eid);saveCExtras({...cExtras,[eid]:{...ex,lembretes:ex.lembretes.filter((_,i)=>i!==idx)}});};
+  const addCPonto=(eid,texto,prioridade)=>{if(!texto.trim())return;const ex=getCExtras(eid);saveCExtras({...cExtras,[eid]:{...ex,pontos:[...ex.pontos,{texto:texto.trim(),prioridade}]}});};
+  const removeCPonto=(eid,idx)=>{const ex=getCExtras(eid);saveCExtras({...cExtras,[eid]:{...ex,pontos:ex.pontos.filter((_,i)=>i!==idx)}});};
+  const [cPanelEditForm,setCPanelEditForm]=useState({nome:"",cnpj:"",regime:"",grupoId:"",socios:""});
+  const [cLembreteInput,setCLembreteInput]=useState("");
+  const [cPontoInput,setCPontoInput]=useState("");
+  const [cPontoPrioridade,setCPontoPrioridade]=useState("media");
+
+  const renderCSidePanel=()=>{
+    if(!selectedEmpPanel) return null;
+    const emp=cEmpresas.find(e=>e.id===selectedEmpPanel);
+    if(!emp) return null;
+    const stats=getStatsEmp(emp.id);
+    const pct=stats.total>0?Math.round((stats.analisados/stats.total)*100):0;
+    const grpColor=getGrpColor(emp.grupoId);
+    const initials=emp.nome.slice(0,2).toUpperCase();
+    const obsEmp=cObs.filter(o=>o.empresaId===emp.id);
+    const obsEmpPend=obsEmp.filter(o=>!o.verificado);
+    const ex=getCExtras(emp.id);
+    const ANO_PANEL=new Date().getFullYear().toString();
+    const MESES_PANEL=["01","02","03","04","05","06","07","08","09","10","11","12"];
+    const getMesSt=(m)=>{const mes=`${m}/${ANO_PANEL}`;const dado=cDados.find(d=>d.empresaId===emp.id&&d.competencia===mes);if(!dado)return"cinza";if(dado.analisado)return"concluido";if(estaContab(dado))return"analise";const algum=[dado.fiscal,dado.extratos,dado.patrimonio,dado.folha].some(x=>x!=="nao-iniciado");return algum?"pendente":"nao-iniciado";};
+    const dotColor={concluido:"#22c55e",analise:"#f59e0b",pendente:"#6366f1","nao-iniciado":"#334155",cinza:"#1e293b"};
+    const mesesAll=getMesesC(emp.periodoInicial);const last6=mesesAll.slice(-6);
+    const sparkVals=last6.map(mes=>{const d=cDados.find(x=>x.empresaId===emp.id&&x.competencia===mes);if(!d)return 0;return Math.round((([d.fiscal,d.extratos,d.patrimonio,d.folha].filter(x=>x==="ok").length+(d.clienteEnviou==="sim"?1:0))/5)*100);});
+    const maxSp=Math.max(...sparkVals,1);const svgH=48;const svgW=120;
+    const pts=sparkVals.map((v,i)=>`${(i/(sparkVals.length-1||1))*svgW},${svgH-Math.round((v/maxSp)*(svgH-8))-4}`).join(" ");
+    const priorityColor={baixa:"#22c55e",media:"#f59e0b",alta:"#ef4444",critica:"#7c3aed"};
+    const tabSt=(t)=>({padding:"8px 12px",border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:11,fontWeight:700,borderRadius:0,borderBottom:sidePanelTabC===t?"2px solid #6366f1":"2px solid transparent",background:"transparent",color:sidePanelTabC===t?"#6366f1":"#64748b",transition:"all .15s"});
+    return(
+      <div style={{position:"fixed",top:0,right:0,width:340,height:"100vh",background:"#0f172a",borderLeft:"1px solid #1e293b",zIndex:1500,display:"flex",flexDirection:"column",boxShadow:"-8px 0 40px rgba(0,0,0,.5)",animation:"slideInRightSP .22s ease"}}>
+        <style>{`@keyframes slideInRightSP{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
+        <div style={{padding:"14px 16px",borderBottom:"1px solid #1e293b",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+          <div style={{width:40,height:40,borderRadius:10,background:grpColor,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:14,color:"#fff",flexShrink:0}}>{initials}</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:13,fontWeight:900,color:"#f1f5f9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{emp.nome}</div>
+            <div style={{fontSize:10,color:grpColor,fontWeight:700}}>{getRegimeLbl(emp.regime)}{emp.cnpj&&<span style={{color:"#475569",marginLeft:6,fontFamily:"monospace"}}>{emp.cnpj}</span>}</div>
+          </div>
+          <button onClick={closeSidePanel} style={{background:"#1e293b",border:"none",color:"#64748b",fontSize:16,cursor:"pointer",borderRadius:8,width:28,height:28,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>×</button>
+        </div>
+        <div style={{display:"flex",borderBottom:"1px solid #1e293b",flexShrink:0,background:"#0d1526"}}>
+          {[["info","📊 Resumo"],["obs","📝 Obs/Lembretes"],["edit","✏️ Editar"]].map(([t,l])=>(<button key={t} onClick={()=>setSidePanelTabC(t)} style={tabSt(t)}>{l}</button>))}
+        </div>
+        <div style={{flex:1,overflowY:"auto",padding:"16px",display:"flex",flexDirection:"column",gap:16}}>
+          {sidePanelTabC==="info"&&(<>
+            <div>
+              <div style={{fontSize:10,fontWeight:800,color:"#475569",textTransform:"uppercase",letterSpacing:".08em",marginBottom:8}}>PROGRESSO GERAL</div>
+              <div style={{display:"flex",alignItems:"center",gap:10}}><div style={{flex:1,height:7,borderRadius:4,background:"#1e293b",overflow:"hidden"}}><div style={{height:"100%",borderRadius:4,background:"#f59e0b",width:`${pct}%`,transition:"width .5s"}}/></div><span style={{fontSize:15,fontWeight:900,color:"#f59e0b",minWidth:38,textAlign:"right"}}>{pct}%</span></div>
+            </div>
+            <div>
+              <div style={{fontSize:10,fontWeight:800,color:"#475569",textTransform:"uppercase",letterSpacing:".08em",marginBottom:8}}>RESUMO</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+                {[{l:"Analisados",v:stats.analisados,c:"#22c55e"},{l:"Concluídos",v:stats.contabilizados,c:"#6366f1"},{l:"Pendentes",v:stats.pendentes,c:"#ef4444"},{l:"Último Mês",v:stats.ultimoMes?getMesNomeC(stats.ultimoMes):"—",c:"#f59e0b"},{l:"Total Meses",v:stats.total,c:"#94a3b8"},{l:"Observações",v:cObs.filter(o=>o.empresaId===emp.id).length,c:obsEmpPend.length>0?"#f59e0b":"#475569"}].map(({l,v,c})=>(<div key={l} style={{background:"#1e293b",borderRadius:8,padding:"9px 11px"}}><div style={{fontSize:9,color:"#475569",fontWeight:700,marginBottom:3,textTransform:"uppercase"}}>{l}</div><div style={{fontSize:15,fontWeight:900,color:c}}>{v}</div></div>))}
+              </div>
+            </div>
+            <div>
+              <div style={{fontSize:10,fontWeight:800,color:"#475569",textTransform:"uppercase",letterSpacing:".08em",marginBottom:8}}>TIMELINE {ANO_PANEL}</div>
+              <div style={{display:"flex",gap:3}}>{MESES_PANEL.map(m=>{const st=getMesSt(m);const nm=MESES_NOMES_C[m]||m;return(<div key={m} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}><div style={{width:16,height:16,borderRadius:4,background:dotColor[st]}}/><span style={{fontSize:7,color:"#475569",fontWeight:700}}>{nm.charAt(0)}</span></div>);})}</div>
+              <div style={{display:"flex",gap:8,marginTop:6,flexWrap:"wrap"}}>{[{c:"#22c55e",l:"Concluído"},{c:"#f59e0b",l:"Análise"},{c:"#6366f1",l:"Pendente"},{c:"#334155",l:"Não iniciado"}].map(({c,l})=>(<div key={l} style={{display:"flex",alignItems:"center",gap:3}}><div style={{width:7,height:7,borderRadius:2,background:c}}/><span style={{fontSize:9,color:"#475569",fontWeight:600}}>{l}</span></div>))}</div>
+            </div>
+            <div>
+              <div style={{fontSize:10,fontWeight:800,color:"#475569",textTransform:"uppercase",letterSpacing:".08em",marginBottom:8}}>TENDÊNCIA</div>
+              <div style={{background:"#1e293b",borderRadius:8,padding:"10px"}}><svg width="100%" viewBox={`0 0 ${svgW} ${svgH}`} style={{display:"block"}}>{sparkVals.length>1&&<polyline points={pts} fill="none" stroke={grpColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>}{sparkVals.map((v,i)=>(<circle key={i} cx={(i/(sparkVals.length-1||1))*svgW} cy={svgH-Math.round((v/maxSp)*(svgH-8))-4} r="3" fill={grpColor}/>))}</svg></div>
+            </div>
+            {ex.pontos.length>0&&(<div><div style={{fontSize:10,fontWeight:800,color:"#ef4444",textTransform:"uppercase",letterSpacing:".08em",marginBottom:8}}>⚠️ PONTOS IMPORTANTES</div>{ex.pontos.slice(0,3).map((p,i)=>(<div key={i} style={{padding:"7px 10px",borderRadius:7,background:"#1e293b",borderLeft:`3px solid ${priorityColor[p.prioridade]||"#f59e0b"}`,fontSize:11,color:"#cbd5e1",marginBottom:5,lineHeight:1.4}}>{p.texto}</div>))}{ex.pontos.length>3&&<div style={{fontSize:10,color:"#475569",textAlign:"center"}}>+{ex.pontos.length-3} mais...</div>}</div>)}
+          </>)}
+          {sidePanelTabC==="obs"&&(<>
+            <div>
+              <div style={{fontSize:10,fontWeight:800,color:"#475569",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>📝 OBSERVAÇÕES</div>
+              {obsEmp.length===0&&<div style={{fontSize:11,color:"#334155",padding:"10px",textAlign:"center",background:"#1e293b",borderRadius:8}}>Nenhuma observação</div>}
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>{obsEmp.map((o,i)=>(<div key={i} style={{padding:"8px 10px",borderRadius:8,background:"#1e293b",borderLeft:`3px solid ${o.verificado?"#334155":"#f59e0b"}`,fontSize:11,color:o.verificado?"#475569":"#cbd5e1",opacity:o.verificado?.6:1}}><div style={{fontWeight:700,color:o.verificado?"#334155":"#f59e0b",marginBottom:3,fontSize:10}}>{getMesNomeC(o.competencia)}</div><div style={{lineHeight:1.4}}>{o.texto}</div></div>))}</div>
+            </div>
+            <div>
+              <div style={{fontSize:10,fontWeight:800,color:"#475569",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>🔔 LEMBRETES</div>
+              {ex.lembretes.length===0&&<div style={{fontSize:11,color:"#334155",padding:"10px",textAlign:"center",background:"#1e293b",borderRadius:8,marginBottom:8}}>Nenhum lembrete</div>}
+              <div style={{display:"flex",flexDirection:"column",gap:5,marginBottom:10}}>{ex.lembretes.map((l,i)=>(<div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:7,background:"#1e293b"}}><input type="checkbox" checked={l.done} onChange={()=>toggleCLembrete(emp.id,i)} style={{accentColor:"#22c55e",width:14,height:14,flexShrink:0}}/><span style={{flex:1,fontSize:11,color:l.done?"#334155":"#cbd5e1",textDecoration:l.done?"line-through":"none"}}>{l.texto}</span><button onClick={()=>removeCLembrete(emp.id,i)} style={{background:"none",border:"none",color:"#ef4444",cursor:"pointer",fontSize:13,padding:0,flexShrink:0}}>×</button></div>))}</div>
+              <div style={{display:"flex",gap:6}}><input value={cLembreteInput} onChange={e=>setCLembreteInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&cLembreteInput.trim()){addCLembrete(emp.id,cLembreteInput);setCLembreteInput("");}}} placeholder="Novo lembrete..." style={{flex:1,padding:"7px 10px",borderRadius:7,border:"1px solid #1e293b",background:"#1e293b",color:"#f1f5f9",fontSize:11,fontFamily:"inherit",outline:"none"}}/><button onClick={()=>{addCLembrete(emp.id,cLembreteInput);setCLembreteInput("");}} style={{background:"#6366f1",border:"none",color:"#fff",borderRadius:7,padding:"7px 12px",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit"}}>+</button></div>
+            </div>
+            <div>
+              <div style={{fontSize:10,fontWeight:800,color:"#475569",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>⚠️ PONTOS IMPORTANTES</div>
+              {ex.pontos.length===0&&<div style={{fontSize:11,color:"#334155",padding:"10px",textAlign:"center",background:"#1e293b",borderRadius:8,marginBottom:8}}>Nenhum ponto</div>}
+              <div style={{display:"flex",flexDirection:"column",gap:5,marginBottom:10}}>{ex.pontos.map((p,i)=>(<div key={i} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"7px 10px",borderRadius:7,background:"#1e293b",borderLeft:`3px solid ${priorityColor[p.prioridade]||"#f59e0b"}`}}><div style={{flex:1}}><div style={{fontSize:9,color:priorityColor[p.prioridade]||"#f59e0b",fontWeight:700,textTransform:"uppercase",marginBottom:2}}>{p.prioridade}</div><div style={{fontSize:11,color:"#cbd5e1",lineHeight:1.4}}>{p.texto}</div></div><button onClick={()=>removeCPonto(emp.id,i)} style={{background:"none",border:"none",color:"#ef4444",cursor:"pointer",fontSize:13,padding:0,flexShrink:0,marginTop:2}}>×</button></div>))}</div>
+              <div style={{display:"flex",gap:6,marginBottom:6}}><select value={cPontoPrioridade} onChange={e=>setCPontoPrioridade(e.target.value)} style={{padding:"7px 8px",borderRadius:7,border:"1px solid #1e293b",background:"#1e293b",color:"#f1f5f9",fontSize:11,fontFamily:"inherit",outline:"none"}}><option value="baixa">🟢 Baixa</option><option value="media">🟡 Média</option><option value="alta">🔴 Alta</option><option value="critica">🟣 Crítica</option></select></div>
+              <div style={{display:"flex",gap:6}}><input value={cPontoInput} onChange={e=>setCPontoInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&cPontoInput.trim()){addCPonto(emp.id,cPontoInput,cPontoPrioridade);setCPontoInput("");}}} placeholder="Descreva o ponto..." style={{flex:1,padding:"7px 10px",borderRadius:7,border:"1px solid #1e293b",background:"#1e293b",color:"#f1f5f9",fontSize:11,fontFamily:"inherit",outline:"none"}}/><button onClick={()=>{addCPonto(emp.id,cPontoInput,cPontoPrioridade);setCPontoInput("");}} style={{background:"#f59e0b",border:"none",color:"#0f172a",borderRadius:7,padding:"7px 12px",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit"}}>+</button></div>
+            </div>
+          </>)}
+          {sidePanelTabC==="edit"&&(<>
+            <div style={{fontSize:10,fontWeight:800,color:"#475569",textTransform:"uppercase",letterSpacing:".08em",marginBottom:4}}>DADOS DA EMPRESA</div>
+            {[{l:"Nome",k:"nome",ph:"Nome da empresa"},{l:"CNPJ",k:"cnpj",ph:"00.000.000/0000-00"},{l:"Sócios / Responsáveis",k:"socios",ph:"Ex: João Silva, Maria Costa"}].map(({l,k,ph})=>(<div key={k}><div style={{fontSize:10,color:"#475569",fontWeight:700,marginBottom:5,textTransform:"uppercase"}}>{l}</div><input value={cPanelEditForm[k]||""} onChange={e=>setCPanelEditForm(p=>({...p,[k]:e.target.value}))} placeholder={ph} style={{width:"100%",padding:"9px 11px",borderRadius:8,border:"1px solid #1e293b",background:"#1e293b",color:"#f1f5f9",fontSize:12,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/></div>))}
+            <div><div style={{fontSize:10,color:"#475569",fontWeight:700,marginBottom:5,textTransform:"uppercase"}}>Regime</div><select value={cPanelEditForm.regime} onChange={e=>setCPanelEditForm(p=>({...p,regime:e.target.value}))} style={{width:"100%",padding:"9px 11px",borderRadius:8,border:"1px solid #1e293b",background:"#1e293b",color:"#f1f5f9",fontSize:12,fontFamily:"inherit",outline:"none"}}><option value="simples">🟢 Simples Nacional</option><option value="lucro">🔵 Lucro Real</option><option value="presumido">🔵 L. Presumido</option><option value="imune">🛡️ Imune</option><option value="isenta">📋 Isenta</option></select></div>
+            <div><div style={{fontSize:10,color:"#475569",fontWeight:700,marginBottom:5,textTransform:"uppercase"}}>Grupo</div><select value={cPanelEditForm.grupoId||""} onChange={e=>setCPanelEditForm(p=>({...p,grupoId:e.target.value}))} style={{width:"100%",padding:"9px 11px",borderRadius:8,border:"1px solid #1e293b",background:"#1e293b",color:"#f1f5f9",fontSize:12,fontFamily:"inherit",outline:"none"}}><option value="">— Sem grupo —</option>{cGrupos.map(g=><option key={g.id} value={g.id}>{g.parentId?"  ↳ ":""}{g.nome}</option>)}</select></div>
+            <button onClick={()=>{const ne=cEmpresas.map(e=>e.id===emp.id?{...e,nome:cPanelEditForm.nome||e.nome,cnpj:cPanelEditForm.cnpj||e.cnpj,regime:cPanelEditForm.regime||e.regime,grupoId:cPanelEditForm.grupoId?parseInt(cPanelEditForm.grupoId):null,socios:cPanelEditForm.socios}:e);setCEmpresas(ne);saveContabilToDb(ne,cGrupos,cDados,cObs,cEcdEcf,nextEmpId,nextGrpId,true);toast("✅ Empresa atualizada!","ok");setSidePanelTabC("info");}} style={{width:"100%",padding:"11px",borderRadius:9,border:"none",background:"#22c55e",color:"#fff",fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit",marginTop:4}}>💾 Salvar Alterações</button>
+            {emp.socios&&<div style={{padding:"10px",borderRadius:8,background:"#1e293b",fontSize:11,color:"#94a3b8"}}><span style={{color:"#6366f1",fontWeight:700}}>👥 Sócios:</span> {emp.socios}</div>}
+          </>)}
+        </div>
+        <div style={{padding:"12px 16px",borderTop:"1px solid #1e293b",display:"flex",gap:8,flexShrink:0}}>
+          <button onClick={closeSidePanel} style={{flex:1,padding:"9px",borderRadius:8,border:"1px solid #1e293b",background:"transparent",color:"#64748b",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✕ Fechar</button>
+          {!window.__isGuest&&<button onClick={()=>{setCPanelEditForm({nome:emp.nome,cnpj:emp.cnpj||"",regime:emp.regime||"simples",grupoId:emp.grupoId?String(emp.grupoId):"",socios:emp.socios||""});setSidePanelTabC("edit");}} style={{flex:1,padding:"9px",borderRadius:8,border:"none",background:"#6366f1",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✏️ Editar</button>}
+          {!window.__isGuest&&<button onClick={()=>{setColDraft({...colLabels});setEditingCols(true);}} style={{flex:1,padding:"9px",borderRadius:8,border:"none",background:"#22c55e",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>⚙️ Colunas</button>}
+        </div>
+      </div>
+    );
+  };
 
   const alterarECDECF=(eid,tipo)=>{
     const emp=cEmpresas.find(e=>e.id===eid);
@@ -10889,6 +10998,234 @@ function makePageComponent(PAGE_CFG){
     const getAbaAno=(eid)=>{const e=empresas.find(x=>x.id===eid);const anos=ANOS.filter(a=>getMeses(e?.periodoInicial||"01/2025").some(m=>m.endsWith("/"+a)));return abaAnoMap[eid]||anos[0]||ANOS[0];};
     const toggleEmpExp=(eid)=>setExpandedEmps(prev=>{const n=new Set(prev);n.has(eid)?n.delete(eid):n.add(eid);return n;});
 
+    // ── Side Panel ───────────────────────────────────────────────
+    const [sidePanelEid,setSidePanelEid]=useState(null);
+    const openSidePanel=(eid)=>setSidePanelEid(prev=>prev===eid?null:eid);
+    const closeSidePanel=()=>setSidePanelEid(null);
+    // Panel tabs: info | obs | edit
+    const [sidePanelTab,setSidePanelTab]=useState("info");
+    // Per-company extras stored in state: lembretes + pontos
+    // Structure: extras[eid] = { lembretes:[{texto,done}], pontos:[{texto,prioridade}] }
+    const [extras,setExtras]=useState(()=>{try{const s=localStorage.getItem(STORAGE_KEY+"_extras");return s?JSON.parse(s):{};}catch(e){return{};}});
+    const saveExtras=(ne)=>{setExtras(ne);try{localStorage.setItem(STORAGE_KEY+"_extras",JSON.stringify(ne));}catch(ex){}};
+    const getExtras=(eid)=>extras[eid]||{lembretes:[],pontos:[]};
+    const addLembrete=(eid,texto)=>{if(!texto.trim())return;const ex=getExtras(eid);const ne={...extras,[eid]:{...ex,lembretes:[...ex.lembretes,{texto:texto.trim(),done:false,ts:Date.now()}]}};saveExtras(ne);};
+    const toggleLembrete=(eid,idx)=>{const ex=getExtras(eid);const nl=ex.lembretes.map((l,i)=>i===idx?{...l,done:!l.done}:l);saveExtras({...extras,[eid]:{...ex,lembretes:nl}});};
+    const removeLembrete=(eid,idx)=>{const ex=getExtras(eid);saveExtras({...extras,[eid]:{...ex,lembretes:ex.lembretes.filter((_,i)=>i!==idx)}});};
+    const addPonto=(eid,texto,prioridade)=>{if(!texto.trim())return;const ex=getExtras(eid);const ne={...extras,[eid]:{...ex,pontos:[...ex.pontos,{texto:texto.trim(),prioridade,ts:Date.now()}]}};saveExtras(ne);};
+    const removePonto=(eid,idx)=>{const ex=getExtras(eid);saveExtras({...extras,[eid]:{...ex,pontos:ex.pontos.filter((_,i)=>i!==idx)}});};
+    // Panel edit form
+    const [panelEditForm,setPanelEditForm]=useState({nome:"",cnpj:"",regime:"",grupoId:"",socios:""});
+    const [lembreteInput,setLembreteInput]=useState("");
+    const [pontoInput,setPontoInput]=useState("");
+    const [pontoPrioridade,setPontoPrioridade]=useState("media");
+    const [obsEmpInput,setObsEmpInput]=useState("");
+    const [obsEmpMes,setObsEmpMes]=useState("geral");
+
+    // Render side panel
+    const renderSidePanel=()=>{
+      if(!sidePanelEid) return null;
+      const emp=empresas.find(e=>e.id===sidePanelEid);
+      if(!emp) return null;
+      const stats=getStatsEmp(emp.id);
+      const pct=stats.total>0?Math.round((stats.analisados/stats.total)*100):0;
+      const grpColor=getGrpColor(emp.grupoId);
+      const initials=emp.nome.slice(0,2).toUpperCase();
+      const obsEmp=obs.filter(o=>o.eid===emp.id);
+      const obsEmpPend=obsEmp.filter(o=>!o.verificado);
+      const ex=getExtras(emp.id);
+      const ANO_PANEL=ANOS[ANOS.length-5]||"2026";
+      const MESES_PANEL=["01","02","03","04","05","06","07","08","09","10","11","12"];
+      const getMesSt=(m)=>{
+        const mes=m+"/"+ANO_PANEL;
+        if(estaAnalisado(emp.id,mes)) return"concluido";
+        if(estaContab(emp.id,mes)) return"analise";
+        const algum=cols.some(c=>getCell(emp.id,mes,c.key)!=="nao-iniciado"&&getCell(emp.id,mes,c.key)!=="nao-aplica");
+        return algum?"pendente":"nao-iniciado";
+      };
+      const dotColor={concluido:"#22c55e",analise:"#f59e0b",pendente:"#6366f1","nao-iniciado":"#334155"};
+      const mesesAll=getMeses(emp.periodoInicial);
+      const last6=mesesAll.slice(-6);
+      const sparkVals=last6.map(mes=>{const atv=cols.filter(c=>getCell(emp.id,mes,c.key)!=="nao-aplica");return atv.length?Math.round(atv.filter(c=>getCell(emp.id,mes,c.key)==="ok").length/atv.length*100):0;});
+      const maxSp=Math.max(...sparkVals,1);
+      const svgH=48;const svgW=120;
+      const pts=sparkVals.map((v,i)=>`${(i/(sparkVals.length-1||1))*svgW},${svgH-Math.round((v/maxSp)*(svgH-8))-4}`).join(" ");
+      const priorityColor={baixa:"#22c55e",media:"#f59e0b",alta:"#ef4444",critica:"#7c3aed"};
+      const tabStyle=(t)=>({padding:"8px 14px",border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:11,fontWeight:700,borderRadius:0,borderBottom:sidePanelTab===t?"2px solid #6366f1":"2px solid transparent",background:"transparent",color:sidePanelTab===t?"#6366f1":"#64748b",transition:"all .15s"});
+      return(
+        <div style={{position:"fixed",top:0,right:0,width:340,height:"100vh",background:"#0f172a",borderLeft:"1px solid #1e293b",zIndex:1500,display:"flex",flexDirection:"column",boxShadow:"-8px 0 40px rgba(0,0,0,.5)",animation:"slideInRightSP .22s ease"}}>
+          <style>{`@keyframes slideInRightSP{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
+          {/* Header */}
+          <div style={{padding:"14px 16px",borderBottom:"1px solid #1e293b",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+            <div style={{width:40,height:40,borderRadius:10,background:grpColor,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:14,color:"#fff",flexShrink:0}}>{initials}</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:13,fontWeight:900,color:"#f1f5f9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{emp.nome}</div>
+              <div style={{fontSize:10,color:grpColor,fontWeight:700}}>{RegLabel[emp.regime]||emp.regime}{emp.cnpj&&<span style={{color:"#475569",marginLeft:6,fontFamily:"monospace"}}>{emp.cnpj}</span>}</div>
+            </div>
+            <button onClick={closeSidePanel} style={{background:"#1e293b",border:"none",color:"#64748b",fontSize:16,cursor:"pointer",borderRadius:8,width:28,height:28,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>×</button>
+          </div>
+          {/* Tab bar */}
+          <div style={{display:"flex",borderBottom:"1px solid #1e293b",flexShrink:0,background:"#0d1526"}}>
+            {[["info","📊 Resumo"],["obs","📝 Obs/Lembretes"],["edit","✏️ Editar"]].map(([t,l])=>(
+              <button key={t} onClick={()=>setSidePanelTab(t)} style={tabStyle(t)}>{l}</button>
+            ))}
+          </div>
+          {/* Body */}
+          <div style={{flex:1,overflowY:"auto",padding:"16px",display:"flex",flexDirection:"column",gap:16}}>
+            {/* ─── TAB INFO ─── */}
+            {sidePanelTab==="info"&&(<>
+              {/* Progresso */}
+              <div>
+                <div style={{fontSize:10,fontWeight:800,color:"#475569",textTransform:"uppercase",letterSpacing:".08em",marginBottom:8}}>PROGRESSO GERAL</div>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{flex:1,height:7,borderRadius:4,background:"#1e293b",overflow:"hidden"}}><div style={{height:"100%",borderRadius:4,background:"#f59e0b",width:`${pct}%`,transition:"width .5s"}}/></div>
+                  <span style={{fontSize:15,fontWeight:900,color:"#f59e0b",minWidth:38,textAlign:"right"}}>{pct}%</span>
+                </div>
+              </div>
+              {/* Resumo grid */}
+              <div>
+                <div style={{fontSize:10,fontWeight:800,color:"#475569",textTransform:"uppercase",letterSpacing:".08em",marginBottom:8}}>RESUMO</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+                  {[{l:"Analisados",v:stats.analisados,c:"#22c55e"},{l:"Concluídos",v:stats.contabilizados,c:"#6366f1"},{l:"Pendentes",v:stats.pendentes,c:"#ef4444"},{l:"Último Mês",v:stats.ultimoMes?getMesNome(stats.ultimoMes):"—",c:"#f59e0b"},{l:"Total Meses",v:stats.total,c:"#94a3b8"},{l:"Observações",v:obsEmp.length,c:obsEmpPend.length>0?"#f59e0b":"#475569"}].map(({l,v,c})=>(
+                    <div key={l} style={{background:"#1e293b",borderRadius:8,padding:"9px 11px"}}>
+                      <div style={{fontSize:9,color:"#475569",fontWeight:700,marginBottom:3,textTransform:"uppercase"}}>{l}</div>
+                      <div style={{fontSize:15,fontWeight:900,color:c}}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {/* Timeline */}
+              <div>
+                <div style={{fontSize:10,fontWeight:800,color:"#475569",textTransform:"uppercase",letterSpacing:".08em",marginBottom:8}}>TIMELINE {ANO_PANEL}</div>
+                <div style={{display:"flex",gap:3}}>
+                  {MESES_PANEL.map(m=>{const st=getMesSt(m);const nm=MN[m]||m;return(<div key={m} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}><div style={{width:16,height:16,borderRadius:4,background:dotColor[st],border:`2px solid ${dotColor[st]}`}}/><span style={{fontSize:7,color:"#475569",fontWeight:700}}>{nm.charAt(0)}</span></div>);})}
+                </div>
+                <div style={{display:"flex",gap:8,marginTop:6,flexWrap:"wrap"}}>
+                  {[{c:"#22c55e",l:"Concluído"},{c:"#f59e0b",l:"Análise"},{c:"#6366f1",l:"Pendente"},{c:"#334155",l:"Não iniciado"}].map(({c,l})=>(<div key={l} style={{display:"flex",alignItems:"center",gap:3}}><div style={{width:7,height:7,borderRadius:2,background:c}}/><span style={{fontSize:9,color:"#475569",fontWeight:600}}>{l}</span></div>))}
+                </div>
+              </div>
+              {/* Tendência */}
+              <div>
+                <div style={{fontSize:10,fontWeight:800,color:"#475569",textTransform:"uppercase",letterSpacing:".08em",marginBottom:8}}>TENDÊNCIA</div>
+                <div style={{background:"#1e293b",borderRadius:8,padding:"10px"}}>
+                  <svg width="100%" viewBox={`0 0 ${svgW} ${svgH}`} style={{display:"block"}}>
+                    {sparkVals.length>1&&<polyline points={pts} fill="none" stroke={grpColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>}
+                    {sparkVals.map((v,i)=>(<circle key={i} cx={(i/(sparkVals.length-1||1))*svgW} cy={svgH-Math.round((v/maxSp)*(svgH-8))-4} r="3" fill={grpColor}/>))}
+                  </svg>
+                </div>
+              </div>
+              {/* Pontos de atenção resumo */}
+              {ex.pontos.length>0&&(
+                <div>
+                  <div style={{fontSize:10,fontWeight:800,color:"#ef4444",textTransform:"uppercase",letterSpacing:".08em",marginBottom:8}}>⚠️ PONTOS IMPORTANTES</div>
+                  {ex.pontos.slice(0,3).map((p,i)=>(<div key={i} style={{padding:"7px 10px",borderRadius:7,background:"#1e293b",borderLeft:`3px solid ${priorityColor[p.prioridade]||"#f59e0b"}`,fontSize:11,color:"#cbd5e1",marginBottom:5,lineHeight:1.4}}>{p.texto}</div>))}
+                  {ex.pontos.length>3&&<div style={{fontSize:10,color:"#475569",textAlign:"center"}}>+{ex.pontos.length-3} mais...</div>}
+                </div>
+              )}
+            </>)}
+            {/* ─── TAB OBS/LEMBRETES ─── */}
+            {sidePanelTab==="obs"&&(<>
+              {/* Observações por mês */}
+              <div>
+                <div style={{fontSize:10,fontWeight:800,color:"#475569",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>📝 OBSERVAÇÕES POR COMPETÊNCIA</div>
+                {obsEmpPend.length===0&&obsEmp.filter(o=>o.verificado).length===0&&<div style={{fontSize:11,color:"#334155",padding:"10px",textAlign:"center",background:"#1e293b",borderRadius:8}}>Nenhuma observação cadastrada</div>}
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {obsEmp.map((o,i)=>(<div key={i} style={{padding:"8px 10px",borderRadius:8,background:"#1e293b",borderLeft:`3px solid ${o.verificado?"#334155":"#f59e0b"}`,fontSize:11,color:o.verificado?"#475569":"#cbd5e1",opacity:o.verificado?.6:1}}>
+                    <div style={{fontWeight:700,color:o.verificado?"#334155":"#f59e0b",marginBottom:3,fontSize:10}}>{getMesNome(o.mes)}</div>
+                    <div style={{lineHeight:1.4}}>{o.texto}</div>
+                  </div>))}
+                </div>
+              </div>
+              {/* Lembretes */}
+              <div>
+                <div style={{fontSize:10,fontWeight:800,color:"#475569",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>🔔 LEMBRETES</div>
+                {ex.lembretes.length===0&&<div style={{fontSize:11,color:"#334155",padding:"10px",textAlign:"center",background:"#1e293b",borderRadius:8,marginBottom:8}}>Nenhum lembrete</div>}
+                <div style={{display:"flex",flexDirection:"column",gap:5,marginBottom:10}}>
+                  {ex.lembretes.map((l,i)=>(<div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:7,background:"#1e293b"}}>
+                    <input type="checkbox" checked={l.done} onChange={()=>toggleLembrete(emp.id,i)} style={{accentColor:"#22c55e",width:14,height:14,flexShrink:0}}/>
+                    <span style={{flex:1,fontSize:11,color:l.done?"#334155":"#cbd5e1",textDecoration:l.done?"line-through":"none"}}>{l.texto}</span>
+                    <button onClick={()=>removeLembrete(emp.id,i)} style={{background:"none",border:"none",color:"#ef4444",cursor:"pointer",fontSize:13,padding:0,flexShrink:0}}>×</button>
+                  </div>))}
+                </div>
+                <div style={{display:"flex",gap:6}}>
+                  <input value={lembreteInput} onChange={e=>setLembreteInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&lembreteInput.trim()){addLembrete(emp.id,lembreteInput);setLembreteInput("");}}} placeholder="Novo lembrete..." style={{flex:1,padding:"7px 10px",borderRadius:7,border:"1px solid #1e293b",background:"#1e293b",color:"#f1f5f9",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
+                  <button onClick={()=>{addLembrete(emp.id,lembreteInput);setLembreteInput("");}} style={{background:"#6366f1",border:"none",color:"#fff",borderRadius:7,padding:"7px 12px",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit"}}>+</button>
+                </div>
+              </div>
+              {/* Pontos Importantes */}
+              <div>
+                <div style={{fontSize:10,fontWeight:800,color:"#475569",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>⚠️ PONTOS IMPORTANTES</div>
+                {ex.pontos.length===0&&<div style={{fontSize:11,color:"#334155",padding:"10px",textAlign:"center",background:"#1e293b",borderRadius:8,marginBottom:8}}>Nenhum ponto de atenção</div>}
+                <div style={{display:"flex",flexDirection:"column",gap:5,marginBottom:10}}>
+                  {ex.pontos.map((p,i)=>(<div key={i} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"7px 10px",borderRadius:7,background:"#1e293b",borderLeft:`3px solid ${priorityColor[p.prioridade]||"#f59e0b"}`}}>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:9,color:priorityColor[p.prioridade]||"#f59e0b",fontWeight:700,textTransform:"uppercase",marginBottom:2}}>{p.prioridade}</div>
+                      <div style={{fontSize:11,color:"#cbd5e1",lineHeight:1.4}}>{p.texto}</div>
+                    </div>
+                    <button onClick={()=>removePonto(emp.id,i)} style={{background:"none",border:"none",color:"#ef4444",cursor:"pointer",fontSize:13,padding:0,flexShrink:0,marginTop:2}}>×</button>
+                  </div>))}
+                </div>
+                <div style={{display:"flex",gap:6,marginBottom:6}}>
+                  <select value={pontoPrioridade} onChange={e=>setPontoPrioridade(e.target.value)} style={{padding:"7px 8px",borderRadius:7,border:"1px solid #1e293b",background:"#1e293b",color:"#f1f5f9",fontSize:11,fontFamily:"inherit",outline:"none"}}>
+                    <option value="baixa">🟢 Baixa</option>
+                    <option value="media">🟡 Média</option>
+                    <option value="alta">🔴 Alta</option>
+                    <option value="critica">🟣 Crítica</option>
+                  </select>
+                </div>
+                <div style={{display:"flex",gap:6}}>
+                  <input value={pontoInput} onChange={e=>setPontoInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&pontoInput.trim()){addPonto(emp.id,pontoInput,pontoPrioridade);setPontoInput("");}}} placeholder="Descreva o ponto..." style={{flex:1,padding:"7px 10px",borderRadius:7,border:"1px solid #1e293b",background:"#1e293b",color:"#f1f5f9",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
+                  <button onClick={()=>{addPonto(emp.id,pontoInput,pontoPrioridade);setPontoInput("");}} style={{background:"#f59e0b",border:"none",color:"#0f172a",borderRadius:7,padding:"7px 12px",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit"}}>+</button>
+                </div>
+              </div>
+            </>)}
+            {/* ─── TAB EDITAR ─── */}
+            {sidePanelTab==="edit"&&(<>
+              <div style={{fontSize:10,fontWeight:800,color:"#475569",textTransform:"uppercase",letterSpacing:".08em",marginBottom:4}}>DADOS DA EMPRESA</div>
+              {[{l:"Nome",k:"nome",ph:"Nome da empresa"},{l:"CNPJ",k:"cnpj",ph:"00.000.000/0000-00"},{l:"Sócios / Responsáveis",k:"socios",ph:"Ex: João Silva, Maria Costa"}].map(({l,k,ph})=>(
+                <div key={k}>
+                  <div style={{fontSize:10,color:"#475569",fontWeight:700,marginBottom:5,textTransform:"uppercase"}}>{l}</div>
+                  <input value={panelEditForm[k]||""} onChange={e=>setPanelEditForm(p=>({...p,[k]:e.target.value}))} placeholder={ph} style={{width:"100%",padding:"9px 11px",borderRadius:8,border:"1px solid #1e293b",background:"#1e293b",color:"#f1f5f9",fontSize:12,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+                </div>
+              ))}
+              <div>
+                <div style={{fontSize:10,color:"#475569",fontWeight:700,marginBottom:5,textTransform:"uppercase"}}>Regime Tributário</div>
+                <select value={panelEditForm.regime} onChange={e=>setPanelEditForm(p=>({...p,regime:e.target.value}))} style={{width:"100%",padding:"9px 11px",borderRadius:8,border:"1px solid #1e293b",background:"#1e293b",color:"#f1f5f9",fontSize:12,fontFamily:"inherit",outline:"none"}}>
+                  <option value="simples">🟢 Simples Nacional</option>
+                  <option value="presumido">🔵 L. Presumido</option>
+                  <option value="lucro">🔵 Lucro Real</option>
+                  <option value="mei">🟣 MEI</option>
+                  <option value="imune">🛡️ Imune</option>
+                  <option value="isenta">📋 Isenta</option>
+                </select>
+              </div>
+              <div>
+                <div style={{fontSize:10,color:"#475569",fontWeight:700,marginBottom:5,textTransform:"uppercase"}}>Grupo</div>
+                <select value={panelEditForm.grupoId||""} onChange={e=>setPanelEditForm(p=>({...p,grupoId:e.target.value}))} style={{width:"100%",padding:"9px 11px",borderRadius:8,border:"1px solid #1e293b",background:"#1e293b",color:"#f1f5f9",fontSize:12,fontFamily:"inherit",outline:"none"}}>
+                  <option value="">— Sem grupo —</option>
+                  {grupos.map(g=><option key={g.id} value={g.id}>{g.parentId?"  ↳ ":""}{g.nome}</option>)}
+                </select>
+              </div>
+              <button onClick={()=>{
+                const ne=empresas.map(e=>e.id===emp.id?{...e,nome:panelEditForm.nome||e.nome,cnpj:panelEditForm.cnpj||e.cnpj,regime:panelEditForm.regime||e.regime,grupoId:panelEditForm.grupoId?parseInt(panelEditForm.grupoId):null,socios:panelEditForm.socios}:e);
+                setEmpresas(ne);saveToDB(ne,grupos,dados,obs,prazos,nextEmpId,nextGrpId,true);
+                toast("✅ Empresa atualizada!","ok");setSidePanelTab("info");
+              }} style={{width:"100%",padding:"11px",borderRadius:9,border:"none",background:"#22c55e",color:"#fff",fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit",marginTop:4}}>
+                💾 Salvar Alterações
+              </button>
+              {emp.socios&&<div style={{padding:"10px",borderRadius:8,background:"#1e293b",fontSize:11,color:"#94a3b8"}}><span style={{color:"#6366f1",fontWeight:700}}>👥 Sócios atuais:</span> {emp.socios}</div>}
+            </>)}
+          </div>
+          {/* Footer */}
+          <div style={{padding:"12px 16px",borderTop:"1px solid #1e293b",display:"flex",gap:8,flexShrink:0}}>
+            <button onClick={closeSidePanel} style={{flex:1,padding:"9px",borderRadius:8,border:"1px solid #1e293b",background:"transparent",color:"#64748b",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✕ Fechar</button>
+            {!isGuestMode&&<button onClick={()=>{setPanelEditForm({nome:emp.nome,cnpj:emp.cnpj||"",regime:emp.regime||"simples",grupoId:emp.grupoId?String(emp.grupoId):"",socios:emp.socios||""});setSidePanelTab("edit");}} style={{flex:1,padding:"9px",borderRadius:8,border:"none",background:"#6366f1",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✏️ Editar</button>}
+            {!isGuestMode&&<button onClick={()=>{setColsDraft(JSON.parse(JSON.stringify(cols)));setEditColsModal(true);}} style={{flex:1,padding:"9px",borderRadius:8,border:"none",background:"#22c55e",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>⚙️ Colunas</button>}
+          </div>
+        </div>
+      );
+    };
+
     const guestEmpIds=useMemo(()=>{if(!isGuestMode||!guestGrpId)return null;const sids=grupos.filter(g=>g.parentId===guestGrpId).map(g=>g.id);return new Set(empresas.filter(e=>e.grupoId===guestGrpId||sids.includes(e.grupoId)).map(e=>e.id));},[isGuestMode,guestGrpId,empresas,grupos]);
     const empsFiltradas=useMemo(()=>empresas.filter(e=>{if(guestEmpIds&&!guestEmpIds.has(e.id))return false;if(filterEmp&&!e.nome.toLowerCase().includes(filterEmp.toLowerCase())&&!(e.cnpj||"").includes(filterEmp))return false;if(filterGrp==="__sem__"&&e.grupoId)return false;if(filterGrp&&filterGrp!=="__sem__"&&e.grupoId!==parseInt(filterGrp))return false;if(filterReg&&e.regime!==filterReg)return false;return true;}),[empresas,filterEmp,filterGrp,filterReg,guestEmpIds]);
     const gruposRaiz=useMemo(()=>grupos.filter(g=>!g.parentId),[grupos]);
@@ -10941,15 +11278,15 @@ function makePageComponent(PAGE_CFG){
       const stats=getStatsEmp(emp.id);const pct=stats.total>0?Math.round((stats.analisados/stats.total)*100):0;
       const mesesEmp=getMeses(emp.periodoInicial);const anosComMeses=ANOS.filter(a=>mesesEmp.some(m=>m.endsWith("/"+a)));
       const abaAtiva=getAbaAno(emp.id);const obsEmp=obs.filter(o=>o.eid===emp.id);const obsCount=obsEmp.filter(o=>!o.verificado).length;const obsVerifCount=obsEmp.length-obsCount;
-      const isSelected=selectedEmps.has(emp.id);const isExpanded=expandedEmps.has(emp.id);
+      const isSelected=selectedEmps.has(emp.id);const isExpanded=expandedEmps.has(emp.id);const isPanelOpen=sidePanelEid===emp.id;
       return(
-        <div key={emp.id} style={{borderBottom:isLast?"none":"1px solid var(--border)",background:isSelected?"#eff6ff":undefined}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:indent?"14px 20px 14px 36px":"14px 20px",cursor:"pointer",flexWrap:"wrap",gap:10,transition:"background .1s",background:isExpanded?"var(--bg2)":undefined}}
+        <div key={emp.id} style={{borderBottom:isLast?"none":"1px solid var(--border)",background:isSelected?"#eff6ff":isPanelOpen?"rgba(99,102,241,.05)":undefined}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:indent?"14px 20px 14px 36px":"14px 20px",cursor:"pointer",flexWrap:"wrap",gap:10,transition:"background .1s",background:isExpanded?"var(--bg2)":undefined,borderLeft:isPanelOpen?"3px solid #6366f1":"3px solid transparent"}}
             onMouseEnter={e=>!batchMode&&(e.currentTarget.style.background="rgba(99,102,241,.04)")}
-            onMouseLeave={e=>!batchMode&&!isExpanded&&(e.currentTarget.style.background="transparent")}
+            onMouseLeave={e=>!batchMode&&!isExpanded&&(e.currentTarget.style.background=isPanelOpen?"rgba(99,102,241,.05)":"transparent")}
           >
             {batchMode&&<input type="checkbox" checked={isSelected} onChange={()=>setSelectedEmps(prev=>{const n=new Set(prev);n.has(emp.id)?n.delete(emp.id):n.add(emp.id);return n;})} onClick={e=>e.stopPropagation()} style={{width:16,height:16,cursor:"pointer",accentColor:"#6366f1",flexShrink:0}}/>}
-            <div onClick={()=>toggleEmpExp(emp.id)} style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",flex:1,minWidth:0}}>
+            <div onClick={()=>{openSidePanel(emp.id);setSidePanelTab("info");}} style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",flex:1,minWidth:0}}>
               <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                 <div style={{display:"flex",flexDirection:"column",gap:1}}>
                   <span style={{fontSize:14,fontWeight:800,color:"var(--text)"}}>🏢 {emp.nome}</span>
@@ -11299,6 +11636,7 @@ function makePageComponent(PAGE_CFG){
         {revertModal&&(<div onClick={e=>e.target===e.currentTarget&&setRevertModal(null)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.6)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}}><div style={{background:"var(--bg2)",borderRadius:16,padding:"24px",maxWidth:380,width:"100%",textAlign:"center",boxShadow:"0 32px 80px rgba(0,0,0,.3)"}}><div style={{fontSize:32,marginBottom:8}}>↩</div><div style={{fontSize:15,fontWeight:900,color:"var(--text)",marginBottom:6}}>Reverter análise?</div><div style={{fontSize:12,color:"#64748b",marginBottom:20}}>{getMesNome(revertModal.mes)} — {empresas.find(e=>e.id===revertModal.eid)?.nome}</div><div style={{display:"flex",gap:10,justifyContent:"center"}}><Btn onClick={()=>setRevertModal(null)} v="ghost">Cancelar</Btn><Btn onClick={()=>{reverterAnalise(revertModal.eid,revertModal.mes);setRevertModal(null);}} xs={{background:"#f59e0b",color:"#fff",border:"none"}}>Reverter</Btn></div></div></div>)}
         {deleteEmpModal&&(<div onClick={e=>e.target===e.currentTarget&&setDeleteEmpModal(null)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.72)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}}><div style={{background:"var(--bg2)",borderRadius:20,width:"100%",maxWidth:420,boxShadow:"0 32px 80px rgba(0,0,0,.35)",overflow:"hidden"}}><div style={{background:"linear-gradient(135deg,#fef2f2,#fff0f0)",padding:"20px 24px",borderBottom:"1px solid #fecaca",display:"flex",alignItems:"center",gap:14}}><div style={{fontSize:15,fontWeight:900,color:"#991b1b"}}>Excluir empresa?</div><div style={{fontSize:12,color:"#ef4444",marginLeft:4,fontWeight:600}}>{deleteEmpModal.nome}</div><button onClick={()=>setDeleteEmpModal(null)} style={{marginLeft:"auto",background:"none",border:"none",cursor:"pointer",color:"#fca5a5",fontSize:20}}>×</button></div><div style={{padding:"20px 24px"}}><p style={{fontSize:13,color:"#374151",marginBottom:10}}>Digite <strong style={{color:"#ef4444",fontFamily:"monospace",letterSpacing:2}}>EXCLUIR</strong>:</p><input autoFocus value={deleteTyped} onChange={e=>setDeleteTyped(e.target.value)} onKeyDown={e=>e.key==="Enter"&&executarDelete()} placeholder="EXCLUIR" style={{width:"100%",padding:"11px 14px",borderRadius:10,fontSize:14,fontWeight:800,letterSpacing:3,border:`2px solid ${deleteTyped.toUpperCase()==="EXCLUIR"?"#22c55e":"#e5e7eb"}`,outline:"none",fontFamily:"monospace",textTransform:"uppercase",color:"#0f172a",background:deleteTyped.toUpperCase()==="EXCLUIR"?"#f0fdf4":"#fff",boxSizing:"border-box"}}/><div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16}}><Btn onClick={()=>setDeleteEmpModal(null)} v="ghost">Cancelar</Btn><Btn onClick={executarDelete} xs={{background:"#dc2626",color:"#fff",border:"none",opacity:deleteTyped.toUpperCase()==="EXCLUIR"?1:.5}}>🗑 Excluir</Btn></div></div></div></div>)}
         {linkModal&&(<div onClick={e=>e.target===e.currentTarget&&setLinkModal(null)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.65)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}}><div style={{background:"var(--bg2)",borderRadius:18,width:"100%",maxWidth:500,boxShadow:"0 32px 80px rgba(0,0,0,.3)",overflow:"hidden"}}><div style={{background:`linear-gradient(135deg,${getGrpColor(linkModal.grp.id)},${getGrpColor(linkModal.grp.id)}cc)`,padding:"16px 22px",display:"flex",alignItems:"center",justifyContent:"space-between"}}><div><div style={{fontSize:15,fontWeight:900,color:"#fff"}}>🔗 Link — {linkModal.grp.nome}</div><div style={{fontSize:12,color:"rgba(255,255,255,.75)",marginTop:2}}>Acesso sem senha · somente este grupo</div></div><button onClick={()=>setLinkModal(null)} style={{background:"rgba(255,255,255,.2)",border:"none",color:"#fff",fontSize:18,cursor:"pointer",borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button></div><div style={{padding:"20px"}}><div style={{padding:"10px 14px",background:"var(--bg3)",border:"1.5px solid var(--border)",borderRadius:10,fontSize:12,fontFamily:"monospace",wordBreak:"break-all",color:"#374151",marginBottom:12,lineHeight:1.6}}>{getGuestLink(linkModal.grp.id)}</div><div style={{padding:"10px 14px",borderRadius:10,background:"#fef9c3",border:"1px solid #fde047",fontSize:12,color:"#713f12",marginBottom:14,lineHeight:1.6}}><strong>⚠️ Permissões:</strong> Editar status e observações. Sem criar/excluir.</div><div style={{display:"flex",gap:10,justifyContent:"flex-end"}}><Btn onClick={()=>setLinkModal(null)} v="ghost">Fechar</Btn><Btn onClick={()=>{navigator.clipboard.writeText(getGuestLink(linkModal.grp.id));toast("🔗 Link copiado!","ok");}} xs={{background:getGrpColor(linkModal.grp.id),color:"#fff",border:"none"}}>📋 Copiar</Btn></div></div></div></div>)}
+        {renderSidePanel()}
       </div>
     );
   };

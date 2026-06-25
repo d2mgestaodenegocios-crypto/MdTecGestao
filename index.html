@@ -187,6 +187,219 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 }
   .drag-handle{cursor:grab!important;pointer-events:all!important;}
   .drag-handle:active{cursor:grabbing!important;}
+
+  /* ===== MELHORIAS VISUAIS APRIMORADAS ===== */
+  
+  /* Tabelas com melhor visual */
+  .tbl-head{
+    background:linear-gradient(180deg,var(--bg3),var(--bg2))!important;
+    border-bottom:2px solid var(--border)!important;
+  }
+  .tbl-row{
+    transition:all .15s ease!important;
+    border-bottom:1px solid var(--border)!important;
+  }
+  .tbl-row:hover{
+    background:var(--bg3)!important;
+    box-shadow:inset 0 0 12px rgba(16,185,129,.06)!important;
+  }
+
+  /* Cards melhorados */
+  .card{
+    background:var(--bg2)!important;
+    border:1px solid var(--border)!important;
+    box-shadow:0 1px 3px rgba(0,0,0,.06)!important;
+    transition:all .2s ease!important;
+  }
+  .card:hover{
+    border-color:var(--border2)!important;
+    box-shadow:0 2px 8px rgba(0,0,0,.1)!important;
+  }
+
+  /* Botões primários com cores vibrantes */
+  button[style*="background:#6366f1"],
+  button[style*="background:rgb(99,102,241)"],
+  .btn-primary{
+    background:var(--accent)!important;
+    box-shadow:0 2px 8px rgba(16,185,129,.2)!important;
+  }
+  button[style*="background:#6366f1"]:hover,
+  button[style*="background:rgb(99,102,241)"]:hover,
+  .btn-primary:hover{
+    background:#0ea572!important;
+    box-shadow:0 4px 12px rgba(16,185,129,.3)!important;
+    transform:translateY(-1px);
+  }
+
+  /* Badges e tags com cores melhores */
+  .badge{
+    border-radius:20px;
+    font-weight:700;
+    font-size:11px;
+    padding:4px 12px;
+  }
+
+  /* Inputs melhorados */
+  input[type="text"],
+  input[type="email"],
+  input[type="date"],
+  input[type="time"],
+  input[type="number"],
+  textarea,
+  select{
+    background:var(--input-bg)!important;
+    border:1px solid var(--input-border)!important;
+    color:var(--input-text)!important;
+    border-radius:8px;
+    transition:all .2s ease!important;
+  }
+  input:focus,
+  textarea:focus,
+  select:focus{
+    border-color:var(--accent)!important;
+    background:var(--bg2)!important;
+    box-shadow:0 0 0 3px var(--accent-light)!important;
+  }
+
+  /* Modal melhorado */
+  .modal-box{
+    background:var(--bg2)!important;
+    border:1px solid var(--border)!important;
+    border-radius:16px;
+    box-shadow:0 20px 60px rgba(0,0,0,.15)!important;
+  }
+  .modal-backdrop{
+    background:rgba(0,0,0,.4)!important;
+  }
+
+  /* Kanban cards */
+  .kanban-card{
+    background:var(--bg2)!important;
+    border:1px solid var(--border)!important;
+    border-radius:10px;
+    box-shadow:0 1px 3px rgba(0,0,0,.06)!important;
+    transition:all .15s ease!important;
+  }
+  .kanban-card:hover{
+    box-shadow:0 4px 12px rgba(0,0,0,.12)!important;
+    border-color:var(--border2)!important;
+  }
+
+  /* Stats/KPIs melhorados */
+  .kpi-box{
+    background:var(--bg2)!important;
+    border:1px solid var(--border)!important;
+    border-radius:12px;
+    padding:16px;
+    transition:all .2s ease!important;
+  }
+  .kpi-box:hover{
+    border-color:var(--accent)!important;
+    box-shadow:0 0 12px var(--accent-light)!important;
+  }
+
+  /* Sidebar melhorado */
+  .sidebar{
+    border-right:1px solid rgba(255,255,255,.05)!important;
+  }
+
+  /* Lista melhorada */
+  .list-row{
+    border-bottom:1px solid var(--border)!important;
+    transition:all .12s ease!important;
+  }
+  .list-row:hover{
+    background:var(--bg3)!important;
+  }
+
+  /* Filtros melhorados */
+  .fbar{
+    background:var(--bg2)!important;
+    border:1px solid var(--border)!important;
+    border-radius:10px;
+    padding:12px;
+    gap:10px;
+  }
+
+  /* Tooltips */
+  [title]{
+    cursor:help;
+  }
+
+  /* Animações suaves */
+  * {
+    transition-timing-function:cubic-bezier(.4,0,.2,1);
+  }
+
+  /* Melhor separação visual */
+  hr, .divider {
+    border-color:var(--border)!important;
+  }
+
+  /* Links com cor primária */
+  a{
+    color:var(--accent);
+  }
+  a:hover{
+    color:#0ea572;
+  }
+
+  /* Tags de status com cores vibrantes */
+  .tag.concluido, .status-done{
+    background:var(--accent-light)!important;
+    color:var(--accent)!important;
+  }
+  .tag.pendente, .status-pending{
+    background:var(--warning-light)!important;
+    color:var(--warning)!important;
+  }
+  .tag.erro, .status-error{
+    background:var(--danger-light)!important;
+    color:var(--danger)!important;
+  }
+
+  /* Melhor espaçamento em dropdowns */
+  .dropdown-menu{
+    background:var(--bg2)!important;
+    border:1px solid var(--border)!important;
+    border-radius:10px;
+    box-shadow:0 8px 24px rgba(0,0,0,.12)!important;
+  }
+
+  /* Progress bar */
+  progress, .progress{
+    accent-color:var(--accent);
+  }
+  .progress-bar{
+    background:var(--accent);
+    box-shadow:0 0 12px var(--accent-light);
+  }
+
+  /* Checkboxes e radios */
+  input[type="checkbox"],
+  input[type="radio"]{
+    accent-color:var(--accent)!important;
+    cursor:pointer;
+  }
+
+  /* Melhor feedback visual */
+  button:active{
+    transform:scale(.98);
+  }
+
+  /* Dark mode - tabelas */
+  body.dark .tbl-row:hover{
+    background:rgba(16,185,129,.08)!important;
+  }
+
+  /* Scrollbar customizada */
+  ::-webkit-scrollbar-thumb{
+    background:var(--border2)!important;
+    border-radius:4px;
+  }
+  ::-webkit-scrollbar-thumb:hover{
+    background:var(--border)!important;
+  }
 </style>
 </head>
 <body>

@@ -188,217 +188,217 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
   .drag-handle{cursor:grab!important;pointer-events:all!important;}
   .drag-handle:active{cursor:grabbing!important;}
 
-  /* ===== MELHORIAS VISUAIS APRIMORADAS ===== */
+  /* ===== OVERRIDE AGRESSIVO DE TODOS OS ESTILOS INLINE ===== */
   
-  /* Tabelas com melhor visual */
-  .tbl-head{
-    background:linear-gradient(180deg,var(--bg3),var(--bg2))!important;
-    border-bottom:2px solid var(--border)!important;
-  }
-  .tbl-row{
-    transition:all .15s ease!important;
-    border-bottom:1px solid var(--border)!important;
-  }
-  .tbl-row:hover{
-    background:var(--bg3)!important;
-    box-shadow:inset 0 0 12px rgba(16,185,129,.06)!important;
+  /* Sobrescrever TODOS os divs e elementos */
+  div, span, button, input, select, textarea, p, h1, h2, h3, h4, h5, h6 {
+    color: var(--text) !important;
   }
 
-  /* Cards melhorados */
-  .card{
-    background:var(--bg2)!important;
-    border:1px solid var(--border)!important;
-    box-shadow:0 1px 3px rgba(0,0,0,.06)!important;
-    transition:all .2s ease!important;
-  }
-  .card:hover{
-    border-color:var(--border2)!important;
-    box-shadow:0 2px 8px rgba(0,0,0,.1)!important;
+  /* Componentes principais - fundo claro */
+  [style*="background:#eef2ff"],
+  [style*="background:#f0fdf4"],
+  [style*="background:#fff"],
+  [style*="background:#ffffff"],
+  [style*="background:#f8fafc"],
+  [style*="background:#f1f5f9"]{
+    background: var(--bg2) !important;
+    border: 1px solid var(--border) !important;
   }
 
-  /* Botões primários com cores vibrantes */
+  /* Sobrescrever backgrounds específicas do React */
+  *[style*="background:rgb(243,244,246)"],
+  *[style*="background:rgb(248,250,252)"],
+  *[style*="background:rgb(255,255,255)"]{
+    background: var(--bg2) !important;
+  }
+
+  /* Tabelas - estilo completo */
+  .tbl-head, [style*="background:#eef2ff"]:not(button){
+    background: linear-gradient(180deg, var(--bg3), var(--bg2)) !important;
+    border-bottom: 2px solid var(--border) !important;
+  }
+
+  .tbl-row, .list-row{
+    border-bottom: 1px solid var(--border) !important;
+    transition: all 0.15s ease !important;
+    background: var(--bg2) !important;
+  }
+
+  .tbl-row:hover, .list-row:hover{
+    background: var(--bg3) !important;
+    box-shadow: inset 0 0 12px rgba(16,185,129, 0.06) !important;
+  }
+
+  /* Botões - cores vibrantes */
+  button, input[type="button"], input[type="submit"]{
+    transition: all 0.2s ease !important;
+    border-radius: 8px !important;
+  }
+
+  button[style*="#6366f1"],
+  button[style*="rgb(99, 102, 241)"],
+  button[style*="rgb(99,102,241)"],
   button[style*="background:#6366f1"],
-  button[style*="background:rgb(99,102,241)"],
-  .btn-primary{
-    background:var(--accent)!important;
-    box-shadow:0 2px 8px rgba(16,185,129,.2)!important;
+  .btn-primary,
+  button:not([style*="background:"]),
+  button:not(.outline){
+    background: var(--accent) !important;
+    color: white !important;
+    box-shadow: 0 2px 8px rgba(16,185,129, 0.2) !important;
   }
-  button[style*="background:#6366f1"]:hover,
-  button[style*="background:rgb(99,102,241)"]:hover,
+
+  button[style*="#6366f1"]:hover,
+  button[style*="rgb(99, 102, 241)"]:hover,
+  button[style*="rgb(99,102,241)"]:hover,
   .btn-primary:hover{
-    background:#0ea572!important;
-    box-shadow:0 4px 12px rgba(16,185,129,.3)!important;
-    transform:translateY(-1px);
+    background: #0ea572 !important;
+    box-shadow: 0 4px 12px rgba(16,185,129, 0.3) !important;
+    transform: translateY(-1px) !important;
   }
 
-  /* Badges e tags com cores melhores */
-  .badge{
-    border-radius:20px;
-    font-weight:700;
-    font-size:11px;
-    padding:4px 12px;
+  button[style*="background:#f8fafc"],
+  button[style*="background:#f1f5f9"],
+  button.outline, button[style*="border"]:not([style*="solid var"]){
+    background: var(--surface) !important;
+    border: 1px solid var(--border) !important;
+    color: var(--text) !important;
   }
 
-  /* Inputs melhorados */
+  button[style*="background:#f8fafc"]:hover,
+  button[style*="background:#f1f5f9"]:hover,
+  button.outline:hover{
+    background: var(--bg3) !important;
+    border-color: var(--accent) !important;
+  }
+
+  /* Badges e tags */
+  .badge, span[style*="background:#"]{
+    border-radius: 20px !important;
+    font-weight: 700 !important;
+    padding: 4px 12px !important;
+  }
+
+  /* Cards e containers */
+  .card, [style*="borderRadius:8"], [style*="border:1px solid"]{
+    background: var(--bg2) !important;
+    border: 1px solid var(--border) !important;
+    box-shadow: 0 1px 3px rgba(0,0,0, 0.06) !important;
+    transition: all 0.2s ease !important;
+  }
+
+  .card:hover{
+    border-color: var(--border2) !important;
+    box-shadow: 0 2px 8px rgba(0,0,0, 0.1) !important;
+  }
+
+  /* Inputs - foco com halo */
   input[type="text"],
   input[type="email"],
   input[type="date"],
   input[type="time"],
   input[type="number"],
   textarea,
-  select{
-    background:var(--input-bg)!important;
-    border:1px solid var(--input-border)!important;
-    color:var(--input-text)!important;
-    border-radius:8px;
-    transition:all .2s ease!important;
+  select,
+  input:not([type="checkbox"]):not([type="radio"]){
+    background: var(--input-bg) !important;
+    border: 1px solid var(--input-border) !important;
+    color: var(--input-text) !important;
+    border-radius: 8px !important;
+    transition: all 0.2s ease !important;
   }
+
   input:focus,
   textarea:focus,
   select:focus{
-    border-color:var(--accent)!important;
-    background:var(--bg2)!important;
-    box-shadow:0 0 0 3px var(--accent-light)!important;
+    border-color: var(--accent) !important;
+    background: var(--surface) !important;
+    box-shadow: 0 0 0 3px var(--accent-light) !important;
+    outline: none !important;
   }
 
-  /* Modal melhorado */
-  .modal-box{
-    background:var(--bg2)!important;
-    border:1px solid var(--border)!important;
-    border-radius:16px;
-    box-shadow:0 20px 60px rgba(0,0,0,.15)!important;
+  /* Modal */
+  .modal-box, .modal{
+    background: var(--bg2) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 16px !important;
+    box-shadow: 0 20px 60px rgba(0,0,0, 0.15) !important;
   }
-  .modal-backdrop{
-    background:rgba(0,0,0,.4)!important;
+
+  .modal-backdrop, .modal-overlay, [style*="background:rgba(0"]{
+    background: rgba(0,0,0, 0.4) !important;
   }
 
   /* Kanban cards */
-  .kanban-card{
-    background:var(--bg2)!important;
-    border:1px solid var(--border)!important;
-    border-radius:10px;
-    box-shadow:0 1px 3px rgba(0,0,0,.06)!important;
-    transition:all .15s ease!important;
+  .kanban-card, [style*="flex:1"][style*="min-width"]{
+    background: var(--bg2) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 10px !important;
+    box-shadow: 0 1px 3px rgba(0,0,0, 0.06) !important;
+    transition: all 0.15s ease !important;
   }
+
   .kanban-card:hover{
-    box-shadow:0 4px 12px rgba(0,0,0,.12)!important;
-    border-color:var(--border2)!important;
+    box-shadow: 0 4px 12px rgba(0,0,0, 0.12) !important;
+    border-color: var(--border2) !important;
   }
 
-  /* Stats/KPIs melhorados */
-  .kpi-box{
-    background:var(--bg2)!important;
-    border:1px solid var(--border)!important;
-    border-radius:12px;
-    padding:16px;
-    transition:all .2s ease!important;
-  }
-  .kpi-box:hover{
-    border-color:var(--accent)!important;
-    box-shadow:0 0 12px var(--accent-light)!important;
-  }
-
-  /* Sidebar melhorado */
+  /* Sidebar */
   .sidebar{
-    border-right:1px solid rgba(255,255,255,.05)!important;
+    border-right: 1px solid rgba(255,255,255, 0.05) !important;
   }
 
-  /* Lista melhorada */
-  .list-row{
-    border-bottom:1px solid var(--border)!important;
-    transition:all .12s ease!important;
-  }
-  .list-row:hover{
-    background:var(--bg3)!important;
+  /* Links */
+  a, [style*="color:#6366f1"]{
+    color: var(--accent) !important;
   }
 
-  /* Filtros melhorados */
-  .fbar{
-    background:var(--bg2)!important;
-    border:1px solid var(--border)!important;
-    border-radius:10px;
-    padding:12px;
-    gap:10px;
-  }
-
-  /* Tooltips */
-  [title]{
-    cursor:help;
-  }
-
-  /* Animações suaves */
-  * {
-    transition-timing-function:cubic-bezier(.4,0,.2,1);
-  }
-
-  /* Melhor separação visual */
-  hr, .divider {
-    border-color:var(--border)!important;
-  }
-
-  /* Links com cor primária */
-  a{
-    color:var(--accent);
-  }
   a:hover{
-    color:#0ea572;
-  }
-
-  /* Tags de status com cores vibrantes */
-  .tag.concluido, .status-done{
-    background:var(--accent-light)!important;
-    color:var(--accent)!important;
-  }
-  .tag.pendente, .status-pending{
-    background:var(--warning-light)!important;
-    color:var(--warning)!important;
-  }
-  .tag.erro, .status-error{
-    background:var(--danger-light)!important;
-    color:var(--danger)!important;
-  }
-
-  /* Melhor espaçamento em dropdowns */
-  .dropdown-menu{
-    background:var(--bg2)!important;
-    border:1px solid var(--border)!important;
-    border-radius:10px;
-    box-shadow:0 8px 24px rgba(0,0,0,.12)!important;
-  }
-
-  /* Progress bar */
-  progress, .progress{
-    accent-color:var(--accent);
-  }
-  .progress-bar{
-    background:var(--accent);
-    box-shadow:0 0 12px var(--accent-light);
+    color: #0ea572 !important;
   }
 
   /* Checkboxes e radios */
   input[type="checkbox"],
   input[type="radio"]{
-    accent-color:var(--accent)!important;
-    cursor:pointer;
+    accent-color: var(--accent) !important;
+    cursor: pointer !important;
   }
 
-  /* Melhor feedback visual */
-  button:active{
-    transform:scale(.98);
+  /* Progress bars */
+  progress, .progress{
+    accent-color: var(--accent) !important;
   }
 
-  /* Dark mode - tabelas */
-  body.dark .tbl-row:hover{
-    background:rgba(16,185,129,.08)!important;
+  .progress-bar{
+    background: var(--accent) !important;
+    box-shadow: 0 0 12px var(--accent-light) !important;
   }
 
-  /* Scrollbar customizada */
+  /* Dark mode - ajustes */
+  body.dark [style*="background:#fff"],
+  body.dark [style*="background:#ffffff"],
+  body.dark [style*="background:rgb(255"]{
+    background: var(--bg2) !important;
+  }
+
+  /* Scrollbar */
   ::-webkit-scrollbar-thumb{
-    background:var(--border2)!important;
-    border-radius:4px;
+    background: var(--border2) !important;
+    border-radius: 4px !important;
   }
+
   ::-webkit-scrollbar-thumb:hover{
-    background:var(--border)!important;
+    background: var(--border) !important;
+  }
+
+  /* Feedback visual */
+  button:active{
+    transform: scale(0.98) !important;
+  }
+
+  /* Remove shadows padrão e aplica novo */
+  *[style*="box-shadow:0 1px 4px"]{
+    box-shadow: 0 1px 3px rgba(0,0,0, 0.06) !important;
   }
 </style>
 </head>

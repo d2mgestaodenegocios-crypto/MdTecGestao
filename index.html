@@ -78,6 +78,8 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 @keyframes slideUp{from{opacity:0;transform:translateY(100%)}to{opacity:1;transform:translateY(0)}}
 @keyframes fadeIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes badgePulse{from{transform:scale(0.7);opacity:0;}50%{transform:scale(1.1);}to{transform:scale(1);opacity:1;}}
+@keyframes dotPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.2)}}
 @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
 @keyframes toastIn{from{opacity:0;transform:translateY(20px) scale(.94)}to{opacity:1;transform:translateY(0) scale(1)}}
 @keyframes lockPulse{0%,100%{box-shadow:0 0 0 0 rgba(139,92,246,.4)}70%{box-shadow:0 0 0 8px rgba(139,92,246,0)}}
@@ -7815,37 +7817,49 @@ function App(){
             </div>
           </div>
         )}
-        <nav className="sb-nav" style={{flex:1,padding:"8px 10px",overflowY:"auto",display:"flex",flexDirection:"column"}}>
-          {NAV_GROUPS.filter(g=>isAdmin||g.label==="Visualizações"||g.label==="Relatórios"||g.label==="Contabilidade").map(group=>(
-            <div key={group.label} style={{marginBottom:8}}>
-              {!sideCol&&<div className="sb-section-lbl" style={{fontSize:9,fontWeight:800,color:group.label==="Contabilidade"?"#8b5cf6":"#334155",textTransform:"uppercase",letterSpacing:".1em",padding:"8px 10px 4px",background:group.label==="Contabilidade"?"rgba(168,85,247,.08)":"transparent",borderRadius:6,transition:"all .2s"}}>{group.label}</div>}
-              {group.items.map(item=>{
-                const active=page===item.id;
-                // Cores temáticas por item
-                const itemColors={
-                  "contabil":{active:"#6366f1",hover:"rgba(99,102,241,.08)",accent:"#818cf8"},
-                  "fiscal":{active:"#f59e0b",hover:"rgba(245,158,11,.08)",accent:"#fbbf24"},
-                  "folha-pagamento":{active:"#06b6d4",hover:"rgba(6,182,212,.08)",accent:"#22d3ee"}
-                };
-                const colors=itemColors[item.id]||{active:"#6366f1",hover:"rgba(99,102,241,.08)",accent:"#818cf8"};
-                const chatUnread=0;
-                return(
-                  <button key={item.id} className="nav-btn" onClick={()=>setPage(item.id)} title={sideCol?item.label:""} style={{width:"100%",display:"flex",alignItems:"center",gap:sideCol?0:10,padding:sideCol?"10px":"9px 10px",borderRadius:9,border:active?`1.5px solid ${colors.active}`:"1.5px solid transparent",cursor:"pointer",background:active?colors.hover:"transparent",color:active?colors.active:"#64748b",fontSize:13,fontWeight:active?700:600,textAlign:"left",fontFamily:"inherit",transition:"all .2s cubic-bezier(.4,0,.2,1)",marginBottom:2,justifyContent:sideCol?"center":"flex-start",boxShadow:active?`0 2px 8px ${colors.active}20`:"none"}}
-                    onMouseEnter={e=>!active&&(e.currentTarget.style.background=colors.hover,e.currentTarget.style.borderColor=colors.active+"40")}
-                    onMouseLeave={e=>!active&&(e.currentTarget.style.background="transparent",e.currentTarget.style.borderColor="transparent")}
-                  >
-                    <span className="nb-icon" style={{fontSize:15,width:sideCol?20:18,textAlign:"center",flexShrink:0,position:"relative",transition:"transform .2s"}}>
-                      {item.icon}
-                      {chatUnread>0&&<span style={{position:"absolute",top:-5,right:-6,width:14,height:14,borderRadius:"50%",background:"#ef4444",color:"#fff",fontSize:8,fontWeight:900,display:"flex",alignItems:"center",justifyContent:"center",border:"1.5px solid #0f172a"}}>{chatUnread>9?"9+":chatUnread}</span>}
-                    </span>
-                    {!sideCol&&item.label}
-                    {!sideCol&&chatUnread>0&&!active&&<span style={{marginLeft:"auto",padding:"2px 6px",borderRadius:10,background:"#ef4444",color:"#fff",fontSize:8,fontWeight:800,animation:"pulse .4s ease-out"}}>{chatUnread}</span>}
-                    {!sideCol&&active&&<span className="nb-dot" style={{marginLeft:"auto",width:6,height:6,borderRadius:"50%",background:colors.active,boxShadow:`0 0 6px ${colors.active}60`,animation:"pulse .4s ease-out"}}/>}
-                  </button>
-                );
-              })}
-            </div>
-          ))}
+        <nav className="sb-nav" style={{flex:1,padding:"8px 10px",overflowY:"auto",display:"flex",flexDirection:"column",gap:"4px"}}>
+          {NAV_GROUPS.filter(g=>isAdmin||g.label==="Visualizações"||g.label==="Relatórios"||g.label==="Contabilidade").map(group=>{
+            // Cores temáticas para cada grupo
+            const groupColors={
+              "Visualizações":"#6366f1",
+              "Cadastros":"#0ea5e9",
+              "Relatórios":"#f59e0b",
+              "Contabilidade":"#a855f7",
+              "Sistema":"#64748b"
+            };
+            const itemColors={
+              "dashboard":"#6366f1","kanban":"#8b5cf6","lista":"#a855f7","calendario":"#d946ef","gantt":"#ec4899","tabela":"#f43f5e","hoje":"#fb7185","minhas":"#fca5a5","arquivadas":"#fecaca",
+              "modelos":"#06b6d4","empresas":"#0ea5e9","setores":"#0891b2","colaboradores":"#14b8a6","marcadores":"#10b981","recorrencias":"#34d399","painel-rec":"#6ee7b7","servicos":"#a7f3d0",
+              "relatorio":"#fbbf24","carga":"#f59e0b",
+              "contabil":"#6366f1","fiscal":"#f59e0b","folha-pagamento":"#06b6d4",
+              "auditoria":"#8b5cf6","configuracoes":"#94a3b8"
+            };
+            const groupColor=groupColors[group.label]||"#6366f1";
+            return(
+              <div key={group.label} style={{marginBottom:4}}>
+                {!sideCol&&<div className="sb-section-lbl" style={{fontSize:10,fontWeight:800,color:groupColor,textTransform:"uppercase",letterSpacing:".05em",padding:"10px 12px 6px",background:`${groupColor}12`,borderRadius:8,transition:"all .2s",borderLeft:`3px solid ${groupColor}`,marginBottom:4}}>{group.label}</div>}
+                {group.items.map(item=>{
+                  const active=page===item.id;
+                  const itemColor=itemColors[item.id]||groupColor;
+                  const chatUnread=0;
+                  return(
+                    <button key={item.id} className="nav-btn" onClick={()=>setPage(item.id)} title={sideCol?item.label:""} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:sideCol?"center":"flex-start",gap:sideCol?0:10,padding:sideCol?"10px 0":"8px 12px",borderRadius:8,border:active?`1.5px solid ${itemColor}`:"1px solid transparent",cursor:"pointer",background:active?`${itemColor}18`:"transparent",color:active?itemColor:"#64748b",fontSize:13,fontWeight:active?700:600,fontFamily:"inherit",transition:"all .2s cubic-bezier(.4,0,.2,1)",marginBottom:2,boxShadow:active?`0 2px 8px ${itemColor}25`:"none",position:"relative",overflow:"hidden"}}
+                      onMouseEnter={e=>{if(!active){e.currentTarget.style.background=`${itemColor}08`;e.currentTarget.style.borderColor=`${itemColor}40`;e.currentTarget.style.transform="translateX(2px)";}}}
+                      onMouseLeave={e=>{if(!active){e.currentTarget.style.background="transparent";e.currentTarget.style.borderColor="transparent";e.currentTarget.style.transform="translateX(0)}";}}}
+                    >
+                      <span className="nb-icon" style={{fontSize:15,width:sideCol?20:18,textAlign:"center",flexShrink:0,position:"relative",transition:"all .2s",color:active?itemColor:"inherit"}}>
+                        {item.icon}
+                        {chatUnread>0&&<span style={{position:"absolute",top:-6,right:-8,width:16,height:16,borderRadius:"50%",background:itemColor,color:"#fff",fontSize:9,fontWeight:900,display:"flex",alignItems:"center",justifyContent:"center",border:`2px solid #0f172a`,boxShadow:`0 0 8px ${itemColor}60`,animation:"badgePulse .4s ease-out"}}>{chatUnread>9?"9+":chatUnread}</span>}
+                      </span>
+                      {!sideCol&&item.label}
+                      {!sideCol&&active&&<span className="nb-dot" style={{marginLeft:"auto",width:7,height:7,borderRadius:"50%",background:itemColor,boxShadow:`0 0 8px ${itemColor}80`,animation:"dotPulse .6s ease-in-out infinite"}}/>}
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </nav>
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
           {/* Usuário logado */}

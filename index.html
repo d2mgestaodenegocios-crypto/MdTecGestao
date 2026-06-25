@@ -20,26 +20,18 @@ html,body{height:100%;-webkit-text-size-adjust:100%;touch-action:manipulation}
 .focus-mode .main-content{padding:14px 16px!important}
 @media(max-width:768px){.focus-mode .bottom-nav{display:none!important}}
 :root{
-  --bg:#f8f9fa;--bg2:#ffffff;--bg3:#f5f5f7;--bg4:#f9fafb;
-  --text:#1a1d29;--text2:#374151;--text3:#6b7280;--text4:#9ca3af;
-  --border:#e8eaee;--border2:#dfe2ea;--border3:#e5e7eb;
-  --input-bg:#fff;--input-text:#1a1d29;--input-border:#dfe2ea;
-  --card-shadow:0 1px 3px rgba(0,0,0,0.06);
-  --accent:#10b981;--accent-light:rgba(16,185,129,0.12);
-  --warning:#f59e0b;--warning-light:rgba(245,158,11,0.12);
-  --danger:#ef4444;--danger-light:rgba(239,68,68,0.12);
-  --info:#06b6d4;--info-light:rgba(6,182,212,0.12);
+  --bg:#f1f5f9;--bg2:#fff;--bg3:#f8fafc;--bg4:#f9fafb;
+  --text:#0f172a;--text2:#374151;--text3:#64748b;--text4:#94a3b8;
+  --border:#f1f5f9;--border2:#e2e8f0;--border3:#e5e7eb;
+  --input-bg:#fff;--input-text:#0f172a;--input-border:#e5e7eb;
+  --card-shadow:0 1px 4px rgba(0,0,0,.05);
 }
 body.dark{
-  --bg:#0f1218;--bg2:#1a1f2e;--bg3:#252d3d;--bg4:#1a1f2e;
-  --text:#f1f5f9;--text2:#e2e8f0;--text3:#94a3b8;--text4:#64748b;
-  --border:#2a3548;--border2:#334155;--border3:#475569;
-  --input-bg:#1a1f2e;--input-text:#f1f5f9;--input-border:#334155;
-  --card-shadow:0 1px 3px rgba(0,0,0,0.35);
-  --accent:#10b981;--accent-light:rgba(16,185,129,0.15);
-  --warning:#f59e0b;--warning-light:rgba(245,158,11,0.15);
-  --danger:#ef4444;--danger-light:rgba(239,68,68,0.15);
-  --info:#06b6d4;--info-light:rgba(6,182,212,0.15);
+  --bg:#0f172a;--bg2:#1e293b;--bg3:#1e293b;--bg4:#1e293b;
+  --text:#f1f5f9;--text2:#cbd5e1;--text3:#94a3b8;--text4:#64748b;
+  --border:#334155;--border2:#334155;--border3:#334155;
+  --input-bg:#0f172a;--input-text:#e2e8f0;--input-border:#334155;
+  --card-shadow:0 1px 4px rgba(0,0,0,.25);
 }
 
 body{font-family:'Plus Jakarta Sans',system-ui,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;overflow-x:hidden;transition:background .25s,color .25s}
@@ -93,13 +85,13 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 
 .shell{display:flex;width:100%;min-height:100dvh}
 .sidebar{
-  width:228px;background:linear-gradient(180deg,#1a1f2e,#0f1218);display:flex;flex-direction:column;
+  width:228px;background:#0f172a;display:flex;flex-direction:column;
   height:100vh;position:sticky;top:0;flex-shrink:0;
   transition:width .22s cubic-bezier(.4,0,.2,1);overflow:hidden;
-  box-shadow:2px 0 12px rgba(0,0,0,0.15);z-index:60;border-right:1px solid rgba(255,255,255,0.05)
+  box-shadow:4px 0 20px rgba(0,0,0,.18);z-index:60
 }
 .sidebar.slim{width:62px}
-.main-content{flex:1;padding:28px 32px;overflow-y:auto;min-width:0;animation:fadeIn .28s ease;height:100vh;box-sizing:border-box;background:var(--bg)}
+.main-content{flex:1;padding:26px 28px;overflow-y:auto;min-width:0;animation:fadeIn .28s ease;height:100vh;box-sizing:border-box}
 
 
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
@@ -187,101 +179,6 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 }
   .drag-handle{cursor:grab!important;pointer-events:all!important;}
   .drag-handle:active{cursor:grabbing!important;}
-
-  /* ===== MELHORIAS APENAS NAS ABAS: FOLHA, FISCAL E CONTÁBIL ===== */
-  /* O script detecta a página e adiciona class page-folha, page-fiscal ou page-contabil */
-  
-  /* Melhorias de visual APENAS nas tabelas dessas páginas */
-  body.page-folha .tbl-head,
-  body.page-fiscal .tbl-head,
-  body.page-contabil .tbl-head{
-    background:linear-gradient(180deg,var(--bg3),var(--bg2))!important;
-    border-bottom:2px solid var(--border)!important;
-  }
-
-  body.page-folha .tbl-row,
-  body.page-fiscal .tbl-row,
-  body.page-contabil .tbl-row{
-    transition:all .15s ease!important;
-    border-bottom:1px solid var(--border)!important;
-  }
-
-  body.page-folha .tbl-row:hover,
-  body.page-fiscal .tbl-row:hover,
-  body.page-contabil .tbl-row:hover{
-    background:var(--bg3)!important;
-    box-shadow:inset 0 0 12px rgba(16,185,129,.08)!important;
-  }
-
-  /* Botões apenas nessas páginas */
-  body.page-folha button,
-  body.page-fiscal button,
-  body.page-contabil button{
-    transition:all .2s ease!important;
-    border-radius:8px!important;
-  }
-
-  /* Cards apenas nessas páginas */
-  body.page-folha .card,
-  body.page-fiscal .card,
-  body.page-contabil .card{
-    background:var(--bg2)!important;
-    border:1px solid var(--border)!important;
-    box-shadow:0 1px 3px rgba(0,0,0,.06)!important;
-    transition:all .2s ease!important;
-  }
-
-  body.page-folha .card:hover,
-  body.page-fiscal .card:hover,
-  body.page-contabil .card:hover{
-    border-color:var(--border2)!important;
-    box-shadow:0 2px 8px rgba(0,0,0,.1)!important;
-  }
-
-  /* Inputs apenas nessas páginas */
-  body.page-folha input,
-  body.page-fiscal input,
-  body.page-contabil input,
-  body.page-folha select,
-  body.page-fiscal select,
-  body.page-contabil select{
-    border-radius:8px!important;
-    transition:all .2s ease!important;
-    background:var(--input-bg)!important;
-    border:1px solid var(--input-border)!important;
-  }
-
-  body.page-folha input:focus,
-  body.page-fiscal input:focus,
-  body.page-contabil input:focus,
-  body.page-folha select:focus,
-  body.page-fiscal select:focus,
-  body.page-contabil select:focus{
-    border-color:var(--accent)!important;
-    background:var(--surface)!important;
-    box-shadow:0 0 0 3px var(--accent-light)!important;
-    outline:none!important;
-  }
-
-  /* Stats/KPIs apenas nessas páginas */
-  body.page-folha [style*="display:flex"][style*="gap:"][style*="font-size:24px"],
-  body.page-fiscal [style*="display:flex"][style*="gap:"][style*="font-size:24px"],
-  body.page-contabil [style*="display:flex"][style*="gap:"][style*="font-size:24px"]{
-    background:var(--bg2)!important;
-    border:1px solid var(--border)!important;
-    border-radius:12px!important;
-  }
-
-  /* Filter bar apenas nessas páginas */
-  body.page-folha .fbar,
-  body.page-fiscal .fbar,
-  body.page-contabil .fbar{
-    background:var(--bg2)!important;
-    border:1px solid var(--border)!important;
-    border-radius:10px!important;
-    padding:12px!important;
-  }
-</style>
 </style>
 </head>
 <body>
@@ -289,30 +186,6 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/@babel/standalone@7.23.9/babel.min.js"></script>
-
-<!-- Script para detectar página e adicionar classe CSS -->
-<script>
-function detectAndMarkPage(){
-  const pageTitle = document.querySelector('h1, .page-hdr')?.textContent || '';
-  const body = document.body;
-  
-  // Remover classes anteriores
-  body.classList.remove('page-folha', 'page-fiscal', 'page-contabil');
-  
-  // Adicionar classe baseada no texto da página
-  if(pageTitle.includes('Folha') || pageTitle.includes('Pagamento')){
-    body.classList.add('page-folha');
-  } else if(pageTitle.includes('Tributário') || pageTitle.includes('Fiscal')){
-    body.classList.add('page-fiscal');
-  } else if(pageTitle.includes('Contábil') || pageTitle.includes('Contabil')){
-    body.classList.add('page-contabil');
-  }
-}
-
-// Detectar mudanças de página
-setInterval(detectAndMarkPage, 500);
-window.addEventListener('load', detectAndMarkPage);
-</script>
 <script>
 var _bc=typeof BroadcastChannel!=="undefined"?new BroadcastChannel("mdtec_sync"):null;
 var _tabId=Math.random().toString(36).slice(2); // unique per tab/session
@@ -7945,23 +7818,29 @@ function App(){
         <nav className="sb-nav" style={{flex:1,padding:"8px 10px",overflowY:"auto",display:"flex",flexDirection:"column"}}>
           {NAV_GROUPS.filter(g=>isAdmin||g.label==="Visualizações"||g.label==="Relatórios"||g.label==="Contabilidade").map(group=>(
             <div key={group.label} style={{marginBottom:8}}>
-              {!sideCol&&<div className="sb-section-lbl" style={{fontSize:9,fontWeight:800,color:"#334155",textTransform:"uppercase",letterSpacing:".1em",padding:"8px 10px 4px"}}>{group.label}</div>}
+              {!sideCol&&<div className="sb-section-lbl" style={{fontSize:9,fontWeight:800,color:group.label==="Contabilidade"?"#8b5cf6":"#334155",textTransform:"uppercase",letterSpacing:".1em",padding:"8px 10px 4px",background:group.label==="Contabilidade"?"rgba(168,85,247,.08)":"transparent",borderRadius:6,transition:"all .2s"}}>{group.label}</div>}
               {group.items.map(item=>{
                 const active=page===item.id;
-                // Badge for chat: count unread notifications pointing to chat page
+                // Cores temáticas por item
+                const itemColors={
+                  "contabil":{active:"#6366f1",hover:"rgba(99,102,241,.08)",accent:"#818cf8"},
+                  "fiscal":{active:"#f59e0b",hover:"rgba(245,158,11,.08)",accent:"#fbbf24"},
+                  "folha-pagamento":{active:"#06b6d4",hover:"rgba(6,182,212,.08)",accent:"#22d3ee"}
+                };
+                const colors=itemColors[item.id]||{active:"#6366f1",hover:"rgba(99,102,241,.08)",accent:"#818cf8"};
                 const chatUnread=0;
                 return(
-                  <button key={item.id} className="nav-btn" onClick={()=>setPage(item.id)} title={sideCol?item.label:""} style={{width:"100%",display:"flex",alignItems:"center",gap:sideCol?0:10,padding:sideCol?"10px":"9px 10px",borderRadius:9,border:"none",cursor:"pointer",background:active?"rgba(99,102,241,.2)":"transparent",color:active?"#818cf8":"#64748b",fontSize:13,fontWeight:active?800:600,textAlign:"left",fontFamily:"inherit",transition:"all .12s",marginBottom:2,justifyContent:sideCol?"center":"flex-start"}}
-                    onMouseEnter={e=>!active&&(e.currentTarget.style.background="rgba(255,255,255,.04)")}
-                    onMouseLeave={e=>!active&&(e.currentTarget.style.background="transparent")}
+                  <button key={item.id} className="nav-btn" onClick={()=>setPage(item.id)} title={sideCol?item.label:""} style={{width:"100%",display:"flex",alignItems:"center",gap:sideCol?0:10,padding:sideCol?"10px":"9px 10px",borderRadius:9,border:active?`1.5px solid ${colors.active}`:"1.5px solid transparent",cursor:"pointer",background:active?colors.hover:"transparent",color:active?colors.active:"#64748b",fontSize:13,fontWeight:active?700:600,textAlign:"left",fontFamily:"inherit",transition:"all .2s cubic-bezier(.4,0,.2,1)",marginBottom:2,justifyContent:sideCol?"center":"flex-start",boxShadow:active?`0 2px 8px ${colors.active}20`:"none"}}
+                    onMouseEnter={e=>!active&&(e.currentTarget.style.background=colors.hover,e.currentTarget.style.borderColor=colors.active+"40")}
+                    onMouseLeave={e=>!active&&(e.currentTarget.style.background="transparent",e.currentTarget.style.borderColor="transparent")}
                   >
-                    <span className="nb-icon" style={{fontSize:15,width:sideCol?20:18,textAlign:"center",flexShrink:0,position:"relative"}}>
+                    <span className="nb-icon" style={{fontSize:15,width:sideCol?20:18,textAlign:"center",flexShrink:0,position:"relative",transition:"transform .2s"}}>
                       {item.icon}
                       {chatUnread>0&&<span style={{position:"absolute",top:-5,right:-6,width:14,height:14,borderRadius:"50%",background:"#ef4444",color:"#fff",fontSize:8,fontWeight:900,display:"flex",alignItems:"center",justifyContent:"center",border:"1.5px solid #0f172a"}}>{chatUnread>9?"9+":chatUnread}</span>}
                     </span>
                     {!sideCol&&item.label}
-                    {!sideCol&&chatUnread>0&&!active&&<span style={{marginLeft:"auto",padding:"1px 6px",borderRadius:10,background:"#ef4444",color:"#fff",fontSize:9,fontWeight:800}}>{chatUnread}</span>}
-                    {!sideCol&&active&&<span className="nb-dot" style={{marginLeft:"auto",width:6,height:6,borderRadius:"50%",background:"#818cf8"}}/>}
+                    {!sideCol&&chatUnread>0&&!active&&<span style={{marginLeft:"auto",padding:"2px 6px",borderRadius:10,background:"#ef4444",color:"#fff",fontSize:8,fontWeight:800,animation:"pulse .4s ease-out"}}>{chatUnread}</span>}
+                    {!sideCol&&active&&<span className="nb-dot" style={{marginLeft:"auto",width:6,height:6,borderRadius:"50%",background:colors.active,boxShadow:`0 0 6px ${colors.active}60`,animation:"pulse .4s ease-out"}}/>}
                   </button>
                 );
               })}

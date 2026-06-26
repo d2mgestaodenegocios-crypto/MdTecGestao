@@ -11536,7 +11536,8 @@ function makePageComponent(PAGE_CFG){
           const pts=sparkVals.map((v,i)=>`${(i/(sparkVals.length-1||1))*svgW},${svgH-Math.round((v/maxSpark)*(svgH-8))-4}`).join(" ");
           const hasOverride=!!empColsOverride[emp.id];
           const clienteData=empCliente[selectedEmpPanel]||{};
-          const avisosEmp=empObservacoes[selectedEmpPanel]||[];
+          // Filtrar apenas avisos NÃO resolvidos (feito=false E visualizado=false)
+          const avisosEmp = (empObservacoes[selectedEmpPanel] || []).filter(a => !a.feito && !a.visualizado);
           const addAviso=()=>{
             const novo={id:Date.now(),tipo:"aviso",texto:"",data:new Date().toLocaleDateString("pt-BR"),feito:false,_ultimaAtualizacao:Date.now()};
             setEmpObservacoes(prev=>({...prev,[selectedEmpPanel]:[...(prev[selectedEmpPanel]||[]),novo]}));
@@ -11776,7 +11777,12 @@ function makePageComponent(PAGE_CFG){
               {/* Footer */}
               <div style={{padding:"14px 20px",borderTop:"1px solid #1e293b",display:"flex",gap:8,flexShrink:0}}>
                 <button onClick={closeSidePanel} style={{flex:1,padding:"9px",borderRadius:8,border:"1px solid #334155",background:"transparent",color:"#94a3b8",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✕ Fechar</button>
-                {!isGuestMode&&<button onClick={()=>{const ec=getColsForEmp(emp.id);setEmpColsDraft(JSON.parse(JSON.stringify(ec)));setEmpColsModal(emp.id);}} style={{flex:1.5,padding:"9px",borderRadius:8,border:"none",background:"#22c55e",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>⚙️ Colunas</button>}
+                {!isGuestMode && currentUserRole === 'admin' && (
+  <button onClick={()=>{const ec=getColsForEmp(emp.id);setEmpColsDraft(JSON.parse(JSON.stringify(ec)));setEmpColsModal(emp.id);}} style={{flex:1.5,padding:"9px",borderRadius:8,border:"none",background:"#22c55e",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>⚙️ Colunas</button>
+)}
+{currentUserRole !== 'admin' && !isGuestMode && (
+  <button disabled style={{flex:1.5,padding:"9px",borderRadius:8,border:"1px solid #334155",background:"#1e293b",color:"#64748b",fontWeight:700,fontSize:12,cursor:"not-allowed",fontFamily:"inherit"}}>🔒 Colunas (Admin)</button>
+)}
                 {!isGuestMode&&<button onClick={()=>{setEditEmpModal({emp});setEditEmpForm({nome:emp.nome,cnpj:emp.cnpj||"",regime:emp.regime||"simples",grupoId:emp.grupoId||""});closeSidePanel();}} style={{flex:1,padding:"9px",borderRadius:8,border:"none",background:"#6366f1",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✏️ Editar</button>}
               </div>
             </div>
@@ -11803,7 +11809,18 @@ function makePageComponent(PAGE_CFG){
               <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
                 <Btn onClick={()=>{const no={...empColsOverride};delete no[empColsModal];saveEmpColsOverride(no);setEmpColsModal(null);toast("↩ Restaurado ao padrão","ok");}} v="ghost" sz="sm">↩ Restaurar padrão</Btn>
                 <Btn onClick={()=>setEmpColsModal(null)} v="ghost">Cancelar</Btn>
-                <Btn onClick={()=>{const no={...empColsOverride,[empColsModal]:empColsDraft};saveEmpColsOverride(no);setEmpColsModal(null);toast("✅ Colunas salvas para esta empresa!","ok");}} xs={{background:"#22c55e",color:"#fff",border:"none"}}>💾 Salvar</Btn>
+               <Btn onClick={()=>{
+  const no={...empColsOverride,[empColsModal]:empColsDraft};
+  saveEmpColsOverride(no);
+  
+  // 🔄 SINCRONIZAR COLUNAS VIA WEBSOCKET...
+  if(window.avisoSync && window.avisoSync.isConnected && currentUserRole === 'admin') {
+    window.avisoSync.atualizarColunas(empColsDraft);
+  }
+  
+  setEmpColsModal(null);
+  toast("✅ Colunas salvas e sincronizadas para todos!","ok");
+}} xs={{background:"#22c55e",color:"#fff",border:"none"}}>💾 Salvar</Btn>
               </div>
             </div>
           )}
@@ -11835,8 +11852,9 @@ const FolhaPagPage=makePageComponent({
 
 // Variável global para sincronização
 let avisoSync = null;
-let currentUserId = 'user_' + Math.random().toString(36).slice(7); // ID único do usuário
-let currentEmpresaId = null; // Será definido quando entrar em uma empresa
+let currentUserId = 'user_' + Math.random().toString(36).slice(7);
+let currentUserRole = 'admin'; // 👈 MODIFICÁVEL: 'admin' ou 'user'
+let currentEmpresaId = null;
 
 // Tentar conectar ao servidor de sincronização
 function inicializarSincronizacao(empresaId) {
@@ -11855,7 +11873,7 @@ function inicializarSincronizacao(empresaId) {
     avisoSync.disconnect();
   }
   
-  avisoSync = new AvisoSync(currentUserId, empresaId, 'ws://localhost:3000/ws');
+  avisoSync = new AvisoSync(currentUserId, empresaId, currentUserRole, 'ws://localhost:3000/ws');
   
   avisoSync.on('conectado', () => {
     console.log('✅ Conectado ao servidor de avisos');
@@ -11895,7 +11913,28 @@ function inicializarSincronizacao(empresaId) {
   avisoSync.on('erro', (err) => {
     console.error('⚠️ Erro de sincronização:', err);
   });
-  
+
+avisoSync.on('colunas-atualizadas', (colunas, adminId) => {
+    console.log('🔄 Colunas atualizadas pelo admin:', adminId);
+    // Atualizar estado global de colunas
+    if (typeof window.empColsOverride !== 'undefined') {
+      window.empColsOverride = { ...window.empColsOverride, [empresaId]: colunas };
+      // Salvar em localStorage
+      try {
+        localStorage.setItem('mdtec_contabilidade_v2_emp_cols_override', JSON.stringify(window.empColsOverride));
+      } catch (e) {}
+      // Re-renderizar UI (dispara re-render do React)
+      window.dispatchEvent(new CustomEvent('colunas-mudaram', { detail: { empresaId, colunas } }));
+    }
+  });
+
+  avisoSync.on('aviso-resolvido', (avisoId) => {
+    console.log('✅ Aviso resolvido, removendo:', avisoId);
+    // O aviso será filtrado automaticamente na próxima renderização
+  });
+
+
+      
   // Conectar ao servidor
   avisoSync.connect().catch(err => {
     console.warn('⚠️ Falha ao conectar ao servidor de sincronização:', err.message);

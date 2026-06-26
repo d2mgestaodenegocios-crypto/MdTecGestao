@@ -11547,16 +11547,20 @@ function makePageComponent(PAGE_CFG){
                       ))}
                     </div>
                   </div>
-                  {avisosEmp.filter(a=>(a.tipo==="importante"||a.tipo==="lembrete")&&!a.feito).length>0&&(
+                  {avisosEmp.filter(a=>a.tipo!=="anotacao"&&!a.feito).length>0&&(
                     <div>
-                      <div style={{fontSize:10,fontWeight:800,color:"#fbbf24",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>⭐ IMPORTANTES & LEMBRETES</div>
+                      <div style={{fontSize:10,fontWeight:800,color:"#fbbf24",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>⚠️ AVISOS, IMPORTANTES & LEMBRETES</div>
                       <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                        {avisosEmp.filter(a=>(a.tipo==="importante"||a.tipo==="lembrete")&&!a.feito).map(a=>(
-                          <div key={a.id} style={{padding:"10px 12px",borderRadius:8,background:"#1e293b",borderLeft:`3px solid ${a.tipo==="importante"?"#fbbf24":"#f59e0b"}`,fontSize:12,color:"#f1f5f9",lineHeight:1.5}}>
-                            <div style={{fontSize:10,fontWeight:700,color:a.tipo==="importante"?"#fbbf24":"#f59e0b",marginBottom:3}}>{a.tipo==="importante"?"⭐ Importante":"🟡 Lembrete"}{a.data?` · ${a.data}`:""}</div>
+                        {avisosEmp.filter(a=>a.tipo!=="anotacao"&&!a.feito).map(a=>{
+                          const RI={aviso:{icon:"🔴",label:"Aviso",color:"#ef4444"},lembrete:{icon:"🟡",label:"Lembrete",color:"#f59e0b"},importante:{icon:"⭐",label:"Importante",color:"#fbbf24"}};
+                          const ri=RI[a.tipo]||RI.aviso;
+                          return(
+                          <div key={a.id} style={{padding:"10px 12px",borderRadius:8,background:"#1e293b",borderLeft:`3px solid ${ri.color}`,fontSize:12,color:"#f1f5f9",lineHeight:1.5}}>
+                            <div style={{fontSize:10,fontWeight:700,color:ri.color,marginBottom:3}}>{ri.icon} {ri.label}{a.data?` · ${a.data}`:""}</div>
                             <div style={{whiteSpace:"pre-wrap"}}>{a.texto||"(sem texto)"}</div>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                       <button onClick={()=>setPanelTab("avisos")} style={{marginTop:8,background:"none",border:"none",color:"#64748b",fontSize:11,cursor:"pointer",textDecoration:"underline",fontFamily:"inherit"}}>Ver todos os avisos →</button>
                     </div>

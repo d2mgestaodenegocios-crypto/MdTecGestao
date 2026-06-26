@@ -14,225 +14,315 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
-// ─── ARMAZENAMENTO EM MEMÓRIA (substitua por banco de dados) ───
-let avisos = {};
-let usuarios = new Map(); // conectados: { ws, userId, empresaId }
+// ─── ARMAZENAMENTO GLOBAL ───
+let sincData = {
+  empresas: {},
+  colunas: {},
+  lembretes: {},
+  notificacoes: {},
+  observacoes: {},
+  dados: {},
+  grupos: {},
+  prazos: {}
+};
 
-// Carregar avisos do arquivo JSON se existir
-const AVISOS_FILE = './avisos.json';
-function loadAvisos() {
+const DATA_FILE = './dados-sync.json';
+
+// Carregar dados persistidos
+function loadData() {
   try {
-    if (fs.existsSync(AVISOS_FILE)) {
-      const data = fs.readFileSync(AVISOS_FILE, 'utf8');
-      avisos = JSON.parse(data);
+    if (fs.existsSync(DATA_FILE)) {
+      const data = fs.readFileSync(DATA_FILE, 'utf8');
+      sincData = JSON.parse(data);
+      console.log('✅ Dados carregados do arquivo');
     }
   } catch (err) {
-    console.error('Erro ao carregar avisos:', err);
+    console.error('⚠️ Erro ao carregar dados:', err.message);
   }
 }
 
-function saveAvisos() {
+function saveData() {
   try {
-    fs.writeFileSync(AVISOS_FILE, JSON.stringify(avisos, null, 2));
+    fs.writeFileSync(DATA_FILE, JSON.stringify(sincData, null, 2));
   } catch (err) {
-    console.error('Erro ao salvar avisos:', err);
+    console.error('⚠️ Erro ao salvar dados:', err.message);
   }
 }
 
-loadAvisos();
+loadData();
+
+// ─── MAPA DE USUÁRIOS CONECTADOS ───
+const usuariosConectados = new Map(); // { ws → { userId, empresaIds } }
+
+// ─── BROADCAST ───
+function broadcast(mensagem, excluirWs = null) {
+  const msg = JSON.stringify(mensagem);
+  wss.clients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN && client !== excluirWs) {
+      try {
+        client.send(msg);
+      } catch (err) {
+        console.error('Erro ao enviar:', err.message);
+      }
+    }
+  });
+}
+
+// Broadcast apenas para usuários de uma empresa específica
+function broadcastParaEmpresa(empresaId, mensagem) {
+  const msg = JSON.stringify(mensagem);
+  wss.clients.forEach(client => {
+    const usuario = usuariosConectados.get(client);
+    if (client.readyState === WebSocket.OPEN && usuario && usuario.empresaIds.includes(empresaId)) {
+      try {
+        client.send(msg);
+      } catch (err) {
+        console.error('Erro ao enviar:', err.message);
+      }
+    }
+  });
+}
 
 // ─── API REST ───
-app.get('/api/avisos/:empresaId', (req, res) => {
-  const { empresaId } = req.params;
-  const empresa = avisos[empresaId] || [];
-  res.json(empresa);
+
+// Obter dados sincronizados
+app.get('/api/sync-data', (req, res) => {
+  res.json(sincData);
 });
 
-app.post('/api/avisos/:empresaId', (req, res) => {
-  const { empresaId } = req.params;
-  const aviso = req.body;
+// Atualizar qualquer dado
+app.post('/api/sync-update', (req, res) => {
+  const { tipo, chave, valor, empresaId } = req.body;
   
-  if (!avisos[empresaId]) {
-    avisos[empresaId] = [];
+  try {
+    // Validar
+    if (!tipo || chave === undefined || valor === undefined) {
+      return res.status(400).json({ erro: 'Campos obrigatórios faltando' });
+    }
+
+    // Inicializar tipo se não existir
+    if (!sincData[tipo]) {
+      sincData[tipo] = {};
+    }
+
+    // Atualizar valor
+    sincData[tipo][chave] = valor;
+    saveData();
+
+    // Broadcast para todos ou para empresa específica
+    const mensagem = {
+      type: 'data-updated',
+      tipo,
+      chave,
+      valor,
+      empresaId,
+      timestamp: new Date().toISOString()
+    };
+
+    if (empresaId) {
+      broadcastParaEmpresa(empresaId, mensagem);
+    } else {
+      broadcast(mensagem);
+    }
+
+    res.json({ sucesso: true });
+  } catch (err) {
+    res.status(500).json({ erro: err.message });
   }
-  
-  avisos[empresaId].push(aviso);
-  saveAvisos();
-  
-  // Notificar todos os usuários dessa empresa via WebSocket
-  broadcast({
-    type: 'aviso-criado',
-    empresaId,
-    aviso
-  });
-  
-  res.json({ success: true, aviso });
 });
 
-app.put('/api/avisos/:empresaId/:avisoId', (req, res) => {
-  const { empresaId, avisoId } = req.params;
-  const updates = req.body;
-  
-  if (!avisos[empresaId]) {
-    return res.status(404).json({ error: 'Empresa não encontrada' });
-  }
-  
-  const aviso = avisos[empresaId].find(a => a.id === avisoId);
-  if (!aviso) {
-    return res.status(404).json({ error: 'Aviso não encontrado' });
-  }
-  
-  Object.assign(aviso, updates);
-  saveAvisos();
-  
-  // Notificar todos os usuários
-  broadcast({
-    type: 'aviso-atualizado',
-    empresaId,
-    avisoId,
-    updates
-  });
-  
-  res.json({ success: true, aviso });
-});
-
-app.delete('/api/avisos/:empresaId/:avisoId', (req, res) => {
-  const { empresaId, avisoId } = req.params;
-  
-  if (!avisos[empresaId]) {
-    return res.status(404).json({ error: 'Empresa não encontrada' });
-  }
-  
-  avisos[empresaId] = avisos[empresaId].filter(a => a.id !== avisoId);
-  saveAvisos();
-  
-  broadcast({
-    type: 'aviso-deletado',
-    empresaId,
-    avisoId
-  });
-  
-  res.json({ success: true });
+// Obter tipo específico
+app.get('/api/sync/:tipo', (req, res) => {
+  const { tipo } = req.params;
+  res.json(sincData[tipo] || {});
 });
 
 // ─── WEBSOCKET ───
-function broadcast(message) {
-  wss.clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(JSON.stringify(message));
-    }
-  });
-}
 
 wss.on('connection', (ws) => {
-  console.log('✓ Cliente WebSocket conectado');
+  console.log('✓ Novo cliente WebSocket conectado');
   
   ws.on('message', (data) => {
     try {
       const msg = JSON.parse(data);
-      
+      console.log('📨 Mensagem recebida:', msg.type);
+
       switch(msg.type) {
-        case 'subscribe':
-          // Cliente se inscreve para atualizações de uma empresa
-          ws.userId = msg.userId;
-          ws.empresaId = msg.empresaId;
-          usuarios.set(ws, { userId: msg.userId, empresaId: msg.empresaId });
+        // ─── AUTENTICAÇÃO ───
+        case 'auth':
+          const usuario = {
+            userId: msg.userId,
+            empresaIds: msg.empresaIds || [],
+            timestamp: Date.now()
+          };
+          usuariosConectados.set(ws, usuario);
           
-          // Enviar todos os avisos atuais dessa empresa
-          const empresa = avisos[msg.empresaId] || [];
+          // Enviar todos os dados sincronizados
           ws.send(JSON.stringify({
-            type: 'avisos-carregados',
-            empresaId: msg.empresaId,
-            avisos: empresa
+            type: 'sync-inicial',
+            dados: sincData,
+            timestamp: new Date().toISOString()
           }));
-          
-          // Notificar que usuário entrou
+
+          // Notificar que usuário entrou online
           broadcast({
             type: 'usuario-online',
             userId: msg.userId,
-            empresaId: msg.empresaId
+            empresaIds: msg.empresaIds
           });
+
+          console.log(`👤 Usuário autenticado: ${msg.userId}`);
           break;
+
+        // ─── ATUALIZAR QUALQUER DADO ───
+        case 'update':
+          const { tipo, chave, valor, empresaId } = msg;
           
-        case 'criar-aviso':
-          const novoAviso = {
-            id: 'aviso_' + Date.now(),
-            ...msg.aviso,
-            criadoPor: msg.userId,
-            criadoEm: new Date().toISOString()
-          };
-          
-          if (!avisos[msg.empresaId]) {
-            avisos[msg.empresaId] = [];
+          if (!sincData[tipo]) {
+            sincData[tipo] = {};
           }
-          avisos[msg.empresaId].push(novoAviso);
-          saveAvisos();
           
-          broadcast({
-            type: 'aviso-criado',
-            empresaId: msg.empresaId,
-            aviso: novoAviso
-          });
+          sincData[tipo][chave] = valor;
+          saveData();
+
+          // Broadcast
+          const atualizacao = {
+            type: 'data-updated',
+            tipo,
+            chave,
+            valor,
+            empresaId,
+            userId: msg.userId,
+            timestamp: new Date().toISOString()
+          };
+
+          if (empresaId) {
+            broadcastParaEmpresa(empresaId, atualizacao);
+          } else {
+            broadcast(atualizacao);
+          }
+
+          ws.send(JSON.stringify({ type: 'ack', id: msg.id }));
           break;
+
+        // ─── CRIAR/ADICIONAR ITEM ───
+        case 'create':
+          const { tipo: tipoCreate, id: itemId, valor: novoValor, empresaId: empId } = msg;
           
-        case 'atualizar-aviso':
-          if (avisos[msg.empresaId]) {
-            const aviso = avisos[msg.empresaId].find(a => a.id === msg.avisoId);
-            if (aviso) {
-              Object.assign(aviso, msg.updates);
-              aviso.atualizadoEm = new Date().toISOString();
-              aviso.atualizadoPor = msg.userId;
-              saveAvisos();
-              
-              broadcast({
-                type: 'aviso-atualizado',
-                empresaId: msg.empresaId,
-                avisoId: msg.avisoId,
-                updates: msg.updates
-              });
+          if (!sincData[tipoCreate]) {
+            sincData[tipoCreate] = {};
+          }
+          
+          sincData[tipoCreate][itemId] = novoValor;
+          saveData();
+
+          const criacao = {
+            type: 'item-created',
+            tipo: tipoCreate,
+            id: itemId,
+            valor: novoValor,
+            empresaId: empId,
+            userId: msg.userId,
+            timestamp: new Date().toISOString()
+          };
+
+          if (empId) {
+            broadcastParaEmpresa(empId, criacao);
+          } else {
+            broadcast(criacao);
+          }
+
+          ws.send(JSON.stringify({ type: 'ack', id: msg.id }));
+          break;
+
+        // ─── DELETAR ITEM ───
+        case 'delete':
+          const { tipo: tipoDel, chave: chaveDel, empresaId: empIdDel } = msg;
+          
+          if (sincData[tipoDel] && sincData[tipoDel][chaveDel]) {
+            delete sincData[tipoDel][chaveDel];
+            saveData();
+
+            const delecao = {
+              type: 'item-deleted',
+              tipo: tipoDel,
+              chave: chaveDel,
+              empresaId: empIdDel,
+              userId: msg.userId,
+              timestamp: new Date().toISOString()
+            };
+
+            if (empIdDel) {
+              broadcastParaEmpresa(empIdDel, delecao);
+            } else {
+              broadcast(delecao);
             }
           }
+
+          ws.send(JSON.stringify({ type: 'ack', id: msg.id }));
           break;
-          
-        case 'deletar-aviso':
-          if (avisos[msg.empresaId]) {
-            avisos[msg.empresaId] = avisos[msg.empresaId].filter(a => a.id !== msg.avisoId);
-            saveAvisos();
-            
-            broadcast({
-              type: 'aviso-deletado',
-              empresaId: msg.empresaId,
-              avisoId: msg.avisoId
-            });
-          }
+
+        // ─── SINCRONIZAR TUDO ───
+        case 'sync-all':
+          ws.send(JSON.stringify({
+            type: 'sync-completo',
+            dados: sincData,
+            timestamp: new Date().toISOString()
+          }));
+          break;
+
+        // ─── PING/PONG ───
+        case 'ping':
+          ws.send(JSON.stringify({ type: 'pong' }));
           break;
       }
     } catch (err) {
-      console.error('Erro processando mensagem WebSocket:', err);
+      console.error('❌ Erro processando mensagem:', err.message);
+      ws.send(JSON.stringify({
+        type: 'erro',
+        mensagem: err.message
+      }));
     }
   });
-  
+
   ws.on('close', () => {
-    const user = usuarios.get(ws);
-    usuarios.delete(ws);
-    console.log('✗ Cliente desconectado');
-    
-    if (user) {
+    const usuario = usuariosConectados.get(ws);
+    if (usuario) {
+      usuariosConectados.delete(ws);
       broadcast({
         type: 'usuario-offline',
-        userId: user.userId
+        userId: usuario.userId
       });
+      console.log(`✗ Usuário desconectado: ${usuario.userId}`);
     }
   });
-  
+
   ws.on('error', (err) => {
-    console.error('Erro WebSocket:', err);
+    console.error('❌ Erro WebSocket:', err.message);
   });
 });
 
 // ─── INICIAR SERVIDOR ───
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`🚀 Servidor rodando em http://localhost:${PORT}`);
-  console.log(`📡 WebSocket disponível em ws://localhost:${PORT}/ws`);
+  console.log(`\n${'='.repeat(50)}`);
+  console.log(`🚀 Servidor MDTEC Sincronização`);
+  console.log(`📡 HTTP: http://localhost:${PORT}`);
+  console.log(`📡 WebSocket: ws://localhost:${PORT}/ws`);
+  console.log(`${'='.repeat(50)}\n`);
+});
+
+// ─── GRACEFUL SHUTDOWN ───
+process.on('SIGTERM', () => {
+  console.log('📝 Salvando dados...');
+  saveData();
+  console.log('✅ Servidor encerrado');
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  console.log('📝 Salvando dados...');
+  saveData();
+  console.log('✅ Servidor encerrado');
+  process.exit(0);
 });

@@ -8416,7 +8416,6 @@ function ContabilPage({toast,data}){
   };
 
   const toggleEmpC=(eid)=>setCEmpresas(prev=>prev.map(e=>e.id===eid?{...e,expandido:!e.expandido}:e));
-  const expandAllC=()=>setCEmpresas(prev=>{const allExp=prev.every(e=>e.expandido);return prev.map(e=>({...e,expandido:!allExp}));});
 
   // ─── Side Panel ───────────────────────────────────────────────
   const [selectedEmpPanel,setSelectedEmpPanel]=useState(null);
@@ -8673,7 +8672,6 @@ function ContabilPage({toast,data}){
           {!isGuestMode&&<Btn onClick={()=>setShowNovaEmpModal(true)} sz="sm">+ Empresa</Btn>}
           {!isGuestMode&&<Btn onClick={()=>setShowGrupoModal(true)} v="ghost" sz="sm">👥 Grupo</Btn>}
           {!isGuestMode&&<Btn onClick={()=>{setBatchMode(b=>!b);setSelectedEmps(new Set());}} v="ghost" sz="sm" xs={{background:batchMode?"#fef2f2":"#f8fafc",color:batchMode?"#dc2626":"var(--text3)",border:`1px solid ${batchMode?"#fca5a5":"var(--border2)"}`}}>{batchMode?"✕ Sair lote":"☑ Selecionar"}</Btn>}
-          <Btn onClick={expandAllC} v="ghost" sz="sm">{cEmpresas.every(e=>e.expandido)?"⊖ Recolher":"⊕ Expandir"}</Btn>
         </div>
       </div>
 
@@ -9509,51 +9507,60 @@ function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgC
   return(
     <div style={{borderBottom:isLast?"none":"1px solid var(--border)",background:isSelected?"#eff6ff":selectedEmpPanel===emp.id?"rgba(99,102,241,.06)":undefined}}>
       {/* Header */}
-      <div style={{display:"flex",alignItems:"center",padding:indent?"11px 14px 11px 28px":"11px 14px",gap:8,transition:"background .1s",background:emp.expandido?"var(--bg2)":undefined,borderLeft:selectedEmpPanel===emp.id?"3px solid #6366f1":"3px solid transparent"}}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:indent?"14px 20px 14px 36px":"14px 20px",cursor:"pointer",flexWrap:"wrap",gap:10,transition:"background .1s",background:emp.expandido?"var(--bg2)":undefined,borderLeft:selectedEmpPanel===emp.id?"3px solid #6366f1":"3px solid transparent"}}
         onMouseEnter={e=>!batchMode&&(e.currentTarget.style.background="rgba(99,102,241,.04)")}
         onMouseLeave={e=>!batchMode&&!emp.expandido&&(e.currentTarget.style.background=selectedEmpPanel===emp.id?"rgba(99,102,241,.06)":"transparent")}
       >
-        {/* Expand arrow LEFT */}
-        <span onClick={e=>{e.stopPropagation();toggleEmpC(emp.id);}} style={{fontSize:11,color:"#94a3b8",transition:"transform .25s",transform:emp.expandido?"rotate(90deg)":"none",cursor:"pointer",flexShrink:0,userSelect:"none"}}>▶</span>
         {/* Checkbox (batch mode) */}
-        {batchMode&&<input type="checkbox" checked={isSelected} onChange={()=>toggleSel(emp.id)} onClick={e=>e.stopPropagation()} style={{width:16,height:16,cursor:"pointer",accentColor:"#6366f1",flexShrink:0}}/>}
-        {/* Avatar */}
-        <div onClick={()=>{if(openSidePanel)openSidePanel(emp.id);}} style={{width:34,height:34,borderRadius:8,background:grpColor,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:12,color:"#fff",flexShrink:0,cursor:"pointer",letterSpacing:"-.5px"}}>
-          {emp.nome.slice(0,2).toUpperCase()}
-        </div>
-        {/* Name + CNPJ */}
-        <div onClick={()=>{if(openSidePanel)openSidePanel(emp.id);}} style={{flex:"0 0 auto",minWidth:0,cursor:"pointer",maxWidth:200}}>
-          <div style={{fontSize:13,fontWeight:800,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{emp.nome}</div>
-          {emp.cnpj&&<div style={{fontSize:10,color:"#94a3b8",fontFamily:"monospace",whiteSpace:"nowrap"}}>{emp.cnpj}</div>}
-        </div>
-        {/* Regime + obs badges */}
-        <div onClick={()=>{if(openSidePanel)openSidePanel(emp.id);}} style={{display:"flex",alignItems:"center",gap:5,flex:1,minWidth:0,cursor:"pointer",flexWrap:"wrap"}}>
-          <span style={getRegStyle(emp.regime)}>{getRegimeLbl(emp.regime)}</span>
-          {obsCount>0&&<span style={{display:"inline-flex",alignItems:"center",gap:3,background:"#fef3c7",color:"#92400e",padding:"2px 7px",borderRadius:20,fontSize:10,fontWeight:800,border:"1.5px solid #fcd34d",whiteSpace:"nowrap"}}>📝 {obsCount}</span>}
-          {obsCount===0&&obsVerifCount>0&&<span style={{display:"inline-flex",alignItems:"center",gap:3,background:"#f1f5f9",color:"#94a3b8",padding:"2px 6px",borderRadius:20,fontSize:10,fontWeight:700,border:"1px solid #e2e8f0",whiteSpace:"nowrap"}}>✔️ {obsVerifCount}</span>}
-        </div>
-        {/* Stats */}
-        <div style={{display:"flex",gap:12,flexShrink:0}}>
-          {[{v:stats.analisados,l:"Analisa.",c:"#22c55e"},{v:stats.contabilizados,l:"Contab.",c:"#6366f1"},{v:stats.pendentes,l:"Pendentes",c:stats.pendentes>0?"#ef4444":"#94a3b8"}].map(({v,l,c})=>(
-            <div key={l} style={{textAlign:"center",minWidth:36}}>
-              <div style={{fontSize:14,fontWeight:900,color:c,lineHeight:1}}>{v}</div>
-              <div style={{fontSize:8,color:"#94a3b8",fontWeight:700,textTransform:"uppercase",marginTop:2,whiteSpace:"nowrap"}}>{l}</div>
+        {batchMode&&(
+          <input type="checkbox" checked={isSelected} onChange={()=>toggleSel(emp.id)} onClick={e=>e.stopPropagation()} style={{width:16,height:16,cursor:"pointer",accentColor:"#6366f1",flexShrink:0}}/>
+        )}
+        {/* Main info — click to open side panel */}
+        <div onClick={()=>{if(openSidePanel)openSidePanel(emp.id);}} style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",flex:1,minWidth:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+            <div style={{display:"flex",flexDirection:"column",gap:1}}>
+              <span style={{fontSize:14,fontWeight:800,color:"var(--text)"}}>🏢 {emp.nome}</span>
+              {emp.cnpj&&<span style={{fontSize:10,color:"#94a3b8",fontFamily:"monospace"}}>{emp.cnpj}</span>}
             </div>
-          ))}
+            <span style={getRegStyle(emp.regime)}>{getRegimeLbl(emp.regime)}</span>
+            {emp.grupoId&&<span style={{background:grpColor+"22",color:grpColor,border:`1px solid ${grpColor}44`,padding:"2px 8px",borderRadius:12,fontSize:11,fontWeight:700}}>{getGrupoNomeC(emp.grupoId)}</span>}
+            <span style={{background:"#e2e8f0",color:"#475569",padding:"2px 8px",borderRadius:12,fontSize:11}}>📅 {emp.periodoInicial}</span>
+            {/* Destaque de observações — badge laranja pulsante */}
+            {obsCount>0&&(
+              <span style={{
+                display:"inline-flex",alignItems:"center",gap:4,
+                background:"linear-gradient(135deg,#f59e0b,#d97706)",
+                color:"#fff",padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:800,
+                border:"2px solid #fbbf24",
+                boxShadow:"0 0 0 3px rgba(245,158,11,.25)",
+                animation:"lockPulse 2s infinite"
+              }}>📝 {obsCount} obs.</span>
+            )}
+            {obsCount===0&&obsVerifCount>0&&(
+              <span title="Observações verificadas" style={{display:"inline-flex",alignItems:"center",gap:4,background:"#f1f5f9",color:"#94a3b8",padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,border:"1px solid #e2e8f0"}}>✔️ {obsVerifCount} obs.</span>
+            )}
+          </div>
+          <div style={{display:"flex",gap:14}}>
+            {[{v:stats.analisados,l:"Analisa."},{v:stats.contabilizados,l:"Contab."},{v:stats.pendentes,l:"Pendentes"}].map(({v,l})=>(
+              <div key={l} style={{textAlign:"center"}}>
+                <div style={{fontSize:16,fontWeight:900,color:"var(--text)"}}>{v}</div>
+                <div style={{fontSize:9,color:"#94a3b8",fontWeight:700,textTransform:"uppercase"}}>{l}</div>
+              </div>
+            ))}
+          </div>
+          {/* Year summary badges */}
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {ANOS.map(ano=>{const r=getResumoAno(emp.id,ano);if(r.total===0)return null;const pctAno=Math.round((r.analisados/r.total)*100);return(<span key={ano} style={{background:pctAno===100?"#d1fae5":"#e0e7ff",color:pctAno===100?"#065f46":"#3730a3",padding:"2px 8px",borderRadius:8,fontSize:10,fontWeight:700,border:`1px solid ${pctAno===100?"#86efac":"#c7d2fe"}`}}>{ano}: {r.analisados}/{r.total} {pctAno===100?"✅":""}</span>);})}
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+            <div style={{width:70,height:6,borderRadius:3,background:"#e2e8f0",overflow:"hidden"}}><div style={{height:"100%",borderRadius:3,background:getProgClr(pct),width:`${pct}%`,transition:"width .4s"}}/></div>
+            <span style={{fontSize:11,fontWeight:700,color:"#64748b"}}>{pct}%</span>
+          </div>
         </div>
-        {/* Year badges */}
-        <div style={{display:"flex",gap:4,flexShrink:0}}>
-          {ANOS.map(ano=>{const r=getResumoAno(emp.id,ano);if(r.total===0)return null;const pctAno=Math.round((r.analisados/r.total)*100);return(<span key={ano} style={{background:pctAno===100?"#d1fae5":"#e0e7ff",color:pctAno===100?"#065f46":"#3730a3",padding:"2px 6px",borderRadius:6,fontSize:9,fontWeight:700,border:`1px solid ${pctAno===100?"#86efac":"#c7d2fe"}`,whiteSpace:"nowrap"}}>{ano}: {r.analisados}/{r.total}</span>);})}
-        </div>
-        {/* Progress */}
-        <div style={{display:"flex",alignItems:"center",gap:5,flexShrink:0,minWidth:68}}>
-          <div style={{width:46,height:5,borderRadius:3,background:"#e2e8f0",overflow:"hidden"}}><div style={{height:"100%",borderRadius:3,background:getProgClr(pct),width:`${pct}%`,transition:"width .4s"}}/></div>
-          <span style={{fontSize:11,fontWeight:700,color:"#64748b"}}>{pct}%</span>
-        </div>
-        {/* Actions */}
-        <div style={{display:"flex",gap:3,alignItems:"center",flexShrink:0}}>
-          {!window.__isGuest&&<button onClick={e=>{e.stopPropagation();setEditEmpCForm({nome:emp.nome,cnpj:emp.cnpj||"",regime:emp.regime||"simples",grupoId:emp.grupoId||""});setEditEmpCModal({emp});}} title="Editar" style={{background:"none",border:"none",cursor:"pointer",color:"#6366f1",fontSize:13,padding:"3px 5px",borderRadius:6}}>✏️</button>}
-          {!window.__isGuest&&<button onClick={e=>{e.stopPropagation();confirmarDeleteEmp(emp);}} title="Excluir" style={{background:"none",border:"none",cursor:"pointer",color:"#fca5a5",fontSize:13,padding:"3px 5px",borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#fca5a5"}>🗑</button>}
+        <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
+          {!window.__isGuest&&<button onClick={e=>{e.stopPropagation();setEditEmpCForm({nome:emp.nome,cnpj:emp.cnpj||"",regime:emp.regime||"simples",grupoId:emp.grupoId||""});setEditEmpCModal({emp});}} title="Editar" style={{background:"none",border:"none",cursor:"pointer",color:"#6366f1",fontSize:13,padding:"3px 7px",borderRadius:6}}>✏️</button>}
+          {!window.__isGuest&&<button onClick={e=>{e.stopPropagation();confirmarDeleteEmp(emp);}} title="Excluir empresa" style={{background:"none",border:"none",cursor:"pointer",color:"#fca5a5",fontSize:14,padding:"3px 7px",borderRadius:6,transition:"all .1s"}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#fca5a5"}>🗑</button>}
+          <span onClick={e=>{e.stopPropagation();toggleEmpC(emp.id);}} style={{fontSize:18,color:"#94a3b8",transition:"transform .3s",transform:emp.expandido?"rotate(180deg)":"none",cursor:"pointer"}}>▼</span>
         </div>
       </div>
 
@@ -10882,18 +10889,6 @@ function makePageComponent(PAGE_CFG){
     const getAbaAno=(eid)=>{const e=empresas.find(x=>x.id===eid);const anos=ANOS.filter(a=>getMeses(e?.periodoInicial||"01/2025").some(m=>m.endsWith("/"+a)));return abaAnoMap[eid]||anos[0]||ANOS[0];};
     const toggleEmpExp=(eid)=>setExpandedEmps(prev=>{const n=new Set(prev);n.has(eid)?n.delete(eid):n.add(eid);return n;});
 
-    // ── Side panel ───────────────────────────────────────────────
-    const [selectedEmpPanel,setSelectedEmpPanel]=useState(null);
-    const openSidePanel=(eid)=>setSelectedEmpPanel(eid===selectedEmpPanel?null:eid);
-    const closeSidePanel=()=>setSelectedEmpPanel(null);
-    // Per-empresa column overrides stored in localStorage
-    const EMP_COLS_KEY=COLS_KEY+"_empoverride";
-    const [empColsOverride,setEmpColsOverride]=useState(()=>{try{const s=localStorage.getItem(EMP_COLS_KEY);return s?JSON.parse(s):{}}catch(e){return{};}});
-    const saveEmpColsOverride=(obj)=>{setEmpColsOverride(obj);try{localStorage.setItem(EMP_COLS_KEY,JSON.stringify(obj));}catch(e){}};
-    const getColsForEmp=(eid)=>empColsOverride[eid]||cols;
-    const [empColsModal,setEmpColsModal]=useState(null); // empId
-    const [empColsDraft,setEmpColsDraft]=useState([]);
-
     const guestEmpIds=useMemo(()=>{if(!isGuestMode||!guestGrpId)return null;const sids=grupos.filter(g=>g.parentId===guestGrpId).map(g=>g.id);return new Set(empresas.filter(e=>e.grupoId===guestGrpId||sids.includes(e.grupoId)).map(e=>e.id));},[isGuestMode,guestGrpId,empresas,grupos]);
     const empsFiltradas=useMemo(()=>empresas.filter(e=>{if(guestEmpIds&&!guestEmpIds.has(e.id))return false;if(filterEmp&&!e.nome.toLowerCase().includes(filterEmp.toLowerCase())&&!(e.cnpj||"").includes(filterEmp))return false;if(filterGrp==="__sem__"&&e.grupoId)return false;if(filterGrp&&filterGrp!=="__sem__"&&e.grupoId!==parseInt(filterGrp))return false;if(filterReg&&e.regime!==filterReg)return false;return true;}),[empresas,filterEmp,filterGrp,filterReg,guestEmpIds]);
     const gruposRaiz=useMemo(()=>grupos.filter(g=>!g.parentId),[grupos]);
@@ -10928,7 +10923,7 @@ function makePageComponent(PAGE_CFG){
     const [showNovaEmpModal,setShowNovaEmpModal]=useState(false);
     const [novaEmpForm,setNovaEmpForm]=useState({nome:"",cnpj:"",regime:"simples",grupoId:"",periodoInicial:"01/"+CUR_Y,importarDe:""});
     const [editEmpModal,setEditEmpModal]=useState(null);
-    const [editEmpForm,setEditEmpForm]=useState({nome:"",cnpj:"",regime:"",grupoId:"",telefone:"",email:"",socio:"",cpfSocio:"",pontos:""});
+    const [editEmpForm,setEditEmpForm]=useState({nome:"",cnpj:"",regime:"",grupoId:""});
     const [deleteEmpModal,setDeleteEmpModal]=useState(null);
     const [deleteTyped,setDeleteTyped]=useState("");
     const adicionarEmp=()=>{
@@ -10937,7 +10932,7 @@ function makePageComponent(PAGE_CFG){
       else{if(!novaEmpForm.nome.trim()){toast("Digite o nome","err");return;}ne={id:nextEmpId,nome:novaEmpForm.nome.trim(),cnpj:novaEmpForm.cnpj||"",regime:novaEmpForm.regime,grupoId:novaEmpForm.grupoId?parseInt(novaEmpForm.grupoId):null,periodoInicial:novaEmpForm.periodoInicial};}
       const nextEmpresas=[...empresas,ne];saveToDB(nextEmpresas,grupos,dados,obs,prazos,nextEmpId+1,nextGrpId,true);setEmpresas(nextEmpresas);setNextEmpId(n=>n+1);setShowNovaEmpModal(false);setNovaEmpForm({nome:"",cnpj:"",regime:"simples",grupoId:"",periodoInicial:"01/"+CUR_Y,importarDe:""});toast("🏢 "+ne.nome+" adicionada!","ok");
     };
-    const salvarEditEmp=()=>{if(!editEmpModal)return;const ne=empresas.map(e=>e.id===editEmpModal.emp.id?{...e,nome:editEmpForm.nome,cnpj:editEmpForm.cnpj,regime:editEmpForm.regime,grupoId:editEmpForm.grupoId?parseInt(editEmpForm.grupoId):null,telefone:editEmpForm.telefone||"",email:editEmpForm.email||"",socio:editEmpForm.socio||"",cpfSocio:editEmpForm.cpfSocio||"",pontos:editEmpForm.pontos||""}:e);setEmpresas(ne);saveToDB(ne,grupos,dados,obs,prazos,nextEmpId,nextGrpId,true);setEditEmpModal(null);toast("✅ Empresa atualizada!","ok");};
+    const salvarEditEmp=()=>{if(!editEmpModal)return;const ne=empresas.map(e=>e.id===editEmpModal.emp.id?{...e,nome:editEmpForm.nome,cnpj:editEmpForm.cnpj,regime:editEmpForm.regime,grupoId:editEmpForm.grupoId?parseInt(editEmpForm.grupoId):null}:e);setEmpresas(ne);saveToDB(ne,grupos,dados,obs,prazos,nextEmpId,nextGrpId,true);setEditEmpModal(null);toast("✅ Empresa atualizada!","ok");};
     const executarDelete=()=>{if(!deleteEmpModal||deleteTyped.toUpperCase()!=="EXCLUIR")return;const eid=deleteEmpModal.id;setEmpresas(prev=>prev.filter(e=>e.id!==eid));setDados(prev=>{const nd={...prev};Object.keys(nd).filter(k=>k.startsWith(eid+"_")).forEach(k=>delete nd[k]);return nd;});setObs(prev=>prev.filter(o=>o.eid!==eid));setDeleteEmpModal(null);setDeleteTyped("");toast("🗑 Excluída!","ok");};
     const confirmarDeleteBatch=()=>{selectedEmps.forEach(eid=>{setEmpresas(prev=>prev.filter(e=>e.id!==eid));setDados(prev=>{const nd={...prev};Object.keys(nd).filter(k=>k.startsWith(eid+"_")).forEach(k=>delete nd[k]);return nd;});setObs(prev=>prev.filter(o=>o.eid!==eid));});setSelectedEmps(new Set());setBatchMode(false);toast("🗑 Excluídas!","ok");};
 
@@ -10947,52 +10942,39 @@ function makePageComponent(PAGE_CFG){
       const mesesEmp=getMeses(emp.periodoInicial);const anosComMeses=ANOS.filter(a=>mesesEmp.some(m=>m.endsWith("/"+a)));
       const abaAtiva=getAbaAno(emp.id);const obsEmp=obs.filter(o=>o.eid===emp.id);const obsCount=obsEmp.filter(o=>!o.verificado).length;const obsVerifCount=obsEmp.length-obsCount;
       const isSelected=selectedEmps.has(emp.id);const isExpanded=expandedEmps.has(emp.id);
-      const empCols=getColsForEmp(emp.id);
       return(
-        <div key={emp.id} style={{borderBottom:isLast?"none":"1px solid var(--border)",background:isSelected?"#eff6ff":selectedEmpPanel===emp.id?"rgba(99,102,241,.06)":undefined}}>
-          <div style={{display:"flex",alignItems:"center",padding:indent?"11px 14px 11px 28px":"11px 14px",gap:8,transition:"background .1s",background:isExpanded?"var(--bg2)":undefined,borderLeft:selectedEmpPanel===emp.id?"3px solid #6366f1":"3px solid transparent"}}
+        <div key={emp.id} style={{borderBottom:isLast?"none":"1px solid var(--border)",background:isSelected?"#eff6ff":undefined}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:indent?"14px 20px 14px 36px":"14px 20px",cursor:"pointer",flexWrap:"wrap",gap:10,transition:"background .1s",background:isExpanded?"var(--bg2)":undefined}}
             onMouseEnter={e=>!batchMode&&(e.currentTarget.style.background="rgba(99,102,241,.04)")}
-            onMouseLeave={e=>!batchMode&&!isExpanded&&(e.currentTarget.style.background=selectedEmpPanel===emp.id?"rgba(99,102,241,.06)":"transparent")}
+            onMouseLeave={e=>!batchMode&&!isExpanded&&(e.currentTarget.style.background="transparent")}
           >
-            {/* Expand arrow LEFT */}
-            <span onClick={e=>{e.stopPropagation();toggleEmpExp(emp.id);}} style={{fontSize:11,color:"#94a3b8",transition:"transform .25s",transform:isExpanded?"rotate(90deg)":"none",cursor:"pointer",flexShrink:0,userSelect:"none"}}>▶</span>
             {batchMode&&<input type="checkbox" checked={isSelected} onChange={()=>setSelectedEmps(prev=>{const n=new Set(prev);n.has(emp.id)?n.delete(emp.id):n.add(emp.id);return n;})} onClick={e=>e.stopPropagation()} style={{width:16,height:16,cursor:"pointer",accentColor:"#6366f1",flexShrink:0}}/>}
-            {/* Avatar — opens side panel */}
-            <div onClick={()=>openSidePanel(emp.id)} style={{width:34,height:34,borderRadius:8,background:grpColor,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:12,color:"#fff",flexShrink:0,cursor:"pointer",letterSpacing:"-.5px"}}>
-              {emp.nome.slice(0,2).toUpperCase()}
+            <div onClick={()=>toggleEmpExp(emp.id)} style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",flex:1,minWidth:0}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                <div style={{display:"flex",flexDirection:"column",gap:1}}>
+                  <span style={{fontSize:14,fontWeight:800,color:"var(--text)"}}>🏢 {emp.nome}</span>
+                  {emp.cnpj&&<span style={{fontSize:10,color:"#94a3b8",fontFamily:"monospace"}}>{emp.cnpj}</span>}
+                </div>
+                <span style={getRegStyle(emp.regime)}>{RegLabel[emp.regime]||emp.regime}</span>
+                {emp.grupoId&&<span style={{background:grpColor+"22",color:grpColor,border:`1px solid ${grpColor}44`,padding:"2px 8px",borderRadius:12,fontSize:11,fontWeight:700}}>{grupos.find(g=>g.id===emp.grupoId)?.nome||""}</span>}
+                {obsCount>0&&<span style={{display:"inline-flex",alignItems:"center",gap:4,background:"linear-gradient(135deg,#f59e0b,#d97706)",color:"#fff",padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:800,border:"2px solid #fbbf24",boxShadow:"0 0 0 3px rgba(245,158,11,.25)",animation:"lockPulse 2s infinite"}}>📝 {obsCount}</span>}
+                {obsCount===0&&obsVerifCount>0&&<span title="Observações verificadas" style={{display:"inline-flex",alignItems:"center",gap:4,background:"#f1f5f9",color:"#94a3b8",padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,border:"1px solid #e2e8f0"}}>✔️ {obsVerifCount}</span>}
+              </div>
+              <div style={{display:"flex",gap:14}}>
+                {[{v:stats.analisados,l:"Analisados"},{v:stats.contabilizados,l:"Concluídos"},{v:stats.pendentes,l:"Pendentes"}].map(({v,l})=>(
+                  <div key={l} style={{textAlign:"center"}}><div style={{fontSize:16,fontWeight:900,color:"var(--text)"}}>{v}</div><div style={{fontSize:9,color:"#94a3b8",fontWeight:700,textTransform:"uppercase"}}>{l}</div></div>
+                ))}
+              </div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+                {ANOS.map(ano=>{const r=getResumoAno(emp.id,ano);if(!r.total)return null;const p=Math.round(r.analisados/r.total*100);return(<span key={ano} style={{background:p===100?"#d1fae5":"#e0e7ff",color:p===100?"#065f46":"#3730a3",padding:"2px 8px",borderRadius:8,fontSize:10,fontWeight:700,border:`1px solid ${p===100?"#86efac":"#c7d2fe"}`}}>{ano}: {r.analisados}/{r.total} {p===100?"✅":""}</span>);})}
+                {stats.ultimoMes&&<span style={{background:"#f0fdf4",color:"#065f46",padding:"2px 8px",borderRadius:8,fontSize:10,fontWeight:700,border:"1px solid #86efac"}}>✅ Último: {getMesNome(stats.ultimoMes)}</span>}
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:6}}><div style={{width:70,height:6,borderRadius:3,background:"#e2e8f0",overflow:"hidden"}}><div style={{height:"100%",borderRadius:3,background:getProgClr(pct),width:`${pct}%`,transition:"width .4s"}}/></div><span style={{fontSize:11,fontWeight:700,color:"#64748b"}}>{pct}%</span></div>
             </div>
-            {/* Name */}
-            <div onClick={()=>toggleEmpExp(emp.id)} style={{flex:"0 0 auto",minWidth:0,cursor:"pointer",maxWidth:200}}>
-              <div style={{fontSize:13,fontWeight:800,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{emp.nome}</div>
-              {emp.cnpj&&<div style={{fontSize:10,color:"#94a3b8",fontFamily:"monospace",whiteSpace:"nowrap"}}>{emp.cnpj}</div>}
-            </div>
-            {/* Regime + badges */}
-            <div style={{display:"flex",alignItems:"center",gap:5,flex:1,minWidth:0,flexWrap:"wrap"}}>
-              <span style={getRegStyle(emp.regime)}>{RegLabel[emp.regime]||emp.regime}</span>
-              {emp.grupoId&&<span style={{background:grpColor+"22",color:grpColor,border:`1px solid ${grpColor}44`,padding:"2px 6px",borderRadius:12,fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>{grupos.find(g=>g.id===emp.grupoId)?.nome||""}</span>}
-              {obsCount>0&&<span style={{display:"inline-flex",alignItems:"center",gap:3,background:"#fef3c7",color:"#92400e",padding:"2px 7px",borderRadius:20,fontSize:10,fontWeight:800,border:"1.5px solid #fcd34d",whiteSpace:"nowrap"}}>📝 {obsCount}</span>}
-              {obsCount===0&&obsVerifCount>0&&<span style={{display:"inline-flex",alignItems:"center",gap:3,background:"#f1f5f9",color:"#94a3b8",padding:"2px 6px",borderRadius:20,fontSize:10,fontWeight:700,border:"1px solid #e2e8f0",whiteSpace:"nowrap"}}>✔️ {obsVerifCount}</span>}
-            </div>
-            {/* Stats */}
-            <div style={{display:"flex",gap:12,flexShrink:0}}>
-              {[{v:stats.analisados,l:"Analisa.",c:"#22c55e"},{v:stats.contabilizados,l:"Concluídos",c:"#6366f1"},{v:stats.pendentes,l:"Pendentes",c:stats.pendentes>0?"#ef4444":"#94a3b8"}].map(({v,l,c})=>(
-                <div key={l} style={{textAlign:"center",minWidth:36}}><div style={{fontSize:14,fontWeight:900,color:c,lineHeight:1}}>{v}</div><div style={{fontSize:8,color:"#94a3b8",fontWeight:700,textTransform:"uppercase",marginTop:2,whiteSpace:"nowrap"}}>{l}</div></div>
-              ))}
-            </div>
-            {/* Year badges */}
-            <div style={{display:"flex",gap:4,flexShrink:0}}>
-              {ANOS.map(ano=>{const r=getResumoAno(emp.id,ano);if(!r.total)return null;const p=Math.round(r.analisados/r.total*100);return(<span key={ano} style={{background:p===100?"#d1fae5":"#e0e7ff",color:p===100?"#065f46":"#3730a3",padding:"2px 6px",borderRadius:6,fontSize:9,fontWeight:700,border:`1px solid ${p===100?"#86efac":"#c7d2fe"}`,whiteSpace:"nowrap"}}>{ano}: {r.analisados}/{r.total}</span>);})}
-              {stats.ultimoMes&&<span style={{background:"#f0fdf4",color:"#065f46",padding:"2px 6px",borderRadius:6,fontSize:9,fontWeight:700,border:"1px solid #86efac",whiteSpace:"nowrap"}}>Últ: {getMesNome(stats.ultimoMes)}</span>}
-            </div>
-            {/* Progress */}
-            <div style={{display:"flex",alignItems:"center",gap:5,flexShrink:0,minWidth:68}}>
-              <div style={{width:46,height:5,borderRadius:3,background:"#e2e8f0",overflow:"hidden"}}><div style={{height:"100%",borderRadius:3,background:getProgClr(pct),width:`${pct}%`,transition:"width .4s"}}/></div>
-              <span style={{fontSize:11,fontWeight:700,color:"#64748b"}}>{pct}%</span>
-            </div>
-            {/* Actions */}
-            <div style={{display:"flex",gap:3,alignItems:"center",flexShrink:0}}>
-              {!isGuestMode&&<button onClick={e=>{e.stopPropagation();setEditEmpForm({nome:emp.nome,cnpj:emp.cnpj||"",regime:emp.regime||"simples",grupoId:emp.grupoId||"",telefone:emp.telefone||"",email:emp.email||"",socio:emp.socio||"",cpfSocio:emp.cpfSocio||"",pontos:emp.pontos||""});setEditEmpModal({emp});}} title="Editar" style={{background:"none",border:"none",cursor:"pointer",color:"#6366f1",fontSize:13,padding:"3px 5px",borderRadius:6}}>✏️</button>}
-              {!isGuestMode&&<button onClick={e=>{e.stopPropagation();setDeleteTyped("");setDeleteEmpModal(emp);}} title="Excluir" style={{background:"none",border:"none",cursor:"pointer",color:"#fca5a5",fontSize:13,padding:"3px 5px",borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#fca5a5"}>🗑</button>}
+            <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
+              {!isGuestMode&&<button onClick={e=>{e.stopPropagation();setEditEmpForm({nome:emp.nome,cnpj:emp.cnpj||"",regime:emp.regime||"simples",grupoId:emp.grupoId||""});setEditEmpModal({emp});}} title="Editar" style={{background:"none",border:"none",cursor:"pointer",color:"#6366f1",fontSize:13,padding:"3px 7px",borderRadius:6}}>✏️</button>}
+              {!isGuestMode&&<button onClick={e=>{e.stopPropagation();setDeleteTyped("");setDeleteEmpModal(emp);}} title="Excluir" style={{background:"none",border:"none",cursor:"pointer",color:"#fca5a5",fontSize:14,padding:"3px 7px",borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#fca5a5"}>🗑</button>}
+              <span onClick={()=>toggleEmpExp(emp.id)} style={{fontSize:18,color:"#94a3b8",transition:"transform .3s",transform:isExpanded?"rotate(180deg)":"none",cursor:"pointer"}}>▼</span>
             </div>
           </div>
           {isExpanded&&(
@@ -11013,12 +10995,12 @@ function makePageComponent(PAGE_CFG){
                     {pAno===100&&r.total>0&&<span style={{marginLeft:"auto",fontSize:11,background:"#22c55e",color:"#fff",padding:"2px 8px",borderRadius:6,fontWeight:700}}>✅ Ano completo</span>}
                   </div>
                   <div style={{overflowX:"auto"}}>
-                    <table style={{width:"100%",borderCollapse:"collapse",minWidth:860+(empCols.length*90),fontSize:12}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",minWidth:860+(cols.length*90),fontSize:12}}>
                       <thead>
                         <tr style={{background:"#1e3a5f"}}>
                           <th style={{padding:"9px 12px",color:"#fff",fontSize:11,textAlign:"left",fontWeight:700}}>Mês</th>
                           <th style={{padding:"9px 8px",color:"#fff",fontSize:11,textAlign:"center",fontWeight:700}}>⏰ Vencimento</th>
-                          {empCols.map(col=><th key={col.key} style={{padding:"9px 8px",color:"#fff",fontSize:11,textAlign:"center",fontWeight:700,whiteSpace:"nowrap"}}>{col.icon} {col.label}</th>)}
+                          {cols.map(col=><th key={col.key} style={{padding:"9px 8px",color:"#fff",fontSize:11,textAlign:"center",fontWeight:700,whiteSpace:"nowrap"}}>{col.icon} {col.label}</th>)}
                           <th style={{padding:"9px 8px",color:"#fff",fontSize:11,textAlign:"center",fontWeight:700}}>Progresso</th>
                           <th style={{padding:"9px 8px",color:"#fff",fontSize:11,textAlign:"center",fontWeight:700}}>📝</th>
                           <th style={{padding:"9px 8px",color:"#fff",fontSize:11,textAlign:"center",fontWeight:700}}>🔍 Análise</th>
@@ -11037,7 +11019,7 @@ function makePageComponent(PAGE_CFG){
                                 {vencido?"🔴":vencendo?"🟡":"⏰"} {prazo||"—"}
                               </div>
                             </td>
-                            {empCols.map(col=>{const st=getCell(emp.id,mes,col.key);return(<td key={col.key} style={{padding:"9px 6px",textAlign:"center"}}><div style={{position:"relative",display:"inline-block"}}><div onClick={()=>!analisado&&cycleCell(emp.id,mes,col.key)} style={{...gst(st),cursor:analisado?"default":"pointer"}}>{SL[st]||st}</div>{!analisado&&st!=="nao-iniciado"&&st!=="nao-aplica"&&(<span onClick={e=>{e.stopPropagation();revertCell(emp.id,mes,col.key);}} title="Reverter" style={{position:"absolute",top:-8,right:-8,fontSize:10,cursor:"pointer",background:"#f59e0b",color:"#fff",borderRadius:"50%",width:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",zIndex:1,fontWeight:900,lineHeight:1}}>↩</span>)}</div></td>);})}
+                            {cols.map(col=>{const st=getCell(emp.id,mes,col.key);return(<td key={col.key} style={{padding:"9px 6px",textAlign:"center"}}><div style={{position:"relative",display:"inline-block"}}><div onClick={()=>!analisado&&cycleCell(emp.id,mes,col.key)} style={{...gst(st),cursor:analisado?"default":"pointer"}}>{SL[st]||st}</div>{!analisado&&st!=="nao-iniciado"&&st!=="nao-aplica"&&(<span onClick={e=>{e.stopPropagation();revertCell(emp.id,mes,col.key);}} title="Reverter" style={{position:"absolute",top:-8,right:-8,fontSize:10,cursor:"pointer",background:"#f59e0b",color:"#fff",borderRadius:"50%",width:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",zIndex:1,fontWeight:900,lineHeight:1}}>↩</span>)}</div></td>);})}
                             <td style={{padding:"9px 8px",textAlign:"center"}}><div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:5}}><span style={{fontSize:10,color:"#64748b",fontWeight:700,minWidth:26}}>{prog}%</span><div style={{width:44,height:5,borderRadius:3,background:"#e2e8f0",overflow:"hidden"}}><div style={{height:"100%",borderRadius:3,background:getProgClr(prog),width:`${prog}%`,transition:"width .4s"}}/></div></div></td>
                             <td style={{padding:"9px 8px",textAlign:"center"}}><span onClick={()=>abrirObs(emp.id,mes)} title={hasObs?(getObsTxt(emp.id,mes)+(obsVerif?" (verificado)":"")):"Adicionar obs."} style={{fontSize:hasObs?18:16,cursor:"pointer",color:hasObs?(obsVerif?"#94a3b8":"#f59e0b"):"#94a3b8",filter:(hasObs&&!obsVerif)?"drop-shadow(0 0 6px #f59e0baa)":"none",background:hasObs?(obsVerif?"rgba(148,163,184,.12)":"rgba(245,158,11,.12)"):"transparent",borderRadius:6,padding:"2px 4px",border:hasObs?(obsVerif?"1.5px solid #e2e8f0":"1.5px solid #fcd34d"):"1.5px solid transparent",opacity:obsVerif?.6:1}}>{hasObs&&obsVerif?"✔️":"📝"}</span></td>
                             <td style={{padding:"9px 8px",textAlign:"center"}}>{analisado?<div style={{display:"flex",gap:4,alignItems:"center",justifyContent:"center"}}><span style={{background:"#d1fae5",color:"#065f46",padding:"3px 10px",borderRadius:20,fontSize:10,fontWeight:700}}>✅ Analisado</span><button onClick={()=>setRevertModal({eid:emp.id,mes})} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#f59e0b",padding:"2px 4px",borderRadius:4}}>↩</button></div>:estaContab(emp.id,mes)?<button onClick={()=>analisarMes(emp.id,mes)} style={{background:"#f59e0b",color:"#fff",border:"none",padding:"4px 10px",borderRadius:6,cursor:"pointer",fontSize:10,fontWeight:700,fontFamily:"inherit"}}>🔍 Analisar</button>:<span style={{background:"#fff4e0",color:"#b45f06",padding:"3px 10px",borderRadius:20,fontSize:10,fontWeight:700}}>⏳ Aguardando</span>}</td>
@@ -11066,7 +11048,6 @@ function makePageComponent(PAGE_CFG){
             {!isGuestMode&&<Btn onClick={()=>setShowNovaEmpModal(true)} sz="sm">+ Empresa</Btn>}
             {!isGuestMode&&<Btn onClick={()=>setShowGrupoModal(true)} v="ghost" sz="sm">👥 Grupo</Btn>}
             {!isGuestMode&&<Btn onClick={()=>{setBatchMode(b=>!b);setSelectedEmps(new Set());}} v="ghost" sz="sm" xs={{background:batchMode?"#fef2f2":"#f8fafc",color:batchMode?"#dc2626":"var(--text3)",border:`1px solid ${batchMode?"#fca5a5":"var(--border2)"}`}}>{batchMode?"✕ Sair lote":"☑ Selecionar"}</Btn>}
-            <Btn onClick={()=>setExpandedEmps(prev=>prev.size===empsFiltradas.length?new Set():new Set(empsFiltradas.map(e=>e.id)))} v="ghost" sz="sm">{expandedEmps.size===empsFiltradas.length&&empsFiltradas.length>0?"⊖ Recolher":"⊕ Expandir"}</Btn>
           </div>
         </div>
         {/* Filtros */}
@@ -11263,24 +11244,12 @@ function makePageComponent(PAGE_CFG){
             <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}><Btn onClick={()=>setShowNovaEmpModal(false)} v="ghost">Cancelar</Btn><Btn onClick={adicionarEmp}>Adicionar</Btn></div>
           </div>
         </Modal>
-        <Modal open={!!editEmpModal} onClose={()=>setEditEmpModal(null)} title="✏️ Editar Empresa" width={500}>
+        <Modal open={!!editEmpModal} onClose={()=>setEditEmpModal(null)} title="✏️ Editar Empresa" width={440}>
           {editEmpModal&&(<div style={{display:"flex",flexDirection:"column",gap:12}}>
-            <div style={{fontSize:10,fontWeight:800,color:"#6366f1",textTransform:"uppercase",letterSpacing:".08em",marginBottom:-4}}>📋 Dados da Empresa</div>
             <Inp label="Nome *" value={editEmpForm.nome} onChange={v=>setEditEmpForm(f=>({...f,nome:v}))} placeholder="Nome da empresa"/>
             <Inp label="CNPJ" value={editEmpForm.cnpj||""} onChange={v=>setEditEmpForm(f=>({...f,cnpj:v}))} placeholder="00.000.000/0000-00"/>
             <Fld label="Regime"><select value={editEmpForm.regime} onChange={e=>setEditEmpForm(f=>({...f,regime:e.target.value}))} style={{padding:"8px 12px",borderRadius:9,border:"2px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",width:"100%"}}>{[["simples","Simples Nacional"],["lucro","Lucro Real"],["presumido","L. Presumido"],["imune","Imune"],["isenta","Isenta"],["mei","MEI"]].map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></Fld>
             <Fld label="Grupo"><select value={editEmpForm.grupoId||""} onChange={e=>setEditEmpForm(f=>({...f,grupoId:e.target.value}))} style={{padding:"8px 12px",borderRadius:9,border:"2px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",width:"100%"}}><option value="">Sem grupo</option>{grupos.map(g=><option key={g.id} value={g.id}>{g.parentId?"  ↳ ":""}{g.nome}</option>)}</select></Fld>
-            <div style={{height:1,background:"var(--border)",margin:"4px 0"}}/>
-            <div style={{fontSize:10,fontWeight:800,color:"#6366f1",textTransform:"uppercase",letterSpacing:".08em",marginBottom:-4}}>📞 Contato</div>
-            <Inp label="Telefone / WhatsApp" value={editEmpForm.telefone||""} onChange={v=>setEditEmpForm(f=>({...f,telefone:v}))} placeholder="(00) 00000-0000"/>
-            <Inp label="E-mail" value={editEmpForm.email||""} onChange={v=>setEditEmpForm(f=>({...f,email:v}))} placeholder="contato@empresa.com"/>
-            <div style={{height:1,background:"var(--border)",margin:"4px 0"}}/>
-            <div style={{fontSize:10,fontWeight:800,color:"#8b5cf6",textTransform:"uppercase",letterSpacing:".08em",marginBottom:-4}}>👤 Dados do Sócio</div>
-            <Inp label="Nome do Sócio Principal" value={editEmpForm.socio||""} onChange={v=>setEditEmpForm(f=>({...f,socio:v}))} placeholder="Nome completo do sócio"/>
-            <Inp label="CPF do Sócio" value={editEmpForm.cpfSocio||""} onChange={v=>setEditEmpForm(f=>({...f,cpfSocio:v}))} placeholder="000.000.000-00"/>
-            <div style={{height:1,background:"var(--border)",margin:"4px 0"}}/>
-            <div style={{fontSize:10,fontWeight:800,color:"#f59e0b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:-4}}>⚠️ Pontos de Atenção</div>
-            <Fld label="Observações / Pontos importantes"><textarea value={editEmpForm.pontos||""} onChange={e=>setEditEmpForm(f=>({...f,pontos:e.target.value}))} placeholder="Ex: Empresa com FGTS parcelado, prazo especial em março..." rows={3} style={{width:"100%",padding:"8px 12px",borderRadius:9,border:"2px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",resize:"vertical",lineHeight:1.5,boxSizing:"border-box"}}/></Fld>
             <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}><Btn onClick={()=>setEditEmpModal(null)} v="ghost">Cancelar</Btn><Btn onClick={salvarEditEmp}>Salvar</Btn></div>
           </div>)}
         </Modal>
@@ -11330,176 +11299,6 @@ function makePageComponent(PAGE_CFG){
         {revertModal&&(<div onClick={e=>e.target===e.currentTarget&&setRevertModal(null)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.6)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}}><div style={{background:"var(--bg2)",borderRadius:16,padding:"24px",maxWidth:380,width:"100%",textAlign:"center",boxShadow:"0 32px 80px rgba(0,0,0,.3)"}}><div style={{fontSize:32,marginBottom:8}}>↩</div><div style={{fontSize:15,fontWeight:900,color:"var(--text)",marginBottom:6}}>Reverter análise?</div><div style={{fontSize:12,color:"#64748b",marginBottom:20}}>{getMesNome(revertModal.mes)} — {empresas.find(e=>e.id===revertModal.eid)?.nome}</div><div style={{display:"flex",gap:10,justifyContent:"center"}}><Btn onClick={()=>setRevertModal(null)} v="ghost">Cancelar</Btn><Btn onClick={()=>{reverterAnalise(revertModal.eid,revertModal.mes);setRevertModal(null);}} xs={{background:"#f59e0b",color:"#fff",border:"none"}}>Reverter</Btn></div></div></div>)}
         {deleteEmpModal&&(<div onClick={e=>e.target===e.currentTarget&&setDeleteEmpModal(null)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.72)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}}><div style={{background:"var(--bg2)",borderRadius:20,width:"100%",maxWidth:420,boxShadow:"0 32px 80px rgba(0,0,0,.35)",overflow:"hidden"}}><div style={{background:"linear-gradient(135deg,#fef2f2,#fff0f0)",padding:"20px 24px",borderBottom:"1px solid #fecaca",display:"flex",alignItems:"center",gap:14}}><div style={{fontSize:15,fontWeight:900,color:"#991b1b"}}>Excluir empresa?</div><div style={{fontSize:12,color:"#ef4444",marginLeft:4,fontWeight:600}}>{deleteEmpModal.nome}</div><button onClick={()=>setDeleteEmpModal(null)} style={{marginLeft:"auto",background:"none",border:"none",cursor:"pointer",color:"#fca5a5",fontSize:20}}>×</button></div><div style={{padding:"20px 24px"}}><p style={{fontSize:13,color:"#374151",marginBottom:10}}>Digite <strong style={{color:"#ef4444",fontFamily:"monospace",letterSpacing:2}}>EXCLUIR</strong>:</p><input autoFocus value={deleteTyped} onChange={e=>setDeleteTyped(e.target.value)} onKeyDown={e=>e.key==="Enter"&&executarDelete()} placeholder="EXCLUIR" style={{width:"100%",padding:"11px 14px",borderRadius:10,fontSize:14,fontWeight:800,letterSpacing:3,border:`2px solid ${deleteTyped.toUpperCase()==="EXCLUIR"?"#22c55e":"#e5e7eb"}`,outline:"none",fontFamily:"monospace",textTransform:"uppercase",color:"#0f172a",background:deleteTyped.toUpperCase()==="EXCLUIR"?"#f0fdf4":"#fff",boxSizing:"border-box"}}/><div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16}}><Btn onClick={()=>setDeleteEmpModal(null)} v="ghost">Cancelar</Btn><Btn onClick={executarDelete} xs={{background:"#dc2626",color:"#fff",border:"none",opacity:deleteTyped.toUpperCase()==="EXCLUIR"?1:.5}}>🗑 Excluir</Btn></div></div></div></div>)}
         {linkModal&&(<div onClick={e=>e.target===e.currentTarget&&setLinkModal(null)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.65)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}}><div style={{background:"var(--bg2)",borderRadius:18,width:"100%",maxWidth:500,boxShadow:"0 32px 80px rgba(0,0,0,.3)",overflow:"hidden"}}><div style={{background:`linear-gradient(135deg,${getGrpColor(linkModal.grp.id)},${getGrpColor(linkModal.grp.id)}cc)`,padding:"16px 22px",display:"flex",alignItems:"center",justifyContent:"space-between"}}><div><div style={{fontSize:15,fontWeight:900,color:"#fff"}}>🔗 Link — {linkModal.grp.nome}</div><div style={{fontSize:12,color:"rgba(255,255,255,.75)",marginTop:2}}>Acesso sem senha · somente este grupo</div></div><button onClick={()=>setLinkModal(null)} style={{background:"rgba(255,255,255,.2)",border:"none",color:"#fff",fontSize:18,cursor:"pointer",borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button></div><div style={{padding:"20px"}}><div style={{padding:"10px 14px",background:"var(--bg3)",border:"1.5px solid var(--border)",borderRadius:10,fontSize:12,fontFamily:"monospace",wordBreak:"break-all",color:"#374151",marginBottom:12,lineHeight:1.6}}>{getGuestLink(linkModal.grp.id)}</div><div style={{padding:"10px 14px",borderRadius:10,background:"#fef9c3",border:"1px solid #fde047",fontSize:12,color:"#713f12",marginBottom:14,lineHeight:1.6}}><strong>⚠️ Permissões:</strong> Editar status e observações. Sem criar/excluir.</div><div style={{display:"flex",gap:10,justifyContent:"flex-end"}}><Btn onClick={()=>setLinkModal(null)} v="ghost">Fechar</Btn><Btn onClick={()=>{navigator.clipboard.writeText(getGuestLink(linkModal.grp.id));toast("🔗 Link copiado!","ok");}} xs={{background:getGrpColor(linkModal.grp.id),color:"#fff",border:"none"}}>📋 Copiar</Btn></div></div></div></div>)}
-
-        {/* ── Side Panel por empresa ── */}
-        {(()=>{
-          if(!selectedEmpPanel) return null;
-          const emp=empresas.find(e=>e.id===selectedEmpPanel);
-          if(!emp) return null;
-          const stats=getStatsEmp(emp.id);
-          const pct=stats.total>0?Math.round((stats.analisados/stats.total)*100):0;
-          const grpColor=getGrpColor(emp.grupoId);
-          const initials=emp.nome.slice(0,2).toUpperCase();
-          const obsEmp=obs.filter(o=>o.eid===emp.id);
-          const obsCount=obsEmp.filter(o=>!o.verificado).length;
-          const progClr=getProgClr(pct);
-          const ANO_PANEL=String(new Date().getFullYear());
-          const MESES_PANEL=["01","02","03","04","05","06","07","08","09","10","11","12"];
-          const getMesSt=(m)=>{
-            const mes=`${m}/${ANO_PANEL}`;
-            const analisado=estaAnalisado(emp.id,mes);
-            if(analisado)return"concluido";
-            const empC=getColsForEmp(emp.id);
-            const ok=empC.every(c=>getCell(emp.id,mes,c.key)==="ok"||getCell(emp.id,mes,c.key)==="nao-aplica");
-            if(ok)return"analise";
-            const algum=empC.some(c=>getCell(emp.id,mes,c.key)!=="nao-iniciado");
-            if(algum)return"pendente";
-            return"nao-iniciado";
-          };
-          const dotColor={concluido:"#22c55e",analise:"#f59e0b",pendente:"#6366f1","nao-iniciado":"#475569"};
-          const mesesAll=getMeses(emp.periodoInicial||"01/2025");
-          const last6=mesesAll.slice(-6);
-          const sparkVals=last6.map(mes=>{const ec=getColsForEmp(emp.id);const atv=ec.filter(c=>getCell(emp.id,mes,c.key)!=="nao-aplica");return atv.length?Math.round(atv.filter(c=>getCell(emp.id,mes,c.key)==="ok").length/atv.length*100):0;});
-          const maxSpark=Math.max(...sparkVals,1);const svgH=48;const svgW=120;
-          const pts=sparkVals.map((v,i)=>`${(i/(sparkVals.length-1||1))*svgW},${svgH-Math.round((v/maxSpark)*(svgH-8))-4}`).join(" ");
-          const hasOverride=!!empColsOverride[emp.id];
-          return(
-            <div style={{position:"fixed",top:0,right:0,width:320,height:"100vh",background:"#0f172a",borderLeft:"1px solid #1e293b",zIndex:1500,display:"flex",flexDirection:"column",boxShadow:"-8px 0 40px rgba(0,0,0,.5)",overflowY:"auto",animation:"slideInRight .22s ease"}}>
-              <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
-              <div style={{padding:"16px 20px",borderBottom:"1px solid #1e293b",display:"flex",alignItems:"center",gap:12,background:"#0f172a",flexShrink:0}}>
-                <div style={{width:44,height:44,borderRadius:10,background:grpColor,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:16,color:"#fff",flexShrink:0}}>{initials}</div>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:14,fontWeight:900,color:"#f1f5f9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{emp.nome}</div>
-                  <div style={{fontSize:11,color:grpColor,fontWeight:700,marginTop:2}}>{RegLabel[emp.regime]||emp.regime}</div>
-                </div>
-                <button onClick={closeSidePanel} style={{background:"#1e293b",border:"none",color:"#64748b",fontSize:16,cursor:"pointer",borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>×</button>
-              </div>
-              <div style={{flex:1,overflowY:"auto",padding:"20px",display:"flex",flexDirection:"column",gap:20}}>
-                {/* Informações da empresa */}
-                {(emp.cnpj||emp.telefone||emp.email)&&(
-                  <div>
-                    <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>📋 INFORMAÇÕES DA EMPRESA</div>
-                    <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                      {emp.cnpj&&<div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:8,background:"#1e293b",fontSize:11,color:"#cbd5e1"}}><span style={{color:"#64748b",fontWeight:700,minWidth:60}}>CNPJ:</span><span style={{fontFamily:"monospace",fontWeight:600}}>{emp.cnpj}</span></div>}
-                      {emp.telefone&&<div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:8,background:"#1e293b",fontSize:11,color:"#cbd5e1"}}><span style={{color:"#64748b",fontWeight:700,minWidth:60}}>📞 Tel:</span><span>{emp.telefone}</span></div>}
-                      {emp.email&&<div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:8,background:"#1e293b",fontSize:11,color:"#cbd5e1"}}><span style={{color:"#64748b",fontWeight:700,minWidth:60}}>✉️ Email:</span><span style={{wordBreak:"break-all"}}>{emp.email}</span></div>}
-                    </div>
-                  </div>
-                )}
-                {/* Dados do sócio */}
-                {(emp.socio||emp.cpfSocio)&&(
-                  <div>
-                    <div style={{fontSize:10,fontWeight:800,color:"#8b5cf6",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>👤 DADOS DO SÓCIO</div>
-                    <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                      {emp.socio&&<div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:8,background:"#1e293b",fontSize:11,color:"#cbd5e1"}}><span style={{color:"#8b5cf6",fontWeight:700,minWidth:60}}>Nome:</span><span style={{fontWeight:600}}>{emp.socio}</span></div>}
-                      {emp.cpfSocio&&<div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:8,background:"#1e293b",fontSize:11,color:"#cbd5e1"}}><span style={{color:"#8b5cf6",fontWeight:700,minWidth:60}}>CPF:</span><span style={{fontFamily:"monospace"}}>{emp.cpfSocio}</span></div>}
-                    </div>
-                  </div>
-                )}
-                {/* Pontos de atenção */}
-                {emp.pontos&&(
-                  <div>
-                    <div style={{fontSize:10,fontWeight:800,color:"#f59e0b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>⚠️ PONTOS DE ATENÇÃO</div>
-                    <div style={{padding:"10px 12px",borderRadius:8,background:"#1e293b",borderLeft:"3px solid #f59e0b",fontSize:11,color:"#cbd5e1",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{emp.pontos}</div>
-                  </div>
-                )}
-                <div>
-                  <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>PROGRESSO GERAL</div>
-                  <div style={{display:"flex",alignItems:"center",gap:10}}>
-                    <div style={{flex:1,height:8,borderRadius:4,background:"#1e293b",overflow:"hidden"}}><div style={{height:"100%",borderRadius:4,background:progClr,width:`${pct}%`,transition:"width .5s"}}/></div>
-                    <span style={{fontSize:15,fontWeight:900,color:progClr,minWidth:40,textAlign:"right"}}>{pct}%</span>
-                  </div>
-                </div>
-                <div>
-                  <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>RESUMO</div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                    {[{l:"Analisados",v:stats.analisados,c:"#22c55e"},{l:"Concluídos",v:stats.contabilizados,c:"#6366f1"},{l:"Pendentes",v:stats.pendentes,c:stats.pendentes>0?"#ef4444":"#475569"},{l:"Último",v:stats.ultimoMes?getMesNome(stats.ultimoMes):"—",c:"#f59e0b"},{l:"Total Meses",v:stats.total,c:"#94a3b8"},{l:"Observações",v:obsEmp.length,c:obsCount>0?"#f59e0b":"#64748b"}].map(({l,v,c})=>(
-                      <div key={l} style={{background:"#1e293b",borderRadius:8,padding:"10px 12px"}}>
-                        <div style={{fontSize:10,color:"#64748b",fontWeight:700,marginBottom:4}}>{l}</div>
-                        <div style={{fontSize:16,fontWeight:900,color:c}}>{v}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>TIMELINE {ANO_PANEL}</div>
-                  <div style={{display:"flex",gap:3,alignItems:"center"}}>
-                    {MESES_PANEL.map(m=>{const st=getMesSt(m);const bg=dotColor[st]||"#1e293b";const nm=getMesNome(`${m}/${ANO_PANEL}`).split("/")[0];return(<div key={m} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3,flex:1}}><div style={{width:16,height:16,borderRadius:4,background:bg,transition:"background .2s"}}/><span style={{fontSize:8,color:"#475569",fontWeight:700}}>{nm.slice(0,1)}</span></div>);})}
-                  </div>
-                  <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
-                    {[{c:"#22c55e",l:"Concluído"},{c:"#f59e0b",l:"Análise"},{c:"#6366f1",l:"Pendente"},{c:"#475569",l:"Não iniciado"}].map(({c,l})=>(
-                      <div key={l} style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:8,height:8,borderRadius:2,background:c}}/><span style={{fontSize:9,color:"#64748b",fontWeight:600}}>{l}</span></div>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>TENDÊNCIA</div>
-                  <div style={{background:"#1e293b",borderRadius:8,padding:"12px"}}>
-                    <svg width="100%" viewBox={`0 0 ${svgW} ${svgH}`} style={{display:"block"}}>
-                      {sparkVals.length>1&&<polyline points={pts} fill="none" stroke={grpColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>}
-                      {sparkVals.map((v,i)=><circle key={i} cx={(i/(sparkVals.length-1||1))*svgW} cy={svgH-Math.round((v/maxSpark)*(svgH-8))-4} r="3" fill={grpColor}/>)}
-                    </svg>
-                  </div>
-                </div>
-                {/* Colunas desta empresa */}
-                <div>
-                  <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>
-                    COLUNAS {hasOverride&&<span style={{color:"#f59e0b",fontSize:9}}>✎ personalizada</span>}
-                  </div>
-                  <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                    {getColsForEmp(emp.id).map(col=>(
-                      <span key={col.key} style={{background:"#1e293b",color:"#cbd5e1",padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:600,border:"1px solid #334155"}}>{col.icon} {col.label}</span>
-                    ))}
-                  </div>
-                  {hasOverride&&<button onClick={()=>{const no={...empColsOverride};delete no[emp.id];saveEmpColsOverride(no);toast("↩ Colunas restauradas ao padrão","ok");}} style={{marginTop:8,background:"none",border:"none",color:"#64748b",fontSize:11,cursor:"pointer",textDecoration:"underline",fontFamily:"inherit"}}>↩ Restaurar padrão</button>}
-                </div>
-                {obsCount>0&&(
-                  <div>
-                    <div style={{fontSize:10,fontWeight:800,color:"#f59e0b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>⚠️ OBSERVAÇÕES PENDENTES</div>
-                    <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                      {obsEmp.filter(o=>!o.verificado).slice(0,3).map((o,i)=>(
-                        <div key={i} style={{padding:"8px 10px",borderRadius:8,background:"#1e293b",borderLeft:"3px solid #f59e0b",fontSize:11,color:"#cbd5e1",lineHeight:1.5}}>
-                          <span style={{color:"#f59e0b",fontWeight:700,marginRight:6}}>{getMesNome(o.mes)}:</span>{o.texto}
-                        </div>
-                      ))}
-                      {obsCount>3&&<div style={{fontSize:11,color:"#64748b",textAlign:"center"}}>+{obsCount-3} mais...</div>}
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div style={{padding:"14px 20px",borderTop:"1px solid #1e293b",display:"flex",gap:8,flexShrink:0}}>
-                <button onClick={closeSidePanel} style={{flex:1,padding:"9px",borderRadius:8,border:"1px solid #334155",background:"transparent",color:"#94a3b8",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✕ Fechar</button>
-                {!isGuestMode&&<button onClick={()=>{const ec=getColsForEmp(emp.id);setEmpColsDraft(JSON.parse(JSON.stringify(ec)));setEmpColsModal(emp.id);}} style={{flex:1.5,padding:"9px",borderRadius:8,border:"none",background:"#22c55e",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>⚙️ Colunas</button>}
-                {!isGuestMode&&<button onClick={()=>{setEditEmpModal({emp});setEditEmpForm({nome:emp.nome,cnpj:emp.cnpj||"",regime:emp.regime||"simples",grupoId:emp.grupoId||"",telefone:emp.telefone||"",email:emp.email||"",socio:emp.socio||"",cpfSocio:emp.cpfSocio||"",pontos:emp.pontos||""});closeSidePanel();}} style={{flex:1,padding:"9px",borderRadius:8,border:"none",background:"#6366f1",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✏️ Editar</button>}
-              </div>
-            </div>
-          );
-        })()}
-
-        {/* ── Modal colunas por empresa ── */}
-        <Modal open={!!empColsModal} onClose={()=>setEmpColsModal(null)} title={`⚙️ Colunas — ${empresas.find(e=>e.id===empColsModal)?.nome||""}`} width={540}>
-          {empColsModal&&(
-            <div style={{display:"flex",flexDirection:"column",gap:10}}>
-              <div style={{padding:"10px 14px",borderRadius:10,background:"#fef3c7",border:"1px solid #fde68a",fontSize:12,color:"#92400e"}}>🎯 Estas colunas são <strong>específicas desta empresa</strong> e sobrescrevem o padrão global. Demais empresas não são afetadas.</div>
-              <div style={{maxHeight:340,overflowY:"auto",display:"flex",flexDirection:"column",gap:8}}>
-                {empColsDraft.map((col,i)=>(<div key={i} style={{display:"flex",gap:8,alignItems:"center",padding:"8px 12px",borderRadius:10,background:"var(--bg3)",border:"1px solid var(--border)"}}>
-                  <select value={col.icon} onChange={e=>setEmpColsDraft(d=>d.map((c,j)=>j===i?{...c,icon:e.target.value}:c))} style={{width:54,padding:"5px 2px",borderRadius:8,border:"2px solid #e5e7eb",fontSize:16,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}}>
-                    {ICON_OPTIONS.map(ic=><option key={ic} value={ic}>{ic}</option>)}
-                  </select>
-                  <input value={col.label} onChange={e=>setEmpColsDraft(d=>d.map((c,j)=>j===i?{...c,label:e.target.value}:c))} style={{flex:1,padding:"6px 10px",borderRadius:8,border:"2px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}} placeholder="Nome da coluna"/>
-                  <input type="color" value={col.color||"#6366f1"} onChange={e=>setEmpColsDraft(d=>d.map((c,j)=>j===i?{...c,color:e.target.value}:c))} style={{width:32,height:32,borderRadius:8,border:"2px solid #e5e7eb",cursor:"pointer",padding:2}}/>
-                  <button onClick={()=>setEmpColsDraft(d=>d.filter((_,j)=>j!==i))} style={{background:"none",border:"none",cursor:"pointer",color:"#f87171",fontSize:16,padding:"2px 6px",borderRadius:6}}>🗑</button>
-                </div>))}
-              </div>
-              <Btn onClick={()=>setEmpColsDraft(d=>[...d,{key:"col_"+Date.now(),icon:"📋",label:"Nova Coluna",color:"#6366f1"}])} v="ghost" sz="sm" xs={{alignSelf:"flex-start",borderStyle:"dashed"}}>+ Adicionar Coluna</Btn>
-              <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-                <Btn onClick={()=>{const no={...empColsOverride};delete no[empColsModal];saveEmpColsOverride(no);setEmpColsModal(null);toast("↩ Restaurado ao padrão","ok");}} v="ghost" sz="sm">↩ Restaurar padrão</Btn>
-                <Btn onClick={()=>setEmpColsModal(null)} v="ghost">Cancelar</Btn>
-                <Btn onClick={()=>{const no={...empColsOverride,[empColsModal]:empColsDraft};saveEmpColsOverride(no);setEmpColsModal(null);toast("✅ Colunas salvas para esta empresa!","ok");}} xs={{background:"#22c55e",color:"#fff",border:"none"}}>💾 Salvar</Btn>
-              </div>
-            </div>
-          )}
-        </Modal>
       </div>
     );
   };

@@ -10992,8 +10992,18 @@ function makePageComponent(PAGE_CFG){
     const closeSidePanel=()=>setSelectedEmpPanel(null);
      const [panelTab,setPanelTab]=useState("resumo");
      const [selectedEmpYear,setSelectedEmpYear]=useState(new Date().getFullYear());
-     const [empObservacoes,setEmpObservacoes]=useState({});
-     const [empCliente,setEmpCliente]=useState({});
+     const EMP_OBS_KEY=STORAGE_KEY+"_avisos";
+     const EMP_CLIENTE_KEY=STORAGE_KEY+"_cliente";
+     const [empObservacoes,setEmpObservacoes]=useState(()=>{try{const s=localStorage.getItem(EMP_OBS_KEY);return s?JSON.parse(s):{};}catch(e){return{};}});
+     const [empCliente,setEmpCliente]=useState(()=>{try{const s=localStorage.getItem(EMP_CLIENTE_KEY);return s?JSON.parse(s):{};}catch(e){return{};}});
+     const saveEmpExtras=()=>{
+       try{localStorage.setItem(EMP_OBS_KEY,JSON.stringify(empObservacoes));}catch(e){}
+       try{localStorage.setItem(EMP_CLIENTE_KEY,JSON.stringify(empCliente));}catch(e){}
+       toast("💾 Dados salvos!","ok");
+       setPanelTab("resumo");
+     };
+     useEffect(()=>{try{localStorage.setItem(EMP_OBS_KEY,JSON.stringify(empObservacoes));}catch(e){}},[empObservacoes]);
+     useEffect(()=>{try{localStorage.setItem(EMP_CLIENTE_KEY,JSON.stringify(empCliente));}catch(e){}},[empCliente]);
     // Per-empresa column overrides stored in localStorage
     const EMP_COLS_KEY=COLS_KEY+"_empoverride";
     const [empColsOverride,setEmpColsOverride]=useState(()=>{try{const s=localStorage.getItem(EMP_COLS_KEY);return s?JSON.parse(s):{}}catch(e){return{};}});
@@ -11471,7 +11481,7 @@ function makePageComponent(PAGE_CFG){
           const removeAviso=(id)=>{
             setEmpObservacoes(prev=>({...prev,[selectedEmpPanel]:(prev[selectedEmpPanel]||[]).filter(a=>a.id!==id)}));
           };
-          const TABS=[{id:"resumo",icon:"📊",label:"Resumo"},{id:"cadastro",icon:"🗂️",label:"Cadastro"}];
+          const TABS=[{id:"resumo",icon:"📊",label:"Resumo"},{id:"cadastro",icon:"🗂️",label:"Cadastro"},{id:"avisos",icon:"📌",label:"Avisos"}];
           const tabStyle=(id)=>({
             flex:1,padding:"8px 4px",border:"none",background:"transparent",
             color:panelTab===id?"#f1f5f9":"#64748b",
@@ -11535,29 +11545,21 @@ function makePageComponent(PAGE_CFG){
                       ))}
                     </div>
                   </div>
-                  <div>
-                    <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>TENDÊNCIA</div>
-                    <div style={{background:"#1e293b",borderRadius:8,padding:"12px"}}>
-                      <svg width="100%" viewBox={`0 0 ${svgW} ${svgH}`} style={{display:"block"}}>
-                        {sparkVals.length>1&&<polyline points={pts} fill="none" stroke={grpColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>}
-                        {sparkVals.map((v,i)=><circle key={i} cx={(i/(sparkVals.length-1||1))*svgW} cy={svgH-Math.round((v/maxSpark)*(svgH-8))-4} r="3" fill={grpColor}/>)}
-                      </svg>
+                  {avisosEmp.filter(a=>a.tipo==="importante"&&!a.feito).length>0&&(
+                    <div>
+                      <div style={{fontSize:10,fontWeight:800,color:"#fbbf24",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>⭐ AVISOS IMPORTANTES</div>
+                      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                        {avisosEmp.filter(a=>a.tipo==="importante"&&!a.feito).map(a=>(
+                          <div key={a.id} style={{padding:"10px 12px",borderRadius:8,background:"#1e293b",borderLeft:"3px solid #fbbf24",fontSize:12,color:"#f1f5f9",lineHeight:1.5,whiteSpace:"pre-wrap"}}>{a.texto||"(sem texto)"}</div>
+                        ))}
+                      </div>
+                      <button onClick={()=>setPanelTab("avisos")} style={{marginTop:8,background:"none",border:"none",color:"#64748b",fontSize:11,cursor:"pointer",textDecoration:"underline",fontFamily:"inherit"}}>Ver todos os avisos →</button>
                     </div>
-                  </div>
-                  <div>
-                    <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>
-                      COLUNAS {hasOverride&&<span style={{color:"#f59e0b",fontSize:9}}>✎ personalizada</span>}
-                    </div>
-                    <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                      {getColsForEmp(emp.id).map(col=>(
-                        <span key={col.key} style={{background:"#1e293b",color:"#cbd5e1",padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:600,border:"1px solid #334155"}}>{col.icon} {col.label}</span>
-                      ))}
-                    </div>
-                    {hasOverride&&<button onClick={()=>{const no={...empColsOverride};delete no[emp.id];saveEmpColsOverride(no);toast("↩ Colunas restauradas ao padrão","ok");}} style={{marginTop:8,background:"none",border:"none",color:"#64748b",fontSize:11,cursor:"pointer",textDecoration:"underline",fontFamily:"inherit"}}>↩ Restaurar padrão</button>}
-                  </div>
+                  )}
                   {obsCount>0&&(
                     <div>
                       <div style={{fontSize:10,fontWeight:800,color:"#f59e0b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>⚠️ OBSERVAÇÕES MENSAIS</div>
+
                       <div style={{display:"flex",flexDirection:"column",gap:6}}>
                         {obsEmp.filter(o=>!o.verificado).slice(0,3).map((o,i)=>(
                           <div key={i} style={{padding:"8px 10px",borderRadius:8,background:"#1e293b",borderLeft:"3px solid #f59e0b",fontSize:11,color:"#cbd5e1",lineHeight:1.5}}>
@@ -11594,6 +11596,23 @@ function makePageComponent(PAGE_CFG){
                       ))}
                     </div>
                   </div>
+                  {/* Colunas personalizadas */}
+                  <div>
+                    <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>
+                      COLUNAS {hasOverride&&<span style={{color:"#f59e0b",fontSize:9}}>✎ personalizada</span>}
+                    </div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                      {getColsForEmp(emp.id).map(col=>(
+                        <span key={col.key} style={{background:"#1e293b",color:"#cbd5e1",padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:600,border:"1px solid #334155"}}>{col.icon} {col.label}</span>
+                      ))}
+                    </div>
+                    {hasOverride&&<button onClick={()=>{const no={...empColsOverride};delete no[emp.id];saveEmpColsOverride(no);toast("↩ Colunas restauradas ao padrão","ok");}} style={{marginTop:8,background:"none",border:"none",color:"#64748b",fontSize:11,cursor:"pointer",textDecoration:"underline",fontFamily:"inherit"}}>↩ Restaurar padrão</button>}
+                  </div>
+                  {/* Botão Salvar */}
+                  <button onClick={saveEmpExtras} style={{padding:"10px",borderRadius:8,border:"none",background:"#22c55e",color:"#fff",fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>💾 Salvar</button>
+                </>)}
+
+                {panelTab==="avisos"&&(<>
                   {/* Avisos, Anotações e Lembretes */}
                   <div>
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
@@ -11637,6 +11656,8 @@ function makePageComponent(PAGE_CFG){
                       ))}
                     </div>
                   </div>
+                  {/* Botão Salvar */}
+                  <button onClick={saveEmpExtras} style={{padding:"10px",borderRadius:8,border:"none",background:"#22c55e",color:"#fff",fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>💾 Salvar</button>
                 </>)}
 
               </div>

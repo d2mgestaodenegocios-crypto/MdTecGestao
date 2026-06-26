@@ -9591,6 +9591,10 @@ function ContabilPage({toast,data}){
         );
       })()}
 
+    </div>
+  );
+}
+
 /* Sub-component: EmpresaRow */
 function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor,openSidePanel,selectedEmpPanel}){
   const stats=getStatsEmp(emp.id);

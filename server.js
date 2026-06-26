@@ -14,315 +14,305 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
-// ─── ARMAZENAMENTO GLOBAL ───
-let sincData = {
-  empresas: {},
-  colunas: {},
-  lembretes: {},
-  notificacoes: {},
-  observacoes: {},
-  dados: {},
-  grupos: {},
-  prazos: {}
-};
-
-const DATA_FILE = './dados-sync.json';
+// ─── ARMAZENAMENTO EM MEMÓRIA (substitua por banco de dados) ───
+let avisos = {}; // {empresaId: [{id, tipo, texto, data, feito, visualizado, criadoPor, criadoEm}]}
+let colunas = {}; // {empresaId: [{key, icon, label, color}]}
+let usuarios = new Map(); // {ws: {userId, empresaId, role}}
 
 // Carregar dados persistidos
-function loadData() {
+const AVISOS_FILE = './avisos.json';
+const COLUNAS_FILE = './colunas.json';
+
+function loadAvisos() {
   try {
-    if (fs.existsSync(DATA_FILE)) {
-      const data = fs.readFileSync(DATA_FILE, 'utf8');
-      sincData = JSON.parse(data);
-      console.log('✅ Dados carregados do arquivo');
+    if (fs.existsSync(AVISOS_FILE)) {
+      const data = fs.readFileSync(AVISOS_FILE, 'utf8');
+      avisos = JSON.parse(data);
     }
   } catch (err) {
-    console.error('⚠️ Erro ao carregar dados:', err.message);
+    console.error('❌ Erro ao carregar avisos:', err);
   }
 }
 
-function saveData() {
+function saveAvisos() {
   try {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(sincData, null, 2));
+    fs.writeFileSync(AVISOS_FILE, JSON.stringify(avisos, null, 2));
   } catch (err) {
-    console.error('⚠️ Erro ao salvar dados:', err.message);
+    console.error('❌ Erro ao salvar avisos:', err);
   }
 }
 
-loadData();
+function loadColunas() {
+  try {
+    if (fs.existsSync(COLUNAS_FILE)) {
+      const data = fs.readFileSync(COLUNAS_FILE, 'utf8');
+      colunas = JSON.parse(data);
+    }
+  } catch (err) {
+    console.error('❌ Erro ao carregar colunas:', err);
+  }
+}
 
-// ─── MAPA DE USUÁRIOS CONECTADOS ───
-const usuariosConectados = new Map(); // { ws → { userId, empresaIds } }
+function saveColunas() {
+  try {
+    fs.writeFileSync(COLUNAS_FILE, JSON.stringify(colunas, null, 2));
+  } catch (err) {
+    console.error('❌ Erro ao salvar colunas:', err);
+  }
+}
 
-// ─── BROADCAST ───
-function broadcast(mensagem, excluirWs = null) {
-  const msg = JSON.stringify(mensagem);
+loadAvisos();
+loadColunas();
+
+// ─── HELPER: Broadcast para uma empresa ───
+function broadcastToEmpresa(empresaId, message) {
   wss.clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN && client !== excluirWs) {
-      try {
-        client.send(msg);
-      } catch (err) {
-        console.error('Erro ao enviar:', err.message);
-      }
+    const user = usuarios.get(client);
+    if (client.readyState === WebSocket.OPEN && user && user.empresaId === empresaId) {
+      client.send(JSON.stringify(message));
     }
   });
 }
 
-// Broadcast apenas para usuários de uma empresa específica
-function broadcastParaEmpresa(empresaId, mensagem) {
-  const msg = JSON.stringify(mensagem);
+// ─── HELPER: Broadcast para todos (debug) ───
+function broadcast(message) {
   wss.clients.forEach(client => {
-    const usuario = usuariosConectados.get(client);
-    if (client.readyState === WebSocket.OPEN && usuario && usuario.empresaIds.includes(empresaId)) {
-      try {
-        client.send(msg);
-      } catch (err) {
-        console.error('Erro ao enviar:', err.message);
-      }
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify(message));
     }
   });
 }
 
-// ─── API REST ───
+// ─── API REST (BACKUP para operações HTTP) ───
 
-// Obter dados sincronizados
-app.get('/api/sync-data', (req, res) => {
-  res.json(sincData);
+app.get('/api/avisos/:empresaId', (req, res) => {
+  const { empresaId } = req.params;
+  const empresa = avisos[empresaId] || [];
+  // Filtrar avisos resolvidos (feito=true ou visualizado=true) para novos usuários
+  const ativos = empresa.filter(a => !a.feito && !a.visualizado);
+  res.json(ativos);
 });
 
-// Atualizar qualquer dado
-app.post('/api/sync-update', (req, res) => {
-  const { tipo, chave, valor, empresaId } = req.body;
+app.get('/api/colunas/:empresaId', (req, res) => {
+  const { empresaId } = req.params;
+  const cols = colunas[empresaId] || [];
+  res.json(cols);
+});
+
+app.post('/api/avisos/:empresaId', (req, res) => {
+  const { empresaId } = req.params;
+  const aviso = req.body;
   
-  try {
-    // Validar
-    if (!tipo || chave === undefined || valor === undefined) {
-      return res.status(400).json({ erro: 'Campos obrigatórios faltando' });
-    }
-
-    // Inicializar tipo se não existir
-    if (!sincData[tipo]) {
-      sincData[tipo] = {};
-    }
-
-    // Atualizar valor
-    sincData[tipo][chave] = valor;
-    saveData();
-
-    // Broadcast para todos ou para empresa específica
-    const mensagem = {
-      type: 'data-updated',
-      tipo,
-      chave,
-      valor,
-      empresaId,
-      timestamp: new Date().toISOString()
-    };
-
-    if (empresaId) {
-      broadcastParaEmpresa(empresaId, mensagem);
-    } else {
-      broadcast(mensagem);
-    }
-
-    res.json({ sucesso: true });
-  } catch (err) {
-    res.status(500).json({ erro: err.message });
+  if (!avisos[empresaId]) {
+    avisos[empresaId] = [];
   }
+  
+  const novoAviso = {
+    id: aviso.id || 'aviso_' + Date.now(),
+    tipo: aviso.tipo || 'anotacao',
+    texto: aviso.texto || '',
+    data: aviso.data || new Date().toLocaleDateString('pt-BR'),
+    feito: aviso.feito || false,
+    visualizado: aviso.visualizado || false,
+    criadoEm: new Date().toISOString()
+  };
+  
+  avisos[empresaId].push(novoAviso);
+  saveAvisos();
+  
+  broadcastToEmpresa(empresaId, {
+    type: 'aviso-criado',
+    empresaId,
+    aviso: novoAviso
+  });
+  
+  res.json({ success: true, aviso: novoAviso });
 });
 
-// Obter tipo específico
-app.get('/api/sync/:tipo', (req, res) => {
-  const { tipo } = req.params;
-  res.json(sincData[tipo] || {});
+app.put('/api/colunas/:empresaId', (req, res) => {
+  const { empresaId } = req.params;
+  const role = req.headers['x-user-role'] || 'user';
+  
+  // Apenas admin pode alterar colunas
+  if (role !== 'admin') {
+    return res.status(403).json({ error: 'Apenas admins podem alterar colunas' });
+  }
+  
+  const cols = req.body;
+  colunas[empresaId] = cols;
+  saveColunas();
+  
+  broadcastToEmpresa(empresaId, {
+    type: 'colunas-atualizadas',
+    empresaId,
+    colunas: cols,
+    atualizadoEm: new Date().toISOString()
+  });
+  
+  res.json({ success: true, colunas: cols });
 });
 
 // ─── WEBSOCKET ───
 
 wss.on('connection', (ws) => {
-  console.log('✓ Novo cliente WebSocket conectado');
+  console.log('✓ Cliente WebSocket conectado');
   
   ws.on('message', (data) => {
     try {
       const msg = JSON.parse(data);
-      console.log('📨 Mensagem recebida:', msg.type);
-
+      
       switch(msg.type) {
-        // ─── AUTENTICAÇÃO ───
-        case 'auth':
-          const usuario = {
-            userId: msg.userId,
-            empresaIds: msg.empresaIds || [],
-            timestamp: Date.now()
-          };
-          usuariosConectados.set(ws, usuario);
+        case 'subscribe':
+          // Cliente se inscreve para atualizações de uma empresa
+          ws.userId = msg.userId;
+          ws.empresaId = msg.empresaId;
+          ws.role = msg.role || 'user';
+          usuarios.set(ws, { userId: msg.userId, empresaId: msg.empresaId, role: ws.role });
           
-          // Enviar todos os dados sincronizados
+          console.log(`👤 ${msg.userId} (${ws.role}) entrou em ${msg.empresaId}`);
+          
+          // Enviar todos os avisos ATIVOS dessa empresa (excluir feito/visualizado)
+          const empresa = avisos[msg.empresaId] || [];
+          const avisosAtivos = empresa.filter(a => !a.feito && !a.visualizado);
+          
           ws.send(JSON.stringify({
-            type: 'sync-inicial',
-            dados: sincData,
-            timestamp: new Date().toISOString()
+            type: 'avisos-carregados',
+            empresaId: msg.empresaId,
+            avisos: avisosAtivos
           }));
-
-          // Notificar que usuário entrou online
-          broadcast({
+          
+          // Se tem colunas customizadas, enviar também
+          if (colunas[msg.empresaId]) {
+            ws.send(JSON.stringify({
+              type: 'colunas-carregadas',
+              empresaId: msg.empresaId,
+              colunas: colunas[msg.empresaId]
+            }));
+          }
+          
+          // Notificar que usuário entrou
+          broadcastToEmpresa(msg.empresaId, {
             type: 'usuario-online',
             userId: msg.userId,
-            empresaIds: msg.empresaIds
+            role: ws.role,
+            empresaId: msg.empresaId
           });
-
-          console.log(`👤 Usuário autenticado: ${msg.userId}`);
           break;
-
-        // ─── ATUALIZAR QUALQUER DADO ───
-        case 'update':
-          const { tipo, chave, valor, empresaId } = msg;
           
-          if (!sincData[tipo]) {
-            sincData[tipo] = {};
-          }
-          
-          sincData[tipo][chave] = valor;
-          saveData();
-
-          // Broadcast
-          const atualizacao = {
-            type: 'data-updated',
-            tipo,
-            chave,
-            valor,
-            empresaId,
-            userId: msg.userId,
-            timestamp: new Date().toISOString()
+        case 'criar-aviso':
+          const novoAviso = {
+            id: msg.aviso.id || 'aviso_' + Date.now(),
+            tipo: msg.aviso.tipo || 'anotacao',
+            texto: msg.aviso.texto || '',
+            data: msg.aviso.data || new Date().toLocaleDateString('pt-BR'),
+            feito: msg.aviso.feito || false,
+            visualizado: msg.aviso.visualizado || false,
+            criadoPor: msg.userId,
+            criadoEm: msg.aviso.criadoEm || new Date().toISOString()
           };
-
-          if (empresaId) {
-            broadcastParaEmpresa(empresaId, atualizacao);
-          } else {
-            broadcast(atualizacao);
+          
+          if (!avisos[msg.empresaId]) {
+            avisos[msg.empresaId] = [];
           }
-
-          ws.send(JSON.stringify({ type: 'ack', id: msg.id }));
+          
+          // Evitar duplicatas: verificar se já existe
+          const existe = avisos[msg.empresaId].find(a => a.id === novoAviso.id);
+          if (!existe) {
+            avisos[msg.empresaId].push(novoAviso);
+            saveAvisos();
+            
+            broadcastToEmpresa(msg.empresaId, {
+              type: 'aviso-criado',
+              empresaId: msg.empresaId,
+              aviso: novoAviso
+            });
+          }
           break;
-
-        // ─── CRIAR/ADICIONAR ITEM ───
-        case 'create':
-          const { tipo: tipoCreate, id: itemId, valor: novoValor, empresaId: empId } = msg;
           
-          if (!sincData[tipoCreate]) {
-            sincData[tipoCreate] = {};
-          }
-          
-          sincData[tipoCreate][itemId] = novoValor;
-          saveData();
-
-          const criacao = {
-            type: 'item-created',
-            tipo: tipoCreate,
-            id: itemId,
-            valor: novoValor,
-            empresaId: empId,
-            userId: msg.userId,
-            timestamp: new Date().toISOString()
-          };
-
-          if (empId) {
-            broadcastParaEmpresa(empId, criacao);
-          } else {
-            broadcast(criacao);
-          }
-
-          ws.send(JSON.stringify({ type: 'ack', id: msg.id }));
-          break;
-
-        // ─── DELETAR ITEM ───
-        case 'delete':
-          const { tipo: tipoDel, chave: chaveDel, empresaId: empIdDel } = msg;
-          
-          if (sincData[tipoDel] && sincData[tipoDel][chaveDel]) {
-            delete sincData[tipoDel][chaveDel];
-            saveData();
-
-            const delecao = {
-              type: 'item-deleted',
-              tipo: tipoDel,
-              chave: chaveDel,
-              empresaId: empIdDel,
-              userId: msg.userId,
-              timestamp: new Date().toISOString()
-            };
-
-            if (empIdDel) {
-              broadcastParaEmpresa(empIdDel, delecao);
-            } else {
-              broadcast(delecao);
+        case 'atualizar-aviso':
+          if (avisos[msg.empresaId]) {
+            const aviso = avisos[msg.empresaId].find(a => a.id === msg.avisoId);
+            if (aviso) {
+              Object.assign(aviso, msg.updates);
+              aviso.atualizadoPor = msg.userId;
+              saveAvisos();
+              
+              broadcastToEmpresa(msg.empresaId, {
+                type: 'aviso-atualizado',
+                empresaId: msg.empresaId,
+                avisoId: msg.avisoId,
+                updates: msg.updates
+              });
             }
           }
-
-          ws.send(JSON.stringify({ type: 'ack', id: msg.id }));
+          break;
+          
+        case 'deletar-aviso':
+          if (avisos[msg.empresaId]) {
+            avisos[msg.empresaId] = avisos[msg.empresaId].filter(a => a.id !== msg.avisoId);
+            saveAvisos();
+            
+            broadcastToEmpresa(msg.empresaId, {
+              type: 'aviso-deletado',
+              empresaId: msg.empresaId,
+              avisoId: msg.avisoId
+            });
+          }
           break;
 
-        // ─── SINCRONIZAR TUDO ───
-        case 'sync-all':
-          ws.send(JSON.stringify({
-            type: 'sync-completo',
-            dados: sincData,
-            timestamp: new Date().toISOString()
-          }));
-          break;
+        case 'atualizar-colunas':
+          // Apenas admins podem alterar colunas
+          if (ws.role !== 'admin') {
+            ws.send(JSON.stringify({
+              type: 'permissao-negada',
+              mensagem: '❌ Apenas admins podem modificar colunas'
+            }));
+            break;
+          }
 
-        // ─── PING/PONG ───
-        case 'ping':
-          ws.send(JSON.stringify({ type: 'pong' }));
+          colunas[msg.empresaId] = msg.colunas;
+          saveColunas();
+
+          console.log(`⚙️ Colunas atualizadas em ${msg.empresaId} por ${msg.userId}`);
+
+          broadcastToEmpresa(msg.empresaId, {
+            type: 'colunas-atualizadas',
+            empresaId: msg.empresaId,
+            colunas: msg.colunas,
+            atualizadoPor: msg.userId,
+            atualizadoEm: msg.atualizadoEm || new Date().toISOString()
+          });
           break;
       }
     } catch (err) {
-      console.error('❌ Erro processando mensagem:', err.message);
-      ws.send(JSON.stringify({
-        type: 'erro',
-        mensagem: err.message
-      }));
+      console.error('❌ Erro processando mensagem WebSocket:', err);
     }
   });
-
+  
   ws.on('close', () => {
-    const usuario = usuariosConectados.get(ws);
-    if (usuario) {
-      usuariosConectados.delete(ws);
-      broadcast({
+    const user = usuarios.get(ws);
+    usuarios.delete(ws);
+    console.log('✗ Cliente desconectado');
+    
+    if (user) {
+      broadcastToEmpresa(user.empresaId, {
         type: 'usuario-offline',
-        userId: usuario.userId
+        userId: user.userId,
+        empresaId: user.empresaId
       });
-      console.log(`✗ Usuário desconectado: ${usuario.userId}`);
     }
   });
-
+  
   ws.on('error', (err) => {
-    console.error('❌ Erro WebSocket:', err.message);
+    console.error('❌ Erro WebSocket:', err);
   });
 });
 
 // ─── INICIAR SERVIDOR ───
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`\n${'='.repeat(50)}`);
-  console.log(`🚀 Servidor MDTEC Sincronização`);
-  console.log(`📡 HTTP: http://localhost:${PORT}`);
-  console.log(`📡 WebSocket: ws://localhost:${PORT}/ws`);
-  console.log(`${'='.repeat(50)}\n`);
-});
-
-// ─── GRACEFUL SHUTDOWN ───
-process.on('SIGTERM', () => {
-  console.log('📝 Salvando dados...');
-  saveData();
-  console.log('✅ Servidor encerrado');
-  process.exit(0);
-});
-
-process.on('SIGINT', () => {
-  console.log('📝 Salvando dados...');
-  saveData();
-  console.log('✅ Servidor encerrado');
-  process.exit(0);
+  console.log(`🚀 Servidor rodando em http://localhost:${PORT}`);
+  console.log(`📡 WebSocket disponível em ws://localhost:${PORT}/ws`);
+  console.log(`💾 Avisos persistidos em ${AVISOS_FILE}`);
+  console.log(`⚙️  Colunas persistidas em ${COLUNAS_FILE}`);
 });

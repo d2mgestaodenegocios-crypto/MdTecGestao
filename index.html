@@ -10849,7 +10849,7 @@ function makePageComponent(PAGE_CFG){
     const removeCol=(i)=>setColsDraft(d=>d.filter((_,j)=>j!==i));
 
     // ── State ────────────────────────────────────────────────────
-    const loadSt=()=>{try{const s=localStorage.getItem(STORAGE_KEY);if(s){const p=JSON.parse(s);return p;}}catch(e){}return{empresas:[],grupos:[],dados:{},obs:[],prazos:{},nextEmpId:1,nextGrpId:1};};
+    const loadSt=()=>{try{const s=localStorage.getItem(STORAGE_KEY);if(s){const p=JSON.parse(s);return p;}}catch(e){}return{empresas:[],grupos:[],dados:{},obs:[],prazos:{},nextEmpId:1,nextGrpId:1,empObservacoes:{},empCliente:{}};};
     const init=loadSt();
     const [empresas,setEmpresas]=useState(init.empresas||[]);
     const [expandedEmps,setExpandedEmps]=useState(new Set());

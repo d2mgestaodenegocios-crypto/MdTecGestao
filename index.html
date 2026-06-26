@@ -8157,12 +8157,6 @@ function ContabilPage({toast,data}){
   const [cObs,setCObs]=useState(init.obs);
   const [cEcdEcf,setCEcdEcf]=useState(init.ecdEcf);
 
-  // ─── Painel Lateral ───────────────────────────────────────────
-  const [selectedEmpId,setSelectedEmpId]=useState(null);
-  const [selectedEmpYear,setSelectedEmpYear]=useState(new Date().getFullYear());
-  const [empObservacoes,setEmpObservacoes]=useState({});
-  const [empCliente,setEmpCliente]=useState({});
-
   // ─── Supabase persistence ─────────────────────────────────────
   const CONTABIL_ROW_ID=2; // row id=2 in app_data table for contabil data
   const [dbSynced,setDbSynced]=useState(false);
@@ -8428,6 +8422,11 @@ function ContabilPage({toast,data}){
   const [selectedEmpPanel,setSelectedEmpPanel]=useState(null);
   const openSidePanel=(eid)=>setSelectedEmpPanel(eid===selectedEmpPanel?null:eid);
   const closeSidePanel=()=>setSelectedEmpPanel(null);
+  const [panelTab,setPanelTab]=useState("resumo"); // "resumo" | "cadastro"
+  const [selectedEmpYear,setSelectedEmpYear]=useState(new Date().getFullYear());
+  const [empObservacoes,setEmpObservacoes]=useState({});   // {empId: [{id,tipo,texto,data,feito}]}
+  const [empCliente,setEmpCliente]=useState({});           // {empId: {nome,email,tel,cnpj,resp}}
+
 
   const alterarECDECF=(eid,tipo)=>{
     const emp=cEmpresas.find(e=>e.id===eid);
@@ -9365,7 +9364,6 @@ function ContabilPage({toast,data}){
         const initials=emp.nome.slice(0,2).toUpperCase();
         const obsEmp=cObs.filter(o=>o.empresaId===emp.id);
         const obsCount=obsEmp.filter(o=>!o.verificado).length;
-        // Seletor de ano — usa state selectedEmpYear
         const ANO_PANEL=String(selectedEmpYear);
         const MESES_PANEL=["01","02","03","04","05","06","07","08","09","10","11","12"];
         const getMesSt=(m)=>{
@@ -9381,18 +9379,36 @@ function ContabilPage({toast,data}){
         };
         const dotColor={concluido:"#22c55e",analise:"#f59e0b",pendente:"#6366f1","nao-iniciado":"#475569",cinza:"#1e293b"};
         const dotBorder={concluido:"#22c55e",analise:"#f59e0b",pendente:"#6366f1","nao-iniciado":"#475569",cinza:"#334155"};
-        // Mini sparkline tendency (last 6 months contabilizados)
         const mesesAll=getMesesC(emp.periodoInicial);
         const last6=mesesAll.slice(-6);
         const sparkVals=last6.map(mes=>{const d=cDados.find(x=>x.empresaId===emp.id&&x.competencia===mes);if(!d)return 0;return Math.round((([d.fiscal,d.extratos,d.patrimonio,d.folha].filter(x=>x==="ok").length+(d.clienteEnviou==="sim"?1:0))/5)*100);});
-        const maxSpark=Math.max(...sparkVals,1);
-        const svgH=48;const svgW=120;
+        const maxSpark=Math.max(...sparkVals,1);const svgH=48;const svgW=120;
         const pts=sparkVals.map((v,i)=>`${(i/(sparkVals.length-1||1))*svgW},${svgH-Math.round((v/maxSpark)*(svgH-8))-4}`).join(" ");
+        const clienteData=empCliente[selectedEmpPanel]||{};
+        const avisosEmp=empObservacoes[selectedEmpPanel]||[];
+        const addAviso=()=>{
+          const novo={id:Date.now(),tipo:"aviso",texto:"",data:new Date().toLocaleDateString("pt-BR"),feito:false};
+          setEmpObservacoes(prev=>({...prev,[selectedEmpPanel]:[...(prev[selectedEmpPanel]||[]),novo]}));
+        };
+        const updateAviso=(id,field,val)=>{
+          setEmpObservacoes(prev=>({...prev,[selectedEmpPanel]:(prev[selectedEmpPanel]||[]).map(a=>a.id===id?{...a,[field]:val}:a)}));
+        };
+        const removeAviso=(id)=>{
+          setEmpObservacoes(prev=>({...prev,[selectedEmpPanel]:(prev[selectedEmpPanel]||[]).filter(a=>a.id!==id)}));
+        };
+        const TABS=[{id:"resumo",icon:"📊",label:"Resumo"},{id:"cadastro",icon:"🗂️",label:"Cadastro"}];
+        const tabStyle=(id)=>({
+          flex:1,padding:"8px 4px",border:"none",background:"transparent",
+          color:panelTab===id?"#f1f5f9":"#64748b",
+          fontWeight:panelTab===id?800:600,fontSize:12,cursor:"pointer",
+          borderBottom:panelTab===id?"2px solid #6366f1":"2px solid transparent",
+          fontFamily:"inherit",transition:"all .15s"
+        });
         return(
-          <div style={{position:"fixed",top:0,right:0,width:320,height:"100vh",background:"#0f172a",borderLeft:"1px solid #1e293b",zIndex:1500,display:"flex",flexDirection:"column",boxShadow:"-8px 0 40px rgba(0,0,0,.5)",overflowY:"auto",animation:"slideInRight .22s ease"}}>
+          <div style={{position:"fixed",top:0,right:0,width:340,height:"100vh",background:"#0f172a",borderLeft:"1px solid #1e293b",zIndex:1500,display:"flex",flexDirection:"column",boxShadow:"-8px 0 40px rgba(0,0,0,.5)",animation:"slideInRight .22s ease"}}>
             <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
             {/* Header */}
-            <div style={{padding:"16px 20px",borderBottom:"1px solid #1e293b",display:"flex",alignItems:"center",gap:12,background:"#0f172a",flexShrink:0}}>
+            <div style={{padding:"16px 20px",borderBottom:"1px solid #1e293b",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
               <div style={{width:44,height:44,borderRadius:10,background:grpColor,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:16,color:"#fff",flexShrink:0}}>{initials}</div>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:14,fontWeight:900,color:"#f1f5f9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{emp.nome}</div>
@@ -9400,138 +9416,182 @@ function ContabilPage({toast,data}){
               </div>
               <button onClick={closeSidePanel} style={{background:"#1e293b",border:"none",color:"#64748b",fontSize:16,cursor:"pointer",borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>×</button>
             </div>
+            {/* Tabs */}
+            <div style={{display:"flex",borderBottom:"1px solid #1e293b",flexShrink:0,background:"#0a1628"}}>
+              {TABS.map(t=><button key={t.id} onClick={()=>setPanelTab(t.id)} style={tabStyle(t.id)}>{t.icon} {t.label}</button>)}
+            </div>
             {/* Body */}
-            <div style={{flex:1,overflowY:"auto",padding:"20px",display:"flex",flexDirection:"column",gap:20}}>
-              {/* Progresso Geral */}
-              <div>
-                <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>PROGRESSO GERAL</div>
-                <div style={{display:"flex",alignItems:"center",gap:10}}>
-                  <div style={{flex:1,height:8,borderRadius:4,background:"#1e293b",overflow:"hidden"}}>
-                    <div style={{height:"100%",borderRadius:4,background:"#f59e0b",width:`${pct}%`,transition:"width .5s"}}/>
+            <div style={{flex:1,overflowY:"auto",padding:"20px",display:"flex",flexDirection:"column",gap:18}}>
+
+              {panelTab==="resumo"&&(<>
+                {/* Progresso */}
+                <div>
+                  <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>PROGRESSO GERAL</div>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <div style={{flex:1,height:8,borderRadius:4,background:"#1e293b",overflow:"hidden"}}>
+                      <div style={{height:"100%",borderRadius:4,background:"#f59e0b",width:`${pct}%`,transition:"width .5s"}}/>
+                    </div>
+                    <span style={{fontSize:15,fontWeight:900,color:"#f59e0b",minWidth:40,textAlign:"right"}}>{pct}%</span>
                   </div>
-                  <span style={{fontSize:15,fontWeight:900,color:"#f59e0b",minWidth:40,textAlign:"right"}}>{pct}%</span>
                 </div>
-              </div>
-              {/* Resumo */}
-              <div>
-                <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>RESUMO</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                  {[
-                    {l:"Analisados",v:stats.analisados,c:"#22c55e"},
-                    {l:"Concluídos",v:stats.contabilizados,c:"#6366f1"},
-                    {l:"Pendentes",v:stats.pendentes,c:"#ef4444"},
-                    {l:"Último",v:stats.ultimoMes?getMesNomeC(stats.ultimoMes):"—",c:"#f59e0b"},
-                    {l:"Total Meses",v:stats.total,c:"#94a3b8"},
-                    {l:"Observações",v:obsEmp.length,c:obsCount>0?"#f59e0b":"#64748b"}
-                  ].map(({l,v,c})=>(
-                    <div key={l} style={{background:"#1e293b",borderRadius:8,padding:"10px 12px"}}>
-                      <div style={{fontSize:10,color:"#64748b",fontWeight:700,marginBottom:4}}>{l}</div>
-                      <div style={{fontSize:16,fontWeight:900,color:c}}>{v}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              {/* Timeline */}
-              <div>
-                <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>TIMELINE {ANO_PANEL}</div>
-                <div style={{display:"flex",gap:4,alignItems:"center"}}>
-                  {MESES_PANEL.map(m=>{
-                    const st=getMesSt(m);
-                    const bg=dotColor[st];
-                    const bd=dotBorder[st];
-                    const nm=getMesNomeC(`${m}/${ANO_PANEL}`).split("/")[0];
-                    return(
-                      <div key={m} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3,flex:1}}>
-                        <div style={{width:18,height:18,borderRadius:4,background:bg,border:`2px solid ${bd}`,transition:"background .2s"}}/>
-                        <span style={{fontSize:8,color:"#475569",fontWeight:700}}>{nm.slice(0,1)}</span>
+                {/* Resumo cards */}
+                <div>
+                  <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>RESUMO</div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                    {[
+                      {l:"Analisados",v:stats.analisados,c:"#22c55e"},
+                      {l:"Concluídos",v:stats.contabilizados,c:"#6366f1"},
+                      {l:"Pendentes",v:stats.pendentes,c:"#ef4444"},
+                      {l:"Último",v:stats.ultimoMes?getMesNomeC(stats.ultimoMes):"—",c:"#f59e0b"},
+                      {l:"Total Meses",v:stats.total,c:"#94a3b8"},
+                      {l:"Obs. Mensais",v:obsEmp.length,c:obsCount>0?"#f59e0b":"#64748b"}
+                    ].map(({l,v,c})=>(
+                      <div key={l} style={{background:"#1e293b",borderRadius:8,padding:"10px 12px"}}>
+                        <div style={{fontSize:10,color:"#64748b",fontWeight:700,marginBottom:4}}>{l}</div>
+                        <div style={{fontSize:16,fontWeight:900,color:c}}>{v}</div>
                       </div>
-                    );
-                  })}
+                    ))}
+                  </div>
                 </div>
-                <div style={{display:"flex",gap:10,marginTop:8,flexWrap:"wrap"}}>
-                  {[{c:"#22c55e",l:"Concluído"},{c:"#f59e0b",l:"Análise"},{c:"#6366f1",l:"Pendente"},{c:"#475569",l:"Não iniciado"}].map(({c,l})=>(
-                    <div key={l} style={{display:"flex",alignItems:"center",gap:4}}>
-                      <div style={{width:8,height:8,borderRadius:2,background:c}}/>
-                      <span style={{fontSize:9,color:"#64748b",fontWeight:600}}>{l}</span>
+                {/* Seletor de Ano */}
+                <div>
+                  <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:8}}>📅 ANO DA TIMELINE</div>
+                  <select value={selectedEmpYear} onChange={e=>setSelectedEmpYear(parseInt(e.target.value))} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #334155",background:"#1e293b",color:"#f1f5f9",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",outline:"none"}}>
+                    {[new Date().getFullYear()-1,new Date().getFullYear(),new Date().getFullYear()+1].map(y=><option key={y} value={y}>{y}</option>)}
+                  </select>
+                </div>
+                {/* Timeline */}
+                <div>
+                  <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>TIMELINE {ANO_PANEL}</div>
+                  <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                    {MESES_PANEL.map(m=>{
+                      const st=getMesSt(m);
+                      const nm=getMesNomeC(`${m}/${ANO_PANEL}`).split("/")[0];
+                      return(
+                        <div key={m} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3,flex:1}}>
+                          <div style={{width:18,height:18,borderRadius:4,background:dotColor[st],border:`2px solid ${dotBorder[st]}`,transition:"background .2s"}}/>
+                          <span style={{fontSize:8,color:"#475569",fontWeight:700}}>{nm.slice(0,1)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{display:"flex",gap:10,marginTop:8,flexWrap:"wrap"}}>
+                    {[{c:"#22c55e",l:"Concluído"},{c:"#f59e0b",l:"Análise"},{c:"#6366f1",l:"Pendente"},{c:"#475569",l:"Não iniciado"}].map(({c,l})=>(
+                      <div key={l} style={{display:"flex",alignItems:"center",gap:4}}>
+                        <div style={{width:8,height:8,borderRadius:2,background:c}}/><span style={{fontSize:9,color:"#64748b",fontWeight:600}}>{l}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {/* Tendência */}
+                <div>
+                  <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>TENDÊNCIA</div>
+                  <div style={{background:"#1e293b",borderRadius:8,padding:"12px"}}>
+                    <svg width="100%" viewBox={`0 0 ${svgW} ${svgH}`} style={{display:"block"}}>
+                      {sparkVals.length>1&&<polyline points={pts} fill="none" stroke={grpColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>}
+                      {sparkVals.map((v,i)=>(
+                        <circle key={i} cx={(i/(sparkVals.length-1||1))*svgW} cy={svgH-Math.round((v/maxSpark)*(svgH-8))-4} r="3" fill={grpColor}/>
+                      ))}
+                    </svg>
+                  </div>
+                </div>
+                {/* Obs mensais pendentes */}
+                {obsCount>0&&(
+                  <div>
+                    <div style={{fontSize:10,fontWeight:800,color:"#f59e0b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>⚠️ OBSERVAÇÕES MENSAIS</div>
+                    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                      {obsEmp.filter(o=>!o.verificado).slice(0,3).map((o,i)=>(
+                        <div key={i} style={{padding:"8px 10px",borderRadius:8,background:"#1e293b",borderLeft:"3px solid #f59e0b",fontSize:11,color:"#cbd5e1",lineHeight:1.5}}>
+                          <span style={{color:"#f59e0b",fontWeight:700,marginRight:6}}>{getMesNomeC(o.competencia)}:</span>{o.texto}
+                        </div>
+                      ))}
+                      {obsCount>3&&<div style={{fontSize:11,color:"#64748b",textAlign:"center"}}>+{obsCount-3} mais...</div>}
                     </div>
-                  ))}
+                  </div>
+                )}
+              </>)}
+
+              {panelTab==="cadastro"&&(<>
+                {/* Dados da Empresa / Cliente */}
+                <div>
+                  <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:12}}>🏢 DADOS DA EMPRESA / CLIENTE</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                    {[
+                      {ph:"Nome do Responsável",key:"resp"},
+                      {ph:"E-mail",key:"email",type:"email"},
+                      {ph:"Telefone / WhatsApp",key:"tel",type:"tel"},
+                      {ph:"CNPJ",key:"cnpj"},
+                    ].map(({ph,key,type="text"})=>(
+                      <div key={key}>
+                        <label style={{fontSize:10,fontWeight:700,color:"#64748b",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:".05em"}}>{ph}</label>
+                        <input type={type} placeholder={ph}
+                          value={clienteData[key]||""}
+                          onChange={e=>setEmpCliente(prev=>({...prev,[selectedEmpPanel]:{...(prev[selectedEmpPanel]||{}),[key]:e.target.value}}))}
+                          style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #334155",background:"#1e293b",color:"#f1f5f9",fontSize:12,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}
+                          onFocus={e=>e.target.style.borderColor="#6366f1"}
+                          onBlur={e=>e.target.style.borderColor="#334155"}
+                        />
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-               {/* Seletor de Ano */}
-               <div>
-                 <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:8}}>📅 ANO DA TIMELINE</div>
-                 <select value={selectedEmpYear} onChange={e=>setSelectedEmpYear(parseInt(e.target.value))} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #334155",background:"#1e293b",color:"#f1f5f9",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",outline:"none"}}>
-                   {[new Date().getFullYear()-1,new Date().getFullYear(),new Date().getFullYear()+1].map(y=><option key={y} value={y}>{y}</option>)}
-                 </select>
-               </div>
-               {/* Tendência */}
-               <div>
-                 <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>TENDÊNCIA</div>
-                 <div style={{background:"#1e293b",borderRadius:8,padding:"12px"}}>
-                   <svg width="100%" viewBox={`0 0 ${svgW} ${svgH}`} style={{display:"block"}}>
-                     {sparkVals.length>1&&<polyline points={pts} fill="none" stroke={grpColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>}
-                     {sparkVals.map((v,i)=>(
-                       <circle key={i} cx={(i/(sparkVals.length-1||1))*svgW} cy={svgH-Math.round((v/maxSpark)*(svgH-8))-4} r="3" fill={grpColor}/>
-                     ))}
-                   </svg>
-                 </div>
-               </div>
-               {/* Dados do Cliente */}
-               <div>
-                 <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>👤 DADOS DO CLIENTE</div>
-                 <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                   {[{ph:"Nome do Cliente",key:"nome"},{ph:"Email",key:"email",type:"email"},{ph:"Telefone",key:"tel",type:"tel"}].map(({ph,key,type="text"})=>(
-                     <input key={key} type={type} placeholder={ph}
-                       value={(empCliente[selectedEmpPanel]||{})[key]||""}
-                       onChange={e=>setEmpCliente(prev=>({...prev,[selectedEmpPanel]:{...(prev[selectedEmpPanel]||{}),[key]:e.target.value}}))}
-                       style={{padding:"8px 12px",borderRadius:8,border:"1px solid #334155",background:"#1e293b",color:"#f1f5f9",fontSize:12,fontFamily:"inherit",outline:"none"}}
-                       onFocus={e=>e.target.style.borderColor="#6366f1"}
-                       onBlur={e=>e.target.style.borderColor="#334155"}
-                     />
-                   ))}
-                 </div>
-               </div>
-               {/* Avisos & Observações Globais */}
-               <div>
-                 <div style={{fontSize:10,fontWeight:800,color:"#f59e0b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:8}}>⚠️ AVISOS & OBSERVAÇÕES</div>
-                 <textarea
-                   value={empObservacoes[selectedEmpPanel]||""}
-                   onChange={e=>setEmpObservacoes(prev=>({...prev,[selectedEmpPanel]:e.target.value}))}
-                   placeholder="Observações importantes, avisos, pendências gerais desta empresa..."
-                   style={{width:"100%",height:"100px",padding:"10px 12px",background:"#1e293b",border:"1px solid #334155",borderRadius:8,color:"#f1f5f9",fontSize:12,fontFamily:"inherit",resize:"vertical",outline:"none",lineHeight:1.5,boxSizing:"border-box"}}
-                   onFocus={e=>e.target.style.borderColor="#f59e0b"}
-                   onBlur={e=>e.target.style.borderColor="#334155"}
-                 />
-               </div>
-               {/* Observações por mês pendentes */}
-               {obsCount>0&&(
-                 <div>
-                   <div style={{fontSize:10,fontWeight:800,color:"#ef4444",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>🔴 OBS. MENSAIS PENDENTES</div>
-                   <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                     {obsEmp.filter(o=>!o.verificado).slice(0,3).map((o,i)=>(
-                       <div key={i} style={{padding:"8px 10px",borderRadius:8,background:"#1e293b",borderLeft:"3px solid #f59e0b",fontSize:11,color:"#cbd5e1",lineHeight:1.5}}>
-                         <span style={{color:"#f59e0b",fontWeight:700,marginRight:6}}>{getMesNomeC(o.competencia)}:</span>
-                         {o.texto}
-                       </div>
-                     ))}
-                     {obsCount>3&&<div style={{fontSize:11,color:"#64748b",textAlign:"center"}}>+{obsCount-3} mais observações...</div>}
-                   </div>
-                 </div>
-               )}
-             </div>
-             {/* Footer */}
-             <div style={{padding:"14px 20px",borderTop:"1px solid #1e293b",display:"flex",gap:8,flexShrink:0}}>
-               <button onClick={closeSidePanel} style={{flex:1,padding:"9px",borderRadius:8,border:"1px solid #334155",background:"transparent",color:"#94a3b8",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✕ Fechar</button>
-               {!window.__isGuest&&<button onClick={()=>{closeSidePanel();setColDraft({...colLabels});setEditingCols(true);}} style={{flex:1,padding:"9px",borderRadius:8,border:"none",background:"#22c55e",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>⚙️ Editar Colunas</button>}
-             </div>
-           </div>
-         );
-       })()}
-     </div>
-   );
- }
- 
- /* Sub-component: EmpresaRow */
+
+                {/* Avisos, Anotações e Lembretes */}
+                <div>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+                    <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em"}}>📌 AVISOS, ANOTAÇÕES & LEMBRETES</div>
+                    <button onClick={addAviso} style={{background:"#6366f1",border:"none",color:"#fff",borderRadius:6,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>+ Novo</button>
+                  </div>
+                  {avisosEmp.length===0&&(
+                    <div style={{padding:"20px",textAlign:"center",color:"#475569",fontSize:12,background:"#1e293b",borderRadius:8,borderStyle:"dashed",borderWidth:1,borderColor:"#334155"}}>
+                      Nenhum aviso. Clique em <strong style={{color:"#6366f1"}}>+ Novo</strong> para adicionar.
+                    </div>
+                  )}
+                  <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                    {avisosEmp.map(a=>(
+                      <div key={a.id} style={{background:"#1e293b",borderRadius:10,padding:"12px",borderLeft:`3px solid ${a.feito?"#22c55e":a.tipo==="aviso"?"#ef4444":a.tipo==="lembrete"?"#f59e0b":"#6366f1"}`,opacity:a.feito?0.6:1}}>
+                        <div style={{display:"flex",gap:6,marginBottom:8,alignItems:"center"}}>
+                          <select value={a.tipo} onChange={e=>updateAviso(a.id,"tipo",e.target.value)}
+                            style={{padding:"3px 6px",borderRadius:6,border:"1px solid #334155",background:"#0f172a",color:"#f1f5f9",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",outline:"none",flex:1}}>
+                            <option value="aviso">🔴 Aviso</option>
+                            <option value="lembrete">🟡 Lembrete</option>
+                            <option value="anotacao">🔵 Anotação</option>
+                            <option value="importante">⭐ Importante</option>
+                          </select>
+                          <input type="date" value={a.data?a.data.split("/").reverse().join("-"):""}
+                            onChange={e=>{const [y,m,d]=e.target.value.split("-");updateAviso(a.id,"data",`${d}/${m}/${y}`);}}
+                            style={{padding:"3px 6px",borderRadius:6,border:"1px solid #334155",background:"#0f172a",color:"#94a3b8",fontSize:11,cursor:"pointer",fontFamily:"inherit",outline:"none"}}
+                          />
+                          <button onClick={()=>updateAviso(a.id,"feito",!a.feito)} title={a.feito?"Marcar pendente":"Marcar feito"}
+                            style={{width:26,height:26,borderRadius:6,border:"1px solid #334155",background:a.feito?"#22c55e":"transparent",color:a.feito?"#fff":"#64748b",cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                            {a.feito?"✓":"○"}
+                          </button>
+                          <button onClick={()=>removeAviso(a.id)} style={{width:26,height:26,borderRadius:6,border:"none",background:"transparent",color:"#ef4444",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>🗑</button>
+                        </div>
+                        <textarea value={a.texto} onChange={e=>updateAviso(a.id,"texto",e.target.value)}
+                          placeholder="Descreva o aviso, anotação ou lembrete..."
+                          style={{width:"100%",minHeight:60,padding:"8px 10px",background:"#0f172a",border:"1px solid #334155",borderRadius:8,color:"#f1f5f9",fontSize:12,fontFamily:"inherit",resize:"vertical",outline:"none",lineHeight:1.5,boxSizing:"border-box"}}
+                          onFocus={e=>e.target.style.borderColor="#6366f1"}
+                          onBlur={e=>e.target.style.borderColor="#334155"}
+                        />
+                        {a.feito&&<div style={{fontSize:10,color:"#22c55e",marginTop:4,fontWeight:600}}>✅ Concluído</div>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>)}
+
+            </div>
+            {/* Footer */}
+            <div style={{padding:"14px 20px",borderTop:"1px solid #1e293b",display:"flex",gap:8,flexShrink:0}}>
+              <button onClick={closeSidePanel} style={{flex:1,padding:"9px",borderRadius:8,border:"1px solid #334155",background:"transparent",color:"#94a3b8",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✕ Fechar</button>
+              {!window.__isGuest&&<button onClick={()=>{closeSidePanel();setColDraft({...colLabels});setEditingCols(true);}} style={{flex:1,padding:"9px",borderRadius:8,border:"none",background:"#22c55e",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>⚙️ Editar Colunas</button>}
+            </div>
+          </div>
+        );
+      })()}
+
+/* Sub-component: EmpresaRow */
 function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor,openSidePanel,selectedEmpPanel}){
   const stats=getStatsEmp(emp.id);
   const pct=stats.total>0?Math.round((stats.analisados/stats.total)*100):0;
@@ -10926,6 +10986,7 @@ function makePageComponent(PAGE_CFG){
     const [selectedEmpPanel,setSelectedEmpPanel]=useState(null);
     const openSidePanel=(eid)=>setSelectedEmpPanel(eid===selectedEmpPanel?null:eid);
     const closeSidePanel=()=>setSelectedEmpPanel(null);
+     const [panelTab,setPanelTab]=useState("resumo");
      const [selectedEmpYear,setSelectedEmpYear]=useState(new Date().getFullYear());
      const [empObservacoes,setEmpObservacoes]=useState({});
      const [empCliente,setEmpCliente]=useState({});
@@ -11374,7 +11435,7 @@ function makePageComponent(PAGE_CFG){
           const obsEmp=obs.filter(o=>o.eid===emp.id);
           const obsCount=obsEmp.filter(o=>!o.verificado).length;
           const progClr=getProgClr(pct);
-           const ANO_PANEL=String(selectedEmpYear);
+          const ANO_PANEL=String(selectedEmpYear);
           const MESES_PANEL=["01","02","03","04","05","06","07","08","09","10","11","12"];
           const getMesSt=(m)=>{
             const mes=`${m}/${ANO_PANEL}`;
@@ -11394,10 +11455,31 @@ function makePageComponent(PAGE_CFG){
           const maxSpark=Math.max(...sparkVals,1);const svgH=48;const svgW=120;
           const pts=sparkVals.map((v,i)=>`${(i/(sparkVals.length-1||1))*svgW},${svgH-Math.round((v/maxSpark)*(svgH-8))-4}`).join(" ");
           const hasOverride=!!empColsOverride[emp.id];
+          const clienteData=empCliente[selectedEmpPanel]||{};
+          const avisosEmp=empObservacoes[selectedEmpPanel]||[];
+          const addAviso=()=>{
+            const novo={id:Date.now(),tipo:"aviso",texto:"",data:new Date().toLocaleDateString("pt-BR"),feito:false};
+            setEmpObservacoes(prev=>({...prev,[selectedEmpPanel]:[...(prev[selectedEmpPanel]||[]),novo]}));
+          };
+          const updateAviso=(id,field,val)=>{
+            setEmpObservacoes(prev=>({...prev,[selectedEmpPanel]:(prev[selectedEmpPanel]||[]).map(a=>a.id===id?{...a,[field]:val}:a)}));
+          };
+          const removeAviso=(id)=>{
+            setEmpObservacoes(prev=>({...prev,[selectedEmpPanel]:(prev[selectedEmpPanel]||[]).filter(a=>a.id!==id)}));
+          };
+          const TABS=[{id:"resumo",icon:"📊",label:"Resumo"},{id:"cadastro",icon:"🗂️",label:"Cadastro"}];
+          const tabStyle=(id)=>({
+            flex:1,padding:"8px 4px",border:"none",background:"transparent",
+            color:panelTab===id?"#f1f5f9":"#64748b",
+            fontWeight:panelTab===id?800:600,fontSize:12,cursor:"pointer",
+            borderBottom:panelTab===id?"2px solid #6366f1":"2px solid transparent",
+            fontFamily:"inherit",transition:"all .15s"
+          });
           return(
-            <div style={{position:"fixed",top:0,right:0,width:320,height:"100vh",background:"#0f172a",borderLeft:"1px solid #1e293b",zIndex:1500,display:"flex",flexDirection:"column",boxShadow:"-8px 0 40px rgba(0,0,0,.5)",overflowY:"auto",animation:"slideInRight .22s ease"}}>
+            <div style={{position:"fixed",top:0,right:0,width:340,height:"100vh",background:"#0f172a",borderLeft:"1px solid #1e293b",zIndex:1500,display:"flex",flexDirection:"column",boxShadow:"-8px 0 40px rgba(0,0,0,.5)",animation:"slideInRight .22s ease"}}>
               <style>{`@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
-              <div style={{padding:"16px 20px",borderBottom:"1px solid #1e293b",display:"flex",alignItems:"center",gap:12,background:"#0f172a",flexShrink:0}}>
+              {/* Header */}
+              <div style={{padding:"16px 20px",borderBottom:"1px solid #1e293b",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
                 <div style={{width:44,height:44,borderRadius:10,background:grpColor,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:16,color:"#fff",flexShrink:0}}>{initials}</div>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:14,fontWeight:900,color:"#f1f5f9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{emp.nome}</div>
@@ -11405,105 +11487,156 @@ function makePageComponent(PAGE_CFG){
                 </div>
                 <button onClick={closeSidePanel} style={{background:"#1e293b",border:"none",color:"#64748b",fontSize:16,cursor:"pointer",borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>×</button>
               </div>
-              <div style={{flex:1,overflowY:"auto",padding:"20px",display:"flex",flexDirection:"column",gap:20}}>
-                <div>
-                  <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>PROGRESSO GERAL</div>
-                  <div style={{display:"flex",alignItems:"center",gap:10}}>
-                    <div style={{flex:1,height:8,borderRadius:4,background:"#1e293b",overflow:"hidden"}}><div style={{height:"100%",borderRadius:4,background:progClr,width:`${pct}%`,transition:"width .5s"}}/></div>
-                    <span style={{fontSize:15,fontWeight:900,color:progClr,minWidth:40,textAlign:"right"}}>{pct}%</span>
-                  </div>
-                </div>
-                <div>
-                  <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>RESUMO</div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                    {[{l:"Analisados",v:stats.analisados,c:"#22c55e"},{l:"Concluídos",v:stats.contabilizados,c:"#6366f1"},{l:"Pendentes",v:stats.pendentes,c:stats.pendentes>0?"#ef4444":"#475569"},{l:"Último",v:stats.ultimoMes?getMesNome(stats.ultimoMes):"—",c:"#f59e0b"},{l:"Total Meses",v:stats.total,c:"#94a3b8"},{l:"Observações",v:obsEmp.length,c:obsCount>0?"#f59e0b":"#64748b"}].map(({l,v,c})=>(
-                      <div key={l} style={{background:"#1e293b",borderRadius:8,padding:"10px 12px"}}>
-                        <div style={{fontSize:10,color:"#64748b",fontWeight:700,marginBottom:4}}>{l}</div>
-                        <div style={{fontSize:16,fontWeight:900,color:c}}>{v}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>TIMELINE {ANO_PANEL}</div>
-                  <div style={{display:"flex",gap:3,alignItems:"center"}}>
-                    {MESES_PANEL.map(m=>{const st=getMesSt(m);const bg=dotColor[st]||"#1e293b";const nm=getMesNome(`${m}/${ANO_PANEL}`).split("/")[0];return(<div key={m} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3,flex:1}}><div style={{width:16,height:16,borderRadius:4,background:bg,transition:"background .2s"}}/><span style={{fontSize:8,color:"#475569",fontWeight:700}}>{nm.slice(0,1)}</span></div>);})}
-                  </div>
-                  <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
-                    {[{c:"#22c55e",l:"Concluído"},{c:"#f59e0b",l:"Análise"},{c:"#6366f1",l:"Pendente"},{c:"#475569",l:"Não iniciado"}].map(({c,l})=>(
-                      <div key={l} style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:8,height:8,borderRadius:2,background:c}}/><span style={{fontSize:9,color:"#64748b",fontWeight:600}}>{l}</span></div>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                 {/* Seletor de Ano */}
-                 <div>
-                   <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:8}}>📅 ANO DA TIMELINE</div>
-                   <select value={selectedEmpYear} onChange={e=>setSelectedEmpYear(parseInt(e.target.value))} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #334155",background:"#1e293b",color:"#f1f5f9",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",outline:"none"}}>
-                     {[new Date().getFullYear()-1,new Date().getFullYear(),new Date().getFullYear()+1].map(y=><option key={y} value={y}>{y}</option>)}
-                   </select>
-                 </div>
-                  <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>TENDÊNCIA</div>
-                  <div style={{background:"#1e293b",borderRadius:8,padding:"12px"}}>
-                    <svg width="100%" viewBox={`0 0 ${svgW} ${svgH}`} style={{display:"block"}}>
-                      {sparkVals.length>1&&<polyline points={pts} fill="none" stroke={grpColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>}
-                      {sparkVals.map((v,i)=><circle key={i} cx={(i/(sparkVals.length-1||1))*svgW} cy={svgH-Math.round((v/maxSpark)*(svgH-8))-4} r="3" fill={grpColor}/>)}
-                    </svg>
-                  </div>
-                </div>
-                {/* Colunas desta empresa */}
-                <div>
-                  <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>
-                    COLUNAS {hasOverride&&<span style={{color:"#f59e0b",fontSize:9}}>✎ personalizada</span>}
-                  </div>
-                  <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                    {getColsForEmp(emp.id).map(col=>(
-                      <span key={col.key} style={{background:"#1e293b",color:"#cbd5e1",padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:600,border:"1px solid #334155"}}>{col.icon} {col.label}</span>
-                    ))}
-                  </div>
-                  {hasOverride&&<button onClick={()=>{const no={...empColsOverride};delete no[emp.id];saveEmpColsOverride(no);toast("↩ Colunas restauradas ao padrão","ok");}} style={{marginTop:8,background:"none",border:"none",color:"#64748b",fontSize:11,cursor:"pointer",textDecoration:"underline",fontFamily:"inherit"}}>↩ Restaurar padrão</button>}
-                </div>
-                {obsCount>0&&(
+              {/* Tabs */}
+              <div style={{display:"flex",borderBottom:"1px solid #1e293b",flexShrink:0,background:"#0a1628"}}>
+                {TABS.map(t=><button key={t.id} onClick={()=>setPanelTab(t.id)} style={tabStyle(t.id)}>{t.icon} {t.label}</button>)}
+              </div>
+              {/* Body */}
+              <div style={{flex:1,overflowY:"auto",padding:"20px",display:"flex",flexDirection:"column",gap:18}}>
+
+                {panelTab==="resumo"&&(<>
                   <div>
-                    <div style={{fontSize:10,fontWeight:800,color:"#f59e0b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>⚠️ OBSERVAÇÕES PENDENTES</div>
-                    <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                      {obsEmp.filter(o=>!o.verificado).slice(0,3).map((o,i)=>(
-                        <div key={i} style={{padding:"8px 10px",borderRadius:8,background:"#1e293b",borderLeft:"3px solid #f59e0b",fontSize:11,color:"#cbd5e1",lineHeight:1.5}}>
-                          <span style={{color:"#f59e0b",fontWeight:700,marginRight:6}}>{getMesNome(o.mes)}:</span>{o.texto}
-                        </div>
-                      ))}
-                      {obsCount>3&&<div style={{fontSize:11,color:"#64748b",textAlign:"center"}}>+{obsCount-3} mais...</div>}
+                    <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>PROGRESSO GERAL</div>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <div style={{flex:1,height:8,borderRadius:4,background:"#1e293b",overflow:"hidden"}}><div style={{height:"100%",borderRadius:4,background:progClr,width:`${pct}%`,transition:"width .5s"}}/></div>
+                      <span style={{fontSize:15,fontWeight:900,color:progClr,minWidth:40,textAlign:"right"}}>{pct}%</span>
                     </div>
                   </div>
-                )}
+                  <div>
+                    <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>RESUMO</div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                      {[{l:"Analisados",v:stats.analisados,c:"#22c55e"},{l:"Concluídos",v:stats.contabilizados,c:"#6366f1"},{l:"Pendentes",v:stats.pendentes,c:stats.pendentes>0?"#ef4444":"#475569"},{l:"Último",v:stats.ultimoMes?getMesNome(stats.ultimoMes):"—",c:"#f59e0b"},{l:"Total Meses",v:stats.total,c:"#94a3b8"},{l:"Obs. Mensais",v:obsEmp.length,c:obsCount>0?"#f59e0b":"#64748b"}].map(({l,v,c})=>(
+                        <div key={l} style={{background:"#1e293b",borderRadius:8,padding:"10px 12px"}}>
+                          <div style={{fontSize:10,color:"#64748b",fontWeight:700,marginBottom:4}}>{l}</div>
+                          <div style={{fontSize:16,fontWeight:900,color:c}}>{v}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Seletor de Ano */}
+                  <div>
+                    <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:8}}>📅 ANO DA TIMELINE</div>
+                    <select value={selectedEmpYear} onChange={e=>setSelectedEmpYear(parseInt(e.target.value))} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #334155",background:"#1e293b",color:"#f1f5f9",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",outline:"none"}}>
+                      {[new Date().getFullYear()-1,new Date().getFullYear(),new Date().getFullYear()+1].map(y=><option key={y} value={y}>{y}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>TIMELINE {ANO_PANEL}</div>
+                    <div style={{display:"flex",gap:3,alignItems:"center"}}>
+                      {MESES_PANEL.map(m=>{const st=getMesSt(m);const bg=dotColor[st]||"#1e293b";const nm=getMesNome(`${m}/${ANO_PANEL}`).split("/")[0];return(<div key={m} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3,flex:1}}><div style={{width:16,height:16,borderRadius:4,background:bg,transition:"background .2s"}}/><span style={{fontSize:8,color:"#475569",fontWeight:700}}>{nm.slice(0,1)}</span></div>);})}
+                    </div>
+                    <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
+                      {[{c:"#22c55e",l:"Concluído"},{c:"#f59e0b",l:"Análise"},{c:"#6366f1",l:"Pendente"},{c:"#475569",l:"Não iniciado"}].map(({c,l})=>(
+                        <div key={l} style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:8,height:8,borderRadius:2,background:c}}/><span style={{fontSize:9,color:"#64748b",fontWeight:600}}>{l}</span></div>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>TENDÊNCIA</div>
+                    <div style={{background:"#1e293b",borderRadius:8,padding:"12px"}}>
+                      <svg width="100%" viewBox={`0 0 ${svgW} ${svgH}`} style={{display:"block"}}>
+                        {sparkVals.length>1&&<polyline points={pts} fill="none" stroke={grpColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>}
+                        {sparkVals.map((v,i)=><circle key={i} cx={(i/(sparkVals.length-1||1))*svgW} cy={svgH-Math.round((v/maxSpark)*(svgH-8))-4} r="3" fill={grpColor}/>)}
+                      </svg>
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>
+                      COLUNAS {hasOverride&&<span style={{color:"#f59e0b",fontSize:9}}>✎ personalizada</span>}
+                    </div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                      {getColsForEmp(emp.id).map(col=>(
+                        <span key={col.key} style={{background:"#1e293b",color:"#cbd5e1",padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:600,border:"1px solid #334155"}}>{col.icon} {col.label}</span>
+                      ))}
+                    </div>
+                    {hasOverride&&<button onClick={()=>{const no={...empColsOverride};delete no[emp.id];saveEmpColsOverride(no);toast("↩ Colunas restauradas ao padrão","ok");}} style={{marginTop:8,background:"none",border:"none",color:"#64748b",fontSize:11,cursor:"pointer",textDecoration:"underline",fontFamily:"inherit"}}>↩ Restaurar padrão</button>}
+                  </div>
+                  {obsCount>0&&(
+                    <div>
+                      <div style={{fontSize:10,fontWeight:800,color:"#f59e0b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>⚠️ OBSERVAÇÕES MENSAIS</div>
+                      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                        {obsEmp.filter(o=>!o.verificado).slice(0,3).map((o,i)=>(
+                          <div key={i} style={{padding:"8px 10px",borderRadius:8,background:"#1e293b",borderLeft:"3px solid #f59e0b",fontSize:11,color:"#cbd5e1",lineHeight:1.5}}>
+                            <span style={{color:"#f59e0b",fontWeight:700,marginRight:6}}>{getMesNome(o.mes)}:</span>{o.texto}
+                          </div>
+                        ))}
+                        {obsCount>3&&<div style={{fontSize:11,color:"#64748b",textAlign:"center"}}>+{obsCount-3} mais...</div>}
+                      </div>
+                    </div>
+                  )}
+                </>)}
+
+                {panelTab==="cadastro"&&(<>
+                  {/* Dados da Empresa / Cliente */}
+                  <div>
+                    <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:12}}>🏢 DADOS DA EMPRESA / CLIENTE</div>
+                    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                      {[
+                        {ph:"Nome do Responsável",key:"resp"},
+                        {ph:"E-mail",key:"email",type:"email"},
+                        {ph:"Telefone / WhatsApp",key:"tel",type:"tel"},
+                        {ph:"CNPJ",key:"cnpj"},
+                      ].map(({ph,key,type="text"})=>(
+                        <div key={key}>
+                          <label style={{fontSize:10,fontWeight:700,color:"#64748b",display:"block",marginBottom:4,textTransform:"uppercase",letterSpacing:".05em"}}>{ph}</label>
+                          <input type={type} placeholder={ph}
+                            value={clienteData[key]||""}
+                            onChange={e=>setEmpCliente(prev=>({...prev,[selectedEmpPanel]:{...(prev[selectedEmpPanel]||{}),[key]:e.target.value}}))}
+                            style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #334155",background:"#1e293b",color:"#f1f5f9",fontSize:12,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}
+                            onFocus={e=>e.target.style.borderColor="#6366f1"}
+                            onBlur={e=>e.target.style.borderColor="#334155"}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Avisos, Anotações e Lembretes */}
+                  <div>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+                      <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em"}}>📌 AVISOS, ANOTAÇÕES & LEMBRETES</div>
+                      <button onClick={addAviso} style={{background:"#6366f1",border:"none",color:"#fff",borderRadius:6,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>+ Novo</button>
+                    </div>
+                    {avisosEmp.length===0&&(
+                      <div style={{padding:"20px",textAlign:"center",color:"#475569",fontSize:12,background:"#1e293b",borderRadius:8,borderStyle:"dashed",borderWidth:1,borderColor:"#334155"}}>
+                        Nenhum aviso. Clique em <strong style={{color:"#6366f1"}}>+ Novo</strong> para adicionar.
+                      </div>
+                    )}
+                    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                      {avisosEmp.map(a=>(
+                        <div key={a.id} style={{background:"#1e293b",borderRadius:10,padding:"12px",borderLeft:`3px solid ${a.feito?"#22c55e":a.tipo==="aviso"?"#ef4444":a.tipo==="lembrete"?"#f59e0b":"#6366f1"}`,opacity:a.feito?0.6:1}}>
+                          <div style={{display:"flex",gap:6,marginBottom:8,alignItems:"center"}}>
+                            <select value={a.tipo} onChange={e=>updateAviso(a.id,"tipo",e.target.value)}
+                              style={{padding:"3px 6px",borderRadius:6,border:"1px solid #334155",background:"#0f172a",color:"#f1f5f9",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",outline:"none",flex:1}}>
+                              <option value="aviso">🔴 Aviso</option>
+                              <option value="lembrete">🟡 Lembrete</option>
+                              <option value="anotacao">🔵 Anotação</option>
+                              <option value="importante">⭐ Importante</option>
+                            </select>
+                            <input type="date" value={a.data?a.data.split("/").reverse().join("-"):""}
+                              onChange={e=>{const [y,m,d]=e.target.value.split("-");updateAviso(a.id,"data",`${d}/${m}/${y}`);}}
+                              style={{padding:"3px 6px",borderRadius:6,border:"1px solid #334155",background:"#0f172a",color:"#94a3b8",fontSize:11,cursor:"pointer",fontFamily:"inherit",outline:"none"}}
+                            />
+                            <button onClick={()=>updateAviso(a.id,"feito",!a.feito)} title={a.feito?"Marcar pendente":"Marcar feito"}
+                              style={{width:26,height:26,borderRadius:6,border:"1px solid #334155",background:a.feito?"#22c55e":"transparent",color:a.feito?"#fff":"#64748b",cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                              {a.feito?"✓":"○"}
+                            </button>
+                            <button onClick={()=>removeAviso(a.id)} style={{width:26,height:26,borderRadius:6,border:"none",background:"transparent",color:"#ef4444",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>🗑</button>
+                          </div>
+                          <textarea value={a.texto} onChange={e=>updateAviso(a.id,"texto",e.target.value)}
+                            placeholder="Descreva o aviso, anotação ou lembrete..."
+                            style={{width:"100%",minHeight:60,padding:"8px 10px",background:"#0f172a",border:"1px solid #334155",borderRadius:8,color:"#f1f5f9",fontSize:12,fontFamily:"inherit",resize:"vertical",outline:"none",lineHeight:1.5,boxSizing:"border-box"}}
+                            onFocus={e=>e.target.style.borderColor="#6366f1"}
+                            onBlur={e=>e.target.style.borderColor="#334155"}
+                          />
+                          {a.feito&&<div style={{fontSize:10,color:"#22c55e",marginTop:4,fontWeight:600}}>✅ Concluído</div>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>)}
+
               </div>
-               {/* Dados do Cliente */}
-               <div>
-                 <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>👤 DADOS DO CLIENTE</div>
-                 <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                   {[{ph:"Nome do Cliente",key:"nome"},{ph:"Email",key:"email",type:"email"},{ph:"Telefone",key:"tel",type:"tel"}].map(({ph,key,type="text"})=>(
-                     <input key={key} type={type} placeholder={ph}
-                       value={(empCliente[selectedEmpPanel]||{})[key]||""}
-                       onChange={e=>setEmpCliente(prev=>({...prev,[selectedEmpPanel]:{...(prev[selectedEmpPanel]||{}),[key]:e.target.value}}))}
-                       style={{padding:"8px 12px",borderRadius:8,border:"1px solid #334155",background:"#1e293b",color:"#f1f5f9",fontSize:12,fontFamily:"inherit",outline:"none"}}
-                       onFocus={e=>e.target.style.borderColor="#6366f1"}
-                       onBlur={e=>e.target.style.borderColor="#334155"}
-                     />
-                   ))}
-                 </div>
-               </div>
-               {/* Avisos & Observações Globais */}
-               <div>
-                 <div style={{fontSize:10,fontWeight:800,color:"#f59e0b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:8}}>⚠️ AVISOS & OBSERVAÇÕES</div>
-                 <textarea
-                   value={empObservacoes[selectedEmpPanel]||""}
-                   onChange={e=>setEmpObservacoes(prev=>({...prev,[selectedEmpPanel]:e.target.value}))}
-                   placeholder="Observações importantes, avisos, pendências gerais desta empresa..."
-                   style={{width:"100%",height:"100px",padding:"10px 12px",background:"#1e293b",border:"1px solid #334155",borderRadius:8,color:"#f1f5f9",fontSize:12,fontFamily:"inherit",resize:"vertical",outline:"none",lineHeight:1.5,boxSizing:"border-box"}}
-                   onFocus={e=>e.target.style.borderColor="#f59e0b"}
-                   onBlur={e=>e.target.style.borderColor="#334155"}
-                 />
-               </div>
+              {/* Footer */}
               <div style={{padding:"14px 20px",borderTop:"1px solid #1e293b",display:"flex",gap:8,flexShrink:0}}>
                 <button onClick={closeSidePanel} style={{flex:1,padding:"9px",borderRadius:8,border:"1px solid #334155",background:"transparent",color:"#94a3b8",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✕ Fechar</button>
                 {!isGuestMode&&<button onClick={()=>{const ec=getColsForEmp(emp.id);setEmpColsDraft(JSON.parse(JSON.stringify(ec)));setEmpColsModal(emp.id);}} style={{flex:1.5,padding:"9px",borderRadius:8,border:"none",background:"#22c55e",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>⚙️ Colunas</button>}
@@ -11512,6 +11645,7 @@ function makePageComponent(PAGE_CFG){
             </div>
           );
         })()}
+
 
         {/* ── Modal colunas por empresa ── */}
         <Modal open={!!empColsModal} onClose={()=>setEmpColsModal(null)} title={`⚙️ Colunas — ${empresas.find(e=>e.id===empColsModal)?.nome||""}`} width={540}>

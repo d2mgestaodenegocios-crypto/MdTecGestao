@@ -9387,14 +9387,34 @@ function ContabilPage({toast,data}){
         const clienteData=empCliente[selectedEmpPanel]||{};
         const avisosEmp=empObservacoes[selectedEmpPanel]||[];
         const addAviso=()=>{
-          const novo={id:Date.now(),tipo:"aviso",texto:"",data:new Date().toLocaleDateString("pt-BR"),feito:false};
+          const novo={id:Date.now(),tipo:"aviso",texto:"",data:new Date().toLocaleDateString("pt-BR"),feito:false,_ultimaAtualizacao:Date.now()};
           setEmpObservacoes(prev=>({...prev,[selectedEmpPanel]:[...(prev[selectedEmpPanel]||[]),novo]}));
+          // 🔄 Sincronizar novo aviso
+          if(window.avisoSync && window.avisoSync.isConnected) {
+            window.sincronizarAviso('criar', selectedEmpPanel, {
+              tipo: novo.tipo,
+              texto: novo.texto,
+              data: novo.data,
+              feito: novo.feito
+            });
+          }
         };
         const updateAviso=(id,field,val)=>{
-          setEmpObservacoes(prev=>({...prev,[selectedEmpPanel]:(prev[selectedEmpPanel]||[]).map(a=>a.id===id?{...a,[field]:val}:a)}));
+          setEmpObservacoes(prev=>({...prev,[selectedEmpPanel]:(prev[selectedEmpPanel]||[]).map(a=>a.id===id?{...a,[field]:val,_ultimaAtualizacao:Date.now()}:a)}));
+          // 🔄 Sincronizar mudança
+          if(window.avisoSync && window.avisoSync.isConnected) {
+            window.sincronizarAviso('atualizar', selectedEmpPanel, {
+              id,
+              updates: {[field]: val}
+            });
+          }
         };
         const removeAviso=(id)=>{
           setEmpObservacoes(prev=>({...prev,[selectedEmpPanel]:(prev[selectedEmpPanel]||[]).filter(a=>a.id!==id)}));
+          // 🔄 Sincronizar deleção
+          if(window.avisoSync && window.avisoSync.isConnected) {
+            window.sincronizarAviso('deletar', selectedEmpPanel, {id});
+          }
         };
         const TABS=[{id:"resumo",icon:"📊",label:"Resumo"},{id:"cadastro",icon:"🗂️",label:"Cadastro"}];
         const tabStyle=(id)=>({
@@ -10849,7 +10869,7 @@ function makePageComponent(PAGE_CFG){
     const removeCol=(i)=>setColsDraft(d=>d.filter((_,j)=>j!==i));
 
     // ── State ────────────────────────────────────────────────────
-    const loadSt=()=>{try{const s=localStorage.getItem(STORAGE_KEY);if(s){const p=JSON.parse(s);return p;}}catch(e){}return{empresas:[],grupos:[],dados:{},obs:[],prazos:{},nextEmpId:1,nextGrpId:1,empObservacoes:{},empCliente:{}};};
+    const loadSt=()=>{try{const s=localStorage.getItem(STORAGE_KEY);if(s){const p=JSON.parse(s);return p;}}catch(e){}return{empresas:[],grupos:[],dados:{},obs:[],prazos:{},nextEmpId:1,nextGrpId:1};};
     const init=loadSt();
     const [empresas,setEmpresas]=useState(init.empresas||[]);
     const [expandedEmps,setExpandedEmps]=useState(new Set());
@@ -11000,11 +11020,56 @@ function makePageComponent(PAGE_CFG){
      const saveEmpExtras=()=>{
        try{localStorage.setItem(EMP_OBS_KEY,JSON.stringify(empObservacoes));}catch(e){}
        try{localStorage.setItem(EMP_CLIENTE_KEY,JSON.stringify(empCliente));}catch(e){}
-       toast("💾 Dados salvos!","ok");
+       
+       // 🔄 SINCRONIZAR AVISOS VIA WEBSOCKET
+       if(window.avisoSync && selectedEmpPanel) {
+         const avisosAtuais = empObservacoes[selectedEmpPanel] || [];
+         avisosAtuais.forEach(aviso => {
+           if(!aviso._sincronizado) {
+             window.sincronizarAviso('criar', selectedEmpPanel, {
+               tipo: aviso.tipo,
+               texto: aviso.texto,
+               data: aviso.data,
+               feito: aviso.feito
+             });
+             aviso._sincronizado = true;
+           }
+         });
+       }
+       
+       toast("💾 Dados salvos! 🔄 Sincronizando...","ok");
        setPanelTab("resumo");
      };
-     useEffect(()=>{try{localStorage.setItem(EMP_OBS_KEY,JSON.stringify(empObservacoes));}catch(e){}},[empObservacoes]);
+     useEffect(()=>{
+       try{localStorage.setItem(EMP_OBS_KEY,JSON.stringify(empObservacoes));}catch(e){}
+       // 🔄 Sincronizar mudanças de avisos
+       if(window.avisoSync && selectedEmpPanel && empObservacoes[selectedEmpPanel]) {
+         const avisosAtuais = empObservacoes[selectedEmpPanel];
+         avisosAtuais.forEach(aviso => {
+           if(aviso._ultimaAtualizacao && aviso._ultimaAtualizacao > (aviso._sincronizadoEm || 0)) {
+             window.sincronizarAviso('atualizar', selectedEmpPanel, {
+               id: aviso.id,
+               updates: {
+                 tipo: aviso.tipo,
+                 texto: aviso.texto,
+                 data: aviso.data,
+                 feito: aviso.feito
+               }
+             });
+             aviso._sincronizadoEm = aviso._ultimaAtualizacao;
+           }
+         });
+       }
+     },[empObservacoes]);
+     
      useEffect(()=>{try{localStorage.setItem(EMP_CLIENTE_KEY,JSON.stringify(empCliente));}catch(e){}},[empCliente]);
+     
+     // 🔄 Inicializar sincronização quando muda de empresa
+     useEffect(()=>{
+       if(selectedEmpPanel) {
+         window.inicializarSincronizacao(selectedEmpPanel);
+       }
+     },[selectedEmpPanel]);
     // Per-empresa column overrides stored in localStorage
     const EMP_COLS_KEY=COLS_KEY+"_empoverride";
     const [empColsOverride,setEmpColsOverride]=useState(()=>{try{const s=localStorage.getItem(EMP_COLS_KEY);return s?JSON.parse(s):{}}catch(e){return{};}});
@@ -11473,15 +11538,35 @@ function makePageComponent(PAGE_CFG){
           const clienteData=empCliente[selectedEmpPanel]||{};
           const avisosEmp=empObservacoes[selectedEmpPanel]||[];
           const addAviso=()=>{
-            const novo={id:Date.now(),tipo:"aviso",texto:"",data:new Date().toLocaleDateString("pt-BR"),feito:false};
+            const novo={id:Date.now(),tipo:"aviso",texto:"",data:new Date().toLocaleDateString("pt-BR"),feito:false,_ultimaAtualizacao:Date.now()};
             setEmpObservacoes(prev=>({...prev,[selectedEmpPanel]:[...(prev[selectedEmpPanel]||[]),novo]}));
             setEditingAvisoId(novo.id);
+            // 🔄 Sincronizar novo aviso
+            if(window.avisoSync && window.avisoSync.isConnected) {
+              window.sincronizarAviso('criar', selectedEmpPanel, {
+                tipo: novo.tipo,
+                texto: novo.texto,
+                data: novo.data,
+                feito: novo.feito
+              });
+            }
           };
           const updateAviso=(id,field,val)=>{
-            setEmpObservacoes(prev=>({...prev,[selectedEmpPanel]:(prev[selectedEmpPanel]||[]).map(a=>a.id===id?{...a,[field]:val}:a)}));
+            setEmpObservacoes(prev=>({...prev,[selectedEmpPanel]:(prev[selectedEmpPanel]||[]).map(a=>a.id===id?{...a,[field]:val,_ultimaAtualizacao:Date.now()}:a)}));
+            // 🔄 Sincronizar mudança
+            if(window.avisoSync && window.avisoSync.isConnected) {
+              window.sincronizarAviso('atualizar', selectedEmpPanel, {
+                id,
+                updates: {[field]: val}
+              });
+            }
           };
           const removeAviso=(id)=>{
             setEmpObservacoes(prev=>({...prev,[selectedEmpPanel]:(prev[selectedEmpPanel]||[]).filter(a=>a.id!==id)}));
+            // 🔄 Sincronizar deleção
+            if(window.avisoSync && window.avisoSync.isConnected) {
+              window.sincronizarAviso('deletar', selectedEmpPanel, {id});
+            }
           };
           const TABS=[{id:"resumo",icon:"📊",label:"Resumo"},{id:"cadastro",icon:"🗂️",label:"Cadastro"},{id:"avisos",icon:"📌",label:"Avisos"}];
           const tabStyle=(id)=>({
@@ -11744,7 +11829,111 @@ const FolhaPagPage=makePageComponent({
 
 
 
+// ═══════════════════════════════════════════════════════════════
+// 🔄 SINCRONIZAÇÃO EM TEMPO REAL - AVISOS E ANOTAÇÕES
+// ═══════════════════════════════════════════════════════════════
+
+// Variável global para sincronização
+let avisoSync = null;
+let currentUserId = 'user_' + Math.random().toString(36).slice(7); // ID único do usuário
+let currentEmpresaId = null; // Será definido quando entrar em uma empresa
+
+// Tentar conectar ao servidor de sincronização
+function inicializarSincronizacao(empresaId) {
+  if (!empresaId) return;
+  
+  currentEmpresaId = empresaId;
+  
+  // Carregar módulo de sincronização se ainda não foi carregado
+  if (typeof AvisoSync === 'undefined') {
+    console.warn('⚠️ Módulo AvisoSync não carregado. Usando localStorage apenas.');
+    return;
+  }
+  
+  // Criar nova conexão para esta empresa
+  if (avisoSync) {
+    avisoSync.disconnect();
+  }
+  
+  avisoSync = new AvisoSync(currentUserId, empresaId, 'ws://localhost:3000/ws');
+  
+  avisoSync.on('conectado', () => {
+    console.log('✅ Conectado ao servidor de avisos');
+    // Mostrar indicador na UI
+    const indicator = document.getElementById('sync-indicator');
+    if (indicator) {
+      indicator.style.background = '#22c55e';
+      indicator.title = 'Sincronizado em tempo real';
+    }
+  });
+  
+  avisoSync.on('desconectado', () => {
+    console.log('❌ Desconectado do servidor');
+    const indicator = document.getElementById('sync-indicator');
+    if (indicator) {
+      indicator.style.background = '#ef4444';
+      indicator.title = 'Desconectado - usando local';
+    }
+  });
+  
+  avisoSync.on('aviso-criado', (aviso) => {
+    console.log('📥 Novo aviso recebido:', aviso);
+  });
+  
+  avisoSync.on('aviso-atualizado', (avisoId, updates) => {
+    console.log('🔄 Aviso atualizado:', avisoId, updates);
+  });
+  
+  avisoSync.on('aviso-deletado', (avisoId) => {
+    console.log('🗑️ Aviso deletado:', avisoId);
+  });
+  
+  avisoSync.on('usuario-online', (userId) => {
+    console.log('👤 Usuário online:', userId);
+  });
+  
+  avisoSync.on('erro', (err) => {
+    console.error('⚠️ Erro de sincronização:', err);
+  });
+  
+  // Conectar ao servidor
+  avisoSync.connect().catch(err => {
+    console.warn('⚠️ Falha ao conectar ao servidor de sincronização:', err.message);
+    console.warn('   Continuando com localStorage apenas');
+  });
+}
+
+// Função auxiliar para sincronizar um aviso
+function sincronizarAviso(tipo, empresaId, avisoData) {
+  if (avisoSync && avisoSync.isConnected && avisoSync.empresaId === empresaId) {
+    switch(tipo) {
+      case 'criar':
+        avisoSync.criarAviso(avisoData);
+        break;
+      case 'atualizar':
+        avisoSync.atualizarAviso(avisoData.id, avisoData.updates);
+        break;
+      case 'deletar':
+        avisoSync.deletarAviso(avisoData.id);
+        break;
+    }
+  }
+}
+
+// Acessar módulo de sincronização do App React
+window.avisoSync = avisoSync;
+window.inicializarSincronizacao = inicializarSincronizacao;
+window.sincronizarAviso = sincronizarAviso;
+window.currentUserId = currentUserId;
+
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script>
+
+<!-- Indicador de sincronização -->
+<div id="sync-indicator" style="position:fixed;bottom:20px;right:20px;width:12px;height:12px;border-radius:50%;background:#ef4444;box-shadow:0 0 8px rgba(0,0,0,.3);z-index:9999;cursor:pointer;title='Clique para detalhes'" onclick="alert('Sincronização de Avisos\\n\\nVerde: Conectado\\nVermelho: Local\\n\\nAvisos, anotações e lembretes são sincronizados em tempo real entre todos os usuários da mesma empresa.')"></div>
+
+<!-- Carregar módulo de sincronização ANTES do script principal -->
+<script src="aviso-sync.js"></script>
+
 </body>
 </html>

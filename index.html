@@ -8157,6 +8157,12 @@ function ContabilPage({toast,data}){
   const [cObs,setCObs]=useState(init.obs);
   const [cEcdEcf,setCEcdEcf]=useState(init.ecdEcf);
 
+  // ─── Painel Lateral ───────────────────────────────────────────
+  const [selectedEmpId,setSelectedEmpId]=useState(null);
+  const [selectedEmpYear,setSelectedEmpYear]=useState(new Date().getFullYear());
+  const [empObservacoes,setEmpObservacoes]=useState({});
+  const [empCliente,setEmpCliente]=useState({});
+
   // ─── Supabase persistence ─────────────────────────────────────
   const CONTABIL_ROW_ID=2; // row id=2 in app_data table for contabil data
   const [dbSynced,setDbSynced]=useState(false);
@@ -9359,8 +9365,8 @@ function ContabilPage({toast,data}){
         const initials=emp.nome.slice(0,2).toUpperCase();
         const obsEmp=cObs.filter(o=>o.empresaId===emp.id);
         const obsCount=obsEmp.filter(o=>!o.verificado).length;
-        // Timeline 2026 — 12 months dots
-        const ANO_PANEL="2026";
+        // Seletor de ano — usa state selectedEmpYear
+        const ANO_PANEL=String(selectedEmpYear);
         const MESES_PANEL=["01","02","03","04","05","06","07","08","09","10","11","12"];
         const getMesSt=(m)=>{
           const mes=`${m}/${ANO_PANEL}`;
@@ -9451,47 +9457,81 @@ function ContabilPage({toast,data}){
                   ))}
                 </div>
               </div>
-              {/* Tendência */}
-              <div>
-                <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>TENDÊNCIA</div>
-                <div style={{background:"#1e293b",borderRadius:8,padding:"12px"}}>
-                  <svg width="100%" viewBox={`0 0 ${svgW} ${svgH}`} style={{display:"block"}}>
-                    {sparkVals.length>1&&<polyline points={pts} fill="none" stroke={grpColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>}
-                    {sparkVals.map((v,i)=>(
-                      <circle key={i} cx={(i/(sparkVals.length-1||1))*svgW} cy={svgH-Math.round((v/maxSpark)*(svgH-8))-4} r="3" fill={grpColor}/>
-                    ))}
-                  </svg>
-                </div>
-              </div>
-              {/* Observações pendentes */}
-              {obsCount>0&&(
-                <div>
-                  <div style={{fontSize:10,fontWeight:800,color:"#f59e0b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>⚠️ OBSERVAÇÕES PENDENTES</div>
-                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                    {obsEmp.filter(o=>!o.verificado).slice(0,3).map((o,i)=>(
-                      <div key={i} style={{padding:"8px 10px",borderRadius:8,background:"#1e293b",borderLeft:"3px solid #f59e0b",fontSize:11,color:"#cbd5e1",lineHeight:1.5}}>
-                        <span style={{color:"#f59e0b",fontWeight:700,marginRight:6}}>{getMesNomeC(o.competencia)}:</span>
-                        {o.texto}
-                      </div>
-                    ))}
-                    {obsCount>3&&<div style={{fontSize:11,color:"#64748b",textAlign:"center"}}>+{obsCount-3} mais observações...</div>}
-                  </div>
-                </div>
-              )}
-            </div>
-            {/* Footer */}
-            <div style={{padding:"14px 20px",borderTop:"1px solid #1e293b",display:"flex",gap:8,flexShrink:0}}>
-              <button onClick={closeSidePanel} style={{flex:1,padding:"9px",borderRadius:8,border:"1px solid #334155",background:"transparent",color:"#94a3b8",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✕ Fechar</button>
-              {!window.__isGuest&&<button onClick={()=>{closeSidePanel();setColDraft({...colLabels});setEditingCols(true);}} style={{flex:1,padding:"9px",borderRadius:8,border:"none",background:"#22c55e",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>⚙️ Editar Colunas</button>}
-            </div>
-          </div>
-        );
-      })()}
-    </div>
-  );
-}
-
-/* Sub-component: EmpresaRow */
+               {/* Seletor de Ano */}
+               <div>
+                 <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:8}}>📅 ANO DA TIMELINE</div>
+                 <select value={selectedEmpYear} onChange={e=>setSelectedEmpYear(parseInt(e.target.value))} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #334155",background:"#1e293b",color:"#f1f5f9",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",outline:"none"}}>
+                   {[new Date().getFullYear()-1,new Date().getFullYear(),new Date().getFullYear()+1].map(y=><option key={y} value={y}>{y}</option>)}
+                 </select>
+               </div>
+               {/* Tendência */}
+               <div>
+                 <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>TENDÊNCIA</div>
+                 <div style={{background:"#1e293b",borderRadius:8,padding:"12px"}}>
+                   <svg width="100%" viewBox={`0 0 ${svgW} ${svgH}`} style={{display:"block"}}>
+                     {sparkVals.length>1&&<polyline points={pts} fill="none" stroke={grpColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>}
+                     {sparkVals.map((v,i)=>(
+                       <circle key={i} cx={(i/(sparkVals.length-1||1))*svgW} cy={svgH-Math.round((v/maxSpark)*(svgH-8))-4} r="3" fill={grpColor}/>
+                     ))}
+                   </svg>
+                 </div>
+               </div>
+               {/* Dados do Cliente */}
+               <div>
+                 <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>👤 DADOS DO CLIENTE</div>
+                 <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                   {[{ph:"Nome do Cliente",key:"nome"},{ph:"Email",key:"email",type:"email"},{ph:"Telefone",key:"tel",type:"tel"}].map(({ph,key,type="text"})=>(
+                     <input key={key} type={type} placeholder={ph}
+                       value={(empCliente[selectedEmpPanel]||{})[key]||""}
+                       onChange={e=>setEmpCliente(prev=>({...prev,[selectedEmpPanel]:{...(prev[selectedEmpPanel]||{}),[key]:e.target.value}}))}
+                       style={{padding:"8px 12px",borderRadius:8,border:"1px solid #334155",background:"#1e293b",color:"#f1f5f9",fontSize:12,fontFamily:"inherit",outline:"none"}}
+                       onFocus={e=>e.target.style.borderColor="#6366f1"}
+                       onBlur={e=>e.target.style.borderColor="#334155"}
+                     />
+                   ))}
+                 </div>
+               </div>
+               {/* Avisos & Observações Globais */}
+               <div>
+                 <div style={{fontSize:10,fontWeight:800,color:"#f59e0b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:8}}>⚠️ AVISOS & OBSERVAÇÕES</div>
+                 <textarea
+                   value={empObservacoes[selectedEmpPanel]||""}
+                   onChange={e=>setEmpObservacoes(prev=>({...prev,[selectedEmpPanel]:e.target.value}))}
+                   placeholder="Observações importantes, avisos, pendências gerais desta empresa..."
+                   style={{width:"100%",height:"100px",padding:"10px 12px",background:"#1e293b",border:"1px solid #334155",borderRadius:8,color:"#f1f5f9",fontSize:12,fontFamily:"inherit",resize:"vertical",outline:"none",lineHeight:1.5,boxSizing:"border-box"}}
+                   onFocus={e=>e.target.style.borderColor="#f59e0b"}
+                   onBlur={e=>e.target.style.borderColor="#334155"}
+                 />
+               </div>
+               {/* Observações por mês pendentes */}
+               {obsCount>0&&(
+                 <div>
+                   <div style={{fontSize:10,fontWeight:800,color:"#ef4444",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>🔴 OBS. MENSAIS PENDENTES</div>
+                   <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                     {obsEmp.filter(o=>!o.verificado).slice(0,3).map((o,i)=>(
+                       <div key={i} style={{padding:"8px 10px",borderRadius:8,background:"#1e293b",borderLeft:"3px solid #f59e0b",fontSize:11,color:"#cbd5e1",lineHeight:1.5}}>
+                         <span style={{color:"#f59e0b",fontWeight:700,marginRight:6}}>{getMesNomeC(o.competencia)}:</span>
+                         {o.texto}
+                       </div>
+                     ))}
+                     {obsCount>3&&<div style={{fontSize:11,color:"#64748b",textAlign:"center"}}>+{obsCount-3} mais observações...</div>}
+                   </div>
+                 </div>
+               )}
+             </div>
+             {/* Footer */}
+             <div style={{padding:"14px 20px",borderTop:"1px solid #1e293b",display:"flex",gap:8,flexShrink:0}}>
+               <button onClick={closeSidePanel} style={{flex:1,padding:"9px",borderRadius:8,border:"1px solid #334155",background:"transparent",color:"#94a3b8",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✕ Fechar</button>
+               {!window.__isGuest&&<button onClick={()=>{closeSidePanel();setColDraft({...colLabels});setEditingCols(true);}} style={{flex:1,padding:"9px",borderRadius:8,border:"none",background:"#22c55e",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>⚙️ Editar Colunas</button>}
+             </div>
+           </div>
+         );
+       })()}
+     </div>
+   );
+ }
+ 
+ /* Sub-component: EmpresaRow */
 function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor,openSidePanel,selectedEmpPanel}){
   const stats=getStatsEmp(emp.id);
   const pct=stats.total>0?Math.round((stats.analisados/stats.total)*100):0;
@@ -10886,6 +10926,9 @@ function makePageComponent(PAGE_CFG){
     const [selectedEmpPanel,setSelectedEmpPanel]=useState(null);
     const openSidePanel=(eid)=>setSelectedEmpPanel(eid===selectedEmpPanel?null:eid);
     const closeSidePanel=()=>setSelectedEmpPanel(null);
+     const [selectedEmpYear,setSelectedEmpYear]=useState(new Date().getFullYear());
+     const [empObservacoes,setEmpObservacoes]=useState({});
+     const [empCliente,setEmpCliente]=useState({});
     // Per-empresa column overrides stored in localStorage
     const EMP_COLS_KEY=COLS_KEY+"_empoverride";
     const [empColsOverride,setEmpColsOverride]=useState(()=>{try{const s=localStorage.getItem(EMP_COLS_KEY);return s?JSON.parse(s):{}}catch(e){return{};}});
@@ -11331,7 +11374,7 @@ function makePageComponent(PAGE_CFG){
           const obsEmp=obs.filter(o=>o.eid===emp.id);
           const obsCount=obsEmp.filter(o=>!o.verificado).length;
           const progClr=getProgClr(pct);
-          const ANO_PANEL=String(new Date().getFullYear());
+           const ANO_PANEL=String(selectedEmpYear);
           const MESES_PANEL=["01","02","03","04","05","06","07","08","09","10","11","12"];
           const getMesSt=(m)=>{
             const mes=`${m}/${ANO_PANEL}`;
@@ -11393,6 +11436,13 @@ function makePageComponent(PAGE_CFG){
                   </div>
                 </div>
                 <div>
+                 {/* Seletor de Ano */}
+                 <div>
+                   <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:8}}>📅 ANO DA TIMELINE</div>
+                   <select value={selectedEmpYear} onChange={e=>setSelectedEmpYear(parseInt(e.target.value))} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #334155",background:"#1e293b",color:"#f1f5f9",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",outline:"none"}}>
+                     {[new Date().getFullYear()-1,new Date().getFullYear(),new Date().getFullYear()+1].map(y=><option key={y} value={y}>{y}</option>)}
+                   </select>
+                 </div>
                   <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>TENDÊNCIA</div>
                   <div style={{background:"#1e293b",borderRadius:8,padding:"12px"}}>
                     <svg width="100%" viewBox={`0 0 ${svgW} ${svgH}`} style={{display:"block"}}>
@@ -11427,6 +11477,33 @@ function makePageComponent(PAGE_CFG){
                   </div>
                 )}
               </div>
+               {/* Dados do Cliente */}
+               <div>
+                 <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:10}}>👤 DADOS DO CLIENTE</div>
+                 <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                   {[{ph:"Nome do Cliente",key:"nome"},{ph:"Email",key:"email",type:"email"},{ph:"Telefone",key:"tel",type:"tel"}].map(({ph,key,type="text"})=>(
+                     <input key={key} type={type} placeholder={ph}
+                       value={(empCliente[selectedEmpPanel]||{})[key]||""}
+                       onChange={e=>setEmpCliente(prev=>({...prev,[selectedEmpPanel]:{...(prev[selectedEmpPanel]||{}),[key]:e.target.value}}))}
+                       style={{padding:"8px 12px",borderRadius:8,border:"1px solid #334155",background:"#1e293b",color:"#f1f5f9",fontSize:12,fontFamily:"inherit",outline:"none"}}
+                       onFocus={e=>e.target.style.borderColor="#6366f1"}
+                       onBlur={e=>e.target.style.borderColor="#334155"}
+                     />
+                   ))}
+                 </div>
+               </div>
+               {/* Avisos & Observações Globais */}
+               <div>
+                 <div style={{fontSize:10,fontWeight:800,color:"#f59e0b",textTransform:"uppercase",letterSpacing:".08em",marginBottom:8}}>⚠️ AVISOS & OBSERVAÇÕES</div>
+                 <textarea
+                   value={empObservacoes[selectedEmpPanel]||""}
+                   onChange={e=>setEmpObservacoes(prev=>({...prev,[selectedEmpPanel]:e.target.value}))}
+                   placeholder="Observações importantes, avisos, pendências gerais desta empresa..."
+                   style={{width:"100%",height:"100px",padding:"10px 12px",background:"#1e293b",border:"1px solid #334155",borderRadius:8,color:"#f1f5f9",fontSize:12,fontFamily:"inherit",resize:"vertical",outline:"none",lineHeight:1.5,boxSizing:"border-box"}}
+                   onFocus={e=>e.target.style.borderColor="#f59e0b"}
+                   onBlur={e=>e.target.style.borderColor="#334155"}
+                 />
+               </div>
               <div style={{padding:"14px 20px",borderTop:"1px solid #1e293b",display:"flex",gap:8,flexShrink:0}}>
                 <button onClick={closeSidePanel} style={{flex:1,padding:"9px",borderRadius:8,border:"1px solid #334155",background:"transparent",color:"#94a3b8",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✕ Fechar</button>
                 {!isGuestMode&&<button onClick={()=>{const ec=getColsForEmp(emp.id);setEmpColsDraft(JSON.parse(JSON.stringify(ec)));setEmpColsModal(emp.id);}} style={{flex:1.5,padding:"9px",borderRadius:8,border:"none",background:"#22c55e",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>⚙️ Colunas</button>}

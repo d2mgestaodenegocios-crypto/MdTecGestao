@@ -8148,6 +8148,218 @@ function ContabilPage({toast,data}){
 
   const init=loadState();
 
+
+/* ===========================================
+   CONTABIL PAGE — Controle de Contabilização (Enhanced) */
+function ContabilPage({toast,data}){
+  // ─── Constants ───────────────────────────────────────────────
+  const STORAGE_KEY="mdtec_contabil_v2";
+  const CUR_YEAR_C=new Date().getFullYear();
+  const ANOS=Array.from({length:CUR_YEAR_C+4-2020},(_,i)=>(2020+i).toString());
+  const TODOS_MESES_C=ANOS.flatMap(a=>["01","02","03","04","05","06","07","08","09","10","11","12"].map(m=>`${m}/${a}`));
+  const MESES_NOMES_C={"01":"JAN","02":"FEV","03":"MAR","04":"ABR","05":"MAI","06":"JUN","07":"JUL","08":"AGO","09":"SET","10":"OUT","11":"NOV","12":"DEZ"};
+  const getMesNomeC=(m)=>{const p=m.split("/");return p.length!==2?m:`${MESES_NOMES_C[p[0]]}/${p[1]}`;};
+  const getMesesC=(pi)=>{const i=TODOS_MESES_C.indexOf(pi);return i===-1?[pi]:TODOS_MESES_C.slice(i);};
+  const getAnoMes=(m)=>m.split("/")[1]||"";
+
+  // ─── Group colors palette ─────────────────────────────────────
+  const GRP_COLORS=["#6366f1","#0ea5e9","#10b981","#f59e0b","#f43f5e","#8b5cf6","#14b8a6","#84cc16","#ec4899","#f97316"];
+  const getGrpColor=(gid)=>{if(!gid)return"#94a3b8";const idx=(gid-1)%GRP_COLORS.length;return GRP_COLORS[idx];};
+
+  // ─── Initial data (começa vazio — dados reais vêm do Supabase) ──
+  const initEmpresas=[];
+  const initGrupos=[];
+
+  const initDados=(emps)=>{
+    const d=[];
+    for(const emp of emps){
+      for(const mes of getMesesC(emp.periodoInicial)){
+        d.push({id:`${emp.id}_${mes}`,empresaId:emp.id,competencia:mes,fiscal:"nao-iniciado",extratos:"nao-iniciado",patrimonio:"nao-iniciado",folha:"nao-iniciado",clienteEnviou:"nao",analisado:false});
+      }
+    }
+    const set=(eid,mes,f)=>{const i=d.findIndex(x=>x.empresaId===eid&&x.competencia===mes);if(i!==-1)Object.assign(d[i],f);};
+    for(let i=0;i<11;i++){const m=TODOS_MESES_C[i];set(1,m,{fiscal:"ok",extratos:"ok",patrimonio:"ok",folha:"ok",clienteEnviou:"sim"});}
+    for(let i=0;i<5;i++){set(1,TODOS_MESES_C[i],{analisado:true});}
+    set(2,"01/2025",{fiscal:"ok",extratos:"ok",patrimonio:"ok",folha:"ok",clienteEnviou:"sim",analisado:true});
+    set(3,"11/2025",{fiscal:"ok",extratos:"ok",patrimonio:"ok",folha:"ok",clienteEnviou:"sim"});
+    set(5,"12/2025",{fiscal:"ok",extratos:"ok",patrimonio:"ok",folha:"ok",clienteEnviou:"sim",analisado:true});
+    set(6,"12/2025",{fiscal:"ok",extratos:"ok",patrimonio:"ok",folha:"ok",clienteEnviou:"sim",analisado:true});
+    set(7,"11/2025",{fiscal:"ok",extratos:"ok",patrimonio:"ok",folha:"ok",clienteEnviou:"sim",analisado:true});
+    return d;
+  };
+
+  // ─── Load from localStorage (initial fallback) ────────────────
+  const loadState=()=>{
+    try{
+      const raw=localStorage.getItem(STORAGE_KEY);
+      if(raw){
+        const p=JSON.parse(raw);
+        return{
+          empresas:p.empresas||initEmpresas,
+          grupos:p.grupos||initGrupos,
+          dados:p.dados||initDados(initEmpresas),
+          obs:p.obs||[],
+          ecdEcf:p.ecdEcf||{},
+          nextEmpId:p.nextEmpId||8,
+          nextGrpId:p.nextGrpId||3,
+        };
+      }
+    }catch(e){}
+    return{empresas:initEmpresas,grupos:initGrupos,dados:initDados(initEmpresas),obs:[],ecdEcf:{},nextEmpId:1,nextGrpId:1};
+  };
+
+  const init=loadState();
+
+{/* PAINEL LATERAL DE DETALHES DA EMPRESA */}
+{selectedEmpId && (() => {
+  const emp = cEmpresas.find(e => e.id === selectedEmpId);
+  if (!emp) return null;
+  
+  // Simuladores de estatísticas baseados no contexto da empresa
+  const stats = { total: 12, concluidos: 7 }; 
+  const prog = stats.total > 0 ? (stats.concluidos / stats.total) * 100 : 0;
+
+  return (
+    <div style={{
+      position: "fixed", top: 0, right: 0, width: "420px", height: "100vh",
+      background: "var(--bg2)", borderLeft: "1px solid var(--border)",
+      boxShadow: "-4px 0 24px rgba(0,0,0,0.15)", zIndex: 100, display: "flex", 
+      flexDirection: "column", animation: "slideInRight 0.25s ease"
+    }}>
+      
+      {/* Cabeçalho do Painel */}
+      <div style={{ padding: "20px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <h2 style={{ fontSize: "18px", fontWeight: 700 }}>{emp.name}</h2>
+          <span style={{ fontSize: "12px", color: "var(--text3)" }}>{emp.cnpj || "Sem CNPJ cadastrado"}</span>
+        </div>
+        <button onClick={() => setSelectedEmpId(null)} style={{ background: "none", border: "none", fontSize: "20px", cursor: "pointer", color: "var(--text3)" }}>✕</button>
+      </div>
+
+      {/* Conteúdo com Scroll */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "20px", display: "flex", flexDirection: "column", gap: "20px" }}>
+        
+        {/* Filtro por Ano e Progresso Geral */}
+        <div style={{ background: "var(--bg3)", padding: "14px", borderRadius: "12px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+            <label style={{ fontSize: "13px", fontWeight: 600 }}>Ano de Referência:</label>
+            <select value={selectedEmpYear} onChange={(e) => setSelectedEmpYear(e.target.value)} style={{ padding: "4px 8px", borderRadius: "6px", border: "1px solid var(--border)" }}>
+              <option value="2026">2026</option>
+              <option value="2025">2025</option>
+            </select>
+          </div>
+          <div style={{ fontSize: "12px", color: "var(--text3)", marginBottom: "4px" }}>Progresso Anual Ocorrências: {Math.round(prog)}%</div>
+          <div style={{ width: "100%", height: "6px", background: "var(--border)", borderRadius: "3px", overflow: "hidden" }}>
+            <div style={{ width: `${prog}%`, height: "100%", background: "var(--accent, #6366f1)", transition: "width 0.3s" }}></div>
+          </div>
+        </div>
+
+        {/* SECÇÃO 1: Módulo Contábil */}
+        <div style={{ border: "1px solid var(--border)", borderRadius: "12px", padding: "14px" }}>
+          <h3 style={{ fontSize: "14px", fontWeight: 700, marginBottom: "10px", display: "flex", alignItems: "center", gap: "6px" }}>📊 Módulo Contábil</h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "13px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between" }}><span>Balancete Mensal:</span> <strong style={{color:"var(--success, #22c55e)"}}>✓ Entregue</strong></div>
+            <div style={{ display: "flex", justifyContent: "space-between" }}><span>DRE Anual:</span> <span style={{color:"var(--warning, #f59e0b)"}}>⏳ Em Processo</span></div>
+            <div style={{ display: "flex", justifyContent: "space-between" }}><span>Plano de Contas:</span> <strong>Revisado</strong></div>
+          </div>
+        </div>
+
+        {/* SECÇÃO 2: Módulo Tributário / Fiscal */}
+        <div style={{ border: "1px solid var(--border)", borderRadius: "12px", padding: "14px" }}>
+          <h3 style={{ fontSize: "14px", fontWeight: 700, marginBottom: "10px", display: "flex", alignItems: "center", gap: "6px" }}>📋 Módulo Tributário</h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "13px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between" }}><span>Regime:</span> <span style={{ padding: "2px 6px", borderRadius: "4px", background: "var(--border)", fontSize: "11px" }}>{emp.tributacao || "Não Definido"}</span></div>
+            <div style={{ display: "flex", justifyContent: "space-between" }}><span>Apuração Impostos:</span> <strong style={{color:"var(--success, #22c55e)"}}>✓ Concluída</strong></div>
+            <div style={{ display: "flex", justifyContent: "space-between" }}><span>Obrigações Acessórias:</span> <span style={{color:"var(--danger, #ef4444)"}}>⚠️ Pendente</span></div>
+          </div>
+        </div>
+
+        {/* SECÇÃO 3: Módulo Folha de Pagamento */}
+        <div style={{ border: "1px solid var(--border)", borderRadius: "12px", padding: "14px" }}>
+          <h3 style={{ fontSize: "14px", fontWeight: 700, marginBottom: "10px", display: "flex", alignItems: "center", gap: "6px" }}>👥 Folha de Pagamento</h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "13px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between" }}><span>Próxima Folha (05/ prox mês):</span> <strong>Processando</strong></div>
+            <div style={{ display: "flex", justifyContent: "space-between" }}><span>Admissões/Demissões do mês:</span> <span>2 ativas</span></div>
+            <div style={{ display: "flex", justifyContent: "space-between" }}><span>Envio eSocial:</span> <strong style={{color:"var(--success, #22c55e)"}}>✓ Sincronizado</strong></div>
+          </div>
+        </div>
+
+        {/* CHAT INTEGRADO DA EMPRESA */}
+        <div style={{ border: "1px solid var(--border)", borderRadius: "12px", display: "flex", flexDirection: "column", height: "260px", background: "var(--bg4)" }}>
+          <div style={{ padding: "10px 14px", background: "var(--border)", borderTopLeftRadius: "11px", borderTopRightRadius: "11px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: "13px", fontWeight: 600 }}>💬 Linha do Tempo & Chat Interno</span>
+            <span style={{ fontSize: "11px", color: "var(--text3)" }}>{chatMessages.length} msgs</span>
+          </div>
+          
+          {/* Zona de Resposta Destacada */}
+          {replyingTo && (
+            <div style={{ padding: "6px 12px", background: "var(--border)", borderLeft: "3px solid var(--accent, #6366f1)", fontSize: "12px", display: "flex", justifyContent: "space-between" }}>
+              <span>A responder a: <i>{replyingTo.text}</i></span>
+              <button onClick={() => setReplyingTo(null)} style={{ background: "none", border: "none", cursor: "pointer" }}>✕</button>
+            </div>
+          )}
+
+          {/* Lista de Mensagens do Chat */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
+            {chatMessages.length === 0 ? (
+              <div style={{ fontSize: "12px", color: "var(--text4)", textAlign: "center", marginTop: "40px" }}>Nenhuma mensagem. Digite abaixo para iniciar o histórico desta empresa.</div>
+            ) : (
+              chatMessages.map((msg, idx) => (
+                <div key={idx} style={{ background: "var(--bg2)", padding: "8px 10px", borderRadius: "8px", boxShadow: "var(--card-shadow)", fontSize: "12px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
+                    <strong style={{ color: "var(--accent, #6366f1)" }}>{msg.sender || "Membro"}</strong>
+                    <div style={{ display: "flex", gap: "6px" }}>
+                      <button onClick={() => setReplyingTo(msg)} style={{ background: "none", border: "none", fontSize: "10px", cursor: "pointer", color: "var(--text3)" }}>↱ Responder</button>
+                      <button onClick={() => setPinnedMessages([...pinnedMessages, idx])} style={{ background: "none", border: "none", fontSize: "10px", cursor: "pointer" }}>📌</button>
+                    </div>
+                  </div>
+                  <div>{msg.text}</div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Input do Chat */}
+          <div style={{ padding: "8px", borderTop: "1px solid var(--border)", display: "flex", gap: "6px" }}>
+            <input 
+              type="text" 
+              placeholder="Digite uma mensagem... use @ para mencionar"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && e.target.value.trim() !== "") {
+                  const newMsg = { text: e.target.value, sender: "Você", timestamp: new Date().toISOString() };
+                  setChatMessages([...chatMessages, newMsg]);
+                  e.target.value = "";
+                  setReplyingTo(null);
+                }
+              }}
+              style={{ flex: 1, padding: "6px 10px", borderRadius: "6px", border: "1px solid var(--border)", fontSize: "12px" }}
+            />
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+})()}
+
+  
+  // =========================================================================
+  // 🚀 ADICIONE ESTAS LINHAS AQUI (LOGO ABAIXO DE const init=loadState();)
+  // =========================================================================
+  const [selectedEmpId, setSelectedEmpId] = useState(null);
+  const [selectedEmpYear, setSelectedEmpYear] = useState(new Date().getFullYear());
+  const [empObservacoes, setEmpObservacoes] = useState({});
+  const [empCliente, setEmpCliente] = useState({});
+
+  // Estados adicionais para o Chat do Painel Lateral
+  const [chatMessages, setChatMessages] = useState([]);
+  const [mentionedUsers, setMentionedUsers] = useState([]);
+  const [pinnedMessages, setPinnedMessages] = useState([]);
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  // =========================================================================
+
+  
   // ─── State ───────────────────────────────────────────────────
   const [cGrupos,setCGrupos]=useState(init.grupos);
   const [cEmpresas,setCEmpresas]=useState(init.empresas);
@@ -8156,6 +8368,40 @@ function ContabilPage({toast,data}){
   const [cDados,setCDados]=useState(init.dados);
   const [cObs,setCObs]=useState(init.obs);
   const [cEcdEcf,setCEcdEcf]=useState(init.ecdEcf);
+  
+  // ====== ESTADOS DO PAINEL LATERAL (Adicionar após os states existentes) ======
+const [selectedEmpId, setSelectedEmpId] = useState(null);
+const [selectedEmpYear, setSelectedEmpYear] = useState(new Date().getFullYear()); // Ano selecionado
+const [empObservacoes, setEmpObservacoes] = useState({}); // {empId: "texto"}
+const [empCliente, setEmpCliente] = useState({}); // {empId: {nome:"", email:"", tel:""}}
+
+// ====== ESTADOS MELHORADOS DO CHAT ======
+const [chatMessages, setChatMessages] = useState([]);
+const [mentionedUsers, setMentionedUsers] = useState([]);
+const [pinnedMessages, setPinnedMessages] = useState([]);
+const [replyingTo, setReplyingTo] = useState(null);
+const [imagePreview, setImagePreview] = useState(null);
+
+  // --- STATES PARA O PAINEL LATERAL E CHAT ---
+const [selectedEmpId, setSelectedEmpId] = useState(null);
+const [selectedEmpYear, setSelectedEmpYear] = useState(new Date().getFullYear()); // Ano selecionado para filtros
+const [empObservacoes, setEmpObservacoes] = useState({}); // Armazena observações por empresa: {empId: "texto"}
+const [empCliente, setEmpCliente] = useState({}); // Dados de contacto do cliente: {empId: {nome:"", email:"", tel:""}}
+
+// States adicionais para o funcionamento do Chat
+const [chatMessages, setChatMessages] = useState([]);
+const [mentionedUsers, setMentionedUsers] = useState([]);
+const [pinnedMessages, setPinnedMessages] = useState([]);
+const [replyingTo, setReplyingTo] = useState(null);
+const [imagePreview, setImagePreview] = useState(null);
+
+// Sincronização e persistência local do Chat
+useEffect(() => {
+  if (selectedEmpId) {
+    localStorage.setItem("chatMessages_" + selectedEmpId, JSON.stringify(chatMessages));
+  }
+}, [chatMessages, selectedEmpId]);
+
 
   // ─── Supabase persistence ─────────────────────────────────────
   const CONTABIL_ROW_ID=2; // row id=2 in app_data table for contabil data
@@ -8266,6 +8512,14 @@ function ContabilPage({toast,data}){
   useEffect(()=>{
     if(isGuestMode&&guestGrpId) setGrpOpen({[guestGrpId]:true});
   },[isGuestMode,guestGrpId]);
+  
+// Salvar Mensagens do Chat automaticamente por Empresa
+useEffect(() => {
+  if (selectedEmpId) {
+    localStorage.setItem("chatMessages_" + selectedEmpId, JSON.stringify(chatMessages));
+  }
+}, [chatMessages, selectedEmpId]);
+  
 
   // Filters
   const [filterEmp,setFilterEmp]=useState("");

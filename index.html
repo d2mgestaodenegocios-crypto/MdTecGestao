@@ -184,6 +184,7 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 </style>
 </head>
 <body>
+<div id="sync-indicator" style="position:fixed;bottom:20px;right:20px;width:12px;height:12px;border-radius:50%;background:#ef4444;box-shadow:0 0 8px rgba(0,0,0,.3);z-index:9999;cursor:pointer" onclick="alert('Sincronização de Avisos\n\nVerde: Conectado\nVermelho: Local\n\nAvisos, anotações e lembretes são sincronizados em tempo real entre todos os usuários da mesma empresa.')"></div>
 <div id="root"></div>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
@@ -11956,14 +11957,29 @@ window.inicializarSincronizacao = inicializarSincronizacao;
 window.sincronizarAviso = sincronizarAviso;
 window.currentUserId = currentUserId;
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+class ErrorBoundary extends React.Component {
+  constructor(props){super(props);this.state={error:null};}
+  static getDerivedStateFromError(e){return {error:e};}
+  componentDidCatch(e,info){console.error("App crash:",e,info);}
+  render(){
+    if(this.state.error){
+      return(
+        <div style={{padding:32,fontFamily:"system-ui",background:"#fff1f2",minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16}}>
+          <div style={{fontSize:48}}>⚠️</div>
+          <div style={{fontSize:20,fontWeight:800,color:"#991b1b"}}>Erro ao carregar o sistema</div>
+          <div style={{background:"#fff",border:"1.5px solid #fecaca",borderRadius:12,padding:"16px 24px",maxWidth:600,width:"100%",fontFamily:"monospace",fontSize:13,color:"#7f1d1d",wordBreak:"break-word"}}>
+            {this.state.error.message}
+          </div>
+          <button onClick={()=>window.location.reload()} style={{padding:"10px 24px",borderRadius:10,background:"#6366f1",color:"#fff",border:"none",fontWeight:700,fontSize:14,cursor:"pointer"}}>🔄 Recarregar</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<ErrorBoundary><App/></ErrorBoundary>);
 </script>
 
-<!-- Indicador de sincronização -->
-<div id="sync-indicator" style="position:fixed;bottom:20px;right:20px;width:12px;height:12px;border-radius:50%;background:#ef4444;box-shadow:0 0 8px rgba(0,0,0,.3);z-index:9999;cursor:pointer;title='Clique para detalhes'" onclick="alert('Sincronização de Avisos\\n\\nVerde: Conectado\\nVermelho: Local\\n\\nAvisos, anotações e lembretes são sincronizados em tempo real entre todos os usuários da mesma empresa.')"></div>
-
-<!-- Carregar módulo de sincronização ANTES do script principal -->
-<script src="aviso-sync.js"></script>
 
 </body>
 </html>

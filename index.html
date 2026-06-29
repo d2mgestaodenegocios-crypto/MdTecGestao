@@ -10861,37 +10861,37 @@ function makePageComponent(PAGE_CFG){
     const getRegStyle=(r)=>({background:(RegColors[r]||"#94a3b8")+"22",color:RegColors[r]||"#94a3b8",border:`1px solid ${(RegColors[r]||"#94a3b8")}44`,padding:"2px 8px",borderRadius:12,fontSize:10,fontWeight:700});
 
     // ── Colunas ──────────────────────────────────────────────────
-    const [cols,setCols]=useState(()=>{try{const s=localStorage.getItem(COLS_KEY);return s?JSON.parse(s):DEFAULT_COLS;}catch(e){return DEFAULT_COLS;}});
+    // Inicializa sempre com DEFAULT_COLS — o Supabase vai sobrescrever logo após mount
+    const [cols,setCols]=useState(DEFAULT_COLS);
     const [editColsModal,setEditColsModal]=useState(false);
     const [colsDraft,setColsDraft]=useState(DEFAULT_COLS);
     const addCol=()=>setColsDraft(d=>[...d,{key:"col_"+Date.now(),icon:"📋",label:"Nova Coluna",color:"#6366f1"}]);
     const removeCol=(i)=>setColsDraft(d=>d.filter((_,j)=>j!==i));
 
     // ── State ────────────────────────────────────────────────────
-    const loadSt=()=>{try{const s=localStorage.getItem(STORAGE_KEY);if(s){const p=JSON.parse(s);return p;}}catch(e){}return{empresas:[],grupos:[],dados:{},obs:[],prazos:{},nextEmpId:1,nextGrpId:1};};
-    const init=loadSt();
-    const [empresas,setEmpresas]=useState(init.empresas||[]);
+    // Não carrega localStorage — Supabase é a fonte de verdade
+    const [empresas,setEmpresas]=useState([]);
     const [expandedEmps,setExpandedEmps]=useState(new Set());
-    const [grupos,setGrupos]=useState(init.grupos||[]);
-    const [dados,setDados]=useState(init.dados||{});
-    const [obs,setObs]=useState(init.obs||[]);
-    const [prazos,setPrazos]=useState(init.prazos||{});
-    const [nextEmpId,setNextEmpId]=useState(init.nextEmpId||1);
-    const [nextGrpId,setNextGrpId]=useState(init.nextGrpId||1);
-    const [dbSynced,setDbSynced]=useState(false);
+    const [grupos,setGrupos]=useState([]);
+    const [dados,setDados]=useState({});
+    const [obs,setObs]=useState([]);
+    const [prazos,setPrazos]=useState({});
+    const [nextEmpId,setNextEmpId]=useState(1);
+    const [nextGrpId,setNextGrpId]=useState(1);
+    const [dbLoaded,setDbLoaded]=useState(false); // true após primeiro load do Supabase
+    const [dbSynced,setDbSynced]=useState(false); // true após dbLoaded (habilita auto-save)
 
-    // Refs para controle de sync — evitam closures stale e loops
-    const colsRef=useRef(cols);
-    useEffect(()=>{colsRef.current=cols;},[cols]);
-    const isApplyingRemote=useRef(false); // true enquanto aplicamos dado externo → não re-salva
+    // Refs para evitar closure stale e loops de sync
+    const colsRef=useRef(DEFAULT_COLS);
+    const isApplyingRemote=useRef(false);
     const myLastSaveTs=useRef(0);
     const pendingSave=useRef(null);
 
-    // ── Salva no Supabase (debounced ou imediato) ─────────────────
-    // Recebe estado explicitamente para evitar closure stale
+    // ── Salva no Supabase ─────────────────────────────────────────
     const saveToDB=useCallback((e,g,d,o,pr,ne,ng,cl,immediate=false)=>{
       const ts=Date.now();
       const payload={empresas:e,grupos:g,dados:d,obs:o,prazos:pr,nextEmpId:ne,nextGrpId:ng,cols:cl,_t:ts,_savedAt:ts};
+      // localStorage: só cache local, não é fonte de verdade
       try{localStorage.setItem(STORAGE_KEY,JSON.stringify(payload));}catch(ex){}
       if(pendingSave.current)clearTimeout(pendingSave.current);
       const doSave=async()=>{
@@ -10899,61 +10899,77 @@ function makePageComponent(PAGE_CFG){
         try{const{error}=await sb.from("app_data").upsert({id:ROW_ID,payload});if(!error)broadcastSync(ROW_ID);}catch(ex){}
       };
       if(immediate)doSave();
-      else pendingSave.current=setTimeout(doSave,800);
+      else pendingSave.current=setTimeout(doSave,600);
     },[]);
 
-    // ── Aplica payload remoto sem disparar re-save ────────────────
-    const applyPayload=useCallback((p)=>{
+    // ── Aplica payload do Supabase (sem disparar re-save) ─────────
+    const applyPayload=useCallback((p,isInitialLoad=false)=>{
       if(!p)return;
       const pTs=p._savedAt||p._t||0;
-      // Ignora payloads mais antigos que o nosso último save
-      if(pTs>0&&pTs<=myLastSaveTs.current)return;
+      // Ignora payloads antigos — mas no load inicial sempre aplica
+      if(!isInitialLoad&&pTs>0&&pTs<=myLastSaveTs.current)return;
       isApplyingRemote.current=true;
-      // Colunas: sempre aplica quando vem do servidor
-      if(p.cols&&Array.isArray(p.cols)){
+      // Colunas: fonte de verdade é o Supabase — sempre aplica
+      if(p.cols&&Array.isArray(p.cols)&&p.cols.length>0){
+        colsRef.current=p.cols;
         setCols(p.cols);
         try{localStorage.setItem(COLS_KEY,JSON.stringify(p.cols));}catch(e){}
       }
-      if(p.empresas)setEmpresas(p.empresas.map(e=>{const{expandido,...r}=e;return r;}));
+      if(p.empresas)setEmpresas(p.empresas.map(({expandido,...r})=>r));
       if(p.grupos)setGrupos(p.grupos);
       if(p.dados)setDados(p.dados);
       if(p.obs)setObs(p.obs);
       if(p.prazos)setPrazos(p.prazos);
       if(p.nextEmpId)setNextEmpId(p.nextEmpId);
       if(p.nextGrpId)setNextGrpId(p.nextGrpId);
-      // Libera flag após microtask (depois que os setStates foram enfileirados)
-      setTimeout(()=>{isApplyingRemote.current=false;},0);
+      // Libera flag após microtask
+      Promise.resolve().then(()=>{isApplyingRemote.current=false;});
     },[]);
 
     // ── Carrega do Supabase + assina real-time ────────────────────
     useEffect(()=>{
+      let mounted=true;
       (async()=>{
-        try{const{data:row}=await sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle();if(row?.payload)applyPayload(row.payload);}catch(e){}
-        setDbSynced(true);
+        try{
+          const{data:row}=await sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle();
+          if(mounted&&row?.payload){
+            applyPayload(row.payload,true); // load inicial: sempre aplica
+          } else if(mounted){
+            // Sem dados no Supabase: tenta localStorage como fallback
+            try{const s=localStorage.getItem(STORAGE_KEY);if(s){const p=JSON.parse(s);applyPayload(p,true);}}catch(e){}
+          }
+        }catch(e){
+          // Fallback para localStorage se Supabase falhar
+          try{const s=localStorage.getItem(STORAGE_KEY);if(s){const p=JSON.parse(s);if(mounted)applyPayload(p,true);}}catch(ex){}
+        }
+        if(mounted){setDbLoaded(true);setDbSynced(true);}
       })();
+      // Real-time: Supabase Postgres changes
       const ch=sb.channel("sp_"+ROW_ID)
         .on("postgres_changes",{event:"UPDATE",schema:"public",table:"app_data",filter:`id=eq.${ROW_ID}`},
-          pl=>{if(pl.new?.payload)applyPayload(pl.new.payload);})
+          pl=>{if(pl.new?.payload&&mounted)applyPayload(pl.new.payload);})
         .subscribe();
+      // BroadcastChannel: mudanças na mesma aba/browser
       const h=(e)=>{if(e.data?.rowId===ROW_ID&&e.data?.tabId!==_tabId){
         sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle()
-          .then(({data:r})=>{if(r?.payload)applyPayload(r.payload);});
+          .then(({data:r})=>{if(r?.payload&&mounted)applyPayload(r.payload);});
       }};
       if(_bc)_bc.addEventListener("message",h);
+      // Poll a cada 15s como fallback extra
       const poll=setInterval(async()=>{
-        try{const{data:r}=await sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle();if(r?.payload)applyPayload(r.payload);}catch(e){}
-      },30000);
-      return()=>{sb.removeChannel(ch);if(_bc)_bc.removeEventListener("message",h);clearInterval(poll);};
+        try{const{data:r}=await sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle();if(r?.payload&&mounted)applyPayload(r.payload);}catch(e){}
+      },15000);
+      return()=>{mounted=false;sb.removeChannel(ch);if(_bc)_bc.removeEventListener("message",h);clearInterval(poll);};
     },[]);
 
-    // ── Auto-save: só quando o usuário muda (não quando vem do servidor) ──
+    // ── Auto-save: apenas quando estado muda por ação do usuário ──
     useEffect(()=>{
-      if(!dbSynced)return;
-      if(isApplyingRemote.current)return; // dado veio do servidor, não re-salva
+      if(!dbSynced)return;               // aguarda load inicial
+      if(isApplyingRemote.current)return; // veio do servidor, não re-salva
       saveToDB(empresas,grupos,dados,obs,prazos,nextEmpId,nextGrpId,colsRef.current);
     },[empresas,grupos,dados,obs,prazos,nextEmpId,nextGrpId,dbSynced]);
 
-    // ── Salva colunas: atualiza ref, localStorage e Supabase ──────
+    // ── Salva colunas no Supabase (admin) ────────────────────────
     const saveColsCfg=useCallback(async(draft)=>{
       const newCols=draft||colsDraft;
       colsRef.current=newCols;

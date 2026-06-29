@@ -10895,6 +10895,11 @@ function makePageComponent(PAGE_CFG){
     const [empObservacoes,setEmpObservacoes]=useState({});
     const [empCliente,setEmpCliente]=useState({});
 
+    // Per-empresa column overrides — declarado AQUI para evitar TDZ no useEffect de auto-save
+    const EMP_COLS_KEY=COLS_KEY+"_empoverride";
+    const [empColsOverride,setEmpColsOverride]=useState(()=>{try{const s=localStorage.getItem(COLS_KEY+"_empoverride");return s?JSON.parse(s):{};}catch(e){return {};}});
+    const EMP_COLS_KEY_REF=React.useRef(COLS_KEY+"_empoverride");
+
     // ── Salva no Supabase ─────────────────────────────────────────
     const saveToDB=useCallback((e,g,d,o,pr,ne,ng,cl,eo,ec,eco,immediate=false)=>{
       const ts=Date.now();
@@ -11107,9 +11112,6 @@ function makePageComponent(PAGE_CFG){
      useEffect(()=>{try{localStorage.setItem(EMP_OBS_KEY,JSON.stringify(empObservacoes));}catch(e){}},[empObservacoes]);
      useEffect(()=>{try{localStorage.setItem(EMP_CLIENTE_KEY,JSON.stringify(empCliente));}catch(e){}},[empCliente]);
     // Per-empresa column overrides stored in localStorage
-    const EMP_COLS_KEY=COLS_KEY+"_empoverride";
-    const [empColsOverride,setEmpColsOverride]=useState({});
-    const EMP_COLS_KEY_REF=React.useRef(EMP_COLS_KEY);
     const saveEmpColsOverride=(obj)=>{
       setEmpColsOverride(obj);
       try{localStorage.setItem(EMP_COLS_KEY,JSON.stringify(obj));}catch(e){}

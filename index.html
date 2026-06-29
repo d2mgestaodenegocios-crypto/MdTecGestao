@@ -11025,13 +11025,27 @@ function makePageComponent(PAGE_CFG){
     const SL={"nao-iniciado":"✗ Não","pendente":"⏳ Pend.","ok":"✅ Ok","nao-aplica":"— N/A"};
     const gst=(s)=>{const st=SS[s]||SS["nao-iniciado"];return{...st,background:st.bg,padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"};};
     const getCell=(eid,mes,col)=>dados[eid+"_"+mes+"_"+col]||"nao-iniciado";
-    const cycleCell=(eid,mes,col)=>{const cur=getCell(eid,mes,col);const next=SEQ[(SEQ.indexOf(cur)+1)%SEQ.length];const nd={...dados,[eid+"_"+mes+"_"+col]:next};setDados(nd);saveToDB(empresas,grupos,nd,obs,prazos,nextEmpId,nextGrpId,colsRef.current,empObservacoes,empCliente,empColsOverride,true);};
+    const cycleCell=(eid,mes,colKey)=>{const empC=safeCols(eid);const colIdx=empC.findIndex(c=>c.key===colKey);if(!colLiberada(eid,mes,colIdx)){const empC2=safeCols(eid);const bloq=empC2[colIdx-1];toast("🔒 Preencha '"+(bloq?.label||"anterior")+"' primeiro!","err");return;}const cur=getCell(eid,mes,colKey);const next=SEQ[(SEQ.indexOf(cur)+1)%SEQ.length];const nd={...dados,[eid+"_"+mes+"_"+colKey]:next};setDados(nd);saveToDB(empresas,grupos,nd,obs,prazos,nextEmpId,nextGrpId,colsRef.current,empObservacoes,empCliente,empColsOverride,true);};
     const revertCell=(eid,mes,col)=>{const cur=getCell(eid,mes,col);const idx=SEQ.indexOf(cur);const nd={...dados,[eid+"_"+mes+"_"+col]:SEQ[idx<=0?0:idx-1]};setDados(nd);saveToDB(empresas,grupos,nd,obs,prazos,nextEmpId,nextGrpId,colsRef.current,empObservacoes,empCliente,empColsOverride,true);toast("↩ Revertido!","ok");};
-    const estaContab=(eid,mes)=>cols.every(c=>getCell(eid,mes,c.key)==="ok"||getCell(eid,mes,c.key)==="nao-aplica");
+    // Retorna colunas ativas para a empresa — fallback para DEFAULT_COLS se cols não for array
+    const safeCols=(eid)=>{const ec=empColsOverride[eid];if(ec&&Array.isArray(ec)&&ec.length)return ec;return Array.isArray(cols)&&cols.length?cols:[];}
+
+    // Verifica se coluna anterior (por índice) está OK ou N/A — lógica sequencial
+    const colLiberada=(eid,mes,colIdx)=>{
+      if(colIdx===0)return true; // primeira sempre liberada
+      const empC=safeCols(eid);
+      for(let i=0;i<colIdx;i++){
+        const st=getCell(eid,mes,empC[i].key);
+        if(st!=="ok"&&st!=="nao-aplica")return false;
+      }
+      return true;
+    };
+
+    const estaContab=(eid,mes)=>{const empC=safeCols(eid);return empC.length>0&&empC.every(c=>getCell(eid,mes,c.key)==="ok"||getCell(eid,mes,c.key)==="nao-aplica");};
     const estaAnalisado=(eid,mes)=>dados[eid+"_"+mes+"__analisado"]===true;
     const analisarMes=(eid,mes)=>{const nd={...dados,[eid+"_"+mes+"__analisado"]:true};setDados(nd);saveToDB(empresas,grupos,nd,obs,prazos,nextEmpId,nextGrpId,colsRef.current,empObservacoes,empCliente,empColsOverride,true);toast("✅ Mês analisado!","ok");};
     const reverterAnalise=(eid,mes)=>{const nd={...dados,[eid+"_"+mes+"__analisado"]:false};setDados(nd);saveToDB(empresas,grupos,nd,obs,prazos,nextEmpId,nextGrpId,colsRef.current,empObservacoes,empCliente,empColsOverride,true);toast("↩ Análise revertida!","ok");};
-    const calcProg=(eid,mes)=>{const atv=cols.filter(c=>getCell(eid,mes,c.key)!=="nao-aplica");if(!atv.length)return 100;return Math.round(atv.filter(c=>getCell(eid,mes,c.key)==="ok").length/atv.length*100);};
+    const calcProg=(eid,mes)=>{const empC=safeCols(eid);const atv=empC.filter(c=>getCell(eid,mes,c.key)!=="nao-aplica");if(!atv.length)return 100;return Math.round(atv.filter(c=>getCell(eid,mes,c.key)==="ok").length/atv.length*100);};
     const getProgClr=(p)=>p===100?"#22c55e":p>=50?"#f59e0b":p>0?"#ef4444":"#cbd5e1";
 
     // ── Prazo ────────────────────────────────────────────────────
@@ -11118,7 +11132,7 @@ function makePageComponent(PAGE_CFG){
       // Passa `obj` diretamente — setEmpColsOverride é assíncrono, empColsOverride ainda é o valor antigo aqui
       saveToDB(empresas,grupos,dados,obs,prazos,nextEmpId,nextGrpId,colsRef.current,empObservacoes,empCliente,obj,true);
     };
-    const getColsForEmp=(eid)=>empColsOverride[eid]||cols;
+    const getColsForEmp=(eid)=>{const ov=empColsOverride[eid];if(ov&&Array.isArray(ov)&&ov.length)return ov;return Array.isArray(cols)&&cols.length?cols:[];};
     const [empColsModal,setEmpColsModal]=useState(null); // empId
     const [empColsDraft,setEmpColsDraft]=useState([]);
 
@@ -11265,7 +11279,28 @@ function makePageComponent(PAGE_CFG){
                                 {vencido?"🔴":vencendo?"🟡":"⏰"} {prazo||"—"}
                               </div>
                             </td>
-                            {empCols.map(col=>{const st=getCell(emp.id,mes,col.key);return(<td key={col.key} style={{padding:"9px 6px",textAlign:"center"}}><div style={{position:"relative",display:"inline-block"}}><div onClick={()=>!analisado&&cycleCell(emp.id,mes,col.key)} style={{...gst(st),cursor:analisado?"default":"pointer"}}>{SL[st]||st}</div>{!analisado&&st!=="nao-iniciado"&&st!=="nao-aplica"&&(<span onClick={e=>{e.stopPropagation();revertCell(emp.id,mes,col.key);}} title="Reverter" style={{position:"absolute",top:-8,right:-8,fontSize:10,cursor:"pointer",background:"#f59e0b",color:"#fff",borderRadius:"50%",width:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",zIndex:1,fontWeight:900,lineHeight:1}}>↩</span>)}</div></td>);})}
+                            {empCols.map((col,colIdx)=>{
+                              const st=getCell(emp.id,mes,col.key);
+                              const liberada=analisado||colLiberada(emp.id,mes,colIdx);
+                              const bloqueada=!analisado&&!liberada;
+                              const cellStyle=bloqueada
+                                ?{padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:700,whiteSpace:"nowrap",background:"#f1f5f9",color:"#cbd5e1",border:"1.5px dashed #e2e8f0",cursor:"not-allowed",opacity:.7}
+                                :{...gst(st),cursor:analisado?"default":"pointer"};
+                              return(<td key={col.key} style={{padding:"9px 6px",textAlign:"center"}}>
+                                <div style={{position:"relative",display:"inline-block"}}>
+                                  <div
+                                    onClick={()=>!analisado&&cycleCell(emp.id,mes,col.key)}
+                                    title={bloqueada?"🔒 Preencha a coluna anterior primeiro":undefined}
+                                    style={cellStyle}
+                                  >
+                                    {bloqueada?"🔒":SL[st]||st}
+                                  </div>
+                                  {!analisado&&!bloqueada&&st!=="nao-iniciado"&&st!=="nao-aplica"&&(
+                                    <span onClick={e=>{e.stopPropagation();revertCell(emp.id,mes,col.key);}} title="Reverter" style={{position:"absolute",top:-8,right:-8,fontSize:10,cursor:"pointer",background:"#f59e0b",color:"#fff",borderRadius:"50%",width:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",zIndex:1,fontWeight:900,lineHeight:1}}>↩</span>
+                                  )}
+                                </div>
+                              </td>);
+                            })}
                             <td style={{padding:"9px 8px",textAlign:"center"}}><div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:5}}><span style={{fontSize:10,color:"#64748b",fontWeight:700,minWidth:26}}>{prog}%</span><div style={{width:44,height:5,borderRadius:3,background:"#e2e8f0",overflow:"hidden"}}><div style={{height:"100%",borderRadius:3,background:getProgClr(prog),width:`${prog}%`,transition:"width .4s"}}/></div></div></td>
                             <td style={{padding:"9px 8px",textAlign:"center"}}><span onClick={()=>abrirObs(emp.id,mes)} title={hasObs?(getObsTxt(emp.id,mes)+(obsVerif?" (verificado)":"")):"Adicionar obs."} style={{fontSize:hasObs?18:16,cursor:"pointer",color:hasObs?(obsVerif?"#94a3b8":"#f59e0b"):"#94a3b8",filter:(hasObs&&!obsVerif)?"drop-shadow(0 0 6px #f59e0baa)":"none",background:hasObs?(obsVerif?"rgba(148,163,184,.12)":"rgba(245,158,11,.12)"):"transparent",borderRadius:6,padding:"2px 4px",border:hasObs?(obsVerif?"1.5px solid #e2e8f0":"1.5px solid #fcd34d"):"1.5px solid transparent",opacity:obsVerif?.6:1}}>{hasObs&&obsVerif?"✔️":"📝"}</span></td>
                             <td style={{padding:"9px 8px",textAlign:"center"}}>{analisado?<div style={{display:"flex",gap:4,alignItems:"center",justifyContent:"center"}}><span style={{background:"#d1fae5",color:"#065f46",padding:"3px 10px",borderRadius:20,fontSize:10,fontWeight:700}}>✅ Analisado</span><button onClick={()=>setRevertModal({eid:emp.id,mes})} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#f59e0b",padding:"2px 4px",borderRadius:4}}>↩</button></div>:estaContab(emp.id,mes)?<button onClick={()=>analisarMes(emp.id,mes)} style={{background:"#f59e0b",color:"#fff",border:"none",padding:"4px 10px",borderRadius:6,cursor:"pointer",fontSize:10,fontWeight:700,fontFamily:"inherit"}}>🔍 Analisar</button>:<span style={{background:"#fff4e0",color:"#b45f06",padding:"3px 10px",borderRadius:20,fontSize:10,fontWeight:700}}>⏳ Aguardando</span>}</td>
@@ -11339,7 +11374,7 @@ function makePageComponent(PAGE_CFG){
             const vencendoAtual=temPendencia&&prazoAtual&&isVencendo(mesPendente);
             const diasRestantes=dataPrazo?Math.round((dataPrazo-hoje)/86400000):null;
             const mesRef=mesPendente||mesAtual;
-            const atv=cols.filter(c=>getCell(emp.id,mesRef,c.key)!=="nao-aplica");
+            const atv=safeCols(emp.id).filter(c=>getCell(emp.id,mesRef,c.key)!=="nao-aplica");
             const progAtual=atv.length?Math.round(atv.filter(c=>getCell(emp.id,mesRef,c.key)==="ok").length/atv.length*100):100;
             const grupoId=emp.grupoId;
             const grupoNome=grupoId?(grupos.find(g=>g.id===grupoId)?.nome||""):"";

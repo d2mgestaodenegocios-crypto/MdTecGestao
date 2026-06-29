@@ -11006,12 +11006,12 @@ function makePageComponent(PAGE_CFG){
       try{
         const{data:row}=await sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle();
         const base=row?.payload||{};
-        await sb.from("app_data").upsert({id:ROW_ID,payload:{...base,cols:newCols,_t:ts,_savedAt:ts}});
+        await sb.from("app_data").upsert({id:ROW_ID,payload:{...base,cols:newCols,empColsOverride,_t:ts,_savedAt:ts}});
         broadcastSync(ROW_ID);
       }catch(ex){console.warn("Cols sync failed:",ex);}
       setEditColsModal(false);
       toast("✅ Colunas salvas e sincronizadas!","ok");
-    },[colsDraft]);
+    },[colsDraft,empColsOverride]);
 
     // ── Guest ────────────────────────────────────────────────────
     const up=new URLSearchParams(window.location.search);
@@ -11115,8 +11115,8 @@ function makePageComponent(PAGE_CFG){
     const saveEmpColsOverride=(obj)=>{
       setEmpColsOverride(obj);
       try{localStorage.setItem(EMP_COLS_KEY,JSON.stringify(obj));}catch(e){}
-      // Salva no Supabase para sincronizar com todos
-      saveToDB(empresas,grupos,dados,obs,prazos,nextEmpId,nextGrpId,colsRef.current,empObservacoes,empCliente,empColsOverride,true);
+      // Passa `obj` diretamente — setEmpColsOverride é assíncrono, empColsOverride ainda é o valor antigo aqui
+      saveToDB(empresas,grupos,dados,obs,prazos,nextEmpId,nextGrpId,colsRef.current,empObservacoes,empCliente,obj,true);
     };
     const getColsForEmp=(eid)=>empColsOverride[eid]||cols;
     const [empColsModal,setEmpColsModal]=useState(null); // empId

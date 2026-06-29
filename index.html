@@ -10864,7 +10864,18 @@ function makePageComponent(PAGE_CFG){
     const [cols,setCols]=useState(()=>{try{const s=localStorage.getItem(COLS_KEY);return s?JSON.parse(s):DEFAULT_COLS;}catch(e){return DEFAULT_COLS;}});
     const [editColsModal,setEditColsModal]=useState(false);
     const [colsDraft,setColsDraft]=useState(DEFAULT_COLS);
-    const saveColsCfg=()=>{setCols(colsDraft);try{localStorage.setItem(COLS_KEY,JSON.stringify(colsDraft));}catch(e){}setEditColsModal(false);toast("✅ Colunas salvas!","ok");};
+    const saveColsCfg=async()=>{
+      setCols(colsDraft);
+      try{localStorage.setItem(COLS_KEY,JSON.stringify(colsDraft));}catch(e){}
+      try{
+        const{data:row}=await sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle();
+        const base=row?.payload||{};
+        const ts=Date.now();
+        await sb.from("app_data").upsert({id:ROW_ID,payload:{...base,cols:colsDraft,_t:ts,_savedAt:ts}});
+        broadcastSync(ROW_ID);
+      }catch(ex){console.warn("Cols sync failed:",ex);}
+      setEditColsModal(false);toast("✅ Colunas salvas!","ok");
+    };
     const addCol=()=>setColsDraft(d=>[...d,{key:"col_"+Date.now(),icon:"📋",label:"Nova Coluna",color:"#6366f1"}]);
     const removeCol=(i)=>setColsDraft(d=>d.filter((_,j)=>j!==i));
 
@@ -10886,7 +10897,7 @@ function makePageComponent(PAGE_CFG){
     const skipNextDebounce=useRef(false);
 
     const saveToDB=useCallback((e,g,d,o,pr,ne,ng,immediate=false)=>{
-      const payload={empresas:e,grupos:g,dados:d,obs:o,prazos:pr,nextEmpId:ne,nextGrpId:ng,_t:Date.now()};
+      const payload={empresas:e,grupos:g,dados:d,obs:o,prazos:pr,nextEmpId:ne,nextGrpId:ng,cols:cols,_t:Date.now()};
       try{localStorage.setItem(STORAGE_KEY,JSON.stringify(payload));}catch(ex){}
       if(pendingSave.current)clearTimeout(pendingSave.current);
       const doSave=async()=>{
@@ -10903,11 +10914,15 @@ function makePageComponent(PAGE_CFG){
       }else{pendingSave.current=setTimeout(doSave,800);}
     },[]);
 
-    const applyPayload=(p)=>{
-      // Ignora updates enquanto meu save está em trânsito
-      if(isSavingRef.current)return;
-      // Ignora qualquer payload mais antigo que nosso último save
+    const applyPayload=(p,forceCols=false)=>{
       const pTs=p._savedAt||p._t||0;
+      // Aplica colunas SEMPRE que vierem (admin editou, deve chegar para todos)
+      if(p.cols&&Array.isArray(p.cols)&&(forceCols||!isSavingRef.current)){
+        setCols(p.cols);
+        try{localStorage.setItem(COLS_KEY,JSON.stringify(p.cols));}catch(e){}
+      }
+      // Para dados/obs: ignora updates enquanto estou salvando (evita loop)
+      if(isSavingRef.current)return;
       if(myLastSaveTs.current&&pTs<=myLastSaveTs.current)return;
       if(p.empresas)setEmpresas(p.empresas.map(e=>{const{expandido,...r}=e;return r;}));
       if(p.grupos)setGrupos(p.grupos);if(p.dados)setDados(p.dados);
@@ -10916,7 +10931,7 @@ function makePageComponent(PAGE_CFG){
     };
 
     useEffect(()=>{
-      (async()=>{try{const{data:row}=await sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle();if(row?.payload)applyPayload(row.payload);}catch(e){}setDbSynced(true);})();
+      (async()=>{try{const{data:row}=await sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle();if(row?.payload)applyPayload(row.payload,true);}catch(e){}setDbSynced(true);})();
       const ch=sb.channel("sp_"+ROW_ID).on("postgres_changes",{event:"UPDATE",schema:"public",table:"app_data",filter:`id=eq.${ROW_ID}`},pl=>{if(pl.new?.payload)applyPayload(pl.new.payload);}).subscribe();
       const h=(e)=>{if(e.data?.rowId===ROW_ID&&e.data?.tabId!==_tabId)sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle().then(({data:r})=>{if(r?.payload)applyPayload(r.payload);});};
       if(_bc)_bc.addEventListener("message",h);

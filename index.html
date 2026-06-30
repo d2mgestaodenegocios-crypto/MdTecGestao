@@ -10999,6 +10999,7 @@ function makePageComponent(PAGE_CFG){
     // ── Salva colunas no Supabase (admin) ────────────────────────
     const saveColsCfg=useCallback(async(draft)=>{
       const newCols=draft||colsDraft;
+      console.log("[saveColsCfg] newCols:",newCols,"ROW_ID:",ROW_ID);
       // Proteção: nunca salva um conjunto vazio de colunas (evita travar todas as empresas sem colunas)
       if(!Array.isArray(newCols)||newCols.length===0){
         toast("⚠️ É preciso ter ao menos 1 coluna!","err");
@@ -11013,9 +11014,11 @@ function makePageComponent(PAGE_CFG){
       try{
         const{data:row}=await sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle();
         const base=row?.payload||{};
-        await sb.from("app_data").upsert({id:ROW_ID,payload:{...base,cols:newCols,empColsOverride,_t:ts,_savedAt:ts}});
+        console.log("[saveColsCfg] base.cols antes:",base.cols);
+        const{data:upData,error:upErr}=await sb.from("app_data").upsert({id:ROW_ID,payload:{...base,cols:newCols,empColsOverride,_t:ts,_savedAt:ts}}).select();
+        console.log("[saveColsCfg] upsert result:",upData,"error:",upErr);
         broadcastSync(ROW_ID);
-      }catch(ex){console.warn("Cols sync failed:",ex);}
+      }catch(ex){console.error("[saveColsCfg] Cols sync FAILED:",ex);}
       setEditColsModal(false);
       toast("✅ Colunas salvas e sincronizadas!","ok");
     },[colsDraft,empColsOverride]);

@@ -10904,11 +10904,13 @@ function makePageComponent(PAGE_CFG){
     const saveToDB=useCallback((e,g,d,o,pr,ne,ng,cl,eo,ec,eco,immediate=false)=>{
       const ts=Date.now();
       const payload={empresas:e,grupos:g,dados:d,obs:o,prazos:pr,nextEmpId:ne,nextGrpId:ng,cols:cl,empObservacoes:eo,empCliente:ec,empColsOverride:eco,_t:ts,_savedAt:ts};
+      // Marca o timestamp IMEDIATAMENTE — bloqueia Realtime/poll de sobrescrever
+      // com dados antigos enquanto este save está em voo (debounce ou rede).
+      myLastSaveTs.current=ts;
       // localStorage: só cache local, não é fonte de verdade
       try{localStorage.setItem(STORAGE_KEY,JSON.stringify(payload));}catch(ex){}
       if(pendingSave.current)clearTimeout(pendingSave.current);
       const doSave=async()=>{
-        myLastSaveTs.current=ts;
         try{const{error}=await sb.from("app_data").upsert({id:ROW_ID,payload});if(!error)broadcastSync(ROW_ID);}catch(ex){}
       };
       if(immediate)doSave();

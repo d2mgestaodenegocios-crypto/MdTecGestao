@@ -11518,7 +11518,7 @@ function makePageComponent(PAGE_CFG){
             <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
               <Btn onClick={()=>setColsDraft(JSON.parse(JSON.stringify(DEFAULT_COLS)))} v="ghost" sz="sm">↩ Restaurar</Btn>
               <Btn onClick={()=>setEditColsModal(false)} v="ghost">Cancelar</Btn>
-              <Btn onClick={saveColsCfg} xs={{background:"#0ea5e9",color:"#fff",border:"none"}}>💾 Salvar padrão</Btn>
+              <Btn onClick={()=>saveColsCfg()} xs={{background:"#0ea5e9",color:"#fff",border:"none"}}>💾 Salvar padrão</Btn>
             </div>
           </div>
         </Modal>

@@ -10999,7 +10999,6 @@ function makePageComponent(PAGE_CFG){
     // ── Salva colunas no Supabase (admin) ────────────────────────
     const saveColsCfg=useCallback(async(draft)=>{
       const newCols=draft||colsDraft;
-      console.log("[saveColsCfg] newCols:",newCols,"ROW_ID:",ROW_ID);
       // Proteção: nunca salva um conjunto vazio de colunas (evita travar todas as empresas sem colunas)
       if(!Array.isArray(newCols)||newCols.length===0){
         toast("⚠️ É preciso ter ao menos 1 coluna!","err");
@@ -11014,11 +11013,9 @@ function makePageComponent(PAGE_CFG){
       try{
         const{data:row}=await sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle();
         const base=row?.payload||{};
-        console.log("[saveColsCfg] base.cols antes:",base.cols);
-        const{data:upData,error:upErr}=await sb.from("app_data").upsert({id:ROW_ID,payload:{...base,cols:newCols,empColsOverride,_t:ts,_savedAt:ts}}).select();
-        console.log("[saveColsCfg] upsert result:",upData,"error:",upErr);
+        await sb.from("app_data").upsert({id:ROW_ID,payload:{...base,cols:newCols,empColsOverride,_t:ts,_savedAt:ts}});
         broadcastSync(ROW_ID);
-      }catch(ex){console.error("[saveColsCfg] Cols sync FAILED:",ex);}
+      }catch(ex){console.warn("Cols sync failed:",ex);}
       setEditColsModal(false);
       toast("✅ Colunas salvas e sincronizadas!","ok");
     },[colsDraft,empColsOverride]);
@@ -11035,8 +11032,34 @@ function makePageComponent(PAGE_CFG){
     const SL={"nao-iniciado":"✗ Não","pendente":"⏳ Pend.","ok":"✅ Ok","nao-aplica":"— N/A"};
     const gst=(s)=>{const st=SS[s]||SS["nao-iniciado"];return{...st,background:st.bg,padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"};};
     const getCell=(eid,mes,col)=>dados[eid+"_"+mes+"_"+col]||"nao-iniciado";
-    const cycleCell=(eid,mes,colKey)=>{const empC=safeCols(eid);const colIdx=empC.findIndex(c=>c.key===colKey);if(!colLiberada(eid,mes,colIdx)){const empC2=safeCols(eid);const bloq=empC2[colIdx-1];toast("🔒 Preencha '"+(bloq?.label||"anterior")+"' primeiro!","err");return;}const cur=getCell(eid,mes,colKey);const next=SEQ[(SEQ.indexOf(cur)+1)%SEQ.length];const nd={...dados,[eid+"_"+mes+"_"+colKey]:next};setDados(nd);saveToDB(empresas,grupos,nd,obs,prazos,nextEmpId,nextGrpId,colsRef.current,empObservacoes,empCliente,empColsOverride,true);};
-    const revertCell=(eid,mes,col)=>{const cur=getCell(eid,mes,col);const idx=SEQ.indexOf(cur);const nd={...dados,[eid+"_"+mes+"_"+col]:SEQ[idx<=0?0:idx-1]};setDados(nd);saveToDB(empresas,grupos,nd,obs,prazos,nextEmpId,nextGrpId,colsRef.current,empObservacoes,empCliente,empColsOverride,true);toast("↩ Revertido!","ok");};
+    const cycleCell=(eid,mes,colKey)=>{
+      const empC=safeCols(eid);
+      const colIdx=empC.findIndex(c=>c.key===colKey);
+      if(!colLiberada(eid,mes,colIdx)){
+        const bloq=empC[colIdx-1];
+        toast("🔒 Preencha '"+(bloq?.label||"anterior")+"' primeiro!","err");
+        return;
+      }
+      // Functional update: sempre parte do estado MAIS RECENTE, evitando
+      // que cliques rápidos sucessivos usem um `dados` desatualizado (stale closure)
+      setDados(prevDados=>{
+        const cur=prevDados[eid+"_"+mes+"_"+colKey]||"nao-iniciado";
+        const next=SEQ[(SEQ.indexOf(cur)+1)%SEQ.length];
+        const nd={...prevDados,[eid+"_"+mes+"_"+colKey]:next};
+        saveToDB(empresas,grupos,nd,obs,prazos,nextEmpId,nextGrpId,colsRef.current,empObservacoes,empCliente,empColsOverride,true);
+        return nd;
+      });
+    };
+    const revertCell=(eid,mes,col)=>{
+      setDados(prevDados=>{
+        const cur=prevDados[eid+"_"+mes+"_"+col]||"nao-iniciado";
+        const idx=SEQ.indexOf(cur);
+        const nd={...prevDados,[eid+"_"+mes+"_"+col]:SEQ[idx<=0?0:idx-1]};
+        saveToDB(empresas,grupos,nd,obs,prazos,nextEmpId,nextGrpId,colsRef.current,empObservacoes,empCliente,empColsOverride,true);
+        return nd;
+      });
+      toast("↩ Revertido!","ok");
+    };
     // Reseta TODAS as colunas do mês para "Não" (nao-iniciado) — útil para limpar dados de teste/legado
     const resetarMes=(eid,mes)=>{
       const empC=safeCols(eid);

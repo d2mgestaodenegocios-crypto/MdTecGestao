@@ -10999,6 +10999,11 @@ function makePageComponent(PAGE_CFG){
     // ── Salva colunas no Supabase (admin) ────────────────────────
     const saveColsCfg=useCallback(async(draft)=>{
       const newCols=draft||colsDraft;
+      // Proteção: nunca salva um conjunto vazio de colunas (evita travar todas as empresas sem colunas)
+      if(!Array.isArray(newCols)||newCols.length===0){
+        toast("⚠️ É preciso ter ao menos 1 coluna!","err");
+        return;
+      }
       colsRef.current=newCols;
       setCols(newCols);
       try{localStorage.setItem(COLS_KEY,JSON.stringify(newCols));}catch(e){}
@@ -11040,7 +11045,7 @@ function makePageComponent(PAGE_CFG){
       toast("🔄 Mês resetado para 'Não'!","ok");
     };
     // Retorna colunas ativas para a empresa — fallback para DEFAULT_COLS se cols não for array
-    const safeCols=(eid)=>{const ec=empColsOverride[eid];if(ec&&Array.isArray(ec)&&ec.length)return ec;return Array.isArray(cols)&&cols.length?cols:[];}
+    const safeCols=(eid)=>{const ec=empColsOverride[eid];if(ec&&Array.isArray(ec)&&ec.length)return ec;return Array.isArray(cols)&&cols.length?cols:DEFAULT_COLS;}
 
     // Verifica se coluna anterior (por índice) está OK ou N/A — lógica sequencial
     const colLiberada=(eid,mes,colIdx)=>{
@@ -11144,7 +11149,7 @@ function makePageComponent(PAGE_CFG){
       // Passa `obj` diretamente — setEmpColsOverride é assíncrono, empColsOverride ainda é o valor antigo aqui
       saveToDB(empresas,grupos,dados,obs,prazos,nextEmpId,nextGrpId,colsRef.current,empObservacoes,empCliente,obj,true);
     };
-    const getColsForEmp=(eid)=>{const ov=empColsOverride[eid];if(ov&&Array.isArray(ov)&&ov.length)return ov;return Array.isArray(cols)&&cols.length?cols:[];};
+    const getColsForEmp=(eid)=>{const ov=empColsOverride[eid];if(ov&&Array.isArray(ov)&&ov.length)return ov;return Array.isArray(cols)&&cols.length?cols:DEFAULT_COLS;};
     const [empColsModal,setEmpColsModal]=useState(null); // empId
     const [empColsDraft,setEmpColsDraft]=useState([]);
 
@@ -11343,7 +11348,7 @@ function makePageComponent(PAGE_CFG){
           <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
             <Btn onClick={()=>setObsResModal(true)} v="ghost" sz="sm" xs={{background:"#8b5cf6",color:"#fff",border:"none"}}>📋 Observações{obs.length>0&&<span style={{marginLeft:4,background:"rgba(255,255,255,.3)",borderRadius:10,padding:"1px 6px",fontSize:10,fontWeight:900}}>{obs.length}</span>}</Btn>
             {!isGuestMode&&<Btn onClick={()=>{setPrazoVal("");setPrazoModal({mes:"config"});}} v="ghost" sz="sm" xs={{background:"#f59e0b",color:"#fff",border:"none"}}>⏰ Vencimentos</Btn>}
-            {!isGuestMode&&<Btn onClick={()=>{setColsDraft(JSON.parse(JSON.stringify(cols)));setEditColsModal(true);}} v="ghost" sz="sm" xs={{background:"#0ea5e9",color:"#fff",border:"none"}}>✏️ Colunas</Btn>}
+            {!isGuestMode&&<Btn onClick={()=>{const safe=(Array.isArray(cols)&&cols.length>0)?cols:DEFAULT_COLS;setColsDraft(JSON.parse(JSON.stringify(safe)));setEditColsModal(true);}} v="ghost" sz="sm" xs={{background:"#0ea5e9",color:"#fff",border:"none"}}>✏️ Colunas</Btn>}
             {!isGuestMode&&<Btn onClick={()=>setShowNovaEmpModal(true)} sz="sm">+ Empresa</Btn>}
             {!isGuestMode&&<Btn onClick={()=>setShowGrupoModal(true)} v="ghost" sz="sm">👥 Grupo</Btn>}
             {!isGuestMode&&<Btn onClick={()=>{setBatchMode(b=>!b);setSelectedEmps(new Set());}} v="ghost" sz="sm" xs={{background:batchMode?"#fef2f2":"#f8fafc",color:batchMode?"#dc2626":"var(--text3)",border:`1px solid ${batchMode?"#fca5a5":"var(--border2)"}`}}>{batchMode?"✕ Sair lote":"☑ Selecionar"}</Btn>}

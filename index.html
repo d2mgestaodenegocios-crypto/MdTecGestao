@@ -11029,6 +11029,16 @@ function makePageComponent(PAGE_CFG){
     const getCell=(eid,mes,col)=>dados[eid+"_"+mes+"_"+col]||"nao-iniciado";
     const cycleCell=(eid,mes,colKey)=>{const empC=safeCols(eid);const colIdx=empC.findIndex(c=>c.key===colKey);if(!colLiberada(eid,mes,colIdx)){const empC2=safeCols(eid);const bloq=empC2[colIdx-1];toast("🔒 Preencha '"+(bloq?.label||"anterior")+"' primeiro!","err");return;}const cur=getCell(eid,mes,colKey);const next=SEQ[(SEQ.indexOf(cur)+1)%SEQ.length];const nd={...dados,[eid+"_"+mes+"_"+colKey]:next};setDados(nd);saveToDB(empresas,grupos,nd,obs,prazos,nextEmpId,nextGrpId,colsRef.current,empObservacoes,empCliente,empColsOverride,true);};
     const revertCell=(eid,mes,col)=>{const cur=getCell(eid,mes,col);const idx=SEQ.indexOf(cur);const nd={...dados,[eid+"_"+mes+"_"+col]:SEQ[idx<=0?0:idx-1]};setDados(nd);saveToDB(empresas,grupos,nd,obs,prazos,nextEmpId,nextGrpId,colsRef.current,empObservacoes,empCliente,empColsOverride,true);toast("↩ Revertido!","ok");};
+    // Reseta TODAS as colunas do mês para "Não" (nao-iniciado) — útil para limpar dados de teste/legado
+    const resetarMes=(eid,mes)=>{
+      const empC=safeCols(eid);
+      const nd={...dados};
+      empC.forEach(c=>{nd[eid+"_"+mes+"_"+c.key]="nao-iniciado";});
+      delete nd[eid+"_"+mes+"__analisado"];
+      setDados(nd);
+      saveToDB(empresas,grupos,nd,obs,prazos,nextEmpId,nextGrpId,colsRef.current,empObservacoes,empCliente,empColsOverride,true);
+      toast("🔄 Mês resetado para 'Não'!","ok");
+    };
     // Retorna colunas ativas para a empresa — fallback para DEFAULT_COLS se cols não for array
     const safeCols=(eid)=>{const ec=empColsOverride[eid];if(ec&&Array.isArray(ec)&&ec.length)return ec;return Array.isArray(cols)&&cols.length?cols:[];}
 
@@ -11266,6 +11276,7 @@ function makePageComponent(PAGE_CFG){
                           <th style={{padding:"9px 8px",color:"#fff",fontSize:11,textAlign:"center",fontWeight:700}}>Progresso</th>
                           <th style={{padding:"9px 8px",color:"#fff",fontSize:11,textAlign:"center",fontWeight:700}}>📝</th>
                           <th style={{padding:"9px 8px",color:"#fff",fontSize:11,textAlign:"center",fontWeight:700}}>🔍 Análise</th>
+                          <th style={{padding:"9px 8px",color:"#fff",fontSize:11,textAlign:"center",fontWeight:700}}>🔄</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -11306,6 +11317,9 @@ function makePageComponent(PAGE_CFG){
                             <td style={{padding:"9px 8px",textAlign:"center"}}><div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:5}}><span style={{fontSize:10,color:"#64748b",fontWeight:700,minWidth:26}}>{prog}%</span><div style={{width:44,height:5,borderRadius:3,background:"#e2e8f0",overflow:"hidden"}}><div style={{height:"100%",borderRadius:3,background:getProgClr(prog),width:`${prog}%`,transition:"width .4s"}}/></div></div></td>
                             <td style={{padding:"9px 8px",textAlign:"center"}}><span onClick={()=>abrirObs(emp.id,mes)} title={hasObs?(getObsTxt(emp.id,mes)+(obsVerif?" (verificado)":"")):"Adicionar obs."} style={{fontSize:hasObs?18:16,cursor:"pointer",color:hasObs?(obsVerif?"#94a3b8":"#f59e0b"):"#94a3b8",filter:(hasObs&&!obsVerif)?"drop-shadow(0 0 6px #f59e0baa)":"none",background:hasObs?(obsVerif?"rgba(148,163,184,.12)":"rgba(245,158,11,.12)"):"transparent",borderRadius:6,padding:"2px 4px",border:hasObs?(obsVerif?"1.5px solid #e2e8f0":"1.5px solid #fcd34d"):"1.5px solid transparent",opacity:obsVerif?.6:1}}>{hasObs&&obsVerif?"✔️":"📝"}</span></td>
                             <td style={{padding:"9px 8px",textAlign:"center"}}>{analisado?<div style={{display:"flex",gap:4,alignItems:"center",justifyContent:"center"}}><span style={{background:"#d1fae5",color:"#065f46",padding:"3px 10px",borderRadius:20,fontSize:10,fontWeight:700}}>✅ Analisado</span><button onClick={()=>setRevertModal({eid:emp.id,mes})} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#f59e0b",padding:"2px 4px",borderRadius:4}}>↩</button></div>:estaContab(emp.id,mes)?<button onClick={()=>analisarMes(emp.id,mes)} style={{background:"#f59e0b",color:"#fff",border:"none",padding:"4px 10px",borderRadius:6,cursor:"pointer",fontSize:10,fontWeight:700,fontFamily:"inherit"}}>🔍 Analisar</button>:<span style={{background:"#fff4e0",color:"#b45f06",padding:"3px 10px",borderRadius:20,fontSize:10,fontWeight:700}}>⏳ Aguardando</span>}</td>
+                            <td style={{padding:"9px 8px",textAlign:"center"}}>
+                              <button onClick={()=>{if(window.confirm("Resetar todas as colunas de "+getMesNome(mes)+" para 'Não'? Isso vai apagar o preenchimento deste mês."))resetarMes(emp.id,mes);}} title="Resetar mês (volta tudo para 'Não')" style={{background:"none",border:"none",cursor:"pointer",fontSize:13,color:"#94a3b8",padding:"3px 6px",borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#94a3b8"}>🔄</button>
+                            </td>
                           </tr>);
                         })}
                       </tbody>

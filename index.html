@@ -11202,6 +11202,7 @@ function makePageComponent(PAGE_CFG){
       const abaAtiva=getAbaAno(emp.id);const obsEmp=obs.filter(o=>o.eid===emp.id);const obsCount=obsEmp.filter(o=>!o.verificado).length;const obsVerifCount=obsEmp.length-obsCount;
       const isSelected=selectedEmps.has(emp.id);const isExpanded=expandedEmps.has(emp.id);
       const empCols=getColsForEmp(emp.id);
+      const empHasOverride=!!empColsOverride[emp.id];
       return(
         <div key={emp.id} style={{borderBottom:isLast?"none":"1px solid var(--border)",background:isSelected?"#eff6ff":selectedEmpPanel===emp.id?"rgba(99,102,241,.06)":undefined}}>
           <div style={{display:"flex",alignItems:"center",padding:indent?"11px 14px 11px 28px":"11px 14px",gap:8,transition:"background .1s",background:isExpanded?"var(--bg2)":undefined,borderLeft:selectedEmpPanel===emp.id?"3px solid #6366f1":"3px solid transparent"}}
@@ -11226,6 +11227,7 @@ function makePageComponent(PAGE_CFG){
               {emp.grupoId&&<span style={{background:grpColor+"22",color:grpColor,border:`1px solid ${grpColor}44`,padding:"2px 6px",borderRadius:12,fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>{grupos.find(g=>g.id===emp.grupoId)?.nome||""}</span>}
               {obsCount>0&&<span style={{display:"inline-flex",alignItems:"center",gap:3,background:"#fef3c7",color:"#92400e",padding:"2px 7px",borderRadius:20,fontSize:10,fontWeight:800,border:"1.5px solid #fcd34d",whiteSpace:"nowrap"}}>📝 {obsCount}</span>}
               {obsCount===0&&obsVerifCount>0&&<span style={{display:"inline-flex",alignItems:"center",gap:3,background:"#f1f5f9",color:"#94a3b8",padding:"2px 6px",borderRadius:20,fontSize:10,fontWeight:700,border:"1px solid #e2e8f0",whiteSpace:"nowrap"}}>✔️ {obsVerifCount}</span>}
+              {empHasOverride&&<span onClick={e=>{e.stopPropagation();if(window.confirm("Restaurar as colunas padrão para "+emp.nome+"? Isso remove a personalização desta empresa."))  {const no={...empColsOverride};delete no[emp.id];saveEmpColsOverride(no);toast("↩ Colunas restauradas ao padrão","ok");}}} title="Esta empresa usa colunas personalizadas — clique para restaurar ao padrão" style={{display:"inline-flex",alignItems:"center",gap:3,background:"#fef3c7",color:"#b45309",padding:"2px 7px",borderRadius:20,fontSize:10,fontWeight:800,border:"1.5px solid #fcd34d",whiteSpace:"nowrap",cursor:"pointer"}}>✎ personalizada</span>}
             </div>
             {/* Stats */}
             <div style={{display:"flex",gap:12,flexShrink:0}}>
@@ -11491,6 +11493,12 @@ function makePageComponent(PAGE_CFG){
         <Modal open={editColsModal} onClose={()=>setEditColsModal(false)} title="✏️ Editar Colunas" width={540}>
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
             <div style={{padding:"10px 14px",borderRadius:10,background:"#e0f2fe",border:"1px solid #bae6fd",fontSize:12,color:"#0369a1"}}>💡 Adicione, remova ou renomeie colunas.</div>
+            {Object.keys(empColsOverride).length>0&&(
+              <div style={{padding:"10px 14px",borderRadius:10,background:"#fef3c7",border:"1px solid #fde68a",fontSize:12,color:"#92400e",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+                <span>⚠️ <strong>{Object.keys(empColsOverride).length} empresa(s)</strong> têm colunas personalizadas e <strong>não serão afetadas</strong> ao salvar o padrão.</span>
+                <button onClick={()=>{if(window.confirm("Remover a personalização de TODAS as "+Object.keys(empColsOverride).length+" empresas? Elas voltarão a usar as colunas padrão."))  {saveEmpColsOverride({});toast("↩ Todas as personalizações removidas","ok");}}} style={{background:"#f59e0b",color:"#fff",border:"none",padding:"5px 10px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>Limpar todas</button>
+              </div>
+            )}
             <div style={{maxHeight:340,overflowY:"auto",display:"flex",flexDirection:"column",gap:8}}>
               {colsDraft.map((col,i)=>(<div key={i} style={{display:"flex",gap:8,alignItems:"center",padding:"8px 12px",borderRadius:10,background:"var(--bg3)",border:"1px solid var(--border)"}}>
                 <select value={col.icon} onChange={e=>setColsDraft(d=>d.map((c,j)=>j===i?{...c,icon:e.target.value}:c))} style={{width:54,padding:"5px 2px",borderRadius:8,border:"2px solid #e5e7eb",fontSize:16,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}}>

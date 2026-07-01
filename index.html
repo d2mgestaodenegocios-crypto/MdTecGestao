@@ -11138,9 +11138,25 @@ function makePageComponent(PAGE_CFG){
     // Vencimento por coluna: dia relativo ao mês de vencimento (ex: "03" = dia 3 do mês do prazo geral)
     const getColDia=(colKey)=>prazos["COL_"+colKey+"_dia"]||"";
     const setColDia=(colKey,dia)=>setPrazos(prev=>{const n={...prev};if(dia)n["COL_"+colKey+"_dia"]=dia;else delete n["COL_"+colKey+"_dia"];return n;});
-    const getColPrazoStr=(colKey,mes)=>{const dia=getColDia(colKey);if(!dia)return"";const [mm,aa]=mes.split("/");return dia.padStart(2,"0")+"/"+mm+"/"+aa;};
-    const isColVencido=(colKey,mes)=>{const p=getColPrazoStr(colKey,mes);if(!p)return false;const pts=p.split("/");return new Date(parseInt(pts[2]),parseInt(pts[1])-1,parseInt(pts[0]))<new Date();};
-    const isColVencendo=(colKey,mes)=>{const p=getColPrazoStr(colKey,mes);if(!p)return false;const pts=p.split("/");const d=new Date(parseInt(pts[2]),parseInt(pts[1])-1,parseInt(pts[0]));return(d-new Date())/86400000<=3&&d>=new Date();};
+    // Prazo da coluna = "dia X" do mês do VENCIMENTO GERAL da competência
+    // Ex: competência JUN/2026, vencimento geral 15/07/2026, coluna NF dia 3 → 03/07/2026
+    const getColPrazoStr=(colKey,mes)=>{
+      const dia=getColDia(colKey);if(!dia)return"";
+      // Pega o prazo geral da competência para saber em qual mês/ano calcular
+      const prazoGeral=getPrazo(mes); // ex: "15/07/2026"
+      if(prazoGeral){
+        const pts=prazoGeral.split("/");
+        if(pts.length===3)return dia.padStart(2,"0")+"/"+pts[1]+"/"+pts[2]; // dia/mm-do-prazo/aaaa
+      }
+      // Fallback: mês seguinte à competência
+      const [cmm,caa]=mes.split("/");
+      const d=new Date(parseInt(caa),parseInt(cmm)-1,1);
+      d.setMonth(d.getMonth()+1);
+      return dia.padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear();
+    };
+    const _parseColDate=(p)=>{const pts=(p||"").split("/");return pts.length===3?new Date(parseInt(pts[2]),parseInt(pts[1])-1,parseInt(pts[0])):null;};
+    const isColVencido=(colKey,mes)=>{const d=_parseColDate(getColPrazoStr(colKey,mes));return!!d&&d<new Date();};
+    const isColVencendo=(colKey,mes)=>{const d=_parseColDate(getColPrazoStr(colKey,mes));if(!d)return false;const diff=(d-new Date())/86400000;return diff>=0&&diff<=7;}; // destaque 7 dias antes
     const isVencendo=(mes)=>{const p=getPrazo(mes);if(!p)return false;const pts=p.split("/");if(pts.length!==3)return false;const d=new Date(parseInt(pts[2]),parseInt(pts[1])-1,parseInt(pts[0]));return(d-new Date())/86400000<=7&&d>=new Date();};
     const isVencido=(mes)=>{const p=getPrazo(mes);if(!p)return false;const pts=p.split("/");if(pts.length!==3)return false;return new Date(parseInt(pts[2]),parseInt(pts[1])-1,parseInt(pts[0]))<new Date();};
 
@@ -11339,7 +11355,7 @@ function makePageComponent(PAGE_CFG){
                         <tr style={{background:"#1e3a5f"}}>
                           <th style={{padding:"9px 12px",color:"#fff",fontSize:11,textAlign:"left",fontWeight:700}}>Mês</th>
                           <th style={{padding:"9px 8px",color:"#fff",fontSize:11,textAlign:"center",fontWeight:700}}>⏰ Vencimento</th>
-                          {empCols.map(col=>{const cDia=getColDia(col.key);return(<th key={col.key} style={{padding:"9px 8px",color:"#fff",fontSize:11,textAlign:"center",fontWeight:700,whiteSpace:"nowrap",cursor:isGuestMode?"default":"pointer"}} onClick={()=>!isGuestMode&&setEditColPrazosModal(true)} title={cDia?"Vence dia "+cDia+" · clique para editar prazos por coluna":"Clique para definir prazo desta coluna"}>{col.icon} {col.label}{cDia&&<span style={{display:"block",fontSize:9,fontWeight:600,color:"#93c5fd",marginTop:1}}>dia {cDia}</span>}</th>);})}
+                          {empCols.map(col=>{const cDia=getColDia(col.key);return(<th key={col.key} style={{padding:"9px 8px",color:"#fff",fontSize:11,textAlign:"center",fontWeight:700,whiteSpace:"nowrap",cursor:isGuestMode?"default":"pointer"}} onClick={()=>!isGuestMode&&setEditColPrazosModal(true)} title={cDia?"Prazo: dia "+cDia+" do mês do vencimento geral · clique para editar":"Clique para definir prazo por coluna"}>{col.icon} {col.label}{cDia&&<span style={{display:"block",fontSize:9,fontWeight:600,color:"#93c5fd",marginTop:1}}>dia {cDia}</span>}</th>);})}
                           <th style={{padding:"9px 8px",color:"#fff",fontSize:11,textAlign:"center",fontWeight:700}}>Progresso</th>
                           <th style={{padding:"9px 8px",color:"#fff",fontSize:11,textAlign:"center",fontWeight:700}}>📝</th>
                           <th style={{padding:"9px 8px",color:"#fff",fontSize:11,textAlign:"center",fontWeight:700}}>🔍 Análise</th>
@@ -11365,6 +11381,7 @@ function makePageComponent(PAGE_CFG){
                               const bloqueada=!analisado&&!liberada;
                               const colVencido=!analisado&&st!=="ok"&&st!=="nao-aplica"&&isColVencido(col.key,mes);
                               const colVencendo=!analisado&&st!=="ok"&&st!=="nao-aplica"&&!colVencido&&isColVencendo(col.key,mes);
+                              const colPrazoLabel=getColPrazoStr(col.key,mes);
                               const cellStyle=bloqueada
                                 ?{padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:700,whiteSpace:"nowrap",background:"#f1f5f9",color:"#cbd5e1",border:"1.5px dashed #e2e8f0",cursor:"not-allowed",opacity:.7}
                                 :colVencido?{...gst(st),cursor:"pointer",outline:"2px solid #ef4444",outlineOffset:"-2px"}
@@ -11374,7 +11391,7 @@ function makePageComponent(PAGE_CFG){
                                 <div style={{position:"relative",display:"inline-block"}}>
                                   <div
                                     onClick={()=>!analisado&&cycleCell(emp.id,mes,col.key)}
-                                    title={bloqueada?"🔒 Preencha a coluna anterior primeiro":undefined}
+                                    title={bloqueada?"🔒 Preencha a coluna anterior primeiro":colVencido&&colPrazoLabel?"🔴 Prazo vencido: "+colPrazoLabel:colVencendo&&colPrazoLabel?"🟡 Vence: "+colPrazoLabel:colPrazoLabel?"⏰ Prazo: "+colPrazoLabel:undefined}
                                     style={cellStyle}
                                   >
                                     {bloqueada?"🔒":SL[st]||st}

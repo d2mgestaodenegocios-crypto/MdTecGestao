@@ -304,7 +304,7 @@ const NAV_GROUPS=[
   {label:"Visualizações",items:[{id:"dashboard",icon:"✦",label:"Dashboard"},{id:"kanban",icon:"⊞",label:"Kanban"},{id:"lista",icon:"☰",label:"Lista"},{id:"calendario",icon:"📅",label:"Calendário"},{id:"gantt",icon:"🗓",label:"Linha do Tempo"},{id:"tabela",icon:"▦",label:"Tabela"},{id:"hoje",icon:"🌅",label:"Hoje"},{id:"minhas",icon:"👤",label:"Minhas Tarefas"},{id:"arquivadas",icon:"📦",label:"Arquivadas"}]},
   {label:"Cadastros",items:[{id:"modelos",icon:"◧",label:"Modelos"},{id:"empresas",icon:"⬡",label:"Empresas"},{id:"setores",icon:"◫",label:"Setores"},{id:"colaboradores",icon:"◉",label:"Colaboradores"},{id:"marcadores",icon:"◈",label:"Marcadores"},{id:"recorrencias",icon:"↻",label:"Recorrências"},{id:"painel-rec",icon:"⊹",label:"Painel Recorrências"},{id:"servicos",icon:"S",label:"Serviços"}]},
   {label:"Relatórios",items:[{id:"relatorio",icon:"📧",label:"Relatório por Empresa"},{id:"carga",icon:"⚖",label:"Carga de Trabalho"}]},
-  {label:"Contabilidade",items:[{id:"contabil",icon:"📊",label:"Contábil"},{id:"fiscal",icon:"📋",label:"Tributário"},{id:"folha-pagamento",icon:"👥",label:"Folha Pgto"}]},
+  {label:"Contabilidade",items:[{id:"contabil",icon:"📊",label:"Contábil"},{id:"fiscal",icon:"📋",label:"Tributário"},{id:"folha-pagamento",icon:"👥",label:"Folha Pgto"},{id:"relatorio-contabil",icon:"📊",label:"Relatório"}]},
   {label:"Sistema",items:[{id:"auditoria",icon:"🛡",label:"Auditoria"},{id:"configuracoes",icon:"⚙",label:"Configurações"}]},
 ];
 
@@ -7832,7 +7832,7 @@ function App(){
               "dashboard":"#6366f1","kanban":"#8b5cf6","lista":"#a855f7","calendario":"#d946ef","gantt":"#ec4899","tabela":"#f43f5e","hoje":"#fb7185","minhas":"#fca5a5","arquivadas":"#fecaca",
               "modelos":"#06b6d4","empresas":"#0ea5e9","setores":"#0891b2","colaboradores":"#14b8a6","marcadores":"#10b981","recorrencias":"#34d399","painel-rec":"#6ee7b7","servicos":"#a7f3d0",
               "relatorio":"#fbbf24","carga":"#f59e0b",
-              "contabil":"#6366f1","fiscal":"#f59e0b","folha-pagamento":"#06b6d4",
+              "contabil":"#6366f1","fiscal":"#f59e0b","folha-pagamento":"#06b6d4","relatorio-contabil":"#8b5cf6",
               "auditoria":"#8b5cf6","configuracoes":"#94a3b8"
             };
             const groupColor=groupColors[group.label]||"#6366f1";
@@ -7988,6 +7988,7 @@ function App(){
         {page==="contabil"      && <ContabilPage toast={toast} data={data}/>}
         {page==="fiscal"          && <FiscalPage toast={toast} sysData={data}/>}
         {page==="folha-pagamento" && <FolhaPagPage toast={toast} sysData={data}/>}
+        {page==="relatorio-contabil" && <RelatorioContabilPage toast={toast}/>}
       </main>
 
       {/* Modal de tarefa */}
@@ -11974,6 +11975,386 @@ function makePageComponent(PAGE_CFG){
       </div>
     );
   };
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// 📊 RELATÓRIO CONTÁBIL — Visão unificada dos 3 módulos
+// ═══════════════════════════════════════════════════════════════
+function RelatorioContabilPage({toast}){
+  const hoje=new Date();hoje.setHours(0,0,0,0);
+  const mesAtualNum=hoje.getMonth()+1;
+  const anoAtual=hoje.getFullYear();
+  const fmtMes=(m,a)=>String(m).padStart(2,"0")+"/"+a;
+  const mesAtual=fmtMes(mesAtualNum,anoAtual);
+
+  const MODULOS=[
+    {id:"contabil",label:"Contábil",icon:"📊",cor:"#6366f1",rowId:2,
+     defaultCols:[{key:"bal",label:"Balancete"},{key:"dre",label:"DRE"},{key:"ecdecf",label:"ECD/ECF"}]},
+    {id:"fiscal",label:"Tributário",icon:"📋",cor:"#f59e0b",rowId:4,
+     defaultCols:[{key:"nfe",label:"NF-e"},{key:"nfse",label:"NFS-e"},{key:"apuracao",label:"Apuração"},{key:"guias",label:"Guias"},{key:"obrig",label:"DCTF WEB"}]},
+    {id:"folha",label:"Folha Pgto",icon:"👥",cor:"#06b6d4",rowId:5,
+     defaultCols:[{key:"admissao",label:"Admissão"},{key:"demissao",label:"Demissão"},{key:"ferias",label:"Férias"},{key:"fgts",label:"FGTS"},{key:"folha",label:"Folha"}]},
+  ];
+
+  const [payloads,setPayloads]=React.useState({});
+  const [loading,setLoading]=React.useState(true);
+  const [anoFiltro,setAnoFiltro]=React.useState(String(anoAtual));
+  const [mesFiltro,setMesFiltro]=React.useState("todos");
+  const [moduloFiltro,setModuloFiltro]=React.useState("todos");
+  const [statusFiltro,setStatusFiltro]=React.useState("todos"); // todos|pendente|concluido|vencido|analisado
+  const [grupFiltro,setGrupFiltro]=React.useState("todos");
+  const [busca,setBusca]=React.useState("");
+  const [expandidos,setExpandidos]=React.useState({});
+
+  // Carrega todos os 3 módulos do Supabase
+  React.useEffect(()=>{
+    let ok=true;
+    (async()=>{
+      setLoading(true);
+      const result={};
+      await Promise.all(MODULOS.map(async mod=>{
+        try{
+          const{data:row}=await sb.from("app_data").select("payload").eq("id",mod.rowId).maybeSingle();
+          if(ok&&row?.payload)result[mod.id]=row.payload;
+        }catch(e){}
+      }));
+      if(ok){setPayloads(result);setLoading(false);}
+    })();
+    return()=>{ok=false;};
+  },[]);
+
+  if(loading) return(
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:300,flexDirection:"column",gap:12}}>
+      <div style={{fontSize:32}}>⏳</div>
+      <div style={{fontWeight:700,color:"#64748b"}}>Carregando dados dos 3 módulos…</div>
+    </div>
+  );
+
+  // Constrói linhas do relatório
+  const MESES_MM=["01","02","03","04","05","06","07","08","09","10","11","12"];
+  const MESES_NOME={
+    "01":"Jan","02":"Fev","03":"Mar","04":"Abr","05":"Mai","06":"Jun",
+    "07":"Jul","08":"Ago","09":"Set","10":"Out","11":"Nov","12":"Dez"
+  };
+  const ANOS_DISP=Array.from({length:6},(_,i)=>String(anoAtual-2+i));
+
+  const parseData=(s)=>{
+    if(!s)return null;
+    const p=s.split("/");
+    return p.length===3?new Date(parseInt(p[2]),parseInt(p[1])-1,parseInt(p[0])):null;
+  };
+
+  // Junta grupos de todos os módulos para filtro
+  const todosGrupos=[];
+  const gruposVistos=new Set();
+  MODULOS.forEach(mod=>{
+    const p=payloads[mod.id];
+    if(!p?.grupos)return;
+    p.grupos.forEach(g=>{if(!gruposVistos.has(g.id)){gruposVistos.add(g.id);todosGrupos.push(g);}});
+  });
+
+  // Gera linhas
+  const linhas=[];
+  MODULOS.filter(m=>moduloFiltro==="todos"||m.id===moduloFiltro).forEach(mod=>{
+    const p=payloads[mod.id];
+    if(!p)return;
+    const cols=Array.isArray(p.cols)&&p.cols.length>0?p.cols:mod.defaultCols;
+    const empresas=p.empresas||[];
+    const grupos=p.grupos||[];
+    const dados=p.dados||{};
+    const prazos=p.prazos||{};
+    const empCO=p.empColsOverride||{};
+
+    // Filtra empresas por busca
+    const empsFilt=empresas.filter(e=>{
+      if(busca&&!e.nome?.toLowerCase().includes(busca.toLowerCase()))return false;
+      if(grupFiltro!=="todos"&&e.grupoId!==grupFiltro)return false;
+      return true;
+    });
+
+    empsFilt.forEach(emp=>{
+      const empCols=empCO[emp.id]||cols;
+      const getMeses=()=>{
+        const piStr=emp.periodoInicial||"01/2025";
+        const [piM,piA]=piStr.split("/");
+        const piIdx=ANOS_DISP.findIndex(a=>a===piA);
+        const meses=[];
+        ANOS_DISP.forEach(ano=>{
+          MESES_MM.forEach(mm=>{
+            const mStr=mm+"/"+ano;
+            const mY=parseInt(ano),mM=parseInt(mm);
+            const piY=parseInt(piA),piMm=parseInt(piM);
+            if(mY>piY||(mY===piY&&mM>=piMm)){
+              if(mY<anoAtual||(mY===anoAtual&&mM<=mesAtualNum))meses.push(mStr);
+            }
+          });
+        });
+        return meses;
+      };
+
+      const meses=getMeses().filter(m=>{
+        const [mm,aa]=m.split("/");
+        if(anoFiltro!=="todos"&&aa!==anoFiltro)return false;
+        if(mesFiltro!=="todos"&&mm!==mesFiltro)return false;
+        return true;
+      });
+
+      meses.forEach(mes=>{
+        const analisado=dados[emp.id+"_"+mes+"__analisado"]===true;
+        const getCell=(col)=>dados[emp.id+"_"+mes+"_"+col]||"nao-iniciado";
+        const atvCols=empCols.filter(c=>getCell(c.key)!=="nao-aplica");
+        const okCols=atvCols.filter(c=>getCell(c.key)==="ok");
+        const prog=atvCols.length?Math.round(okCols.length/atvCols.length*100):100;
+        const prazoStr=prazos[emp.id+"_"+mes]||prazos["_"+mes]||"";
+        const dataPrazo=parseData(prazoStr);
+        const vencido=dataPrazo&&dataPrazo<hoje&&!analisado;
+        const venceHoje=dataPrazo&&dataPrazo.getTime()===hoje.getTime();
+        const diasRestantes=dataPrazo?Math.round((dataPrazo-hoje)/86400000):null;
+
+        const status=analisado?"analisado":prog===100?"concluido":vencido?"vencido":"pendente";
+
+        if(statusFiltro!=="todos"&&status!==statusFiltro)return;
+
+        // Colunas individuais
+        const colStatus=empCols.map(c=>({
+          key:c.key,label:c.label,
+          val:getCell(c.key)
+        }));
+
+        const grupoNome=(grupos.find(g=>g.id===emp.grupoId)?.nome)||"—";
+
+        linhas.push({mod,emp,mes,analisado,prog,prazoStr,dataPrazo,vencido,venceHoje,diasRestantes,status,colStatus,grupoNome,atvCols,okCols});
+      });
+    });
+  });
+
+  // Agrupa por módulo→grupo→empresa→mês
+  const porModulo={};
+  linhas.forEach(l=>{
+    const mid=l.mod.id;
+    if(!porModulo[mid])porModulo[mid]={mod:l.mod,grupos:{}};
+    const gn=l.grupoNome;
+    if(!porModulo[mid].grupos[gn])porModulo[mid].grupos[gn]=[];
+    porModulo[mid].grupos[gn].push(l);
+  });
+
+  const statusStyle=(s)=>{
+    if(s==="analisado")return{bg:"#d1fae5",c:"#065f46",bd:"#86efac",ic:"✅"};
+    if(s==="concluido")return{bg:"#dbeafe",c:"#1e40af",bd:"#93c5fd",ic:"☑️"};
+    if(s==="vencido")  return{bg:"#fef2f2",c:"#dc2626",bd:"#fca5a5",ic:"🔴"};
+    return                  {bg:"#fef9c3",c:"#854d0e",bd:"#fde047",ic:"⏳"};
+  };
+  const cellStyle=(v)=>{
+    if(v==="ok")         return{bg:"#d1fae5",c:"#065f46",txt:"✓ Ok"};
+    if(v==="nao-aplica") return{bg:"#f1f5f9",c:"#94a3b8",txt:"N/A"};
+    if(v==="pendente")   return{bg:"#fef3c7",c:"#92400e",txt:"↻ Pend."};
+    return                    {bg:"#fff",c:"#cbd5e1",txt:"—"};
+  };
+
+  // Stats totais
+  const total=linhas.length;
+  const analisados=linhas.filter(l=>l.status==="analisado").length;
+  const concluidos=linhas.filter(l=>l.status==="concluido").length;
+  const vencidos=linhas.filter(l=>l.status==="vencido").length;
+  const pendentes=linhas.filter(l=>l.status==="pendente").length;
+
+  const toggleExp=(key)=>setExpandidos(p=>({...p,[key]:!p[key]}));
+
+  // Exporta CSV
+  const exportCSV=()=>{
+    const rows=[["Módulo","Empresa","CNPJ","Grupo","Mês","Status","Progresso","Prazo","Dias Restantes",
+      ...new Set(linhas.flatMap(l=>l.colStatus.map(c=>c.label)))]];
+    linhas.forEach(l=>{
+      const allColKeys=[...new Set(linhas.flatMap(ll=>ll.colStatus.map(c=>c.key)))];
+      const colMap=Object.fromEntries(l.colStatus.map(c=>[c.key,c.val]));
+      rows.push([
+        l.mod.label, l.emp.nome, l.emp.cnpj||"", l.grupoNome,
+        l.mes, l.status, l.prog+"%", l.prazoStr, l.diasRestantes??""
+      , ...allColKeys.map(k=>{const v=colMap[k]||"—";return v==="ok"?"✓ Ok":v==="nao-aplica"?"N/A":v==="pendente"?"Pendente":"—";})
+      ]);
+    });
+    const csv=rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(",")).join("\n");
+    const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8"});
+    const a=document.createElement("a");a.href=URL.createObjectURL(blob);
+    a.download="relatorio_contabil_"+mesAtual.replace("/","_")+".csv";a.click();
+    toast("📥 CSV exportado!","ok");
+  };
+
+  return(
+    <div style={{padding:"20px 24px",maxWidth:1400,margin:"0 auto"}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20,flexWrap:"wrap"}}>
+        <div>
+          <div style={{fontSize:22,fontWeight:900,color:"var(--text)"}}>📊 Relatório Contábil</div>
+          <div style={{fontSize:12,color:"#64748b",marginTop:2}}>Visão unificada — Contábil · Tributário · Folha de Pagamento</div>
+        </div>
+        <button onClick={exportCSV} style={{marginLeft:"auto",background:"#22c55e",color:"#fff",border:"none",padding:"8px 16px",borderRadius:10,fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:6,fontFamily:"inherit"}}>📥 Exportar CSV</button>
+      </div>
+
+      {/* KPIs */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:10,marginBottom:20}}>
+        {[
+          {v:total,l:"Total",c:"#6366f1",bg:"#ede9fe"},
+          {v:analisados,l:"Analisados",c:"#16a34a",bg:"#dcfce7"},
+          {v:concluidos,l:"Concluídos",c:"#1d4ed8",bg:"#dbeafe"},
+          {v:pendentes,l:"Pendentes",c:"#854d0e",bg:"#fef9c3"},
+          {v:vencidos,l:"Vencidos",c:"#dc2626",bg:"#fef2f2"},
+        ].map(({v,l,c,bg})=>(
+          <div key={l} style={{background:bg,borderRadius:12,padding:"12px 14px",textAlign:"center",border:"1px solid "+c+"33"}}>
+            <div style={{fontSize:26,fontWeight:900,color:c,lineHeight:1}}>{v}</div>
+            <div style={{fontSize:11,fontWeight:700,color:c,marginTop:3,opacity:.8}}>{l}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filtros */}
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:18,padding:"12px 14px",background:"var(--bg2)",borderRadius:12,border:"1px solid var(--border)"}}>
+        <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="🔍 Buscar empresa…"
+          style={{flex:"1 1 160px",padding:"7px 12px",borderRadius:8,border:"1px solid var(--border)",fontSize:12,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}/>
+        <select value={moduloFiltro} onChange={e=>setModuloFiltro(e.target.value)}
+          style={{padding:"7px 10px",borderRadius:8,border:"1px solid var(--border)",fontSize:12,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}>
+          <option value="todos">Todos os módulos</option>
+          {MODULOS.map(m=><option key={m.id} value={m.id}>{m.icon} {m.label}</option>)}
+        </select>
+        <select value={anoFiltro} onChange={e=>setAnoFiltro(e.target.value)}
+          style={{padding:"7px 10px",borderRadius:8,border:"1px solid var(--border)",fontSize:12,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}>
+          {ANOS_DISP.map(a=><option key={a} value={a}>{a}</option>)}
+        </select>
+        <select value={mesFiltro} onChange={e=>setMesFiltro(e.target.value)}
+          style={{padding:"7px 10px",borderRadius:8,border:"1px solid var(--border)",fontSize:12,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}>
+          <option value="todos">Todos os meses</option>
+          {MESES_MM.map(m=><option key={m} value={m}>{MESES_NOME[m]}</option>)}
+        </select>
+        <select value={statusFiltro} onChange={e=>setStatusFiltro(e.target.value)}
+          style={{padding:"7px 10px",borderRadius:8,border:"1px solid var(--border)",fontSize:12,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}>
+          <option value="todos">Todos os status</option>
+          <option value="pendente">⏳ Pendente</option>
+          <option value="vencido">🔴 Vencido</option>
+          <option value="concluido">☑️ Concluído</option>
+          <option value="analisado">✅ Analisado</option>
+        </select>
+        <select value={grupFiltro} onChange={e=>setGrupFiltro(e.target.value)}
+          style={{padding:"7px 10px",borderRadius:8,border:"1px solid var(--border)",fontSize:12,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}>
+          <option value="todos">Todos os grupos</option>
+          {todosGrupos.map(g=><option key={g.id} value={g.id}>{g.nome}</option>)}
+        </select>
+        {(busca||moduloFiltro!=="todos"||mesFiltro!=="todos"||statusFiltro!=="todos"||grupFiltro!=="todos")&&
+          <button onClick={()=>{setBusca("");setModuloFiltro("todos");setMesFiltro("todos");setStatusFiltro("todos");setGrupFiltro("todos");}}
+            style={{padding:"7px 12px",borderRadius:8,border:"1px solid #e2e8f0",background:"#f1f5f9",fontSize:12,cursor:"pointer",color:"#64748b",fontFamily:"inherit"}}>✕ Limpar</button>}
+      </div>
+
+      {/* Conteúdo por módulo */}
+      {linhas.length===0?(
+        <div style={{textAlign:"center",padding:48,color:"#94a3b8",fontSize:14}}>Nenhum resultado para os filtros selecionados.</div>
+      ):(
+        Object.values(porModulo).map(({mod,grupos})=>(
+          <div key={mod.id} style={{marginBottom:28}}>
+            {/* Cabeçalho do módulo */}
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,padding:"10px 16px",background:"linear-gradient(135deg,"+mod.cor+"15,"+mod.cor+"08)",border:"2px solid "+mod.cor+"44",borderRadius:12}}>
+              <span style={{fontSize:20}}>{mod.icon}</span>
+              <span style={{fontSize:16,fontWeight:900,color:mod.cor}}>{mod.label}</span>
+              <span style={{fontSize:12,color:mod.cor+"99",marginLeft:4}}>
+                {Object.values(grupos).flat().length} linha(s)
+              </span>
+            </div>
+
+            {/* Por grupo */}
+            {Object.entries(grupos).map(([grpNome,rows])=>{
+              const expKey=mod.id+"_"+grpNome;
+              const isExp=expandidos[expKey]!==false; // aberto por padrão
+              const grpVenc=rows.filter(r=>r.status==="vencido").length;
+              const grpPend=rows.filter(r=>r.status==="pendente").length;
+              const grpOk=rows.filter(r=>r.status==="analisado"||r.status==="concluido").length;
+
+              return(
+                <div key={grpNome} style={{marginBottom:12,border:"1px solid var(--border)",borderRadius:10,overflow:"hidden"}}>
+                  {/* Grupo header */}
+                  <div onClick={()=>toggleExp(expKey)}
+                    style={{display:"flex",alignItems:"center",gap:10,padding:"9px 14px",background:"var(--bg2)",cursor:"pointer",userSelect:"none",borderBottom:isExp?"1px solid var(--border)":"none"}}>
+                    <span style={{fontSize:13,fontWeight:800,color:"var(--text)",flex:1}}>👥 {grpNome}</span>
+                    <div style={{display:"flex",gap:6}}>
+                      {grpVenc>0&&<span style={{background:"#fef2f2",color:"#dc2626",border:"1px solid #fca5a5",padding:"1px 8px",borderRadius:20,fontSize:10,fontWeight:800}}>🔴 {grpVenc}</span>}
+                      {grpPend>0&&<span style={{background:"#fef9c3",color:"#854d0e",border:"1px solid #fde047",padding:"1px 8px",borderRadius:20,fontSize:10,fontWeight:800}}>⏳ {grpPend}</span>}
+                      {grpOk>0&&<span style={{background:"#d1fae5",color:"#065f46",border:"1px solid #86efac",padding:"1px 8px",borderRadius:20,fontSize:10,fontWeight:800}}>✅ {grpOk}</span>}
+                    </div>
+                    <span style={{color:"#94a3b8",fontSize:12}}>{isExp?"▲":"▼"}</span>
+                  </div>
+
+                  {/* Tabela */}
+                  {isExp&&(()=>{
+                    // Colunas únicas do grupo
+                    const grpCols=[...new Map(rows.flatMap(r=>r.colStatus).map(c=>[c.key,c])).values()];
+                    return(
+                      <div style={{overflowX:"auto"}}>
+                        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                          <thead>
+                            <tr style={{background:"#f8fafc"}}>
+                              <th style={{padding:"7px 10px",textAlign:"left",fontWeight:800,color:"#475569",whiteSpace:"nowrap",position:"sticky",left:0,background:"#f8fafc",zIndex:1}}>Empresa</th>
+                              <th style={{padding:"7px 8px",textAlign:"center",fontWeight:800,color:"#475569",whiteSpace:"nowrap"}}>Mês</th>
+                              <th style={{padding:"7px 8px",textAlign:"center",fontWeight:800,color:"#475569",whiteSpace:"nowrap"}}>Status</th>
+                              <th style={{padding:"7px 8px",textAlign:"center",fontWeight:800,color:"#475569",whiteSpace:"nowrap"}}>Progresso</th>
+                              <th style={{padding:"7px 8px",textAlign:"center",fontWeight:800,color:"#475569",whiteSpace:"nowrap"}}>Prazo</th>
+                              <th style={{padding:"7px 8px",textAlign:"center",fontWeight:800,color:"#475569",whiteSpace:"nowrap"}}>Dias</th>
+                              {grpCols.map(c=><th key={c.key} style={{padding:"7px 8px",textAlign:"center",fontWeight:800,color:"#475569",whiteSpace:"nowrap"}}>{c.label}</th>)}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rows.map((r,ri)=>{
+                              const ss=statusStyle(r.status);
+                              const colMap=Object.fromEntries(r.colStatus.map(c=>[c.key,c.val]));
+                              return(
+                                <tr key={ri} style={{borderTop:"1px solid #f1f5f9",background:ri%2===0?"transparent":"#fafafa"}}
+                                  onMouseEnter={e=>e.currentTarget.style.background="rgba(99,102,241,.05)"}
+                                  onMouseLeave={e=>e.currentTarget.style.background=ri%2===0?"transparent":"#fafafa"}>
+                                  <td style={{padding:"7px 10px",fontWeight:700,color:"var(--text)",whiteSpace:"nowrap",position:"sticky",left:0,background:ri%2===0?"var(--bg)":"#fafafa",zIndex:1}} title={r.emp.cnpj}>
+                                    {r.emp.nome}
+                                    {r.emp.cnpj&&<div style={{fontSize:9,color:"#94a3b8",fontWeight:400}}>{r.emp.cnpj}</div>}
+                                  </td>
+                                  <td style={{padding:"7px 8px",textAlign:"center",fontWeight:700,color:"#334155",whiteSpace:"nowrap"}}>
+                                    {MESES_NOME[r.mes.split("/")[0]]}/{r.mes.split("/")[1].slice(2)}
+                                  </td>
+                                  <td style={{padding:"7px 8px",textAlign:"center"}}>
+                                    <span style={{display:"inline-flex",alignItems:"center",gap:3,background:ss.bg,color:ss.c,border:"1px solid "+ss.bd,padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:800,whiteSpace:"nowrap"}}>
+                                      {ss.ic} {r.status==="analisado"?"Analisado":r.status==="concluido"?"Concluído":r.status==="vencido"?"Vencido":"Pendente"}
+                                    </span>
+                                  </td>
+                                  <td style={{padding:"7px 8px",textAlign:"center",minWidth:80}}>
+                                    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                                      <span style={{fontWeight:800,fontSize:12,color:r.prog===100?"#16a34a":r.prog>50?"#d97706":"#dc2626"}}>{r.prog}%</span>
+                                      <div style={{width:60,height:5,background:"#e2e8f0",borderRadius:3}}>
+                                        <div style={{width:r.prog+"%",height:"100%",borderRadius:3,background:r.prog===100?"#22c55e":r.prog>50?"#f59e0b":"#ef4444",transition:"width .3s"}}/>
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td style={{padding:"7px 8px",textAlign:"center",fontWeight:600,color:r.vencido?"#dc2626":r.venceHoje?"#d97706":"#475569",whiteSpace:"nowrap",fontSize:11}}>
+                                    {r.prazoStr||"—"}
+                                  </td>
+                                  <td style={{padding:"7px 8px",textAlign:"center",fontSize:11,fontWeight:700,whiteSpace:"nowrap",
+                                    color:r.diasRestantes===null?"#94a3b8":r.diasRestantes<0?"#dc2626":r.diasRestantes<=3?"#d97706":"#475569"}}>
+                                    {r.diasRestantes===null?"—":r.diasRestantes===0?"Hoje":r.diasRestantes<0?Math.abs(r.diasRestantes)+"d atr.":r.diasRestantes+"d"}
+                                  </td>
+                                  {grpCols.map(c=>{const v=colMap[c.key]||"nao-iniciado";const cs=cellStyle(v);return(
+                                    <td key={c.key} style={{padding:"5px 6px",textAlign:"center"}}>
+                                      <span style={{background:cs.bg,color:cs.c,padding:"2px 6px",borderRadius:6,fontSize:10,fontWeight:700,display:"inline-block",whiteSpace:"nowrap"}}>{cs.txt}</span>
+                                    </td>
+                                  );})}
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    );
+                  })()}
+                </div>
+              );
+            })}
+          </div>
+        ))
+      )}
+    </div>
+  );
 }
 
 const FiscalPage=makePageComponent({

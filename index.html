@@ -11454,12 +11454,13 @@ function makePageComponent(PAGE_CFG){
             const grupoId=emp.grupoId;
             const grupoNome=grupoId?(grupos.find(g=>g.id===grupoId)?.nome||""):"";
             const grpC=getGrpColor(grupoId);
-            // pendenteMesAtual = tem tarefa não-analisada no mês corrente (prazo ainda não venceu — "a fazer")
-            const pendenteMesAtual=temPendencia&&mesPendente===mesAtual&&!vencidoAtual;
+            // pendenteMesAtual = tem qualquer mês pendente no período decorrido, prazo ainda não venceu
+            // (inclui meses anteriores com prazo futuro e o próprio mês atual)
+            const pendenteMesAtual=temPendencia&&!vencidoAtual&&!vencendoAtual;
             return{emp,vencidoAtual,vencendoAtual,pendenteMesAtual,mesPendente,mesRef,prazoAtual,diasRestantes,progAtual,grupoNome,grpC,hasIssue:vencidoAtual||vencendoAtual||pendenteMesAtual};
           }).filter(x=>x.hasIssue)
             .sort((a,b)=>{
-              // Ordem: 1º vencidos, 2º vencendo em breve, 3º pendentes do mês atual
+              // Ordem: 1º vencidos, 2º vencendo em breve, 3º pendentes com prazo futuro
               const ord=(x)=>x.vencidoAtual?0:x.vencendoAtual?1:2;
               if(ord(a)!==ord(b))return ord(a)-ord(b);
               return(a.diasRestantes??99)-(b.diasRestantes??99);

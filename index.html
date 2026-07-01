@@ -10900,7 +10900,9 @@ function makePageComponent(PAGE_CFG){
     const [empColsOverride,setEmpColsOverride]=useState(()=>{try{const s=localStorage.getItem(COLS_KEY+"_empoverride");return s?JSON.parse(s):{};}catch(e){return {};}});
     const EMP_COLS_KEY_REF=React.useRef(COLS_KEY+"_empoverride");
 
-    // ── Salva no Supabase ─────────────────────────────────────────
+    // ── Salva no Supabase (fila serializada — evita upserts concorrentes) ──
+    const saveInFlight=useRef(false);
+    const latestPendingPayload=useRef(null);
     const saveToDB=useCallback((e,g,d,o,pr,ne,ng,cl,eo,ec,eco,immediate=false)=>{
       const ts=Date.now();
       const payload={empresas:e,grupos:g,dados:d,obs:o,prazos:pr,nextEmpId:ne,nextGrpId:ng,cols:cl,empObservacoes:eo,empCliente:ec,empColsOverride:eco,_t:ts,_savedAt:ts};
@@ -10909,20 +10911,43 @@ function makePageComponent(PAGE_CFG){
       myLastSaveTs.current=ts;
       // localStorage: só cache local, não é fonte de verdade
       try{localStorage.setItem(STORAGE_KEY,JSON.stringify(payload));}catch(ex){}
+      latestPendingPayload.current=payload;
       if(pendingSave.current)clearTimeout(pendingSave.current);
-      const doSave=async()=>{
-        try{const{error}=await sb.from("app_data").upsert({id:ROW_ID,payload});if(!error)broadcastSync(ROW_ID);}catch(ex){}
+
+      // Processa a fila: garante que só exista 1 upsert em voo por vez.
+      // Se um save já está rodando, este payload fica como "o mais recente"
+      // e será enviado assim que o atual terminar (nunca dispara 2 upserts em paralelo).
+      const runQueue=async()=>{
+        if(saveInFlight.current)return; // já tem um save rodando — ele vai pegar o payload mais novo ao terminar
+        saveInFlight.current=true;
+        try{
+          while(latestPendingPayload.current){
+            const toSend=latestPendingPayload.current;
+            latestPendingPayload.current=null;
+            try{
+              const{error}=await sb.from("app_data").upsert({id:ROW_ID,payload:toSend});
+              if(!error)broadcastSync(ROW_ID);
+            }catch(ex){}
+          }
+        }finally{
+          saveInFlight.current=false;
+        }
       };
-      if(immediate)doSave();
-      else pendingSave.current=setTimeout(doSave,600);
+      if(immediate)runQueue();
+      else pendingSave.current=setTimeout(runQueue,600);
     },[]);
 
     // ── Aplica payload do Supabase (sem disparar re-save) ─────────
     const applyPayload=useCallback((p,isInitialLoad=false)=>{
       if(!p)return;
       const pTs=p._savedAt||p._t||0;
-      // Ignora payloads antigos — mas no load inicial sempre aplica
-      if(!isInitialLoad&&pTs>0&&pTs<=myLastSaveTs.current)return;
+      // Ignora payloads remotos quando:
+      // 1. O timestamp é <= ao nosso último save (dado mais antigo que o local)
+      // 2. Um save está em voo (saveInFlight) — o servidor ainda não tem nossa versão mais recente
+      if(!isInitialLoad){
+        if(saveInFlight.current)return; // save em andamento — ignorar qualquer dado remoto
+        if(pTs>0&&pTs<=myLastSaveTs.current)return; // dado mais antigo que o local
+      }
       isApplyingRemote.current=true;
       // Colunas: fonte de verdade é o Supabase — sempre aplica
       if(p.cols&&Array.isArray(p.cols)&&p.cols.length>0){
@@ -10974,18 +10999,19 @@ function makePageComponent(PAGE_CFG){
       // Real-time: Supabase Postgres changes
       const ch=sb.channel("sp_"+ROW_ID)
         .on("postgres_changes",{event:"UPDATE",schema:"public",table:"app_data",filter:`id=eq.${ROW_ID}`},
-          pl=>{if(pl.new?.payload&&mounted)applyPayload(pl.new.payload);})
+          pl=>{if(pl.new?.payload&&mounted&&!saveInFlight.current)applyPayload(pl.new.payload);})
         .subscribe();
       // BroadcastChannel: mudanças na mesma aba/browser
-      const h=(e)=>{if(e.data?.rowId===ROW_ID&&e.data?.tabId!==_tabId){
+      const h=(e)=>{if(e.data?.rowId===ROW_ID&&e.data?.tabId!==_tabId&&!saveInFlight.current){
         sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle()
-          .then(({data:r})=>{if(r?.payload&&mounted)applyPayload(r.payload);});
+          .then(({data:r})=>{if(r?.payload&&mounted&&!saveInFlight.current)applyPayload(r.payload);});
       }};
       if(_bc)_bc.addEventListener("message",h);
-      // Poll a cada 15s como fallback extra
+      // Poll a cada 30s como fallback extra (aumentado para reduzir interferência)
       const poll=setInterval(async()=>{
+        if(saveInFlight.current)return; // não sobrescreve durante save em andamento
         try{const{data:r}=await sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle();if(r?.payload&&mounted)applyPayload(r.payload);}catch(e){}
-      },15000);
+      },30000);
       return()=>{mounted=false;sb.removeChannel(ch);if(_bc)_bc.removeEventListener("message",h);clearInterval(poll);};
     },[]);
 
@@ -11428,12 +11454,20 @@ function makePageComponent(PAGE_CFG){
             const grupoId=emp.grupoId;
             const grupoNome=grupoId?(grupos.find(g=>g.id===grupoId)?.nome||""):"";
             const grpC=getGrpColor(grupoId);
-            return{emp,vencidoAtual,vencendoAtual,mesPendente,mesRef,prazoAtual,diasRestantes,progAtual,grupoNome,grpC,hasIssue:vencidoAtual||vencendoAtual};
+            // pendenteMesAtual = tem tarefa não-analisada no mês corrente (prazo ainda não venceu — "a fazer")
+            const pendenteMesAtual=temPendencia&&mesPendente===mesAtual&&!vencidoAtual;
+            return{emp,vencidoAtual,vencendoAtual,pendenteMesAtual,mesPendente,mesRef,prazoAtual,diasRestantes,progAtual,grupoNome,grpC,hasIssue:vencidoAtual||vencendoAtual||pendenteMesAtual};
           }).filter(x=>x.hasIssue)
-            .sort((a,b)=>{if(a.vencidoAtual!==b.vencidoAtual)return a.vencidoAtual?-1:1;return(a.diasRestantes??99)-(b.diasRestantes??99);});
+            .sort((a,b)=>{
+              // Ordem: 1º vencidos, 2º vencendo em breve, 3º pendentes do mês atual
+              const ord=(x)=>x.vencidoAtual?0:x.vencendoAtual?1:2;
+              if(ord(a)!==ord(b))return ord(a)-ord(b);
+              return(a.diasRestantes??99)-(b.diasRestantes??99);
+            });
           if(empresasComPendencia.length===0) return null;
           const totalVencidos=empresasComPendencia.filter(x=>x.vencidoAtual).length;
           const totalVencendo=empresasComPendencia.filter(x=>x.vencendoAtual).length;
+          const totalPendenteMes=empresasComPendencia.filter(x=>x.pendenteMesAtual&&!x.vencidoAtual&&!x.vencendoAtual).length;
           // 7 colunas alinhadas: Empresa | Regime | Grupo | Situação | Prazo | Progresso | (seta)
           const GRID="minmax(160px,2fr) 120px 110px 160px 100px 90px 20px";
           const thSt={fontSize:10,fontWeight:800,color:"#92400e",textTransform:"uppercase",letterSpacing:".06em",padding:"4px 8px"};
@@ -11447,6 +11481,7 @@ function makePageComponent(PAGE_CFG){
                 <div style={{display:"flex",gap:6,marginLeft:"auto"}}>
                   {totalVencidos>0&&<span style={{background:"#fef2f2",color:"#dc2626",border:"1.5px solid #fca5a5",padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:800}}>🔴 {totalVencidos} vencido{totalVencidos!==1?"s":""}</span>}
                   {totalVencendo>0&&<span style={{background:"#fffbeb",color:"#d97706",border:"1.5px solid #fcd34d",padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:800}}>🟡 {totalVencendo} vencendo</span>}
+                  {totalPendenteMes>0&&<span style={{background:"#eff6ff",color:"#1d4ed8",border:"1.5px solid #bfdbfe",padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:800}}>🔵 {totalPendenteMes} a fazer</span>}
                 </div>
               </div>
               {/* Cabeçalho da grade */}
@@ -11455,16 +11490,20 @@ function makePageComponent(PAGE_CFG){
               </div>
               {/* Linhas */}
               <div style={{padding:"4px 0"}}>
-                {empresasComPendencia.map(({emp,vencidoAtual,vencendoAtual,mesPendente,prazoAtual,diasRestantes,progAtual,grupoNome,grpC})=>{
+                {empresasComPendencia.map(({emp,vencidoAtual,vencendoAtual,pendenteMesAtual,mesPendente,prazoAtual,diasRestantes,progAtual,grupoNome,grpC})=>{
                   const anoRef=mesPendente?mesPendente.split("/")[1]:String(hoje.getFullYear());
                   let alerta;
                   if(vencidoAtual){
                     alerta=diasRestantes!=null
                       ?{txt:diasRestantes===0?"Vence hoje":`Venceu há ${Math.abs(diasRestantes)} dia${Math.abs(diasRestantes)!==1?"s":""}`,bg:"#fef2f2",c:"#dc2626",bd:"#fca5a5",ic:"🔴"}
                       :{txt:"Pendente",bg:"#fef2f2",c:"#dc2626",bd:"#fca5a5",ic:"🔴"};
-                  } else {
+                  } else if(vencendoAtual){
                     const txt=diasRestantes===0?"Vence hoje":diasRestantes===1?"Vence em 1 dia":`Vence em ${diasRestantes??""} dia${diasRestantes!==1?"s":""}`;
                     alerta={txt,bg:"#fffbeb",c:"#d97706",bd:"#fcd34d",ic:"🟡"};
+                  } else {
+                    // pendenteMesAtual — prazo ainda no futuro, mas é tarefa do mês corrente
+                    const txtPrazo=prazoAtual?` · vence ${prazoAtual}`:"";
+                    alerta={txt:`A fazer${txtPrazo}`,bg:"#eff6ff",c:"#1d4ed8",bd:"#bfdbfe",ic:"🔵"};
                   }
                   return(
                     <div key={emp.id}

@@ -682,26 +682,82 @@ function useSharedData() {
     return () => sb.removeChannel(channel);
   }, [load]);
 
-  const setData = useCallback((updater) => {
+  // IDs de tarefas que o usuário INTENCIONALMENTE deletou nesta sessão
+  // Usado para não re-incorporar tarefas deletadas pelo merge anti-perda
+  const intentionalDeletes = useRef(new Set());
+
+  const setData = useCallback((updater, _deletedIds=[]) => {
     setRaw(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
+
+      // Registra IDs intencionalmente deletados
+      if (_deletedIds.length > 0) {
+        _deletedIds.forEach(id => intentionalDeletes.current.add(id));
+      } else {
+        // Auto-detecta tarefas removidas comparando prev vs next
+        const prevIds = new Set((prev.tasks||[]).map(t=>t.id));
+        const nextIds = new Set((next.tasks||[]).map(t=>t.id));
+        prevIds.forEach(id => { if(!nextIds.has(id)) intentionalDeletes.current.add(id); });
+      }
+
       // Cancela debounce anterior
       if(pendingSave.current) clearTimeout(pendingSave.current);
-      // Salva no Supabase rapidamente (100ms debounce para batching de cliques rápidos)
-      pendingSave.current = setTimeout(() => {
+
+      pendingSave.current = setTimeout(async () => {
         isSavingRef.current = true;
-        // Grava um timestamp no payload para identificar quem salvou
-        const toSave = {...next, _savedAt: Date.now(), _savedBy: localStorage.getItem(USER_KEY)||"" };
-        myLastSave.current = toSave._savedAt;
-        sb.from("app_data").upsert({ id: 1, payload: toSave })
-          .then(({ error }) => {
-            isSavingRef.current = false;
-            if(error) {
-              console.error("Supabase save error:", error);
-              window.dispatchEvent(new CustomEvent("mdtec_save_error", { detail: error.message }));
+        try {
+          // ── MERGE ANTI-PERDA ────────────────────────────────────
+          // Busca versão mais recente do banco antes de salvar
+          const { data: serverRow } = await sb.from("app_data").select("payload").eq("id",1).maybeSingle();
+          const serverTasks = serverRow?.payload?.tasks || [];
+          const localIds = new Set((next.tasks||[]).map(t=>t.id));
+
+          // Tarefas que existem no servidor mas não no estado local
+          // E que NÃO foram deletadas intencionalmente
+          const rescued = [];
+          serverTasks.forEach(st => {
+            if (!localIds.has(st.id) && !intentionalDeletes.current.has(st.id)) {
+              rescued.push(st);
             }
           });
-      }, 100);
+
+          let merged = {...next, tasks: [...(next.tasks||[])]};
+          if (rescued.length > 0) {
+            merged.tasks = [...merged.tasks, ...rescued];
+            // Registra no audit log
+            const auditEntry = {
+              id: "audit_"+Date.now(),
+              at: new Date().toISOString(),
+              type: "task_rescue",
+              user: localStorage.getItem(USER_KEY)||"",
+              recovered: rescued.map(t=>({id:t.id,title:t.title,status:t.status})),
+              count: rescued.length
+            };
+            merged.auditRescues = [...(next.auditRescues||[]), auditEntry].slice(-200);
+            window.dispatchEvent(new CustomEvent("mdtec_tasks_rescued", {
+              detail: { count: rescued.length, tasks: rescued.map(t=>t.title) }
+            }));
+            console.warn(`[MergeGuard] Resgatadas ${rescued.length} tarefa(s) que seriam perdidas:`, rescued.map(t=>t.title));
+          }
+
+          const toSave = {...merged, _savedAt: Date.now(), _savedBy: localStorage.getItem(USER_KEY)||""};
+          myLastSave.current = toSave._savedAt;
+
+          const { error } = await sb.from("app_data").upsert({ id: 1, payload: toSave });
+          if (error) {
+            console.error("Supabase save error:", error);
+            window.dispatchEvent(new CustomEvent("mdtec_save_error", { detail: error.message }));
+          } else {
+            // Atualiza estado local com o resultado final (incluindo tarefas resgatadas)
+            if (rescued.length > 0) setRaw(p=>({...p,...merged,_savedAt:toSave._savedAt,_savedBy:toSave._savedBy}));
+          }
+        } catch(e) {
+          console.error("setData merge error:", e);
+        } finally {
+          isSavingRef.current = false;
+        }
+      }, 150);
+
       return next;
     });
   }, []);
@@ -6303,14 +6359,57 @@ function AuditoriaPage({data,setData}){
       <p style={{fontSize:13,color:"#64748b",marginBottom:16}}>Rastreie alterações, diagnostique erros em recorrências e monitore ações do sistema.</p>
 
       <div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap"}}>
-        {[["historico","📋 Histórico"],["recorrencias","🔄 Recorrências"],["duplicatas","⧉ Duplicatas"],["excluir","🗑 Excluir Recorrentes"],["sistema","⚙️ Integridade"]].map(([v,l])=>(
+        {[["historico","📋 Histórico"],["protecao","🛡️ Proteção"],["recorrencias","🔄 Recorrências"],["duplicatas","⧉ Duplicatas"],["excluir","🗑 Excluir Recorrentes"],["sistema","⚙️ Integridade"]].map(([v,l])=>(
           <button key={v} onClick={()=>{setTab(v);setDupDone(false);}} style={{padding:"7px 16px",borderRadius:9,border:"none",background:tab===v?"#6366f1":"var(--bg3)",color:tab===v?"#fff":"#64748b",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",transition:"all .15s",position:"relative"}}>
             {l}
             {v==="duplicatas"&&totalDups>0&&<span style={{position:"absolute",top:-6,right:-6,background:"#ef4444",color:"#fff",borderRadius:"50%",width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:900}}>{totalDups>99?"99+":totalDups}</span>}
+            {v==="protecao"&&(data.auditRescues||[]).length>0&&<span style={{position:"absolute",top:-6,right:-6,background:"#f59e0b",color:"#fff",borderRadius:"50%",width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:900}}>{(data.auditRescues||[]).length}</span>}
           </button>
         ))}
       </div>
 
+      {tab==="protecao"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <div style={{padding:"12px 16px",borderRadius:10,background:"#eff6ff",border:"1.5px solid #bfdbfe",fontSize:13,color:"#1e40af"}}>
+            <b>🛡️ Proteção contra perda de tarefas</b><br/>
+            <span style={{fontSize:12,opacity:.8}}>Quando uma sobreescrita quase apagaria tarefas criadas por outros colaboradores, o sistema as resgata automaticamente e registra aqui. Tarefas aparecendo duplicadas após um resgate são seguras de manter.</span>
+          </div>
+          {(data.auditRescues||[]).length===0?(
+            <div style={{textAlign:"center",padding:48,color:"#94a3b8"}}>
+              <div style={{fontSize:40,marginBottom:8}}>✅</div>
+              <div style={{fontWeight:700}}>Nenhuma intervenção registrada</div>
+              <div style={{fontSize:12,marginTop:4}}>O sistema nunca precisou resgatar tarefas — ótimo sinal!</div>
+            </div>
+          ):(
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {[...(data.auditRescues||[])].reverse().map(entry=>(
+                <div key={entry.id} style={{padding:"12px 16px",borderRadius:10,background:"var(--bg2)",border:"1.5px solid #fde68a",display:"flex",gap:12,alignItems:"flex-start"}}>
+                  <span style={{fontSize:24,lineHeight:1}}>🛡️</span>
+                  <div style={{flex:1}}>
+                    <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:4}}>
+                      <span style={{fontWeight:800,fontSize:13,color:"#92400e"}}>{entry.count} tarefa(s) resgatada(s)</span>
+                      <span style={{fontSize:11,color:"#94a3b8"}}>{new Date(entry.at).toLocaleString("pt-BR")}</span>
+                      {entry.user&&<span style={{fontSize:10,background:"#e0e7ff",color:"#3730a3",padding:"1px 6px",borderRadius:8,fontWeight:700}}>{entry.user}</span>}
+                    </div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                      {(entry.recovered||[]).map(t=>(
+                        <div key={t.id} style={{background:"#d1fae5",color:"#065f46",padding:"3px 10px",borderRadius:8,fontSize:11,fontWeight:700,border:"1px solid #86efac"}}>
+                          ✅ {t.title||"(sem título)"}
+                          <span style={{marginLeft:4,opacity:.6,fontWeight:400}}>{t.status}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
+              <button onClick={()=>setData(d=>({...d,auditRescues:[]}))}
+                style={{alignSelf:"flex-end",background:"none",border:"1px solid #e2e8f0",color:"#94a3b8",padding:"5px 12px",borderRadius:7,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>
+                Limpar histórico de proteção
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       {tab==="historico"&&(
         <div>
           {/* Filters */}
@@ -7044,6 +7143,17 @@ function App(){
     };
     window.addEventListener("mdtec_collab_update",handler);
     return()=>window.removeEventListener("mdtec_collab_update",handler);
+  },[]);
+
+  // Escuta tarefas resgatadas pelo merge guard e exibe toast de proteção
+  useEffect(()=>{
+    const handler=(e)=>{
+      const {count,tasks}=e.detail;
+      const preview=tasks.slice(0,2).map(t=>`"${t}"`).join(", ")+(tasks.length>2?` e mais ${tasks.length-2}`:"");
+      toast(`🛡️ ${count} tarefa(s) protegida(s) de sobreescrita: ${preview}`,"ok",6000);
+    };
+    window.addEventListener("mdtec_tasks_rescued",handler);
+    return()=>window.removeEventListener("mdtec_tasks_rescued",handler);
   },[]);
 
   // Atalhos de teclado globais (antes dos returns condicionais)

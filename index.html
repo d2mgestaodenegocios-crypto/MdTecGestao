@@ -7986,8 +7986,8 @@ function App(){
         {page==="configuracoes" && <ConfigPage data={data} setData={setData} toast={toast} deduplicateTasks={deduplicateTasks}/>}
         {page==="auditoria"     && <AuditoriaPage data={data} setData={setData}/>}
         {page==="contabil"      && <ContabilPage toast={toast} data={data}/>}
-        {page==="fiscal"          && <FiscalPage toast={toast} sysData={data}/>}
-        {page==="folha-pagamento" && <FolhaPagPage toast={toast} sysData={data}/>}
+        {page==="fiscal"          && <FiscalPage toast={toast} sysData={data} onNavigate={setPage}/>}
+        {page==="folha-pagamento" && <FolhaPagPage toast={toast} sysData={data} onNavigate={setPage}/>}
         {page==="relatorio-contabil" && <RelatorioContabilPage toast={toast}/>}
       </main>
 
@@ -10845,7 +10845,7 @@ function GuestView({grpId, pageId, toast, toasts}){
 const ICON_OPTIONS=["📋","💰","🏦","📄","✅","➕","➖","🏖","🎁","📑","🔢","📊","🗂","📬","🧾","📌","🔖","⚙️","📎","📝","🔍","🏛","🏢","👥","📆","⏰","🚨","💼","🧮","📤","📥","✏️","💳","🗓","🧾"];
 
 function makePageComponent(PAGE_CFG){
-  return function SharedPage({toast,sysData}){
+  return function SharedPage({toast,sysData,onNavigate}){
     const {useState,useMemo,useEffect,useRef,useCallback}=React;
     const {STORAGE_KEY,ROW_ID,PAGE_TITLE,HEADER_ICON,PAGE_DESC,PAGE_ID,DEFAULT_COLS,COLS_KEY}=PAGE_CFG;
 
@@ -11285,7 +11285,7 @@ function makePageComponent(PAGE_CFG){
       const empCols=getColsForEmp(emp.id);
       const empHasOverride=!!empColsOverride[emp.id];
       return(
-        <div key={emp.id} style={{borderBottom:isLast?"none":"1px solid var(--border)",background:isSelected?"#eff6ff":selectedEmpPanel===emp.id?"rgba(99,102,241,.06)":undefined}}>
+        <div id={"emp-row-"+emp.id} key={emp.id} style={{borderBottom:isLast?"none":"1px solid var(--border)",background:isSelected?"#eff6ff":selectedEmpPanel===emp.id?"rgba(99,102,241,.06)":undefined}}>
           <div style={{display:"flex",alignItems:"center",padding:indent?"11px 14px 11px 28px":"11px 14px",gap:8,transition:"background .1s",background:isExpanded?"var(--bg2)":undefined,borderLeft:selectedEmpPanel===emp.id?"3px solid #6366f1":"3px solid transparent"}}
             onMouseEnter={e=>!batchMode&&(e.currentTarget.style.background="rgba(99,102,241,.04)")}
             onMouseLeave={e=>!batchMode&&!isExpanded&&(e.currentTarget.style.background=selectedEmpPanel===emp.id?"rgba(99,102,241,.06)":"transparent")}
@@ -11425,7 +11425,34 @@ function makePageComponent(PAGE_CFG){
         {isGuestMode&&(<div style={{padding:"12px 18px",background:"linear-gradient(90deg,#f59e0b,#d97706)",borderRadius:12,marginBottom:16,display:"flex",alignItems:"center",gap:12,color:"#fff"}}><span style={{fontSize:22}}>👥</span><div><div style={{fontSize:13,fontWeight:900}}>Modo Convidado — {grupos.find(g=>g.id===guestGrpId)?.nome||"Grupo"}</div><div style={{fontSize:11,opacity:.85}}>Você pode editar status e observações.</div></div></div>)}
         {/* Header */}
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:12}}>
-          <div><h2 style={{fontSize:20,fontWeight:900,color:"var(--text)",margin:0}}>{HEADER_ICON} {PAGE_TITLE}</h2><p style={{fontSize:13,color:"#64748b",marginTop:4}}>{PAGE_DESC}</p></div>
+          <div style={{flex:1,minWidth:0}}>
+            <h2 style={{fontSize:20,fontWeight:900,color:"var(--text)",margin:0}}>{HEADER_ICON} {PAGE_TITLE}</h2>
+            <p style={{fontSize:13,color:"#64748b",marginTop:4}}>{PAGE_DESC}</p>
+          </div>
+          {(()=>{
+            // Banner de alertas: vencimentos do mês corrente
+            const hj=new Date();hj.setHours(0,0,0,0);
+            const mesH=String(hj.getMonth()+1).padStart(2,"0")+"/"+hj.getFullYear();
+            const parseDataBanner=(s)=>{if(!s)return null;const p=s.split("/");return p.length===3?new Date(parseInt(p[2]),parseInt(p[1])-1,parseInt(p[0])):null;};
+            const empsPend=empresas.filter(e=>{
+              const todos=getMeses(e.periodoInicial||"01/2025");
+              const mesRef=todos.find(m=>{const d=parseDataBanner(getPrazo(m));return d&&d.getMonth()===hj.getMonth()&&d.getFullYear()===hj.getFullYear();});
+              if(!mesRef)return false;
+              const analisado=dados[e.id+"_"+mesRef+"__analisado"]===true;
+              return!analisado;
+            });
+            const vencidos=empsPend.filter(e=>{const todos=getMeses(e.periodoInicial||"01/2025");const mr=todos.find(m=>{const d=parseDataBanner(getPrazo(m));return d&&d.getMonth()===hj.getMonth()&&d.getFullYear()===hj.getFullYear();});const p=parseDataBanner(getPrazo(mr||""));return p&&p<hj;});
+            if(empsPend.length===0)return null;
+            return(
+              <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 14px",borderRadius:10,
+                background:vencidos.length>0?"#fef2f2":"#fffbeb",
+                border:`1.5px solid ${vencidos.length>0?"#fca5a5":"#fde68a"}`,
+                fontSize:12,color:vencidos.length>0?"#dc2626":"#92400e",fontWeight:700,flexShrink:0,maxWidth:400,flexWrap:"wrap",gap:6}}>
+                <span style={{fontSize:16}}>{vencidos.length>0?"🔴":"🟡"}</span>
+                <span>{vencidos.length>0?`${vencidos.length} empresa(s) com prazo VENCIDO este mês`:`${empsPend.length} empresa(s) pendente(s) — vence ${getPrazo(getMeses((empsPend[0]?.periodoInicial||"01/2025")).find(m=>{const d=parseDataBanner(getPrazo(m));return d&&d.getMonth()===hj.getMonth()&&d.getFullYear()===hj.getFullYear();})||"")||"em breve"}`}</span>
+              </div>
+            );
+          })()}
           <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
             <Btn onClick={()=>setObsResModal(true)} v="ghost" sz="sm" xs={{background:"#8b5cf6",color:"#fff",border:"none"}}>📋 Observações{obs.length>0&&<span style={{marginLeft:4,background:"rgba(255,255,255,.3)",borderRadius:10,padding:"1px 6px",fontSize:10,fontWeight:900}}>{obs.length}</span>}</Btn>
             {!isGuestMode&&<Btn onClick={()=>{setPrazoVal("");setPrazoModal({mes:"config"});}} v="ghost" sz="sm" xs={{background:"#f59e0b",color:"#fff",border:"none"}}>⏰ Vencimentos</Btn>}
@@ -11540,7 +11567,7 @@ function makePageComponent(PAGE_CFG){
                   }
                   return(
                     <div key={emp.id}
-                      onClick={()=>{toggleEmpExp(emp.id);setAbaAnoMap(m=>({...m,[emp.id]:anoRef}));}}
+                      onClick={()=>{toggleEmpExp(emp.id);setAbaAnoMap(m=>({...m,[emp.id]:anoRef}));const t=document.getElementById("emp-row-"+emp.id);if(t)setTimeout(()=>t.scrollIntoView({behavior:"smooth",block:"center"}),120);}}
                       style={{display:"grid",gridTemplateColumns:GRID,columnGap:8,alignItems:"center",padding:"7px 8px",borderRadius:0,cursor:"pointer",borderBottom:"1px solid rgba(0,0,0,.04)",transition:"background .12s"}}
                       onMouseEnter={e=>e.currentTarget.style.background="rgba(99,102,241,.06)"}
                       onMouseLeave={e=>e.currentTarget.style.background="transparent"}
@@ -12097,9 +12124,13 @@ function RelatorioContabilPage({toast}){
   const parseD=(s)=>{if(!s)return null;const p=s.split("/");return p.length===3?new Date(parseInt(p[2]),parseInt(p[1])-1,parseInt(p[0])):null;};
 
   const todosGrupos=React.useMemo(()=>{
+    // Deduplica grupos por NOME (case-insensitive) — o mesmo grupo pode ter IDs diferentes entre módulos
     const m=new Map();
-    MODULOS.forEach(mod=>{(payloads[mod.id]?.grupos||[]).forEach(g=>{if(!m.has(g.id))m.set(g.id,g);});});
-    return[...m.values()];
+    MODULOS.forEach(mod=>{(payloads[mod.id]?.grupos||[]).forEach(g=>{
+      const key=g.nome?.toLowerCase().trim();
+      if(!m.has(key))m.set(key,{...g,_key:key});
+    });});
+    return[...m.values()].sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR"));
   },[payloads]);
 
   const linhas=React.useMemo(()=>{
@@ -12116,9 +12147,9 @@ function RelatorioContabilPage({toast}){
         const key=e.cnpj||e.id;
         if(cnpjVisto.has(key))return false;
         cnpjVisto.add(key);return true;
-      }).forEach(emp=>{
+      }).sort((a,b)=>{const ga=(grupos.find(g=>g.id===a.grupoId)?.nome||'').localeCompare(grupos.find(g=>g.id===b.grupoId)?.nome||'','pt-BR');return ga!==0?ga:a.nome.localeCompare(b.nome,'pt-BR');}).forEach(emp=>{
         if(busca&&!emp.nome?.toLowerCase().includes(busca.toLowerCase()))return;
-        if(grupFiltro!=="todos"&&emp.grupoId!==grupFiltro)return;
+        if(grupFiltro!=="todos"){const empGrpNome=grupos.find(g=>g.id===emp.grupoId)?.nome?.toLowerCase().trim();if(empGrpNome!==grupFiltro)return;}
         // Colunas desta empresa (override ou global)
         const empCols=empCO[emp.id]&&Array.isArray(empCO[emp.id])&&empCO[emp.id].length?empCO[emp.id]:colsGlobal;
         const grupoNome=grupos.find(g=>g.id===emp.grupoId)?.nome||"—";
@@ -12300,8 +12331,8 @@ ${allColsInGrp.map(c=>{const v=colMap[c.key]||"nao-iniciado";return`<td class="$
                 <span style={{color:"#94a3b8",fontSize:11}}>{opened?"▲":"▼"}</span>
               </div>
               {opened&&(
-                <div style={{overflowX:"auto"}}>
-                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:600}}>
                     <thead>
                       <tr style={{background:"#f8fafc"}}>
                         {["Empresa","CNPJ","Mês","Status","Prog.","Prazo","Dias",...grpCols.map(c=>c.label)].map((h,i)=>(
@@ -12315,7 +12346,10 @@ ${allColsInGrp.map(c=>{const v=colMap[c.key]||"nao-iniciado";return`<td class="$
                         const colMap=Object.fromEntries(r.colStatus.map(c=>[c.key,c.val]));
                         return(
                           <tr key={ri} style={{borderTop:"1px solid #f1f5f9",background:ri%2===0?"transparent":"#fafafa"}}>
-                            <td style={{padding:"6px 8px",fontWeight:700,color:"var(--text)",whiteSpace:"nowrap"}}>{r.emp.nome}</td>
+                            <td style={{padding:"6px 8px",fontWeight:700,color:"var(--text)",whiteSpace:"nowrap"}}>
+                              {r.emp.nome}
+                              {r.empCols!==((payloads[r.mod.id]?.cols&&payloads[r.mod.id].cols.length>0)?payloads[r.mod.id].cols:(r.mod.defaultCols||[]))&&<span title="Colunas personalizadas" style={{display:"inline-block",marginLeft:5,background:"#fef3c7",color:"#b45309",padding:"0px 5px",borderRadius:8,fontSize:9,fontWeight:800,verticalAlign:"middle"}}>✎</span>}
+                            </td>
                             <td style={{padding:"6px 8px",color:"#94a3b8",fontSize:10,whiteSpace:"nowrap"}}>{r.emp.cnpj||"—"}</td>
                             <td style={{padding:"6px 8px",fontWeight:700,textAlign:"center",whiteSpace:"nowrap"}}>{MESES_NOME[r.mes.split("/")[0]]}/{r.mes.split("/")[1].slice(2)}</td>
                             <td style={{padding:"6px 8px",textAlign:"center"}}>
@@ -12405,7 +12439,7 @@ ${allColsInGrp.map(c=>{const v=colMap[c.key]||"nao-iniciado";return`<td class="$
         </select>
         <select value={grupFiltro} onChange={e=>setGrupFiltro(e.target.value)} style={{padding:"6px 9px",borderRadius:7,border:"1px solid var(--border)",fontSize:12,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}>
           <option value="todos">Todos os grupos</option>
-          {todosGrupos.map(g=><option key={g.id} value={g.id}>{g.nome}</option>)}
+          {todosGrupos.map(g=><option key={g._key} value={g._key}>{g.nome}</option>)}
         </select>
         {(busca||moduloFiltro!=="todos"||mesFiltro!=="todos"||statusFiltro!=="todos"||grupFiltro!=="todos")&&
           <button onClick={()=>{setBusca("");setModuloFiltro("todos");setMesFiltro("todos");setStatusFiltro("todos");setGrupFiltro("todos");}}

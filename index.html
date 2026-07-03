@@ -658,6 +658,11 @@ function useSharedData() {
         if (p._savedBy === myUser && isSavingRef.current) return;
 
         // É uma atualização de outro colaborador — aplica e notifica
+        // Se temos um save em trânsito, não sobrescrevemos (o merge guard vai incluir esses dados)
+        if (isSavingRef.current) {
+          console.log("[MergeGuard] Realtime ignorado durante save em trânsito");
+          return;
+        }
         if (!p.sectors || !Array.isArray(p.sectors)) p.sectors = SEED.sectors;
         if (!p.collaborators || !Array.isArray(p.collaborators)) p.collaborators = SEED.collaborators;
         if (!p.companies || !Array.isArray(p.companies)) p.companies = SEED.companies;
@@ -671,6 +676,8 @@ function useSharedData() {
         if (!p.archiveDays) p.archiveDays = 7;
         if (!p.recStatus) p.recStatus = {};
         p.tasks = (p.tasks || []).map(normalizeTask);
+        // Atualiza latestStateRef para que o próximo save inclua dados do colaborador
+        if (latestStateRef) latestStateRef.current = p;
         setRaw(p);
         // Dispara evento para o App mostrar "atualizado por colaborador"
         if(p._savedBy && p._savedBy !== myUser){
@@ -682,23 +689,23 @@ function useSharedData() {
     return () => sb.removeChannel(channel);
   }, [load]);
 
-  // IDs de tarefas que o usuário INTENCIONALMENTE deletou nesta sessão
-  // Usado para não re-incorporar tarefas deletadas pelo merge anti-perda
+  // IDs intencionalmente deletados nesta sessão — nunca serão resgatados pelo merge
   const intentionalDeletes = useRef(new Set());
+  // Ref para sempre apontar para o estado mais atual (evita closure stale no setTimeout)
+  const latestStateRef = useRef(null);
 
   const setData = useCallback((updater, _deletedIds=[]) => {
     setRaw(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
 
-      // Registra IDs intencionalmente deletados
-      if (_deletedIds.length > 0) {
-        _deletedIds.forEach(id => intentionalDeletes.current.add(id));
-      } else {
-        // Auto-detecta tarefas removidas comparando prev vs next
-        const prevIds = new Set((prev.tasks||[]).map(t=>t.id));
-        const nextIds = new Set((next.tasks||[]).map(t=>t.id));
-        prevIds.forEach(id => { if(!nextIds.has(id)) intentionalDeletes.current.add(id); });
-      }
+      // Registra deleções intencionais (auto-detecção)
+      const prevIds = new Set((prev.tasks||[]).map(t=>t.id));
+      const nextIds = new Set((next.tasks||[]).map(t=>t.id));
+      prevIds.forEach(id => { if(!nextIds.has(id)) intentionalDeletes.current.add(id); });
+      if (_deletedIds.length > 0) _deletedIds.forEach(id => intentionalDeletes.current.add(id));
+
+      // Atualiza ref com estado mais recente
+      latestStateRef.current = next;
 
       // Cancela debounce anterior
       if(pendingSave.current) clearTimeout(pendingSave.current);
@@ -706,57 +713,72 @@ function useSharedData() {
       pendingSave.current = setTimeout(async () => {
         isSavingRef.current = true;
         try {
-          // ── MERGE ANTI-PERDA ────────────────────────────────────
-          // Busca versão mais recente do banco antes de salvar
-          const { data: serverRow } = await sb.from("app_data").select("payload").eq("id",1).maybeSingle();
-          const serverTasks = serverRow?.payload?.tasks || [];
-          const localIds = new Set((next.tasks||[]).map(t=>t.id));
+          // Usa o estado MAIS RECENTE (pode ter mudado durante o debounce por Realtime)
+          const current = latestStateRef.current || next;
 
-          // Tarefas que existem no servidor mas não no estado local
-          // E que NÃO foram deletadas intencionalmente
-          const rescued = [];
-          serverTasks.forEach(st => {
-            if (!localIds.has(st.id) && !intentionalDeletes.current.has(st.id)) {
-              rescued.push(st);
-            }
-          });
+          // ── MERGE GUARD: busca servidor e protege tarefas de outros colaboradores ──
+          const { data: serverRow } = await sb.from("app_data")
+            .select("payload").eq("id",1).maybeSingle();
+          const serverPayload = serverRow?.payload || {};
+          const serverTasks = serverPayload.tasks || [];
+          const serverTs = serverPayload._savedAt || 0;
 
-          let merged = {...next, tasks: [...(next.tasks||[])]};
+          // Só faz merge se o servidor tem dados mais recentes que meu último carregamento
+          // OU se existem tarefas no servidor que não estão no estado atual
+          const currentIds = new Set((current.tasks||[]).map(t=>t.id));
+          const rescued = serverTasks.filter(st =>
+            !currentIds.has(st.id) && !intentionalDeletes.current.has(st.id)
+          );
+
+          let finalState = current;
           if (rescued.length > 0) {
-            merged.tasks = [...merged.tasks, ...rescued];
-            // Registra no audit log
             const auditEntry = {
-              id: "audit_"+Date.now(),
+              id: "aug_"+Date.now(),
               at: new Date().toISOString(),
               type: "task_rescue",
-              user: localStorage.getItem(USER_KEY)||"",
-              recovered: rescued.map(t=>({id:t.id,title:t.title,status:t.status})),
-              count: rescued.length
+              user: localStorage.getItem(USER_KEY)||"sistema",
+              recovered: rescued.map(t=>({id:t.id,title:t.title||"(sem título)",status:t.status})),
+              count: rescued.length,
+              serverTs, savedBy: serverPayload._savedBy||""
             };
-            merged.auditRescues = [...(next.auditRescues||[]), auditEntry].slice(-200);
+            finalState = {
+              ...current,
+              tasks: [...(current.tasks||[]), ...rescued],
+              auditRescues: [...(current.auditRescues||[]), auditEntry].slice(-500)
+            };
+            // Atualiza estado local imediatamente para evitar piscar
+            setRaw(finalState);
+            latestStateRef.current = finalState;
             window.dispatchEvent(new CustomEvent("mdtec_tasks_rescued", {
-              detail: { count: rescued.length, tasks: rescued.map(t=>t.title) }
+              detail: { count: rescued.length, tasks: rescued.map(t=>t.title||"(sem título)") }
             }));
-            console.warn(`[MergeGuard] Resgatadas ${rescued.length} tarefa(s) que seriam perdidas:`, rescued.map(t=>t.title));
+            console.warn("[MergeGuard] 🛡️ Resgatadas:", rescued.map(t=>t.title));
           }
 
-          const toSave = {...merged, _savedAt: Date.now(), _savedBy: localStorage.getItem(USER_KEY)||""};
+          const toSave = {
+            ...finalState,
+            _savedAt: Date.now(),
+            _savedBy: localStorage.getItem(USER_KEY)||""
+          };
           myLastSave.current = toSave._savedAt;
 
           const { error } = await sb.from("app_data").upsert({ id: 1, payload: toSave });
           if (error) {
             console.error("Supabase save error:", error);
             window.dispatchEvent(new CustomEvent("mdtec_save_error", { detail: error.message }));
-          } else {
-            // Atualiza estado local com o resultado final (incluindo tarefas resgatadas)
-            if (rescued.length > 0) setRaw(p=>({...p,...merged,_savedAt:toSave._savedAt,_savedBy:toSave._savedBy}));
           }
         } catch(e) {
-          console.error("setData merge error:", e);
+          console.error("[MergeGuard] Erro:", e);
+          // Fallback: salva sem merge para não perder a ação do usuário
+          try {
+            const fallback = {...(latestStateRef.current||next), _savedAt:Date.now(), _savedBy:localStorage.getItem(USER_KEY)||""};
+            myLastSave.current = fallback._savedAt;
+            await sb.from("app_data").upsert({ id: 1, payload: fallback });
+          } catch(e2){ console.error("[MergeGuard] Fallback falhou:", e2); }
         } finally {
           isSavingRef.current = false;
         }
-      }, 150);
+      }, 300); // 300ms debounce — mais tempo para o Realtime trazer dados antes de salvar
 
       return next;
     });

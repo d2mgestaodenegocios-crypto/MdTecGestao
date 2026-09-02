@@ -8120,7 +8120,7 @@ function App(){
         {page==="contabil"      && <ContabilPage toast={toast} data={data}/>}
         {page==="fiscal"          && <FiscalPage toast={toast} sysData={data} onNavigate={setPage}/>}
         {page==="folha-pagamento" && <FolhaPagPage toast={toast} sysData={data} onNavigate={setPage}/>}
-        {page==="relatorio-contabil" && <RelatorioContabilPage toast={toast}/>}
+        {page==="relatorio-contabil" && <RelatorioContabilPage toast={toast} isAdmin={isAdmin} myPerms={myPerms} userName={userName}/>}
       </main>
 
       {/* Modal de tarefa */}
@@ -12210,7 +12210,7 @@ function makePageComponent(PAGE_CFG){
 // ═══════════════════════════════════════════════════════════════
 // 📊 RELATÓRIO CONTÁBIL — Visão unificada dos 3 módulos
 // ═══════════════════════════════════════════════════════════════
-function RelatorioContabilPage({toast}){
+function RelatorioContabilPage({toast,isAdmin,myPerms,userName}){
   const hoje=new Date();hoje.setHours(0,0,0,0);
   const mesAtualNum=hoje.getMonth()+1;
   const anoAtual=hoje.getFullYear();
@@ -12218,26 +12218,50 @@ function RelatorioContabilPage({toast}){
   const MESES_NOME={"01":"Jan","02":"Fev","03":"Mar","04":"Abr","05":"Mai","06":"Jun","07":"Jul","08":"Ago","09":"Set","10":"Out","11":"Nov","12":"Dez"};
   const MESES_FULL={"01":"Janeiro","02":"Fevereiro","03":"Março","04":"Abril","05":"Maio","06":"Junho","07":"Julho","08":"Agosto","09":"Setembro","10":"Outubro","11":"Novembro","12":"Dezembro"};
   const ANOS_DISP=Array.from({length:6},(_,i)=>String(anoAtual-2+i));
+  const META_ROW_ID=20; // linha dedicada no app_data para metadados de Grupos e Empresas
+
+  // Papel do usuário nesta tela (mapeado a partir do sistema de permissões existente)
+  const myRole = isAdmin ? "admin" : (myPerms&&myPerms.canEdit) ? "gestor" : "consulta";
+  const roleLabel = myRole==="admin"?"Administrador":myRole==="gestor"?"Gestor":"Consulta";
+  const canEditGeral = myRole==="admin"||myRole==="gestor";
+  const canConfigurarGrupo = myRole==="admin";
+  const canAcoesMassa = myRole==="admin"||myRole==="gestor";
 
   const MODULOS=[
     {id:"contabil",label:"Contábil",icon:"📊",cor:"#6366f1",rowId:2,
-     defaultCols:[{key:"bal",label:"Balancete"},{key:"dre",label:"DRE"},{key:"ecdecf",label:"ECD/ECF"}]},
+     defaultCols:[{key:"fiscal",label:"NF Relatório/Sistema"},{key:"extratos",label:"Extratos"},{key:"patrimonio",label:"Patrimônio"},{key:"folha",label:"Folha (Contábil)"}]},
     {id:"fiscal",label:"Tributário",icon:"📋",cor:"#f59e0b",rowId:4,
-     defaultCols:[{key:"nfe",label:"NF-e"},{key:"nfse",label:"NFS-e"},{key:"apuracao",label:"Apuração"},{key:"guias",label:"Guias"},{key:"obrig",label:"DCTF WEB"}]},
-    {id:"folha",label:"Folha Pgto",icon:"👥",cor:"#06b6d4",rowId:5,
-     defaultCols:[{key:"admissao",label:"Admissão"},{key:"demissao",label:"Demissão"},{key:"ferias",label:"Férias"},{key:"fgts",label:"FGTS"},{key:"folha",label:"Folha"}]},
+     defaultCols:[{key:"nfe",label:"NF-e"},{key:"nfse",label:"NFS-e"},{key:"apuracao",label:"Apuração DAS"},{key:"guias",label:"Envio das Guias"},{key:"obrig",label:"DCTF WEB"}]},
+    {id:"folha",label:"Pessoal",icon:"👥",cor:"#06b6d4",rowId:5,
+     defaultCols:[{key:"admissao",label:"Admissão"},{key:"demissao",label:"Demissão"},{key:"ferias",label:"Férias"},{key:"fgts",label:"FGTS"},{key:"folha",label:"EFD Reinf"}]},
   ];
 
   const [payloads,setPayloads]=React.useState({});
   const [loading,setLoading]=React.useState(true);
-  const [anoFiltro,setAnoFiltro]=React.useState(String(anoAtual));
-  const [mesFiltro,setMesFiltro]=React.useState(String(mesAtualNum).padStart(2,"0"));
-  const [moduloFiltro,setModuloFiltro]=React.useState("todos");
-  const [statusFiltro,setStatusFiltro]=React.useState("todos");
-  const [grupFiltro,setGrupFiltro]=React.useState("todos");
-  const [busca,setBusca]=React.useState("");
-  const [expandidos,setExpandidos]=React.useState({});
-  const [modoView,setModoView]=React.useState("mensal");
+
+  // ── Metadados próprios do módulo Grupos e Empresas (responsáveis, regras, auditoria, comentários…) ──
+  const [meta,setMeta]=React.useState({responsaveis:{},grupoMeta:{},statusOverride:{},comments:{},attachments:{},checklist:{},auditLog:[],density:"comfortable"});
+  const [metaLoaded,setMetaLoaded]=React.useState(false);
+  const metaSaveTimer=React.useRef(null);
+
+  const saveMeta=React.useCallback((next,immediate)=>{
+    try{localStorage.setItem("mdtec_grupos_meta_v1",JSON.stringify(next));}catch(e){}
+    if(metaSaveTimer.current)clearTimeout(metaSaveTimer.current);
+    const run=()=>{sb.from("app_data").upsert({id:META_ROW_ID,payload:{...next,_savedAt:Date.now()}}).catch(()=>{});};
+    if(immediate)run();else metaSaveTimer.current=setTimeout(run,500);
+  },[]);
+
+  const updateMeta=React.useCallback((updater,immediate)=>{
+    setMeta(prev=>{
+      const next=typeof updater==="function"?updater(prev):{...prev,...updater};
+      saveMeta(next,immediate);
+      return next;
+    });
+  },[saveMeta]);
+
+  const logAudit=React.useCallback((desc,extra)=>{
+    updateMeta(prev=>({...prev,auditLog:[{id:"a"+Date.now()+Math.random().toString(36).slice(2,6),ts:Date.now(),user:userName||"Usuário",desc,...(extra||{})},...(prev.auditLog||[])].slice(0,400)}),true);
+  },[updateMeta,userName]);
 
   React.useEffect(()=>{
     let ok=true;
@@ -12249,296 +12273,457 @@ function RelatorioContabilPage({toast}){
           if(ok&&row?.payload)result[mod.id]=row.payload;}catch(e){}
       }));
       if(ok){setPayloads(result);setLoading(false);}
+      try{
+        const{data:mrow}=await sb.from("app_data").select("payload").eq("id",META_ROW_ID).maybeSingle();
+        if(ok&&mrow?.payload){setMeta(m=>({...m,...mrow.payload}));}
+        else{const raw=localStorage.getItem("mdtec_grupos_meta_v1");if(raw)setMeta(m=>({...m,...JSON.parse(raw)}));}
+      }catch(e){
+        try{const raw=localStorage.getItem("mdtec_grupos_meta_v1");if(raw)setMeta(m=>({...m,...JSON.parse(raw)}));}catch(e2){}
+      }
+      if(ok)setMetaLoaded(true);
     })();
     return()=>{ok=false;};
   },[]);
 
   const parseD=(s)=>{if(!s)return null;const p=s.split("/");return p.length===3?new Date(parseInt(p[2]),parseInt(p[1])-1,parseInt(p[0])):null;};
+  const norm=(s)=>(s||"").toString().trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+  const soDigitos=(s)=>(s||"").toString().replace(/\D/g,"");
+  const canonEmpKey=(emp)=>soDigitos(emp.cnpj)||("n_"+norm(emp.nome));
+  const initials=(nome)=>{const p=(nome||"").trim().split(/\s+/).filter(Boolean);return((p[0]?.[0]||"")+(p[1]?.[0]||p[0]?.[1]||"")).toUpperCase();};
 
-  const todosGrupos=React.useMemo(()=>{
-    // Deduplica grupos por NOME (case-insensitive) — o mesmo grupo pode ter IDs diferentes entre módulos
-    const m=new Map();
-    MODULOS.forEach(mod=>{(payloads[mod.id]?.grupos||[]).forEach(g=>{
-      const key=g.nome?.toLowerCase().trim();
-      if(!m.has(key))m.set(key,{...g,_key:key});
-    });});
-    return[...m.values()].sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR"));
-  },[payloads]);
+  // ── Adaptador de leitura de célula: cada módulo tem um formato de "dados" diferente ──
+  const buildAccessor=(mod,payload)=>{
+    if(!payload)return null;
+    const grupos=payload.grupos||[];
+    const empresas=payload.empresas||[];
+    const colsGlobal=Array.isArray(payload.cols)&&payload.cols.length>0?payload.cols:mod.defaultCols;
+    const empCO=payload.empColsOverride||{};
+    if(mod.id==="contabil"){
+      // dados é um ARRAY de registros {empresaId,competencia,fiscal,extratos,patrimonio,folha,clienteEnviou,analisado}
+      const idx=new Map();
+      (Array.isArray(payload.dados)?payload.dados:[]).forEach(d=>idx.set(d.empresaId+"_"+d.competencia,d));
+      return{grupos,empresas,colsGlobal,empCO,
+        getCell:(empId,mes,col)=>{const r=idx.get(empId+"_"+mes);if(!r)return"nao-iniciado";return r[col]||"nao-iniciado";},
+        getAnalisado:(empId,mes)=>{const r=idx.get(empId+"_"+mes);return!!(r&&r.analisado);}};
+    }
+    // fiscal / folha: dados é um objeto plano { "empId_mes_col": valor, "empId_mes__analisado": bool }
+    const dados=payload.dados||{};
+    return{grupos,empresas,colsGlobal,empCO,
+      getCell:(empId,mes,col)=>dados[empId+"_"+mes+"_"+col]||"nao-iniciado",
+      getAnalisado:(empId,mes)=>dados[empId+"_"+mes+"__analisado"]===true};
+  };
 
-  const linhas=React.useMemo(()=>{
-    const result=[];
-    MODULOS.filter(m=>moduloFiltro==="todos"||m.id===moduloFiltro).forEach(mod=>{
-      const p=payloads[mod.id];if(!p)return;
-      const colsGlobal=Array.isArray(p.cols)&&p.cols.length>0?p.cols:mod.defaultCols;
-      const grupos=p.grupos||[];
-      const dados=p.dados||{};
-      const prazos=p.prazos||{};
-      const empCO=p.empColsOverride||{};
+  const prazosDe=(mod,payload)=>payload?.prazos||{};
+
+  // ── Construção da hierarquia unificada: Grupo → Empresa (canônica) → competência → obrigações ──
+  const arvore=React.useMemo(()=>{
+    const gruposMap=new Map(); // gKey -> {key,nome,empresasMap:Map}
+    MODULOS.forEach(mod=>{
+      const p=payloads[mod.id];const acc=buildAccessor(mod,p);if(!acc)return;
       const cnpjVisto=new Set();
-      (p.empresas||[]).filter(e=>{
-        const key=e.cnpj||e.id;
-        if(cnpjVisto.has(key))return false;
-        cnpjVisto.add(key);return true;
-      }).sort((a,b)=>{const ga=(grupos.find(g=>g.id===a.grupoId)?.nome||'').localeCompare(grupos.find(g=>g.id===b.grupoId)?.nome||'','pt-BR');return ga!==0?ga:a.nome.localeCompare(b.nome,'pt-BR');}).forEach(emp=>{
-        if(busca&&!emp.nome?.toLowerCase().includes(busca.toLowerCase()))return;
-        if(grupFiltro!=="todos"){const empGrpNome=grupos.find(g=>g.id===emp.grupoId)?.nome?.toLowerCase().trim();if(empGrpNome!==grupFiltro)return;}
-        // Colunas desta empresa (override ou global)
-        const empCols=empCO[emp.id]&&Array.isArray(empCO[emp.id])&&empCO[emp.id].length?empCO[emp.id]:colsGlobal;
-        const grupoNome=grupos.find(g=>g.id===emp.grupoId)?.nome||"—";
-        const [piM,piA]=(emp.periodoInicial||"01/2025").split("/");
-        const mesesEmp=[];
-        ANOS_DISP.forEach(ano=>{MESES_MM.forEach(mm=>{
-          const mY=parseInt(ano),mM=parseInt(mm),piY=parseInt(piA),piMm=parseInt(piM);
-          if((mY>piY||(mY===piY&&mM>=piMm))&&(mY<anoAtual||(mY===anoAtual&&mM<=mesAtualNum)))mesesEmp.push(mm+"/"+ano);
-        });});
-        mesesEmp.filter(m=>{
-          const[mm,aa]=m.split("/");
-          if(anoFiltro!=="todos"&&aa!==anoFiltro)return false;
-          if(mesFiltro!=="todos"&&mm!==mesFiltro)return false;
-          return true;
-        }).forEach(mes=>{
-          const analisado=dados[emp.id+"_"+mes+"__analisado"]===true;
-          const getCell=col=>dados[emp.id+"_"+mes+"_"+col]||"nao-iniciado";
-          const atvCols=empCols.filter(c=>getCell(c.key)!=="nao-aplica");
-          const okCols=atvCols.filter(c=>getCell(c.key)==="ok");
-          const prog=atvCols.length?Math.round(okCols.length/atvCols.length*100):100;
-          const prazoStr=prazos[emp.id+"_"+mes]||prazos["_"+mes]||"";
-          const dataPrazo=parseD(prazoStr);
-          const vencido=!analisado&&dataPrazo&&dataPrazo<hoje;
-          const venceHoje=dataPrazo&&dataPrazo.getTime()===hoje.getTime();
-          const diasRestantes=dataPrazo?Math.round((dataPrazo-hoje)/86400000):null;
-          const status=analisado?"analisado":prog===100?"concluido":vencido?"vencido":"pendente";
-          if(statusFiltro!=="todos"&&status!==statusFiltro)return;
-          result.push({mod,emp,mes,analisado,prog,prazoStr,dataPrazo,vencido,venceHoje,diasRestantes,status,
-            colStatus:empCols.map(c=>({key:c.key,label:c.label,icon:c.icon||"",val:getCell(c.key)})),
-            grupoNome,empCols});
-        });
+      acc.empresas.forEach(emp=>{
+        const eKey=canonEmpKey(emp);
+        if(cnpjVisto.has(mod.id+"_"+eKey))return;cnpjVisto.add(mod.id+"_"+eKey);
+        const grpNome=acc.grupos.find(g=>g.id===emp.grupoId)?.nome||"Sem grupo";
+        const gKey=norm(grpNome)||"_sem_grupo";
+        if(!gruposMap.has(gKey))gruposMap.set(gKey,{key:gKey,nome:grpNome,empresasMap:new Map()});
+        const grupo=gruposMap.get(gKey);
+        if(!grupo.empresasMap.has(eKey))grupo.empresasMap.set(eKey,{key:eKey,nome:emp.nome,cnpj:emp.cnpj||"",regime:emp.regime||"",periodoInicial:emp.periodoInicial||"01/"+anoAtual,membros:[]});
+        const empUnif=grupo.empresasMap.get(eKey);
+        if(!empUnif.regime&&emp.regime)empUnif.regime=emp.regime;
+        if(!empUnif.cnpj&&emp.cnpj)empUnif.cnpj=emp.cnpj;
+        empUnif.membros.push({mod,emp,acc});
       });
     });
-    return result;
-  },[payloads,moduloFiltro,anoFiltro,mesFiltro,statusFiltro,grupFiltro,busca]);
+    return[...gruposMap.values()].sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR"));
+  },[payloads]);
 
-  const kpis={total:linhas.length,analisados:linhas.filter(l=>l.status==="analisado").length,
-    concluidos:linhas.filter(l=>l.status==="concluido").length,pendentes:linhas.filter(l=>l.status==="pendente").length,
-    vencidos:linhas.filter(l=>l.status==="vencido").length};
-  const progGeral=kpis.total?Math.round((kpis.analisados+kpis.concluidos)/kpis.total*100):0;
+  const todosGrupos=arvore.map(g=>({key:g.key,nome:g.nome}));
+  // ── Sistema de status padronizado (cor + ícone + texto) ──
+  const STATUS_DEFS={
+    "nao-iniciado":{bg:"#f1f5f9",c:"#475569",bd:"#e2e8f0",ic:"🔒",txt:"Não iniciado"},
+    "em-andamento":{bg:"#e0f2fe",c:"#0369a1",bd:"#7dd3fc",ic:"◐",txt:"Em andamento"},
+    "aguardando":{bg:"#fef9c3",c:"#854d0e",bd:"#fde047",ic:"⏳",txt:"Aguardando"},
+    "pendente":{bg:"#fef9c3",c:"#854d0e",bd:"#fde047",ic:"⏳",txt:"Aguardando"},
+    "concluido":{bg:"#d1fae5",c:"#065f46",bd:"#86efac",ic:"✅",txt:"Concluído"},
+    "atrasado":{bg:"#fef2f2",c:"#dc2626",bd:"#fca5a5",ic:"⚠️",txt:"Atrasado"},
+    "bloqueado":{bg:"#f3f4f6",c:"#6b7280",bd:"#d1d5db",ic:"🔒",txt:"Bloqueado"},
+    "nao-se-aplica":{bg:"#f8fafc",c:"#94a3b8",bd:"#e2e8f0",ic:"–",txt:"Não se aplica"},
+  };
+  const SS=(s)=>STATUS_DEFS[s]||STATUS_DEFS["nao-iniciado"];
 
-  const SS=(s)=>({analisado:{bg:"#d1fae5",c:"#065f46",bd:"#86efac",ic:"✅",txt:"Analisado"},
-    concluido:{bg:"#dbeafe",c:"#1e40af",bd:"#93c5fd",ic:"☑️",txt:"Concluído"},
-    vencido:{bg:"#fef2f2",c:"#dc2626",bd:"#fca5a5",ic:"🔴",txt:"Vencido"},
-    pendente:{bg:"#fef9c3",c:"#854d0e",bd:"#fde047",ic:"⏳",txt:"Pendente"}}[s]||{bg:"#fef9c3",c:"#854d0e",bd:"#fde047",ic:"⏳",txt:"Pendente"});
-
-  const CS=(v)=>({ok:{bg:"#d1fae5",c:"#065f46",txt:"✓ Ok"},"nao-aplica":{bg:"#f1f5f9",c:"#94a3b8",txt:"N/A"},
-    pendente:{bg:"#fef3c7",c:"#92400e",txt:"↻"}}[v]||{bg:"transparent",c:"#cbd5e1",txt:"—"});
-
-  const toggleExp=key=>setExpandidos(p=>({...p,[key]:p[key]===false}));
-  const isExp=key=>expandidos[key]!==false;
-
-  // Group by module→group
-  const porModulo={};
-  linhas.forEach(l=>{
-    if(!porModulo[l.mod.id])porModulo[l.mod.id]={mod:l.mod,grupos:{}};
-    if(!porModulo[l.mod.id].grupos[l.grupoNome])porModulo[l.mod.id].grupos[l.grupoNome]=[];
-    porModulo[l.mod.id].grupos[l.grupoNome].push(l);
+  // Competência única selecionada, no formato "mm/aaaa" — como no mockup ("Setembro/2026")
+  const [competencia,setCompetencia]=React.useState(()=>{
+    try{const s=localStorage.getItem("mdtec_grp_competencia");if(s)return s;}catch(e){}
+    return String(mesAtualNum).padStart(2,"0")+"/"+anoAtual;
   });
+  React.useEffect(()=>{try{localStorage.setItem("mdtec_grp_competencia",competencia);}catch(e){}},[competencia]);
+  const [compMes,compAno]=competencia.split("/");
 
-  // CSV export
-  const exportCSV=()=>{
-    const rows=[["Módulo","Empresa","CNPJ","Grupo","Regime","Mês","Status","Progresso","Prazo","Dias"]];
-    linhas.forEach(l=>{
-      const colMap=Object.fromEntries(l.colStatus.map(c=>[c.label,{ok:"✓ Ok","nao-aplica":"N/A",pendente:"Pend."}[c.val]||"—"]));
-      const colHeaders=l.empCols.map(c=>c.label);
-      if(rows[0].length===10)rows[0].push(...[...new Set(linhas.flatMap(ll=>ll.empCols.map(c=>c.label)))]);
-      rows.push([l.mod.label,l.emp.nome,l.emp.cnpj||"",l.grupoNome,l.emp.regime||"",l.mes,SS(l.status).txt,
-        l.prog+"%",l.prazoStr,l.diasRestantes===null?"":l.diasRestantes===0?"Hoje":l.diasRestantes<0?Math.abs(l.diasRestantes)+"d atr":l.diasRestantes+"d",
-        ...[...new Set(linhas.flatMap(ll=>ll.empCols.map(c=>c.label)))].map(lbl=>colMap[lbl]||"—")]);
+  const [busca,setBusca]=React.useState("");
+  const [grupFiltro,setGrupFiltro]=React.useState("todos");
+  const [statusFiltro,setStatusFiltro]=React.useState("todos");
+  const [respFiltro,setRespFiltro]=React.useState("todos");
+  const [somenteAtrasadas,setSomenteAtrasadas]=React.useState(false);
+  const [expandedGroup,setExpandedGroup]=React.useState(null); // apenas 1 grupo principal por vez…
+  const [expandAll,setExpandAll]=React.useState(false); // …a menos que "Expandir todos" esteja ativo
+  const [expandedEmpresas,setExpandedEmpresas]=React.useState({});
+  const [anoAbaEmp,setAnoAbaEmp]=React.useState({}); // aba de ano dentro de cada empresa expandida
+  const [densidade,setDensidade]=React.useState(()=>{try{return localStorage.getItem("mdtec_grp_densidade")||"comfortable";}catch(e){return"comfortable";}});
+  React.useEffect(()=>{try{localStorage.setItem("mdtec_grp_densidade",densidade);}catch(e){}},[densidade]);
+  const padY=densidade==="compact"?5:densidade==="ample"?11:7;
+
+  const limparFiltros=()=>{setBusca("");setGrupFiltro("todos");setStatusFiltro("todos");setRespFiltro("todos");setSomenteAtrasadas(false);};
+  const filtrosAtivos=busca||grupFiltro!=="todos"||statusFiltro!=="todos"||respFiltro!=="todos"||somenteAtrasadas;
+
+  const getResponsavel=(eKey)=>meta.responsaveis?.[eKey]||"";
+  const getGrupoMeta=(gKey)=>meta.grupoMeta?.[gKey]||{descricao:"",regras:{compartilharResponsaveis:true,aplicarCalendario:true,consolidarIndicadores:true,permitirAcoesMassa:true},responsavelPrincipal:""};
+
+  // ── Deriva o status final de uma célula (valor bruto + prazo + override manual) ──
+  const obrKeyOf=(modId,eKey,mes,col)=>modId+"_"+eKey+"_"+mes+"_"+col;
+  const derivarStatus=(valorBruto,analisado,prazoStr,override)=>{
+    if(override)return override;
+    if(valorBruto==="nao-aplica")return"nao-se-aplica";
+    if(analisado||valorBruto==="ok")return"concluido";
+    const dp=parseD(prazoStr);
+    if(dp&&dp<hoje)return"atrasado";
+    return"nao-iniciado";
+  };
+
+  // Todos os responsáveis conhecidos (para filtro)
+  const todosResponsaveis=React.useMemo(()=>{
+    const s=new Set(Object.values(meta.responsaveis||{}).filter(Boolean));
+    return[...s].sort((a,b)=>a.localeCompare(b,"pt-BR"));
+  },[meta.responsaveis]);
+
+  // ── Calcula as obrigações de uma empresa unificada em uma competência qualquer (reusado na tabela mensal) ──
+  const computeObrigacoesForMes=(empU,mes)=>{
+    const obrigacoes=[];
+    empU.membros.forEach(({mod,emp,acc})=>{
+      const empCols=(acc.empCO[emp.id]&&acc.empCO[emp.id].length)?acc.empCO[emp.id]:acc.colsGlobal;
+      const prazos=prazosDe(mod,payloads[mod.id]);
+      empCols.forEach(c=>{
+        const valorBruto=acc.getCell(emp.id,mes,c.key);
+        const analisado=acc.getAnalisado(emp.id,mes);
+        const prazoStr=prazos[emp.id+"_"+mes]||prazos["_"+mes]||"";
+        const obrKey=obrKeyOf(mod.id,empU.key,mes,c.key);
+        const override=meta.statusOverride?.[obrKey];
+        const status=derivarStatus(valorBruto,analisado,prazoStr,override);
+        obrigacoes.push({obrKey,mod,emp,col:c,label:c.label,status,prazoStr,valorBruto,analisado});
+      });
     });
+    return obrigacoes;
+  };
+
+  // ── Linhas de obrigação para a competência selecionada, por empresa unificada ──
+  const empresasComputadas=React.useMemo(()=>{
+    const out=[];
+    arvore.forEach(grupo=>{
+      const empresasArr=[];
+      grupo.empresasMap.forEach(empU=>{
+        const obrigacoes=computeObrigacoesForMes(empU,competencia);
+        const total=obrigacoes.filter(o=>o.status!=="nao-se-aplica").length;
+        const concluidas=obrigacoes.filter(o=>o.status==="concluido").length;
+        const atrasadas=obrigacoes.filter(o=>o.status==="atrasado").length;
+        const pendentes=obrigacoes.filter(o=>["nao-iniciado","em-andamento","aguardando","pendente","bloqueado"].includes(o.status)).length;
+        const progresso=total?Math.round(concluidas/total*100):0;
+        const responsavel=getResponsavel(empU.key);
+        if(canEditGeral&&!responsavel&&meta.grupoMeta?.[grupo.key]?.responsavelPrincipal){/* herda visualmente, não grava */}
+        empresasArr.push({...empU,grupoKey:grupo.key,grupoNome:grupo.nome,obrigacoes,total,concluidas,atrasadas,pendentes,progresso,
+          responsavel:responsavel||meta.grupoMeta?.[grupo.key]?.responsavelPrincipal||""});
+      });
+      empresasArr.sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR"));
+      out.push({...grupo,empresas:empresasArr});
+    });
+    return out.sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR"));
+  },[arvore,payloads,competencia,meta.statusOverride,meta.responsaveis,meta.grupoMeta]);
+
+  // Lista de meses de um ano específico, respeitando o período inicial da empresa
+  const mesesDoAno=(empU,ano)=>{
+    const[piM,piA]=(empU.periodoInicial||"01/"+anoAtual).split("/");
+    const piY=parseInt(piA),piMm=parseInt(piM),y=parseInt(ano);
+    return MESES_MM.filter(mm=>{
+      const m=parseInt(mm);
+      return y>piY||(y===piY&&m>=piMm);
+    }).map(mm=>mm+"/"+ano);
+  };
+  // ── Aplica filtros e calcula agregados por grupo ──
+  const gruposFiltrados=React.useMemo(()=>{
+    const buscaN=norm(busca);
+    return empresasComputadas.map(grupo=>{
+      let emps=grupo.empresas;
+      if(grupFiltro!=="todos"&&grupo.key!==grupFiltro)emps=[];
+      emps=emps.filter(e=>{
+        if(buscaN&&!(norm(e.nome).includes(buscaN)||norm(grupo.nome).includes(buscaN)||soDigitos(e.cnpj).includes(soDigitos(busca))))return false;
+        if(respFiltro!=="todos"&&e.responsavel!==respFiltro)return false;
+        if(somenteAtrasadas&&e.atrasadas===0)return false;
+        if(statusFiltro!=="todos"){
+          if(statusFiltro==="atrasado"&&e.atrasadas===0)return false;
+          if(statusFiltro==="pendente"&&e.pendentes===0)return false;
+          if(statusFiltro==="concluido"&&e.concluidas===0)return false;
+        }
+        return true;
+      });
+      const total=emps.reduce((s,e)=>s+e.total,0);
+      const concluidas=emps.reduce((s,e)=>s+e.concluidas,0);
+      const atrasadas=emps.reduce((s,e)=>s+e.atrasadas,0);
+      const pendentes=emps.reduce((s,e)=>s+e.pendentes,0);
+      const progresso=total?Math.round(concluidas/total*100):0;
+      const respCount={};emps.forEach(e=>{if(e.responsavel)respCount[e.responsavel]=(respCount[e.responsavel]||0)+1;});
+      const responsavelPrincipal=getGrupoMeta(grupo.key).responsavelPrincipal||Object.entries(respCount).sort((a,b)=>b[1]-a[1])[0]?.[0]||"—";
+      const saude=atrasadas>=5?"critico":atrasadas>0||progresso<70?"atencao":"em-dia";
+      return{...grupo,empresas:emps,total,concluidas,atrasadas,pendentes,progresso,responsavelPrincipal,saude};
+    }).filter(g=>g.empresas.length>0||(!filtrosAtivos&&grupFiltro==="todos"));
+  },[empresasComputadas,busca,grupFiltro,statusFiltro,respFiltro,somenteAtrasadas,meta.grupoMeta]);
+
+  const kpis=React.useMemo(()=>{
+    const totalGrupos=empresasComputadas.length;
+    const totalEmpresas=empresasComputadas.reduce((s,g)=>s+g.empresas.length,0);
+    const totalObrig=empresasComputadas.reduce((s,g)=>s+g.empresas.reduce((s2,e)=>s2+e.total,0),0);
+    const concluidas=empresasComputadas.reduce((s,g)=>s+g.empresas.reduce((s2,e)=>s2+e.concluidas,0),0);
+    const atrasadas=empresasComputadas.reduce((s,g)=>s+g.empresas.reduce((s2,e)=>s2+e.atrasadas,0),0);
+    const pendentes=empresasComputadas.reduce((s,g)=>s+g.empresas.reduce((s2,e)=>s2+e.pendentes,0),0);
+    const progresso=totalObrig?Math.round(concluidas/totalObrig*100):0;
+    return{totalGrupos,totalEmpresas,totalObrig,concluidas,atrasadas,pendentes,progresso};
+  },[empresasComputadas]);
+
+  // Mapa de risco: classifica cada grupo (sem filtros aplicados) por saúde
+  const mapaRisco=React.useMemo(()=>{
+    const withSaude=empresasComputadas.map(g=>{
+      const atrasadas=g.empresas.reduce((s,e)=>s+e.atrasadas,0);
+      const total=g.empresas.reduce((s,e)=>s+e.total,0);
+      const concluidas=g.empresas.reduce((s,e)=>s+e.concluidas,0);
+      const progresso=total?Math.round(concluidas/total*100):100;
+      const saude=atrasadas>=5?"critico":(atrasadas>0||progresso<70)?"atencao":"em-dia";
+      return saude;
+    });
+    const total=withSaude.length||1;
+    const emDia=withSaude.filter(s=>s==="em-dia").length;
+    const atencao=withSaude.filter(s=>s==="atencao").length;
+    const critico=withSaude.filter(s=>s==="critico").length;
+    return{emDia,atencao,critico,total,
+      pEmDia:Math.round(emDia/total*1000)/10,pAtencao:Math.round(atencao/total*1000)/10,pCritico:Math.round(critico/total*1000)/10};
+  },[empresasComputadas]);
+
+  const gruposQueExigemAtencao=React.useMemo(()=>{
+    return empresasComputadas.map(g=>({nome:g.nome,key:g.key,
+      atrasadas:g.empresas.reduce((s,e)=>s+e.atrasadas,0),
+      pendentes:g.empresas.reduce((s,e)=>s+e.pendentes,0)}))
+      .filter(g=>g.atrasadas>0)
+      .sort((a,b)=>b.atrasadas-a.atrasadas)
+      .slice(0,6);
+  },[empresasComputadas]);
+
+  // Próximos vencimentos ordenados por RISCO (sem responsável e vencendo cedo entram antes)
+  const proximosVencimentos=React.useMemo(()=>{
+    const lista=[];
+    empresasComputadas.forEach(g=>g.empresas.forEach(e=>e.obrigacoes.forEach(o=>{
+      if(o.status==="concluido"||o.status==="nao-se-aplica")return;
+      const dp=parseD(o.prazoStr);
+      if(!dp)return;
+      const dias=Math.round((dp-hoje)/86400000);
+      const risco=(e.responsavel?0:100)+(dias<0?200:Math.max(0,20-dias));
+      lista.push({grupo:g.nome,empresa:e.nome,empKey:e.key,obrigacao:o.label,prazo:o.prazoStr,dias,responsavel:e.responsavel,risco,obrKey:o.obrKey,mod:o.mod,status:o.status});
+    })));
+    return lista.sort((a,b)=>b.risco-a.risco).slice(0,8);
+  },[empresasComputadas]);
+  // ── Expansão (apenas 1 grupo principal por vez, exceto com "Expandir todos") ──
+  const isGroupExpanded=(gKey)=>expandAll||expandedGroup===gKey;
+  const toggleGroupExpand=(gKey)=>{if(expandAll)return;setExpandedGroup(prev=>prev===gKey?null:gKey);};
+  const toggleEmpresaExpand=(eKey)=>setExpandedEmpresas(p=>({...p,[eKey]:!p[eKey]}));
+
+  // ── Seleção para ações em massa (nível grupo e empresa) ──
+  const [selectedEmpresas,setSelectedEmpresas]=React.useState(new Set());
+  const toggleSelEmp=(eKey)=>setSelectedEmpresas(prev=>{const n=new Set(prev);n.has(eKey)?n.delete(eKey):n.add(eKey);return n;});
+  const toggleSelGrupo=(grupo)=>setSelectedEmpresas(prev=>{
+    const n=new Set(prev);const allIn=grupo.empresas.every(e=>prev.has(e.key));
+    grupo.empresas.forEach(e=>allIn?n.delete(e.key):n.add(e.key));
+    return n;
+  });
+  const clearSelecao=()=>setSelectedEmpresas(new Set());
+
+  const empresasSelecionadasObjs=React.useMemo(()=>{
+    const out=[];
+    gruposFiltrados.forEach(g=>g.empresas.forEach(e=>{if(selectedEmpresas.has(e.key))out.push({...e,grupoNome:g.nome});}));
+    return out;
+  },[gruposFiltrados,selectedEmpresas]);
+  const obrigacoesSelecionadasCount=empresasSelecionadasObjs.reduce((s,e)=>s+e.total,0);
+
+  const [massModal,setMassModal]=React.useState(null); // {tipo:'responsavel'|'status'|'marcador'|'prazo'}
+  const [massForm,setMassForm]=React.useState({responsavel:"",status:"concluido",marcador:"",motivo:""});
+
+  const confirmarAcaoMassa=()=>{
+    if(!empresasSelecionadasObjs.length)return;
+    if(massModal.tipo==="responsavel"){
+      if(!massForm.responsavel.trim()){toast("Informe o novo responsável.","warn");return;}
+      updateMeta(prev=>{
+        const r={...(prev.responsaveis||{})};
+        empresasSelecionadasObjs.forEach(e=>{r[e.key]=massForm.responsavel.trim();});
+        return{...prev,responsaveis:r};
+      },true);
+      logAudit(`${userName||"Usuário"} atribuiu "${massForm.responsavel.trim()}" como responsável em massa para ${empresasSelecionadasObjs.length} empresa(s) — competência ${competencia}.`);
+      toast(`✅ Responsável atualizado em ${empresasSelecionadasObjs.length} empresa(s)!`,"ok");
+    } else if(massModal.tipo==="status"){
+      updateMeta(prev=>{
+        const ov={...(prev.statusOverride||{})};
+        empresasSelecionadasObjs.forEach(e=>{e.obrigacoes.forEach(o=>{if(o.status!=="nao-se-aplica")ov[o.obrKey]=massForm.status;});});
+        return{...prev,statusOverride:ov};
+      },true);
+      logAudit(`${userName||"Usuário"} alterou o status de ${obrigacoesSelecionadasCount} obrigação(ões) em massa para "${SS(massForm.status).txt}" — competência ${competencia}.`);
+      toast(`✅ Status atualizado em massa!`,"ok");
+    } else if(massModal.tipo==="marcador"){
+      if(!massForm.marcador.trim()){toast("Informe o marcador.","warn");return;}
+      updateMeta(prev=>{
+        const mk={...(prev.marcadores||{})};
+        empresasSelecionadasObjs.forEach(e=>{mk[e.key]=[...new Set([...(mk[e.key]||[]),massForm.marcador.trim()])];});
+        return{...prev,marcadores:mk};
+      },true);
+      logAudit(`${userName||"Usuário"} adicionou o marcador "${massForm.marcador.trim()}" a ${empresasSelecionadasObjs.length} empresa(s).`);
+      toast(`🏷️ Marcador adicionado!`,"ok");
+    }
+    setMassModal(null);setMassForm({responsavel:"",status:"concluido",marcador:"",motivo:""});clearSelecao();
+  };
+
+  // ── Drawer de obrigação ──
+  const [drawer,setDrawer]=React.useState(null); // {obrKey,mod,emp(unif),col,label,status,prazoStr}
+  const abrirDrawer=(grupoNome,empU,obr)=>{
+    if(!obr)return;
+    setDrawer({grupoNome,empU,...obr});
+  };
+  const fecharDrawer=()=>setDrawer(null);
+  const CHECKLIST_TEMPLATE=["Conferir dados de origem","Validar cálculo/obrigação","Gerar guia/arquivo","Anexar comprovante"];
+
+  const getChecklist=(obrKey)=>{
+    const saved=meta.checklist?.[obrKey];
+    if(saved&&saved.length)return saved;
+    return CHECKLIST_TEMPLATE.map((label,i)=>({id:"c"+i,label,done:false}));
+  };
+  const toggleChecklistItem=(obrKey,itemId)=>{
+    updateMeta(prev=>{
+      const atual=getChecklist(obrKey);
+      const novo=atual.map(it=>it.id===itemId?{...it,done:!it.done}:it);
+      return{...prev,checklist:{...(prev.checklist||{}),[obrKey]:novo}};
+    },true);
+  };
+
+  const setStatusOverride=(obrKey,status,motivoLog)=>{
+    if(!canEditGeral){toast("🔒 Você não tem permissão para alterar o status.","err");return;}
+    updateMeta(prev=>({...prev,statusOverride:{...(prev.statusOverride||{}),[obrKey]:status}}),true);
+    if(motivoLog)logAudit(motivoLog);
+  };
+  const limparStatusOverride=(obrKey)=>{
+    updateMeta(prev=>{const ov={...(prev.statusOverride||{})};delete ov[obrKey];return{...prev,statusOverride:ov};},true);
+  };
+
+  const getObrResponsavel=(obrKey,fallback)=>meta.obrResponsavel?.[obrKey]||fallback||"";
+  const setObrResponsavel=(obrKey,nome)=>{
+    updateMeta(prev=>({...prev,obrResponsavel:{...(prev.obrResponsavel||{}),[obrKey]:nome}}),true);
+    logAudit(`${userName||"Usuário"} atribuiu o responsável "${nome}" à obrigação.`);
+  };
+
+  const addComentario=(obrKey,texto)=>{
+    if(!texto.trim())return;
+    const c={id:"cm"+Date.now(),author:userName||"Usuário",text:texto.trim(),createdAt:new Date().toISOString()};
+    updateMeta(prev=>({...prev,comments:{...(prev.comments||{}),[obrKey]:[...(prev.comments?.[obrKey]||[]),c]}}),true);
+  };
+  const addAnexo=(obrKey,nomeArquivo)=>{
+    if(!nomeArquivo.trim())return;
+    const a={id:"at"+Date.now(),name:nomeArquivo.trim(),addedBy:userName||"Usuário",addedAt:new Date().toISOString()};
+    updateMeta(prev=>({...prev,attachments:{...(prev.attachments||{}),[obrKey]:[...(prev.attachments?.[obrKey]||[]),a]}}),true);
+    logAudit(`${userName||"Usuário"} anexou o arquivo "${nomeArquivo.trim()}".`);
+  };
+
+  // ── Configuração de grupo (Dados, Empresas, Regras, Responsáveis, Histórico) ──
+  const [grupoConfig,setGrupoConfig]=React.useState(null); // {key,nome,...} do grupo aberto para edição
+  const [grupoConfigTab,setGrupoConfigTab]=React.useState("dados");
+  const [grupoConfigDraft,setGrupoConfigDraft]=React.useState(null);
+  const abrirConfigGrupo=(grupo)=>{
+    if(!canConfigurarGrupo){toast("🔒 Apenas administradores podem configurar grupos.","err");return;}
+    const gm=getGrupoMeta(grupo.key);
+    setGrupoConfig(grupo);
+    setGrupoConfigDraft({descricao:gm.descricao,responsavelPrincipal:gm.responsavelPrincipal,regras:{...gm.regras}});
+    setGrupoConfigTab("dados");
+  };
+  const salvarConfigGrupo=()=>{
+    if(!grupoConfig||!grupoConfigDraft)return;
+    updateMeta(prev=>({...prev,grupoMeta:{...(prev.grupoMeta||{}),[grupoConfig.key]:{...grupoConfigDraft}}}),true);
+    logAudit(`${userName||"Usuário"} atualizou as regras/dados do grupo "${grupoConfig.nome}".`);
+    toast("✅ Grupo atualizado!","ok");
+    setGrupoConfig(null);
+  };
+
+  // ── Exportação (respeita filtros, grupo, competência e seleção) ──
+  const exportCSV=(escopo)=>{
+    const alvo=escopo==="selecao"?empresasSelecionadasObjs.map(e=>({...e,grupoNome:e.grupoNome})):gruposFiltrados.flatMap(g=>g.empresas.map(e=>({...e,grupoNome:g.nome})));
+    const rows=[["Grupo","Empresa","CNPJ","Regime","Responsável","Competência","Obrigação","Módulo","Status","Prazo"]];
+    alvo.forEach(e=>e.obrigacoes.forEach(o=>{
+      rows.push([e.grupoNome,e.nome,e.cnpj||"",e.regime||"",e.responsavel||"",competencia,o.label,o.mod.label,SS(o.status).txt,o.prazoStr||""]);
+    }));
     const csv=rows.map(r=>r.map(v=>'"'+String(v||"").replace(/"/g,'""')+'"').join(",")).join("\n");
     const a=document.createElement("a");a.href=URL.createObjectURL(new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8"}));
-    a.download="relatorio_"+anoFiltro+(mesFiltro!=="todos"?"_"+mesFiltro:"")+".csv";a.click();
+    a.download="grupos_empresas_"+competencia.replace("/","-")+".csv";a.click();
+    logAudit(`${userName||"Usuário"} exportou a lista (${alvo.length} empresa(s), competência ${competencia}).`);
     toast("📥 CSV exportado!","ok");
   };
+  const obrColsDe=(empU)=>empU.membros.flatMap(({mod,emp,acc})=>{
+    const empCols=(acc.empCO[emp.id]&&acc.empCO[emp.id].length)?acc.empCO[emp.id]:acc.colsGlobal;
+    return empCols.map(c=>({mod,key:c.key,label:c.label}));
+  });
 
-  // PDF export
-  const exportPDF=()=>{
-    const w=window.open("","_blank");
-    const mesRef=mesFiltro!=="todos"?(MESES_FULL[mesFiltro]+" "+anoFiltro):anoFiltro;
-    const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Relatório Contábil</title>
-<style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:Arial,sans-serif;font-size:10px;padding:20px;color:#1e293b;}
-h1{font-size:16px;font-weight:900;}sub{font-size:10px;color:#64748b;display:block;margin-bottom:14px;}
-.kpis{display:flex;gap:8px;margin-bottom:16px;}.kpi{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 12px;text-align:center;flex:1;}
-.kpi .v{font-size:18px;font-weight:900;}.kpi .l{font-size:9px;color:#64748b;}
-.mh{font-size:12px;font-weight:900;padding:6px 10px;border-radius:6px;margin:12px 0 6px;}
-.gh{font-size:10px;font-weight:800;padding:4px 8px;background:#f1f5f9;border-radius:4px;margin-bottom:4px;}
-table{width:100%;border-collapse:collapse;margin-bottom:10px;font-size:9px;}
-th{background:#1e293b;color:#fff;padding:4px 5px;text-align:left;white-space:nowrap;}
-td{padding:3px 5px;border-bottom:1px solid #f1f5f9;white-space:nowrap;}
-tr:nth-child(even)td{background:#f8fafc;}
-.b{display:inline-block;padding:1px 5px;border-radius:8px;font-size:8px;font-weight:700;}
-.analisado{background:#d1fae5;color:#065f46}.vencido{background:#fef2f2;color:#dc2626}
-.pendente{background:#fef9c3;color:#854d0e}.concluido{background:#dbeafe;color:#1e40af}
-.ok{color:#16a34a;font-weight:700}.na{color:#94a3b8}
-footer{margin-top:16px;border-top:1px solid #e2e8f0;padding-top:8px;font-size:9px;color:#94a3b8;text-align:center;}
-@media print{body{padding:8px;}}</style></head><body>
-<h1>📊 Relatório Contábil</h1>
-<sub>Gerado em ${new Date().toLocaleString("pt-BR")} · ${mesRef} · ${linhas.length} registros</sub>
-<div class="kpis">${[["Total",kpis.total,"#6366f1"],["Analisados",kpis.analisados,"#16a34a"],["Concluídos",kpis.concluidos,"#1d4ed8"],["Pendentes",kpis.pendentes,"#854d0e"],["Vencidos",kpis.vencidos,"#dc2626"],["Progresso",progGeral+"%","#8b5cf6"]].map(([l,v,c])=>`<div class="kpi"><div class="v" style="color:${c}">${v}</div><div class="l">${l}</div></div>`).join("")}</div>
-${Object.values(porModulo).map(({mod,grupos})=>`
-<div class="mh" style="background:${mod.cor}18;color:${mod.cor};border:1px solid ${mod.cor}44">${mod.icon} ${mod.label}</div>
-${Object.entries(grupos).map(([gn,rows])=>{
-  const allColsInGrp=[...new Map(rows.flatMap(r=>r.empCols).map(c=>[c.key,c])).values()];
-  return`<div class="gh">👥 ${gn} — ${rows.filter(r=>r.status==="vencido").length} venc. · ${rows.filter(r=>r.status==="pendente").length} pend.</div>
-<table><thead><tr><th>Empresa</th><th>CNPJ</th><th>Mês</th><th>Status</th><th>Prog</th><th>Prazo</th>${allColsInGrp.map(c=>`<th>${c.icon||""}${c.label}</th>`).join("")}</tr></thead><tbody>
-${rows.map(r=>{const ss=SS(r.status);const colMap=Object.fromEntries(r.colStatus.map(c=>[c.key,c.val]));
-return`<tr><td><b>${r.emp.nome}</b><br><span style="color:#94a3b8;font-size:8px">${r.emp.cnpj||""}</span></td><td>${r.emp.cnpj||"—"}</td>
-<td>${MESES_NOME[r.mes.split("/")[0]]}/${r.mes.split("/")[1].slice(2)}</td>
-<td><span class="b ${r.status}">${ss.ic} ${ss.txt}</span></td>
-<td style="font-weight:700;color:${r.prog===100?"#16a34a":r.prog>50?"#d97706":"#dc2626"}">${r.prog}%</td>
-<td style="color:${r.vencido?"#dc2626":"inherit"}">${r.prazoStr||"—"}</td>
-${allColsInGrp.map(c=>{const v=colMap[c.key]||"nao-iniciado";return`<td class="${v==="ok"?"ok":v==="nao-aplica"?"na":""}">${v==="ok"?"✓":v==="nao-aplica"?"N/A":v==="pendente"?"↻":"—"}</td>`;}).join("")}
-</tr>`;}).join("")}</tbody></table>`;}).join("")}`).join("")}
-<footer>Mar7ins WorkFlow · Relatório Contábil · ${new Date().toLocaleDateString("pt-BR")}</footer>
-</body></html>`;
-    w.document.write(html);w.document.close();setTimeout(()=>w.print(),500);
-    toast("🖨️ PDF preparado!","ok");
+  const StatusBadge=({status,small})=>{
+    const s=SS(status);
+    return<span style={{display:"inline-flex",alignItems:"center",gap:4,background:s.bg,color:s.c,border:"1px solid "+s.bd,padding:small?"1px 6px":"2px 8px",borderRadius:20,fontSize:small?9:10,fontWeight:800,whiteSpace:"nowrap"}}>{s.ic} {s.txt}</span>;
   };
 
-  if(loading)return<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:300,flexDirection:"column",gap:12}}><div style={{fontSize:32}}>⏳</div><div style={{fontWeight:700,color:"#64748b"}}>Carregando dados dos 3 módulos…</div></div>;
-
-  const BtnTab=({id,label})=><button onClick={()=>setModoView(id)} style={{padding:"6px 14px",borderRadius:8,border:"none",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit",background:modoView===id?"#6366f1":"var(--bg2)",color:modoView===id?"#fff":"#64748b"}}>{label}</button>;
-
-  // ── View por empresa (resumo)
-  const viewEmpresa=()=>{
-    const porEmp={};
-    linhas.forEach(l=>{const k=(l.emp.cnpj||l.emp.id)+"_"+l.mod.id;if(!porEmp[k])porEmp[k]={emp:l.emp,mod:l.mod,grupoNome:l.grupoNome,meses:[]};porEmp[k].meses.push(l);});
-    const rows=Object.values(porEmp);
-    if(!rows.length)return<div style={{textAlign:"center",padding:48,color:"#94a3b8"}}>Nenhum resultado.</div>;
-    return<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-      <thead><tr style={{background:"#1e293b"}}>{["Empresa","CNPJ","Grupo","Módulo","OK/Total","Progresso","Pendentes","Último Analisado"].map(h=><th key={h} style={{padding:"7px 10px",color:"#fff",fontWeight:800,fontSize:10,whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
-      <tbody>{rows.map(({emp,mod,grupoNome,meses},ri)=>{
-        const ok=meses.filter(m=>m.status==="analisado"||m.status==="concluido").length;
-        const prog=meses.length?Math.round(ok/meses.length*100):0;
-        const pend=meses.filter(m=>m.status==="pendente"||m.status==="vencido");
-        const ultAnal=meses.filter(m=>m.status==="analisado").map(m=>m.mes).pop()||"—";
-        return<tr key={ri} style={{borderTop:"1px solid #f1f5f9",background:ri%2===0?"transparent":"#fafafa"}}>
-          <td style={{padding:"7px 10px",fontWeight:700}}>{emp.nome}</td>
-          <td style={{padding:"7px 8px",color:"#94a3b8",fontSize:10}}>{emp.cnpj||"—"}</td>
-          <td style={{padding:"7px 8px",color:"#475569"}}>{grupoNome}</td>
-          <td style={{padding:"7px 8px"}}><span style={{background:mod.cor+"22",color:mod.cor,padding:"2px 7px",borderRadius:8,fontSize:10,fontWeight:700}}>{mod.icon} {mod.label}</span></td>
-          <td style={{padding:"7px 8px",textAlign:"center",fontWeight:700}}>{ok}/{meses.length}</td>
-          <td style={{padding:"7px 8px",minWidth:100}}><div style={{display:"flex",alignItems:"center",gap:6}}><div style={{flex:1,height:5,background:"#e2e8f0",borderRadius:3}}><div style={{width:prog+"%",height:"100%",borderRadius:3,background:prog===100?"#22c55e":prog>50?"#f59e0b":"#ef4444"}}/></div><span style={{fontWeight:800,fontSize:11,color:prog===100?"#16a34a":prog>50?"#d97706":"#dc2626"}}>{prog}%</span></div></td>
-          <td style={{padding:"7px 8px",fontSize:10}}>{pend.length===0?"—":pend.slice(0,3).map(m=>{const ss=SS(m.status);return<span key={m.mes} style={{display:"inline-block",margin:"1px 2px",background:ss.bg,color:ss.c,padding:"1px 5px",borderRadius:6,fontSize:9,fontWeight:700}}>{m.mes}</span>;})} {pend.length>3&&<span style={{color:"#64748b",fontSize:9}}>+{pend.length-3}</span>}</td>
-          <td style={{padding:"7px 8px",fontWeight:600,fontSize:11}}>{ultAnal}</td>
-        </tr>;})}
-      </tbody></table></div>;
-  };
-
-  // ── View mensal
-  const viewMensal=()=>{
-    if(!linhas.length)return<div style={{textAlign:"center",padding:48,color:"#94a3b8"}}>Nenhum resultado para os filtros selecionados.</div>;
-    return Object.values(porModulo).map(({mod,grupos})=>(
-      <div key={mod.id} style={{marginBottom:24}}>
-        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10,padding:"9px 14px",background:"linear-gradient(135deg,"+mod.cor+"15,"+mod.cor+"08)",border:"2px solid "+mod.cor+"44",borderRadius:12}}>
-          <span style={{fontSize:18}}>{mod.icon}</span>
-          <span style={{fontSize:15,fontWeight:900,color:mod.cor}}>{mod.label}</span>
-          <span style={{fontSize:11,color:mod.cor+"99"}}>{Object.values(grupos).flat().length} linha(s) · <span style={{color:"#dc2626"}}>{Object.values(grupos).flat().filter(l=>l.status==="vencido").length} vencido(s)</span></span>
-        </div>
-        {Object.entries(grupos).map(([grpNome,rows])=>{
-          const expKey=mod.id+"_"+grpNome;
-          const opened=isExp(expKey);
-          // Colunas únicas deste grupo (cada empresa pode ter colunas diferentes)
-          const grpCols=[...new Map(rows.flatMap(r=>r.empCols).map(c=>[c.key,c])).values()];
-          const gV=rows.filter(r=>r.status==="vencido").length;
-          const gP=rows.filter(r=>r.status==="pendente").length;
-          const gOk=rows.filter(r=>r.status==="analisado"||r.status==="concluido").length;
-          return(
-            <div key={grpNome} style={{marginBottom:8,border:"1px solid var(--border)",borderRadius:10,overflow:"hidden"}}>
-              <div onClick={()=>toggleExp(expKey)} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 14px",background:"var(--bg2)",cursor:"pointer",borderBottom:opened?"1px solid var(--border)":"none",userSelect:"none"}}>
-                <span style={{fontWeight:800,fontSize:12,color:"var(--text)",flex:1}}>👥 {grpNome}</span>
-                <div style={{display:"flex",gap:5}}>
-                  {gV>0&&<span style={{background:"#fef2f2",color:"#dc2626",border:"1px solid #fca5a5",padding:"1px 7px",borderRadius:20,fontSize:10,fontWeight:800}}>🔴 {gV}</span>}
-                  {gP>0&&<span style={{background:"#fef9c3",color:"#854d0e",border:"1px solid #fde047",padding:"1px 7px",borderRadius:20,fontSize:10,fontWeight:800}}>⏳ {gP}</span>}
-                  {gOk>0&&<span style={{background:"#d1fae5",color:"#065f46",border:"1px solid #86efac",padding:"1px 7px",borderRadius:20,fontSize:10,fontWeight:800}}>✅ {gOk}</span>}
-                </div>
-                <span style={{color:"#94a3b8",fontSize:11}}>{opened?"▲":"▼"}</span>
-              </div>
-              {opened&&(
-                <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
-                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:600}}>
-                    <thead>
-                      <tr style={{background:"#f8fafc"}}>
-                        {["Empresa","CNPJ","Mês","Status","Prog.","Prazo","Dias",...grpCols.map(c=>c.label)].map((h,i)=>(
-                          <th key={i} style={{padding:"6px 8px",textAlign:i>2?"center":"left",fontWeight:800,color:"#475569",whiteSpace:"nowrap",fontSize:10}}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((r,ri)=>{
-                        const ss=SS(r.status);
-                        const colMap=Object.fromEntries(r.colStatus.map(c=>[c.key,c.val]));
-                        return(
-                          <tr key={ri} style={{borderTop:"1px solid #f1f5f9",background:ri%2===0?"transparent":"#fafafa"}}>
-                            <td style={{padding:"6px 8px",fontWeight:700,color:"var(--text)",whiteSpace:"nowrap"}}>
-                              {r.emp.nome}
-                              {r.empCols!==((payloads[r.mod.id]?.cols&&payloads[r.mod.id].cols.length>0)?payloads[r.mod.id].cols:(r.mod.defaultCols||[]))&&<span title="Colunas personalizadas" style={{display:"inline-block",marginLeft:5,background:"#fef3c7",color:"#b45309",padding:"0px 5px",borderRadius:8,fontSize:9,fontWeight:800,verticalAlign:"middle"}}>✎</span>}
-                            </td>
-                            <td style={{padding:"6px 8px",color:"#94a3b8",fontSize:10,whiteSpace:"nowrap"}}>{r.emp.cnpj||"—"}</td>
-                            <td style={{padding:"6px 8px",fontWeight:700,textAlign:"center",whiteSpace:"nowrap"}}>{MESES_NOME[r.mes.split("/")[0]]}/{r.mes.split("/")[1].slice(2)}</td>
-                            <td style={{padding:"6px 8px",textAlign:"center"}}>
-                              <span style={{display:"inline-flex",alignItems:"center",gap:3,background:ss.bg,color:ss.c,border:"1px solid "+ss.bd,padding:"2px 7px",borderRadius:20,fontSize:9,fontWeight:800,whiteSpace:"nowrap"}}>{ss.ic} {ss.txt}</span>
-                            </td>
-                            <td style={{padding:"6px 8px",textAlign:"center",minWidth:80}}>
-                              <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
-                                <span style={{fontWeight:800,fontSize:11,color:r.prog===100?"#16a34a":r.prog>50?"#d97706":"#dc2626"}}>{r.prog}%</span>
-                                <div style={{width:50,height:4,background:"#e2e8f0",borderRadius:2}}><div style={{width:r.prog+"%",height:"100%",borderRadius:2,background:r.prog===100?"#22c55e":r.prog>50?"#f59e0b":"#ef4444"}}/></div>
-                              </div>
-                            </td>
-                            <td style={{padding:"6px 8px",textAlign:"center",fontWeight:600,color:r.vencido?"#dc2626":r.venceHoje?"#d97706":"#475569",whiteSpace:"nowrap",fontSize:11}}>{r.prazoStr||"—"}</td>
-                            <td style={{padding:"6px 8px",textAlign:"center",fontSize:11,fontWeight:700,whiteSpace:"nowrap",color:r.diasRestantes===null?"#94a3b8":r.diasRestantes<0?"#dc2626":r.diasRestantes<=3?"#d97706":"#475569"}}>
-                              {r.diasRestantes===null?"—":r.diasRestantes===0?"Hoje":r.diasRestantes<0?Math.abs(r.diasRestantes)+"d atr":r.diasRestantes+"d"}
-                            </td>
-                            {grpCols.map(c=>{
-                              const v=colMap[c.key];
-                              // Se empresa não tem esta coluna (override diferente), mostra —
-                              const hasCol=r.empCols.some(ec=>ec.key===c.key);
-                              if(!hasCol)return<td key={c.key} style={{padding:"4px 6px",textAlign:"center"}}><span style={{color:"#e2e8f0",fontSize:10}}>—</span></td>;
-                              const cs=CS(v||"nao-iniciado");
-                              return<td key={c.key} style={{padding:"4px 6px",textAlign:"center"}}>
-                                <span style={{background:cs.bg,color:cs.c,padding:"2px 5px",borderRadius:5,fontSize:10,fontWeight:700,display:"inline-block"}}>{cs.txt}</span>
-                              </td>;
-                            })}
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          );
-        })}
+  const ProgressoMini=({pct,frac})=>(
+    <div style={{display:"flex",flexDirection:"column",gap:2,minWidth:70}}>
+      <div style={{display:"flex",alignItems:"center",gap:6}}>
+        <div style={{flex:1,height:5,background:"#e2e8f0",borderRadius:3}}><div style={{width:pct+"%",height:"100%",borderRadius:3,background:pct===100?"#22c55e":pct>50?"#f59e0b":"#ef4444"}}/></div>
+        <span style={{fontWeight:800,fontSize:11,color:pct===100?"#16a34a":pct>50?"#d97706":"#dc2626"}}>{pct}%</span>
       </div>
-    ));
-  };
+      {frac&&<span style={{fontSize:9,color:"#94a3b8"}}>{frac}</span>}
+    </div>
+  );
+
+  if(loading||!metaLoaded)return<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:300,flexDirection:"column",gap:12}}><div style={{fontSize:32}}>⏳</div><div style={{fontWeight:700,color:"#64748b"}}>Carregando grupos e empresas…</div></div>;
+
+  const roleColor=myRole==="admin"?"#6366f1":myRole==="gestor"?"#0ea5e9":"#94a3b8";
 
   return(
-    <div style={{padding:"20px 24px",maxWidth:1400,margin:"0 auto"}}>
-      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16,flexWrap:"wrap"}}>
-        <div>
-          <div style={{fontSize:20,fontWeight:900,color:"var(--text)"}}>📊 Relatório Contábil</div>
-          <div style={{fontSize:11,color:"#64748b",marginTop:1}}>Visão unificada — Contábil · Tributário · Folha de Pagamento</div>
+    <div style={{padding:"20px 24px",maxWidth:1500,margin:"0 auto"}}>
+      {/* Cabeçalho */}
+      <div style={{display:"flex",alignItems:"flex-start",gap:12,marginBottom:14,flexWrap:"wrap"}}>
+        <div style={{flex:"1 1 260px"}}>
+          <div style={{fontSize:20,fontWeight:900,color:"var(--text)"}}>📊 Gestão por grupos e empresas</div>
+          <div style={{fontSize:11,color:"#64748b",marginTop:1}}>Gerencie empresas, visualize obrigações e execute ações em massa com segurança.</div>
         </div>
-        <div style={{display:"flex",gap:8,marginLeft:"auto"}}>
-          <button onClick={exportCSV} style={{background:"#22c55e",color:"#fff",border:"none",padding:"7px 14px",borderRadius:9,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>📥 CSV</button>
-          <button onClick={exportPDF} style={{background:"#6366f1",color:"#fff",border:"none",padding:"7px 14px",borderRadius:9,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>🖨️ PDF</button>
+        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          <span title={"Seu papel nesta tela: "+roleLabel} style={{background:roleColor+"18",color:roleColor,border:"1px solid "+roleColor+"55",padding:"5px 10px",borderRadius:20,fontSize:11,fontWeight:800}}>👤 {roleLabel}</span>
+          <select value={densidade} onChange={e=>setDensidade(e.target.value)} title="Densidade visual"
+            style={{padding:"6px 9px",borderRadius:8,border:"1px solid var(--border)",fontSize:11,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}>
+            <option value="compact">▤ Compacta</option>
+            <option value="comfortable">▥ Confortável</option>
+            <option value="ample">▦ Ampla</option>
+          </select>
+          <button onClick={()=>exportCSV("filtro")} style={{background:"#22c55e",color:"#fff",border:"none",padding:"7px 14px",borderRadius:9,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>📥 Exportar</button>
         </div>
       </div>
 
+      {/* Alerta de atrasadas — clicável, aplica filtro "somente atrasadas" */}
+      {kpis.atrasadas>0&&(
+        <button onClick={()=>setSomenteAtrasadas(v=>!v)} style={{display:"flex",alignItems:"center",gap:8,width:"100%",textAlign:"left",marginBottom:12,background:somenteAtrasadas?"#fee2e2":"#fef2f2",border:"1px solid #fca5a5",borderRadius:10,padding:"9px 14px",cursor:"pointer",fontFamily:"inherit"}}>
+          <span style={{fontSize:16}}>⚠️</span>
+          <span style={{fontSize:12,fontWeight:800,color:"#991b1b"}}>{kpis.atrasadas} obrigaç{kpis.atrasadas===1?"ão atrasada":"ões atrasadas"} na competência {MESES_FULL[compMes]}/{compAno}</span>
+          <span style={{marginLeft:"auto",fontSize:11,fontWeight:700,color:"#dc2626"}}>{somenteAtrasadas?"✕ Remover filtro":"Ver atrasadas →"}</span>
+        </button>
+      )}
+
       {/* KPIs */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(115px,1fr))",gap:8,marginBottom:16}}>
-        {[{v:kpis.total,l:"Total",c:"#6366f1",bg:"#ede9fe"},{v:kpis.analisados,l:"Analisados",c:"#16a34a",bg:"#dcfce7"},
-          {v:kpis.concluidos,l:"Concluídos",c:"#1d4ed8",bg:"#dbeafe"},{v:kpis.pendentes,l:"Pendentes",c:"#854d0e",bg:"#fef9c3"},
-          {v:kpis.vencidos,l:"Vencidos",c:"#dc2626",bg:"#fef2f2"},{v:progGeral+"%",l:"Progresso",c:"#8b5cf6",bg:"#f3e8ff"}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(115px,1fr))",gap:8,marginBottom:14}}>
+        {[{v:kpis.totalGrupos,l:"Grupos",c:"#6366f1",bg:"#ede9fe"},{v:kpis.totalEmpresas,l:"Empresas",c:"#0ea5e9",bg:"#e0f2fe"},
+          {v:kpis.totalObrig,l:"Obrigações",c:"#334155",bg:"#f1f5f9"},{v:kpis.concluidas,l:"Concluídas",c:"#16a34a",bg:"#dcfce7"},
+          {v:kpis.pendentes,l:"Pendentes",c:"#854d0e",bg:"#fef9c3"},{v:kpis.atrasadas,l:"Atrasadas",c:"#dc2626",bg:"#fef2f2"},
+          {v:kpis.progresso+"%",l:"Progresso",c:"#8b5cf6",bg:"#f3e8ff"}
         ].map(({v,l,c,bg})=>(
           <div key={l} style={{background:bg,borderRadius:10,padding:"10px 12px",textAlign:"center",border:"1px solid "+c+"33"}}>
             <div style={{fontSize:20,fontWeight:900,color:c,lineHeight:1}}>{v}</div>
@@ -12546,45 +12731,493 @@ ${allColsInGrp.map(c=>{const v=colMap[c.key]||"nao-iniciado";return`<td class="$
           </div>
         ))}
       </div>
+      <div style={{fontSize:10,color:"#94a3b8",marginTop:-8,marginBottom:14}}>{kpis.concluidas} de {kpis.totalObrig} obrigações concluídas na competência selecionada.</div>
 
       {/* Filtros */}
-      <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:14,padding:"10px 12px",background:"var(--bg2)",borderRadius:10,border:"1px solid var(--border)"}}>
-        <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="🔍 Buscar empresa…"
-          style={{flex:"1 1 140px",padding:"6px 10px",borderRadius:7,border:"1px solid var(--border)",fontSize:12,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}/>
-        <select value={moduloFiltro} onChange={e=>setModuloFiltro(e.target.value)} style={{padding:"6px 9px",borderRadius:7,border:"1px solid var(--border)",fontSize:12,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}>
-          <option value="todos">Todos os módulos</option>
-          {MODULOS.map(m=><option key={m.id} value={m.id}>{m.icon} {m.label}</option>)}
-        </select>
-        <select value={anoFiltro} onChange={e=>setAnoFiltro(e.target.value)} style={{padding:"6px 9px",borderRadius:7,border:"1px solid var(--border)",fontSize:12,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}>
-          {ANOS_DISP.map(a=><option key={a} value={a}>{a}</option>)}
-        </select>
-        <select value={mesFiltro} onChange={e=>setMesFiltro(e.target.value)} style={{padding:"6px 9px",borderRadius:7,border:"1px solid var(--border)",fontSize:12,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}>
-          <option value="todos">Todos os meses</option>
-          {MESES_MM.map(m=><option key={m} value={m}>{MESES_FULL[m]}</option>)}
+      <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:14,padding:"10px 12px",background:"var(--bg2)",borderRadius:10,border:"1px solid var(--border)",alignItems:"center"}}>
+        <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="🔍 Buscar grupo, empresa ou CNPJ…"
+          style={{flex:"1 1 180px",padding:"6px 10px",borderRadius:7,border:"1px solid var(--border)",fontSize:12,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}/>
+        <select value={grupFiltro} onChange={e=>setGrupFiltro(e.target.value)} style={{padding:"6px 9px",borderRadius:7,border:"1px solid var(--border)",fontSize:12,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}>
+          <option value="todos">Todos os grupos</option>
+          {todosGrupos.map(g=><option key={g.key} value={g.key}>{g.nome}</option>)}
         </select>
         <select value={statusFiltro} onChange={e=>setStatusFiltro(e.target.value)} style={{padding:"6px 9px",borderRadius:7,border:"1px solid var(--border)",fontSize:12,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}>
           <option value="todos">Todos os status</option>
-          <option value="pendente">⏳ Pendente</option>
-          <option value="vencido">🔴 Vencido</option>
-          <option value="concluido">☑️ Concluído</option>
-          <option value="analisado">✅ Analisado</option>
+          <option value="pendente">⏳ Com pendências</option>
+          <option value="atrasado">⚠️ Com atraso</option>
+          <option value="concluido">✅ Com conclusões</option>
         </select>
-        <select value={grupFiltro} onChange={e=>setGrupFiltro(e.target.value)} style={{padding:"6px 9px",borderRadius:7,border:"1px solid var(--border)",fontSize:12,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}>
-          <option value="todos">Todos os grupos</option>
-          {todosGrupos.map(g=><option key={g._key} value={g._key}>{g.nome}</option>)}
+        <select value={respFiltro} onChange={e=>setRespFiltro(e.target.value)} style={{padding:"6px 9px",borderRadius:7,border:"1px solid var(--border)",fontSize:12,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}>
+          <option value="todos">Todos os responsáveis</option>
+          {todosResponsaveis.map(r=><option key={r} value={r}>{r}</option>)}
         </select>
-        {(busca||moduloFiltro!=="todos"||mesFiltro!=="todos"||statusFiltro!=="todos"||grupFiltro!=="todos")&&
-          <button onClick={()=>{setBusca("");setModuloFiltro("todos");setMesFiltro("todos");setStatusFiltro("todos");setGrupFiltro("todos");}}
-            style={{padding:"6px 10px",borderRadius:7,border:"1px solid #e2e8f0",background:"#f1f5f9",fontSize:12,cursor:"pointer",color:"#64748b",fontFamily:"inherit"}}>✕ Limpar</button>}
+        <select value={compMes} onChange={e=>setCompetencia(e.target.value+"/"+compAno)} style={{padding:"6px 9px",borderRadius:7,border:"1px solid var(--border)",fontSize:12,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}>
+          {MESES_MM.map(m=><option key={m} value={m}>{MESES_FULL[m]}</option>)}
+        </select>
+        <select value={compAno} onChange={e=>setCompetencia(compMes+"/"+e.target.value)} style={{padding:"6px 9px",borderRadius:7,border:"1px solid var(--border)",fontSize:12,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}>
+          {ANOS_DISP.map(a=><option key={a} value={a}>{a}</option>)}
+        </select>
+        <button onClick={()=>{setExpandAll(v=>!v);setExpandedGroup(null);}} style={{padding:"6px 10px",borderRadius:7,border:"1px solid "+(expandAll?"#6366f1":"var(--border)"),background:expandAll?"#6366f1":"var(--bg)",color:expandAll?"#fff":"#64748b",fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>{expandAll?"▤ Recolher todos":"▥ Expandir todos"}</button>
+        {filtrosAtivos&&
+          <button onClick={limparFiltros} style={{padding:"6px 10px",borderRadius:7,border:"1px solid #e2e8f0",background:"#f1f5f9",fontSize:12,cursor:"pointer",color:"#64748b",fontFamily:"inherit"}}>✕ Limpar filtros</button>}
       </div>
 
-      {/* Tabs */}
-      <div style={{display:"flex",gap:6,marginBottom:14,padding:"4px",background:"var(--bg2)",borderRadius:10,border:"1px solid var(--border)",width:"fit-content"}}>
-        <BtnTab id="mensal" label="📅 Por Mês"/>
-        <BtnTab id="empresa" label="🏢 Por Empresa"/>
+      {/* Corpo: lista de grupos + painel lateral */}
+      <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 300px",gap:16,alignItems:"start"}}>
+        <div>
+          {gruposFiltrados.length===0&&(
+            <div style={{textAlign:"center",padding:48,color:"#94a3b8",background:"var(--bg2)",borderRadius:12,border:"1px solid var(--border)"}}>
+              <div style={{fontSize:32,marginBottom:8}}>🔍</div>
+              <div style={{fontWeight:700,marginBottom:4}}>Nenhum resultado para os filtros selecionados</div>
+              <button onClick={limparFiltros} style={{marginTop:8,padding:"7px 16px",borderRadius:8,border:"none",background:"#6366f1",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Limpar filtros</button>
+            </div>
+          )}
+          {gruposFiltrados.map(grupo=>{
+            const exp=isGroupExpanded(grupo.key);
+            const grupoChecked=grupo.empresas.length>0&&grupo.empresas.every(e=>selectedEmpresas.has(e.key));
+            return(
+              <div key={grupo.key} style={{marginBottom:10,border:"1px solid var(--border)",borderRadius:12,overflow:"hidden",background:"var(--bg2)"}}>
+                {/* Linha do grupo */}
+                <div style={{display:"flex",alignItems:"center",gap:10,padding:`${padY+3}px 14px`,cursor:"pointer",userSelect:"none"}}>
+                  {canAcoesMassa&&<input type="checkbox" checked={grupoChecked} onChange={()=>toggleSelGrupo(grupo)} onClick={e=>e.stopPropagation()} style={{width:15,height:15,cursor:"pointer"}}/>}
+                  <button onClick={()=>toggleGroupExpand(grupo.key)} title={exp?"Recolher":"Expandir empresas"} style={{background:"none",border:"none",cursor:"pointer",fontSize:13,color:"#64748b",width:26,height:26,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{exp?"▾":"▸"}</button>
+                  <div onClick={()=>toggleGroupExpand(grupo.key)} style={{flex:1,display:"flex",alignItems:"center",gap:10,minWidth:0}}>
+                    <span style={{width:32,height:32,borderRadius:9,background:"#6366f122",color:"#6366f1",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:13,flexShrink:0}}>{initials(grupo.nome)}</span>
+                    <div style={{minWidth:0}}>
+                      <div style={{fontWeight:900,fontSize:13,color:"var(--text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={grupo.nome}>{grupo.nome}</div>
+                      <div style={{fontSize:10,color:"#94a3b8"}}>{grupo.empresas.length} empresa{grupo.empresas.length!==1?"s":""} · resp. {grupo.responsavelPrincipal}</div>
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:5,flexShrink:0}}>
+                    {grupo.atrasadas>0&&<span style={{background:"#fef2f2",color:"#dc2626",border:"1px solid #fca5a5",padding:"1px 7px",borderRadius:20,fontSize:10,fontWeight:800}}>⚠️ {grupo.atrasadas}</span>}
+                    {grupo.pendentes>0&&<span style={{background:"#fef9c3",color:"#854d0e",border:"1px solid #fde047",padding:"1px 7px",borderRadius:20,fontSize:10,fontWeight:800}}>⏳ {grupo.pendentes}</span>}
+                    {grupo.concluidas>0&&<span style={{background:"#d1fae5",color:"#065f46",border:"1px solid #86efac",padding:"1px 7px",borderRadius:20,fontSize:10,fontWeight:800}}>✅ {grupo.concluidas}</span>}
+                  </div>
+                  <div style={{width:110,flexShrink:0}} onClick={e=>e.stopPropagation()}><ProgressoMini pct={grupo.progresso} frac={grupo.concluidas+" de "+grupo.total}/></div>
+                  <GroupMenu grupo={grupo} canConfigurarGrupo={canConfigurarGrupo} abrirConfigGrupo={abrirConfigGrupo} exportCSV={exportCSV} setGrupFiltroTmp={()=>{setGrupFiltro(grupo.key);exportCSV("filtro");}}/>
+                </div>
+                {/* Empresas do grupo */}
+                {exp&&(
+                  grupo.empresas.length===0?(
+                    <div style={{padding:"14px 18px",fontSize:12,color:"#94a3b8",borderTop:"1px solid var(--border)"}}>Nenhuma empresa neste grupo com os filtros atuais.</div>
+                  ):grupo.empresas.map(empU=>{
+                    const empExp=!!expandedEmpresas[empU.key];
+                    const anoAba=anoAbaEmp[empU.key]||compAno;
+                    const cols=obrColsDe(empU);
+                    return(
+                      <div key={empU.key} style={{borderTop:"1px solid var(--border)"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:10,padding:padY+"px 14px "+padY+"px 40px",cursor:"pointer"}}>
+                          {canAcoesMassa&&<input type="checkbox" checked={selectedEmpresas.has(empU.key)} onChange={()=>toggleSelEmp(empU.key)} onClick={e=>e.stopPropagation()} style={{width:14,height:14,cursor:"pointer"}}/>}
+                          <button onClick={()=>toggleEmpresaExpand(empU.key)} title={empExp?"Recolher":"Expandir obrigações"} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#94a3b8",width:22,height:22,flexShrink:0}}>{empExp?"▾":"▸"}</button>
+                          <span style={{width:26,height:26,borderRadius:8,background:"#f43f5e18",color:"#e11d48",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:10,flexShrink:0}}>{initials(empU.nome)}</span>
+                          <div onClick={()=>toggleEmpresaExpand(empU.key)} style={{flex:1,minWidth:0}}>
+                            <div style={{fontWeight:700,fontSize:12,color:"var(--text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={empU.nome}>{empU.nome}</div>
+                            <div style={{fontSize:10,color:"#94a3b8"}}>{empU.cnpj||"CNPJ não informado"}{empU.regime?" · "+empU.regime:""}</div>
+                          </div>
+                          <div style={{width:130,flexShrink:0,fontSize:10,color:"#64748b"}}>
+                            {canEditGeral?(
+                              <input defaultValue={empU.responsavel} placeholder="Responsável…" onClick={e=>e.stopPropagation()}
+                                onBlur={e=>{if(e.target.value!==empU.responsavel){updateMeta(prev=>({...prev,responsaveis:{...(prev.responsaveis||{}),[empU.key]:e.target.value}}),true);logAudit(`${userName||"Usuário"} alterou o responsável de "${empU.nome}" para "${e.target.value}".`);}}}
+                                style={{width:"100%",padding:"3px 6px",borderRadius:6,border:"1px solid var(--border)",fontSize:10,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}/>
+                            ):(empU.responsavel||"—")}
+                          </div>
+                          <div style={{display:"flex",gap:4,flexShrink:0}}>
+                            {empU.atrasadas>0&&<span style={{color:"#dc2626",fontSize:10,fontWeight:800}}>⚠️ {empU.atrasadas}</span>}
+                            {empU.pendentes>0&&<span style={{color:"#854d0e",fontSize:10,fontWeight:800}}>⏳ {empU.pendentes}</span>}
+                          </div>
+                          <div style={{width:100,flexShrink:0}} onClick={e=>e.stopPropagation()}><ProgressoMini pct={empU.progresso}/></div>
+                        </div>
+                        {empExp&&(
+                          <div style={{padding:"0 14px 14px 40px",overflowX:"auto"}}>
+                            <div style={{display:"flex",gap:6,marginBottom:8}}>
+                              {ANOS_DISP.map(a=><button key={a} onClick={()=>setAnoAbaEmp(p=>({...p,[empU.key]:a}))} style={{padding:"4px 12px",borderRadius:7,border:"none",fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"inherit",background:anoAba===a?"#6366f1":"var(--bg3)",color:anoAba===a?"#fff":"#64748b"}}>{a}</button>)}
+                            </div>
+                            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:560}}>
+                              <thead><tr style={{background:"var(--bg3)"}}>
+                                {["Mês","Vencimento",...cols.map(c=>c.label),"Progresso","Análise"].map((h,i)=>(
+                                  <th key={i} style={{padding:"6px 8px",textAlign:i<2?"left":"center",fontWeight:800,color:"#64748b",whiteSpace:"nowrap",fontSize:10}}>{h}</th>
+                                ))}
+                              </tr></thead>
+                              <tbody>
+                                {mesesDoAno(empU,anoAba).map((mes,ri)=>{
+                                  const [mm,aa]=mes.split("/");
+                                  const futuro=parseInt(aa)>anoAtual||(parseInt(aa)===anoAtual&&parseInt(mm)>mesAtualNum);
+                                  const obrig=computeObrigacoesForMes(empU,mes);
+                                  const totalM=obrig.filter(o=>o.status!=="nao-se-aplica").length;
+                                  const okM=obrig.filter(o=>o.status==="concluido").length;
+                                  const progM=totalM?Math.round(okM/totalM*100):0;
+                                  const prazoM=obrig[0]?.prazoStr||"";
+                                  return(
+                                    <tr key={mes} style={{borderTop:"1px solid var(--border)",background:ri%2===0?"transparent":"var(--bg3)",opacity:futuro ? .55 : 1}}>
+                                      <td style={{padding:"6px 8px",fontWeight:800,whiteSpace:"nowrap"}}>{MESES_NOME[mm]}/{aa}</td>
+                                      <td style={{padding:"6px 8px",whiteSpace:"nowrap",color:"#64748b"}}>{prazoM||"—"}</td>
+                                      {cols.map((c,ci)=>{
+                                        const o=obrig[ci];
+                                        if(!o)return<td key={ci} style={{textAlign:"center"}}>—</td>;
+                                        if(futuro)return<td key={ci} style={{textAlign:"center",padding:"4px"}}><span style={{color:"#cbd5e1",fontSize:13}}>🔒</span></td>;
+                                        return<td key={ci} style={{textAlign:"center",padding:"4px"}}>
+                                          <span onClick={()=>abrirDrawer(grupo.nome,empU,o)} style={{cursor:"pointer"}} title="Ver detalhes da obrigação"><StatusBadge status={o.status} small/></span>
+                                        </td>;
+                                      })}
+                                      <td style={{padding:"6px 8px"}}><ProgressoMini pct={progM}/></td>
+                                      <td style={{padding:"6px 8px",textAlign:"center"}}>{futuro?<span style={{color:"#cbd5e1",fontSize:10}}>—</span>:<button onClick={()=>obrig[0]&&abrirDrawer(grupo.nome,empU,obrig[0])} style={{background:"none",border:"none",color:"#6366f1",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"inherit"}}>Abrir ↗</button>}</td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Painel lateral */}
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <div style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:12,padding:14}}>
+            <div style={{fontWeight:800,fontSize:12,marginBottom:10,color:"var(--text)"}}>Mapa de risco</div>
+            <div style={{display:"flex",flexDirection:"column",gap:6,fontSize:11}}>
+              {[["🟢 Em dia",mapaRisco.emDia,mapaRisco.pEmDia,"#16a34a"],["🟡 Atenção",mapaRisco.atencao,mapaRisco.pAtencao,"#b45309"],["🔴 Crítico",mapaRisco.critico,mapaRisco.pCritico,"#dc2626"]].map(([l,v,p,c])=>(
+                <div key={l} style={{display:"flex",justifyContent:"space-between",color:c,fontWeight:700}}><span>{l}</span><span>{v} grupos · {p}%</span></div>
+              ))}
+            </div>
+          </div>
+          <div style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:12,padding:14}}>
+            <div style={{fontWeight:800,fontSize:12,marginBottom:10,color:"var(--text)"}}>Grupos que exigem atenção</div>
+            {gruposQueExigemAtencao.length===0?<div style={{fontSize:11,color:"#94a3b8"}}>Nenhum grupo com atraso 🎉</div>:
+              gruposQueExigemAtencao.map(g=>(
+                <div key={g.key} onClick={()=>{setGrupFiltro(g.key);setExpandedGroup(g.key);}} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",cursor:"pointer",fontSize:11}}>
+                  <span style={{color:"#dc2626",fontWeight:700}}>🔴 {g.nome}</span>
+                  <span style={{display:"flex",gap:5}}>
+                    <span style={{background:"#fef2f2",color:"#dc2626",padding:"1px 6px",borderRadius:10,fontWeight:800,fontSize:10}}>{g.atrasadas}</span>
+                    <span style={{background:"#fef9c3",color:"#854d0e",padding:"1px 6px",borderRadius:10,fontWeight:800,fontSize:10}}>{g.pendentes}</span>
+                  </span>
+                </div>
+              ))}
+          </div>
+          <div style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:12,padding:14}}>
+            <div style={{fontWeight:800,fontSize:12,marginBottom:10,color:"var(--text)"}}>Próximos vencimentos</div>
+            {proximosVencimentos.length===0?<div style={{fontSize:11,color:"#94a3b8"}}>Nada pendente por perto.</div>:
+              proximosVencimentos.map(v=>(
+                <div key={v.obrKey} style={{padding:"6px 0",borderTop:"1px solid var(--border)",fontSize:10.5}}>
+                  <div style={{fontWeight:800,color:"var(--text)"}}>{v.empresa}</div>
+                  <div style={{color:"#64748b"}}>{v.obrigacao} · {v.prazo||"sem prazo"} {v.dias!=null&&(v.dias<0?<span style={{color:"#dc2626",fontWeight:700}}>({Math.abs(v.dias)}d atraso)</span>:<span style={{color:v.dias<=3?"#d97706":"#94a3b8"}}>({v.dias}d)</span>)}</div>
+                  <div style={{display:"flex",gap:6,marginTop:3}}>
+                    {!v.responsavel&&canEditGeral&&<button onClick={()=>{updateMeta(prev=>({...prev,responsaveis:{...(prev.responsaveis||{}),[v.empKey]:userName||"Equipe"}}),true);toast("👤 Responsável atribuído!","ok");}} style={{fontSize:9,fontWeight:700,color:"#6366f1",background:"none",border:"none",cursor:"pointer",fontFamily:"inherit"}}>Atribuir responsável</button>}
+                    <button onClick={()=>{setSomenteAtrasadas(v.dias<0);setBusca(v.empresa);}} style={{fontSize:9,fontWeight:700,color:"#0ea5e9",background:"none",border:"none",cursor:"pointer",fontFamily:"inherit"}}>Ver competência</button>
+                  </div>
+                </div>
+              ))}
+          </div>
+          <div style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:12,padding:14}}>
+            <div style={{fontWeight:800,fontSize:12,marginBottom:8,color:"var(--text)"}}>Resumo geral</div>
+            {[["Empresas",kpis.totalEmpresas],["Obrigações",kpis.totalObrig],["Concluídas",kpis.concluidas+" ("+(kpis.totalObrig?Math.round(kpis.concluidas/kpis.totalObrig*100):0)+"%)"],["Pendentes",kpis.pendentes],["Atrasadas",kpis.atrasadas]].map(([l,v])=>(
+              <div key={l} style={{display:"flex",justifyContent:"space-between",fontSize:11,padding:"3px 0",color:"#64748b"}}><span>{l}</span><span style={{fontWeight:800,color:"var(--text)"}}>{v}</span></div>
+            ))}
+          </div>
+        </div>
       </div>
 
-      {modoView==="mensal"?viewMensal():viewEmpresa()}
+      {/* Barra de ações em massa */}
+      {selectedEmpresas.size>0&&canAcoesMassa&&(
+        <div style={{position:"fixed",left:"50%",transform:"translateX(-50%)",bottom:18,zIndex:60,background:"var(--bg2)",border:"1px solid var(--border)",boxShadow:"0 8px 30px rgba(0,0,0,.18)",borderRadius:14,padding:"10px 16px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",maxWidth:"92vw"}}>
+          <div style={{fontSize:12,fontWeight:800,color:"var(--text)"}}>{selectedEmpresas.size} empresa{selectedEmpresas.size!==1?"s":""} selecionada{selectedEmpresas.size!==1?"s":""} — {obrigacoesSelecionadasCount} obrigações</div>
+          <button onClick={()=>setMassModal({tipo:"responsavel"})} style={{padding:"6px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg)",color:"var(--text)",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>👤 Atribuir responsável</button>
+          <button onClick={()=>setMassModal({tipo:"status"})} style={{padding:"6px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg)",color:"var(--text)",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>🔄 Alterar status</button>
+          <button onClick={()=>setMassModal({tipo:"marcador"})} style={{padding:"6px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg)",color:"var(--text)",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>🏷️ Marcador</button>
+          <button onClick={()=>exportCSV("selecao")} style={{padding:"6px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg)",color:"var(--text)",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>📥 Exportar seleção</button>
+          <button onClick={clearSelecao} style={{padding:"6px 10px",borderRadius:8,border:"none",background:"transparent",color:"#94a3b8",fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>✕ Limpar seleção</button>
+        </div>
+      )}
+
+      {massModal&&(
+        <MassActionModal massModal={massModal} massForm={massForm} setMassForm={setMassForm} setMassModal={setMassModal}
+          empresasSelecionadasObjs={empresasSelecionadasObjs} obrigacoesSelecionadasCount={obrigacoesSelecionadasCount}
+          competencia={competencia} confirmarAcaoMassa={confirmarAcaoMassa} STATUS_DEFS={STATUS_DEFS}/>
+      )}
+
+      {drawer&&(
+        <ObrigacaoDrawer drawer={drawer} fecharDrawer={fecharDrawer} SS={SS} canEditGeral={canEditGeral}
+          getChecklist={getChecklist} toggleChecklistItem={toggleChecklistItem}
+          setStatusOverride={setStatusOverride} limparStatusOverride={limparStatusOverride}
+          getObrResponsavel={getObrResponsavel} setObrResponsavel={setObrResponsavel}
+          comments={meta.comments?.[drawer.obrKey]||[]} addComentario={addComentario}
+          attachments={meta.attachments?.[drawer.obrKey]||[]} addAnexo={addAnexo}
+          auditLog={(meta.auditLog||[]).filter(a=>a.desc.includes(drawer.empU.nome))}
+          userName={userName} MESES_FULL={MESES_FULL}/>
+      )}
+
+      {grupoConfig&&(
+        <GrupoConfigModal grupoConfig={grupoConfig} grupoConfigTab={grupoConfigTab} setGrupoConfigTab={setGrupoConfigTab}
+          grupoConfigDraft={grupoConfigDraft} setGrupoConfigDraft={setGrupoConfigDraft}
+          salvarConfigGrupo={salvarConfigGrupo} setGrupoConfig={setGrupoConfig}
+          todosResponsaveis={todosResponsaveis} roleLabel={roleLabel}
+          auditLog={(meta.auditLog||[]).filter(a=>a.desc.includes(grupoConfig.nome))}/>
+      )}
+    </div>
+  );
+}
+function GroupMenu({grupo,canConfigurarGrupo,abrirConfigGrupo,exportCSV,setGrupFiltroTmp}){
+  const [open,setOpen]=React.useState(false);
+  return(
+    <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
+      <button onClick={()=>setOpen(v=>!v)} style={{background:"none",border:"none",cursor:"pointer",fontSize:16,color:"#94a3b8",width:26,height:26}}>⋮</button>
+      {open&&(
+        <>
+          <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:40}}/>
+          <div style={{position:"absolute",right:0,top:28,zIndex:41,background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:10,boxShadow:"0 8px 24px rgba(0,0,0,.15)",minWidth:180,overflow:"hidden"}}>
+            {canConfigurarGrupo&&<button onClick={()=>{setOpen(false);abrirConfigGrupo(grupo);}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 14px",background:"none",border:"none",cursor:"pointer",fontSize:12,color:"var(--text)",fontFamily:"inherit"}}>⚙️ Configurar grupo</button>}
+            <button onClick={()=>{setOpen(false);setGrupFiltroTmp();}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 14px",background:"none",border:"none",cursor:"pointer",fontSize:12,color:"var(--text)",fontFamily:"inherit"}}>📥 Exportar este grupo</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function MassActionModal({massModal,massForm,setMassForm,setMassModal,empresasSelecionadasObjs,obrigacoesSelecionadasCount,competencia,confirmarAcaoMassa,STATUS_DEFS}){
+  const titulo={responsavel:"👤 Atribuir responsável em massa",status:"🔄 Alterar status em massa",marcador:"🏷️ Adicionar marcador em massa"}[massModal.tipo];
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(15,23,42,.55)",zIndex:80,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setMassModal(null)}>
+      <div style={{background:"var(--bg2)",borderRadius:16,padding:22,maxWidth:460,width:"100%",boxShadow:"0 20px 60px rgba(0,0,0,.3)"}} onClick={e=>e.stopPropagation()}>
+        <div style={{fontSize:16,fontWeight:900,marginBottom:6,color:"var(--text)"}}>{titulo}</div>
+        <div style={{background:"#fef3c7",color:"#92400e",border:"1px solid #fde68a",borderRadius:8,padding:"8px 10px",fontSize:11,marginBottom:14}}>⚠️ Esta ação será registrada no histórico de auditoria.</div>
+        <div style={{background:"var(--bg3)",borderRadius:10,padding:"10px 12px",marginBottom:14,fontSize:12,color:"var(--text)"}}>
+          Você está alterando <b>{empresasSelecionadasObjs.length}</b> empresa{empresasSelecionadasObjs.length!==1?"s":""} e <b>{obrigacoesSelecionadasCount}</b> obrigaç{obrigacoesSelecionadasCount!==1?"ões":"ão"} da competência <b>{competencia}</b>.
+        </div>
+        {massModal.tipo==="responsavel"&&(
+          <input autoFocus value={massForm.responsavel} onChange={e=>setMassForm(f=>({...f,responsavel:e.target.value}))} placeholder="Nome do novo responsável"
+            style={{width:"100%",padding:"9px 11px",borderRadius:9,border:"1px solid var(--border)",fontSize:13,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)",marginBottom:14}}/>
+        )}
+        {massModal.tipo==="status"&&(
+          <select value={massForm.status} onChange={e=>setMassForm(f=>({...f,status:e.target.value}))}
+            style={{width:"100%",padding:"9px 11px",borderRadius:9,border:"1px solid var(--border)",fontSize:13,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)",marginBottom:14}}>
+            {Object.entries(STATUS_DEFS).filter(([k])=>k!=="pendente").map(([k,v])=><option key={k} value={k}>{v.ic} {v.txt}</option>)}
+          </select>
+        )}
+        {massModal.tipo==="marcador"&&(
+          <input autoFocus value={massForm.marcador} onChange={e=>setMassForm(f=>({...f,marcador:e.target.value}))} placeholder="Ex: Cliente prioritário"
+            style={{width:"100%",padding:"9px 11px",borderRadius:9,border:"1px solid var(--border)",fontSize:13,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)",marginBottom:14}}/>
+        )}
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+          <button onClick={()=>setMassModal(null)} style={{padding:"9px 16px",borderRadius:9,border:"1px solid var(--border)",background:"var(--bg)",color:"var(--text)",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Cancelar</button>
+          <button onClick={confirmarAcaoMassa} style={{padding:"9px 18px",borderRadius:9,border:"none",background:"#6366f1",color:"#fff",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>✓ Confirmar alteração</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ObrigacaoDrawer({drawer,fecharDrawer,SS,canEditGeral,getChecklist,toggleChecklistItem,setStatusOverride,limparStatusOverride,getObrResponsavel,setObrResponsavel,comments,addComentario,attachments,addAnexo,auditLog,userName,MESES_FULL}){
+  const[comentTxt,setComentTxt]=React.useState("");
+  const s=SS(drawer.status);
+  const respAtual=getObrResponsavel(drawer.obrKey,drawer.empU.responsavel);
+  const[respDraft,setRespDraft]=React.useState(respAtual);
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:90,display:"flex",justifyContent:"flex-end"}}>
+      <div onClick={fecharDrawer} style={{position:"absolute",inset:0,background:"rgba(15,23,42,.45)"}}/>
+      <div style={{position:"relative",width:420,maxWidth:"92vw",height:"100%",background:"var(--bg2)",boxShadow:"-8px 0 30px rgba(0,0,0,.2)",overflowY:"auto",padding:20}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
+          <div style={{fontSize:11,color:"#94a3b8"}}>{drawer.grupoNome} / {drawer.empU.nome}</div>
+          <button onClick={fecharDrawer} style={{background:"none",border:"none",cursor:"pointer",fontSize:18,color:"#94a3b8"}}>×</button>
+        </div>
+        <div style={{fontSize:17,fontWeight:900,color:"var(--text)",marginBottom:4}}>{drawer.label}</div>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
+          <span style={{display:"inline-flex",alignItems:"center",gap:4,background:s.bg,color:s.c,border:"1px solid "+s.bd,padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:800}}>{s.ic} {s.txt}</span>
+          <span style={{fontSize:11,color:"#94a3b8"}}>{drawer.mod.icon} {drawer.mod.label} · vence {drawer.prazoStr||"—"}</span>
+        </div>
+
+        {drawer.status==="atrasado"&&(
+          <div style={{background:"#fef2f2",border:"1px solid #fca5a5",borderRadius:10,padding:"9px 12px",marginBottom:14,fontSize:11,color:"#991b1b"}}>
+            <b>Próxima ação recomendada:</b> atribua um responsável e registre a justificativa do atraso.
+          </div>
+        )}
+
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:11,fontWeight:800,color:"#64748b",marginBottom:5}}>RESPONSÁVEL</div>
+          {canEditGeral?(
+            <div style={{display:"flex",gap:6}}>
+              <input value={respDraft} onChange={e=>setRespDraft(e.target.value)} placeholder="Nome do responsável"
+                style={{flex:1,padding:"7px 10px",borderRadius:8,border:"1px solid var(--border)",fontSize:12,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}/>
+              <button onClick={()=>setObrResponsavel(drawer.obrKey,respDraft)} style={{padding:"7px 12px",borderRadius:8,border:"none",background:"#6366f1",color:"#fff",fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>Salvar</button>
+            </div>
+          ):<div style={{fontSize:12,color:"var(--text)"}}>{respAtual||"—"}</div>}
+        </div>
+
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:11,fontWeight:800,color:"#64748b",marginBottom:5}}>ALTERAR STATUS</div>
+          {canEditGeral?(
+            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+              {["nao-iniciado","em-andamento","aguardando","concluido","bloqueado","nao-se-aplica"].map(st=>{
+                const sd=SS(st);
+                return<button key={st} onClick={()=>setStatusOverride(drawer.obrKey,st,`${userName||"Usuário"} alterou o status de "${drawer.label}" (${drawer.empU.nome}) para "${sd.txt}".`)}
+                  style={{padding:"4px 9px",borderRadius:16,border:"1px solid "+sd.bd,background:drawer.status===st?sd.bg:"var(--bg)",color:sd.c,fontSize:10,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>{sd.ic} {sd.txt}</button>;
+              })}
+              <button onClick={()=>limparStatusOverride(drawer.obrKey)} title="Voltar ao status automático" style={{padding:"4px 9px",borderRadius:16,border:"1px dashed var(--border)",background:"transparent",color:"#94a3b8",fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>↺ Automático</button>
+            </div>
+          ):<div style={{fontSize:11,color:"#94a3b8"}}>🔒 Consulta — sem permissão para alterar.</div>}
+        </div>
+
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:11,fontWeight:800,color:"#64748b",marginBottom:5}}>CHECKLIST</div>
+          {getChecklist(drawer.obrKey).map(it=>(
+            <label key={it.id} style={{display:"flex",alignItems:"center",gap:8,padding:"4px 0",fontSize:12,color:it.done?"#16a34a":"var(--text)",cursor:canEditGeral?"pointer":"default"}}>
+              <input type="checkbox" checked={it.done} disabled={!canEditGeral} onChange={()=>toggleChecklistItem(drawer.obrKey,it.id)}/>
+              <span style={{textDecoration:it.done?"line-through":"none"}}>{it.label}</span>
+            </label>
+          ))}
+        </div>
+
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:11,fontWeight:800,color:"#64748b",marginBottom:5}}>ANEXOS</div>
+          {attachments.length===0&&<div style={{fontSize:11,color:"#94a3b8",marginBottom:6}}>Nenhum anexo.</div>}
+          {attachments.map(a=>(
+            <div key={a.id} style={{fontSize:11,color:"var(--text)",padding:"3px 0"}}>📎 {a.name} <span style={{color:"#94a3b8"}}>— {a.addedBy}</span></div>
+          ))}
+          {canEditGeral&&<button onClick={()=>{const n=window.prompt("Nome do arquivo:");if(n)addAnexo(drawer.obrKey,n);}} style={{marginTop:4,padding:"5px 10px",borderRadius:7,border:"1px dashed var(--border)",background:"transparent",color:"#6366f1",fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>+ Adicionar arquivo</button>}
+        </div>
+
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:11,fontWeight:800,color:"#64748b",marginBottom:5}}>COMENTÁRIOS</div>
+          {comments.length===0&&<div style={{fontSize:11,color:"#94a3b8",marginBottom:6}}>Nenhum comentário ainda.</div>}
+          {comments.map(c=>(
+            <div key={c.id} style={{background:"var(--bg3)",borderRadius:8,padding:"6px 9px",marginBottom:5}}>
+              <div style={{fontSize:10,fontWeight:800,color:"var(--text)"}}>{c.author} <span style={{color:"#94a3b8",fontWeight:500}}>· {new Date(c.createdAt).toLocaleString("pt-BR")}</span></div>
+              <div style={{fontSize:11,color:"var(--text)"}}>{c.text}</div>
+            </div>
+          ))}
+          {canEditGeral&&(
+            <div style={{display:"flex",gap:6,marginTop:6}}>
+              <input value={comentTxt} onChange={e=>setComentTxt(e.target.value)} placeholder="Adicionar comentário…"
+                onKeyDown={e=>{if(e.key==="Enter"&&comentTxt.trim()){addComentario(drawer.obrKey,comentTxt);setComentTxt("");}}}
+                style={{flex:1,padding:"7px 10px",borderRadius:8,border:"1px solid var(--border)",fontSize:12,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}/>
+              <button onClick={()=>{if(comentTxt.trim()){addComentario(drawer.obrKey,comentTxt);setComentTxt("");}}} style={{padding:"7px 12px",borderRadius:8,border:"none",background:"#6366f1",color:"#fff",fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>➤</button>
+            </div>
+          )}
+        </div>
+
+        <div>
+          <div style={{fontSize:11,fontWeight:800,color:"#64748b",marginBottom:5}}>HISTÓRICO DE ALTERAÇÕES</div>
+          {auditLog.length===0&&<div style={{fontSize:11,color:"#94a3b8"}}>Sem histórico registrado ainda.</div>}
+          {auditLog.slice(0,12).map(a=>(
+            <div key={a.id} style={{fontSize:10.5,color:"var(--text)",padding:"4px 0",borderTop:"1px solid var(--border)"}}>
+              <span style={{color:"#94a3b8"}}>{new Date(a.ts).toLocaleString("pt-BR")}</span> — {a.desc}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GrupoConfigModal({grupoConfig,grupoConfigTab,setGrupoConfigTab,grupoConfigDraft,setGrupoConfigDraft,salvarConfigGrupo,setGrupoConfig,todosResponsaveis,roleLabel,auditLog}){
+  const TABS=[["dados","Dados do grupo"],["empresas","Empresas vinculadas"],["regras","Regras"],["responsaveis","Responsáveis"],["calendario","Calendário"],["permissoes","Permissões"],["historico","Histórico"]];
+  const RegraToggle=({k,label,hint})=>(
+    <label style={{display:"flex",alignItems:"flex-start",gap:10,padding:"8px 0",cursor:"pointer"}}>
+      <input type="checkbox" checked={!!grupoConfigDraft.regras[k]} onChange={()=>setGrupoConfigDraft(d=>({...d,regras:{...d.regras,[k]:!d.regras[k]}}))} style={{marginTop:3}}/>
+      <div><div style={{fontSize:12,fontWeight:700,color:"var(--text)"}}>{label}</div><div style={{fontSize:10.5,color:"#94a3b8"}}>{hint}</div></div>
+    </label>
+  );
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(15,23,42,.55)",zIndex:85,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setGrupoConfig(null)}>
+      <div style={{background:"var(--bg2)",borderRadius:16,maxWidth:640,width:"100%",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:"0 20px 60px rgba(0,0,0,.3)"}} onClick={e=>e.stopPropagation()}>
+        <div style={{padding:"18px 22px 0"}}>
+          <div style={{fontSize:11,color:"#94a3b8"}}>Grupos e Empresas / {grupoConfig.nome}</div>
+          <div style={{fontSize:18,fontWeight:900,color:"var(--text)",marginBottom:10}}>⚙️ Configurar grupo empresarial</div>
+          <div style={{display:"flex",gap:4,borderBottom:"1px solid var(--border)",overflowX:"auto"}}>
+            {TABS.map(([id,label])=>(
+              <button key={id} onClick={()=>setGrupoConfigTab(id)} style={{padding:"8px 12px",background:"none",border:"none",borderBottom:grupoConfigTab===id?"2px solid #6366f1":"2px solid transparent",color:grupoConfigTab===id?"#6366f1":"#94a3b8",fontWeight:700,fontSize:11.5,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{label}</button>
+            ))}
+          </div>
+        </div>
+        <div style={{padding:"16px 22px",overflowY:"auto",flex:1}}>
+          {grupoConfigTab==="dados"&&(
+            <div>
+              <div style={{fontSize:11,fontWeight:800,color:"#64748b",marginBottom:5}}>DESCRIÇÃO</div>
+              <textarea value={grupoConfigDraft.descricao} onChange={e=>setGrupoConfigDraft(d=>({...d,descricao:e.target.value}))} rows={3} maxLength={200}
+                placeholder="Ex: Grupo de empresas atendidas pela equipe fiscal"
+                style={{width:"100%",padding:"9px 11px",borderRadius:9,border:"1px solid var(--border)",fontSize:12,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)",resize:"vertical"}}/>
+              <div style={{fontSize:10,color:"#94a3b8",textAlign:"right",marginTop:2}}>{(grupoConfigDraft.descricao||"").length}/200</div>
+              <div style={{marginTop:14,display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}>
+                <div style={{background:"var(--bg3)",borderRadius:10,padding:"10px 12px"}}><div style={{fontSize:18,fontWeight:900,color:"var(--text)"}}>{grupoConfig.empresas.length}</div><div style={{fontSize:10,color:"#94a3b8"}}>empresas vinculadas</div></div>
+                <div style={{background:"var(--bg3)",borderRadius:10,padding:"10px 12px"}}><div style={{fontSize:18,fontWeight:900,color:"var(--text)"}}>{grupoConfig.total}</div><div style={{fontSize:10,color:"#94a3b8"}}>obrigações na competência</div></div>
+              </div>
+            </div>
+          )}
+          {grupoConfigTab==="empresas"&&(
+            <div>
+              <div style={{fontSize:11,color:"#94a3b8",marginBottom:10,background:"var(--bg3)",padding:"8px 10px",borderRadius:8}}>ℹ️ O vínculo de cada empresa ao grupo é definido no módulo de origem (Contábil, Tributário ou Pessoal). Aqui você vê as empresas já consolidadas neste grupo.</div>
+              {grupoConfig.empresas.map(e=>(
+                <div key={e.key} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderTop:"1px solid var(--border)"}}>
+                  <span style={{fontWeight:700,fontSize:12,color:"var(--text)",flex:1}}>{e.nome}</span>
+                  <span style={{fontSize:10,color:"#94a3b8"}}>{e.cnpj||"—"}</span>
+                  <span style={{fontSize:10,background:"#6366f118",color:"#6366f1",padding:"2px 8px",borderRadius:10,fontWeight:700}}>{e.regime||"—"}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {grupoConfigTab==="regras"&&(
+            <div>
+              <RegraToggle k="compartilharResponsaveis" label="Compartilhar responsáveis" hint="Responsáveis do grupo terão acesso às empresas vinculadas."/>
+              <RegraToggle k="aplicarCalendario" label="Aplicar calendário de obrigações do grupo" hint="Usar o calendário do grupo como padrão nas empresas."/>
+              <RegraToggle k="consolidarIndicadores" label="Consolidar indicadores no relatório" hint="Exibir métricas consolidadas no painel e relatórios."/>
+              <RegraToggle k="permitirAcoesMassa" label="Permitir ações em massa" hint="Habilitar ações em lote para empresas do grupo."/>
+            </div>
+          )}
+          {grupoConfigTab==="responsaveis"&&(
+            <div>
+              <div style={{fontSize:11,fontWeight:800,color:"#64748b",marginBottom:5}}>RESPONSÁVEL PRINCIPAL DO GRUPO</div>
+              <input list="resp-list" value={grupoConfigDraft.responsavelPrincipal} onChange={e=>setGrupoConfigDraft(d=>({...d,responsavelPrincipal:e.target.value}))}
+                placeholder="Ex: Equipe Fiscal" style={{width:"100%",padding:"9px 11px",borderRadius:9,border:"1px solid var(--border)",fontSize:12,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}/>
+              <datalist id="resp-list">{todosResponsaveis.map(r=><option key={r} value={r}/>)}</datalist>
+              <div style={{fontSize:10.5,color:"#94a3b8",marginTop:6}}>Usado como responsável padrão de empresas que ainda não têm um responsável individual definido.</div>
+            </div>
+          )}
+          {grupoConfigTab==="calendario"&&(
+            <div>
+              <div style={{fontSize:11,color:"#94a3b8",marginBottom:10,background:"var(--bg3)",padding:"8px 10px",borderRadius:8}}>ℹ️ O calendário padrão (tipos de obrigação e módulos) é definido em cada módulo de origem. Exceções pontuais podem ser registradas diretamente na obrigação, através do drawer.</div>
+              {grupoConfig.empresas[0]&&grupoConfig.empresas[0].obrigacoes.map(o=>(
+                <div key={o.obrKey} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderTop:"1px solid var(--border)",fontSize:11.5}}>
+                  <span style={{color:"var(--text)",fontWeight:600}}>{o.label}</span>
+                  <span style={{color:"#94a3b8"}}>{o.mod.icon} {o.mod.label}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {grupoConfigTab==="permissoes"&&(
+            <div>
+              <div style={{fontSize:11,color:"#94a3b8",marginBottom:10}}>Seu papel atual nesta tela: <b style={{color:"var(--text)"}}>{roleLabel}</b></div>
+              <table style={{width:"100%",fontSize:11,borderCollapse:"collapse"}}>
+                <thead><tr style={{color:"#94a3b8",textAlign:"left"}}><th style={{padding:"4px 0"}}>Nível de acesso</th><th>Configurar grupo</th><th>Editar dados</th><th>Ações em massa</th></tr></thead>
+                <tbody>
+                  {[["Administrador","✅","✅","✅"],["Gestor","🚫","✅","✅"],["Consulta","🚫","🚫","🚫"]].map(r=>(
+                    <tr key={r[0]} style={{borderTop:"1px solid var(--border)"}}><td style={{padding:"5px 0",fontWeight:700,color:"var(--text)"}}>{r[0]}</td><td>{r[1]}</td><td>{r[2]}</td><td>{r[3]}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {grupoConfigTab==="historico"&&(
+            <div>
+              {auditLog.length===0&&<div style={{fontSize:11,color:"#94a3b8"}}>Nenhuma alteração registrada para este grupo ainda.</div>}
+              {auditLog.slice(0,30).map(a=>(
+                <div key={a.id} style={{fontSize:11,padding:"6px 0",borderTop:"1px solid var(--border)",color:"var(--text)"}}>
+                  <span style={{color:"#94a3b8"}}>{new Date(a.ts).toLocaleString("pt-BR")}</span> — {a.desc}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div style={{padding:"14px 22px",borderTop:"1px solid var(--border)",display:"flex",justifyContent:"flex-end",gap:8}}>
+          <button onClick={()=>setGrupoConfig(null)} style={{padding:"9px 16px",borderRadius:9,border:"1px solid var(--border)",background:"var(--bg)",color:"var(--text)",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Cancelar</button>
+          <button onClick={salvarConfigGrupo} style={{padding:"9px 18px",borderRadius:9,border:"none",background:"#6366f1",color:"#fff",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>💾 Salvar alterações</button>
+        </div>
+      </div>
     </div>
   );
 }

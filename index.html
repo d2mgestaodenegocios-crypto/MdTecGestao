@@ -8917,7 +8917,7 @@ function ContabilPage({toast,data}){
       )}
 
       {/* Abas: Visão Rápida + uma aba por grupo — fixo no topo mesmo rolando a tela */}
-      <div style={{position:"sticky",top:0,zIndex:30,background:"var(--bg)",paddingTop:6,paddingBottom:8,marginBottom:10,borderBottom:"1px solid var(--border)"}}>
+      <div style={{position:"sticky",top:"var(--topbar-h,86px)",zIndex:30,background:"var(--bg)",paddingTop:6,paddingBottom:8,marginBottom:10,borderBottom:"1px solid var(--border)"}}>
         <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
           <div style={{display:"flex",gap:6,overflowX:"auto",flex:1}}>
             <button onClick={()=>setAbaAtivaC("rapida")} style={{padding:"7px 14px",borderRadius:9,border:"1.5px solid "+(abaAtivaC==="rapida"?"#f59e0b":"var(--border)"),background:abaAtivaC==="rapida"?"#f59e0b":"var(--bg2)",color:abaAtivaC==="rapida"?"#fff":"#64748b",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",flexShrink:0}}>⚡ Visão Rápida</button>
@@ -11698,7 +11698,7 @@ function makePageComponent(PAGE_CFG){
           ))}
         </div>
         {/* Abas: Visão Rápida + uma aba por grupo — fica fixo no topo mesmo rolando a tela */}
-        <div style={{position:"sticky",top:0,zIndex:30,background:"var(--bg)",paddingTop:6,paddingBottom:8,marginBottom:10,borderBottom:"1px solid var(--border)"}}>
+        <div style={{position:"sticky",top:"var(--topbar-h,86px)",zIndex:30,background:"var(--bg)",paddingTop:6,paddingBottom:8,marginBottom:10,borderBottom:"1px solid var(--border)"}}>
           <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
             <div style={{display:"flex",gap:6,overflowX:"auto",flex:1}}>
               <button onClick={()=>setAbaAtiva("rapida")} style={{padding:"7px 14px",borderRadius:9,border:"1.5px solid "+(abaAtiva==="rapida"?"#f59e0b":"var(--border)"),background:abaAtiva==="rapida"?"#f59e0b":"var(--bg2)",color:abaAtiva==="rapida"?"#fff":"#64748b",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",flexShrink:0}}>⚡ Visão Rápida</button>

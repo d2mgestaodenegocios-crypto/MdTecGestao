@@ -11699,7 +11699,15 @@ function makePageComponent(PAGE_CFG){
                   }
                   return(
                     <div key={emp.id}
-                      onClick={()=>{toggleEmpExp(emp.id);setAbaAnoMap(m=>({...m,[emp.id]:anoRef}));const t=document.getElementById("emp-row-"+emp.id);if(t)setTimeout(()=>t.scrollIntoView({behavior:"smooth",block:"center"}),120);}}
+                      onClick={()=>{
+                        // Abre o grupo raiz da empresa (mesmo que ela esteja num subgrupo) e expande a linha dela
+                        const gDireto=grupos.find(g=>g.id===emp.grupoId);
+                        const rootId=gDireto?(gDireto.parentId||gDireto.id):null;
+                        if(rootId!=null)setGrpOpen(p=>({...p,[rootId]:true}));
+                        setExpandedEmps(prev=>new Set(prev).add(emp.id));
+                        setAbaAnoMap(m=>({...m,[emp.id]:anoRef}));
+                        setTimeout(()=>{const t=document.getElementById("emp-row-"+emp.id);if(t)t.scrollIntoView({behavior:"smooth",block:"center"});},180);
+                      }}
                       style={{display:"grid",gridTemplateColumns:GRID,columnGap:8,alignItems:"center",padding:"7px 8px",borderRadius:0,cursor:"pointer",borderBottom:"1px solid rgba(0,0,0,.04)",transition:"background .12s"}}
                       onMouseEnter={e=>e.currentTarget.style.background="rgba(99,102,241,.06)"}
                       onMouseLeave={e=>e.currentTarget.style.background="transparent"}
@@ -12247,7 +12255,7 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName}){
   const saveMeta=React.useCallback((next,immediate)=>{
     try{localStorage.setItem("mdtec_grupos_meta_v1",JSON.stringify(next));}catch(e){}
     if(metaSaveTimer.current)clearTimeout(metaSaveTimer.current);
-    const run=()=>{sb.from("app_data").upsert({id:META_ROW_ID,payload:{...next,_savedAt:Date.now()}}).catch(()=>{});};
+    const run=async()=>{try{await sb.from("app_data").upsert({id:META_ROW_ID,payload:{...next,_savedAt:Date.now()}});}catch(e){}};
     if(immediate)run();else metaSaveTimer.current=setTimeout(run,500);
   },[]);
 
@@ -12373,7 +12381,10 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName}){
   React.useEffect(()=>{try{localStorage.setItem("mdtec_grp_densidade",densidade);}catch(e){}},[densidade]);
   const padY=densidade==="compact"?5:densidade==="ample"?11:7;
 
-  const limparFiltros=()=>{setBusca("");setGrupFiltro("todos");setStatusFiltro("todos");setRespFiltro("todos");setSomenteAtrasadas(false);};
+  // ── Modo de visão: competência específica ou acumulado (evita "0%" só porque o mês selecionado ainda não começou) ──
+  const [modoVisao,setModoVisao]=React.useState(()=>{try{return localStorage.getItem("mdtec_grp_modovisao")||"acumulado";}catch(e){return"acumulado";}});
+  React.useEffect(()=>{try{localStorage.setItem("mdtec_grp_modovisao",modoVisao);}catch(e){}},[modoVisao]);
+
   const filtrosAtivos=busca||grupFiltro!=="todos"||statusFiltro!=="todos"||respFiltro!=="todos"||somenteAtrasadas;
 
   const getResponsavel=(eKey)=>meta.responsaveis?.[eKey]||"";
@@ -12409,34 +12420,11 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName}){
         const obrKey=obrKeyOf(mod.id,empU.key,mes,c.key);
         const override=meta.statusOverride?.[obrKey];
         const status=derivarStatus(valorBruto,analisado,prazoStr,override);
-        obrigacoes.push({obrKey,mod,emp,col:c,label:c.label,status,prazoStr,valorBruto,analisado});
+        obrigacoes.push({obrKey,mod,emp,col:c,label:c.label,status,prazoStr,valorBruto,analisado,mes});
       });
     });
     return obrigacoes;
   };
-
-  // ── Linhas de obrigação para a competência selecionada, por empresa unificada ──
-  const empresasComputadas=React.useMemo(()=>{
-    const out=[];
-    arvore.forEach(grupo=>{
-      const empresasArr=[];
-      grupo.empresasMap.forEach(empU=>{
-        const obrigacoes=computeObrigacoesForMes(empU,competencia);
-        const total=obrigacoes.filter(o=>o.status!=="nao-se-aplica").length;
-        const concluidas=obrigacoes.filter(o=>o.status==="concluido").length;
-        const atrasadas=obrigacoes.filter(o=>o.status==="atrasado").length;
-        const pendentes=obrigacoes.filter(o=>["nao-iniciado","em-andamento","aguardando","pendente","bloqueado"].includes(o.status)).length;
-        const progresso=total?Math.round(concluidas/total*100):0;
-        const responsavel=getResponsavel(empU.key);
-        if(canEditGeral&&!responsavel&&meta.grupoMeta?.[grupo.key]?.responsavelPrincipal){/* herda visualmente, não grava */}
-        empresasArr.push({...empU,grupoKey:grupo.key,grupoNome:grupo.nome,obrigacoes,total,concluidas,atrasadas,pendentes,progresso,
-          responsavel:responsavel||meta.grupoMeta?.[grupo.key]?.responsavelPrincipal||""});
-      });
-      empresasArr.sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR"));
-      out.push({...grupo,empresas:empresasArr});
-    });
-    return out.sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR"));
-  },[arvore,payloads,competencia,meta.statusOverride,meta.responsaveis,meta.grupoMeta]);
 
   // Lista de meses de um ano específico, respeitando o período inicial da empresa
   const mesesDoAno=(empU,ano)=>{
@@ -12447,6 +12435,38 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName}){
       return y>piY||(y===piY&&m>=piMm);
     }).map(mm=>mm+"/"+ano);
   };
+  // Meses "acumulados": do período inicial da empresa até o mês atual real (evita contar meses futuros ainda travados)
+  const mesesAcumulados=(empU,ano)=>mesesDoAno(empU,ano).filter(mes=>{
+    const[mm,aa]=mes.split("/");const m=parseInt(mm),a=parseInt(aa);
+    return a<anoAtual||(a===anoAtual&&m<=mesAtualNum);
+  });
+
+  // ── Linhas de obrigação por empresa unificada — no modo "mês" usa só a competência selecionada;
+  //     no modo "acumulado" (padrão) soma todos os meses do ano já decorridos, evitando o falso "0%" de um mês que ainda nem começou ──
+  const empresasComputadas=React.useMemo(()=>{
+    const out=[];
+    arvore.forEach(grupo=>{
+      const empresasArr=[];
+      grupo.empresasMap.forEach(empU=>{
+        const mesesAlvo=modoVisao==="acumulado"?mesesAcumulados(empU,compAno):[competencia];
+        const obrigacoes=mesesAlvo.length?mesesAlvo.flatMap(m=>computeObrigacoesForMes(empU,m)):computeObrigacoesForMes(empU,competencia);
+        const obrigacoesMesAtual=modoVisao==="acumulado"?computeObrigacoesForMes(empU,competencia):obrigacoes;
+        const total=obrigacoes.filter(o=>o.status!=="nao-se-aplica").length;
+        const concluidas=obrigacoes.filter(o=>o.status==="concluido").length;
+        const atrasadas=obrigacoes.filter(o=>o.status==="atrasado").length;
+        const pendentes=obrigacoes.filter(o=>["nao-iniciado","em-andamento","aguardando","pendente","bloqueado"].includes(o.status)).length;
+        const progresso=total?Math.round(concluidas/total*100):0;
+        const responsavel=getResponsavel(empU.key);
+        if(canEditGeral&&!responsavel&&meta.grupoMeta?.[grupo.key]?.responsavelPrincipal){/* herda visualmente, não grava */}
+        empresasArr.push({...empU,grupoKey:grupo.key,grupoNome:grupo.nome,obrigacoes,obrigacoesMesAtual,total,concluidas,atrasadas,pendentes,progresso,
+          responsavel:responsavel||meta.grupoMeta?.[grupo.key]?.responsavelPrincipal||""});
+      });
+      empresasArr.sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR"));
+      out.push({...grupo,empresas:empresasArr});
+    });
+    return out.sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR"));
+  },[arvore,payloads,competencia,compAno,modoVisao,meta.statusOverride,meta.responsaveis,meta.grupoMeta]);
+
   // ── Aplica filtros e calcula agregados por grupo ──
   const gruposFiltrados=React.useMemo(()=>{
     const buscaN=norm(busca);
@@ -12653,8 +12673,8 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName}){
   };
 
   // ── Exportação (respeita filtros, grupo, competência e seleção) ──
-  const exportCSV=(escopo)=>{
-    const alvo=escopo==="selecao"?empresasSelecionadasObjs.map(e=>({...e,grupoNome:e.grupoNome})):gruposFiltrados.flatMap(g=>g.empresas.map(e=>({...e,grupoNome:g.nome})));
+  const exportCSV=(escopo,empresasExplicit)=>{
+    const alvo=empresasExplicit||(escopo==="selecao"?empresasSelecionadasObjs.map(e=>({...e,grupoNome:e.grupoNome})):gruposFiltrados.flatMap(g=>g.empresas.map(e=>({...e,grupoNome:g.nome}))));
     const rows=[["Grupo","Empresa","CNPJ","Regime","Responsável","Competência","Obrigação","Módulo","Status","Prazo"]];
     alvo.forEach(e=>e.obrigacoes.forEach(o=>{
       rows.push([e.grupoNome,e.nome,e.cnpj||"",e.regime||"",e.responsavel||"",competencia,o.label,o.mod.label,SS(o.status).txt,o.prazoStr||""]);
@@ -12665,6 +12685,58 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName}){
     logAudit(`${userName||"Usuário"} exportou a lista (${alvo.length} empresa(s), competência ${competencia}).`);
     toast("📥 CSV exportado!","ok");
   };
+
+  // ── Exportação em PDF: abre uma versão limpa e formatada para impressão/salvar como PDF ──
+  const exportPDF=(escopo,empresasExplicit)=>{
+    const alvo=empresasExplicit||(escopo==="selecao"?empresasSelecionadasObjs:gruposFiltrados.flatMap(g=>g.empresas.map(e=>({...e,grupoNome:g.nome}))));
+    if(!alvo.length){toast("⚠️ Nada para exportar com os filtros atuais.","warn");return;}
+    const dataGer=new Date().toLocaleString("pt-BR");
+    const porGrupo={};
+    alvo.forEach(e=>{(porGrupo[e.grupoNome]=porGrupo[e.grupoNome]||[]).push(e);});
+    const linhasHtml=Object.entries(porGrupo).map(([gNome,emps])=>{
+      const linhasEmp=emps.map(e=>{
+        const obr=e.obrigacoes.map(o=>{
+          const s=SS(o.status);
+          return `<span style="display:inline-block;margin:1px 3px 1px 0;padding:2px 7px;border-radius:10px;font-size:9px;font-weight:700;background:${s.bg};color:${s.c};border:1px solid ${s.bd};">${s.ic} ${o.label}</span>`;
+        }).join("");
+        return `<tr>
+          <td style="padding:6px 8px;font-weight:700;">${e.nome}</td>
+          <td style="padding:6px 8px;color:#64748b;">${e.cnpj||"—"}</td>
+          <td style="padding:6px 8px;color:#64748b;">${e.regime||"—"}</td>
+          <td style="padding:6px 8px;color:#64748b;">${e.responsavel||"—"}</td>
+          <td style="padding:6px 8px;text-align:center;font-weight:700;">${e.concluidas}/${e.total} (${e.progresso}%)</td>
+          <td style="padding:6px 8px;">${obr}</td>
+        </tr>`;
+      }).join("");
+      const totalG=emps.reduce((s,e)=>s+e.total,0),okG=emps.reduce((s,e)=>s+e.concluidas,0),atrG=emps.reduce((s,e)=>s+e.atrasadas,0);
+      return `<h3 style="margin:22px 0 6px;font-size:14px;color:#1e293b;border-bottom:2px solid #6366f1;padding-bottom:4px;">${gNome} <span style="font-weight:400;color:#64748b;font-size:11px;">— ${emps.length} empresa(s) · ${okG}/${totalG} concluídas · ${atrG} atrasada(s)</span></h3>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;">
+        <thead><tr style="background:#f1f5f9;text-align:left;">
+          <th style="padding:6px 8px;">Empresa</th><th style="padding:6px 8px;">CNPJ</th><th style="padding:6px 8px;">Regime</th><th style="padding:6px 8px;">Responsável</th><th style="padding:6px 8px;text-align:center;">Progresso</th><th style="padding:6px 8px;">Obrigações</th>
+        </tr></thead>
+        <tbody>${linhasEmp}</tbody>
+      </table>`;
+    }).join("");
+    const html=`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"/><title>Relatório — Grupos e Empresas — ${competencia}</title>
+      <style>
+        @page{margin:1.4cm;}
+        body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#1e293b;margin:0;padding:24px;}
+        table{page-break-inside:auto;} tr{page-break-inside:avoid;}
+      </style></head><body>
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #6366f1;padding-bottom:10px;margin-bottom:6px;">
+        <div><div style="font-size:20px;font-weight:900;">📊 Gestão por grupos e empresas</div><div style="font-size:11px;color:#64748b;">Competência: <b>${MESES_FULL[compMes]}/${compAno}</b> · Gerado em ${dataGer} ${escopo==="selecao"?"· Seleção":"· Filtro aplicado"}</div></div>
+        <div style="text-align:right;font-size:11px;color:#64748b;">${kpis.totalEmpresas} empresas · ${kpis.concluidas}/${kpis.totalObrig} obrigações concluídas (${kpis.progresso}%) · ${kpis.atrasadas} atrasada(s)</div>
+      </div>
+      ${linhasHtml}
+      <div style="margin-top:26px;font-size:9px;color:#94a3b8;text-align:center;">Relatório gerado pelo MDTec Gestão.</div>
+      <script>window.onload=function(){setTimeout(function(){window.print();},250);};<\/script>
+      </body></html>`;
+    const w=window.open("","_blank");
+    if(!w){toast("⚠️ O navegador bloqueou a janela de impressão. Permita pop-ups para exportar em PDF.","err");return;}
+    w.document.open();w.document.write(html);w.document.close();
+    logAudit(`${userName||"Usuário"} exportou o relatório em PDF (${alvo.length} empresa(s), competência ${competencia}).`);
+  };
+
   const obrColsDe=(empU)=>empU.membros.flatMap(({mod,emp,acc})=>{
     const empCols=(acc.empCO[emp.id]&&acc.empCO[emp.id].length)?acc.empCO[emp.id]:acc.colsGlobal;
     return empCols.map(c=>({mod,key:c.key,label:c.label}));
@@ -12705,7 +12777,8 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName}){
             <option value="comfortable">▥ Confortável</option>
             <option value="ample">▦ Ampla</option>
           </select>
-          <button onClick={()=>exportCSV("filtro")} style={{background:"#22c55e",color:"#fff",border:"none",padding:"7px 14px",borderRadius:9,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>📥 Exportar</button>
+          <button onClick={()=>exportCSV("filtro")} style={{background:"#22c55e",color:"#fff",border:"none",padding:"7px 14px",borderRadius:9,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>📥 Exportar CSV</button>
+          <button onClick={()=>exportPDF("filtro")} style={{background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",border:"none",padding:"7px 14px",borderRadius:9,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>🖨 Exportar PDF</button>
         </div>
       </div>
 
@@ -12731,7 +12804,8 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName}){
           </div>
         ))}
       </div>
-      <div style={{fontSize:10,color:"#94a3b8",marginTop:-8,marginBottom:14}}>{kpis.concluidas} de {kpis.totalObrig} obrigações concluídas na competência selecionada.</div>
+      <div style={{fontSize:10,color:"#94a3b8",marginTop:-8,marginBottom:14}}>{kpis.concluidas} de {kpis.totalObrig} obrigações concluídas {modoVisao==="acumulado"?`— acumulado de ${compAno} até ${MESES_FULL[compMes]}`:`na competência ${MESES_FULL[compMes]}/${compAno}`}.</div>
+      {modoVisao==="acumulado"&&<div style={{fontSize:10,color:"#6366f1",marginTop:-10,marginBottom:14,fontWeight:600}}>💡 Somando todos os meses já decorridos de {compAno}. Mude para "Só este mês" para ver apenas {MESES_FULL[compMes]}/{compAno}.</div>}
 
       {/* Filtros */}
       <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:14,padding:"10px 12px",background:"var(--bg2)",borderRadius:10,border:"1px solid var(--border)",alignItems:"center"}}>
@@ -12751,6 +12825,10 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName}){
           <option value="todos">Todos os responsáveis</option>
           {todosResponsaveis.map(r=><option key={r} value={r}>{r}</option>)}
         </select>
+        <div style={{display:"flex",background:"var(--bg3)",borderRadius:8,padding:2,gap:2}} title="Como calcular o progresso">
+          <button onClick={()=>setModoVisao("acumulado")} style={{padding:"5px 9px",borderRadius:6,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"inherit",background:modoVisao==="acumulado"?"#6366f1":"transparent",color:modoVisao==="acumulado"?"#fff":"#64748b"}}>📊 Acumulado</button>
+          <button onClick={()=>setModoVisao("mes")} style={{padding:"5px 9px",borderRadius:6,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"inherit",background:modoVisao==="mes"?"#6366f1":"transparent",color:modoVisao==="mes"?"#fff":"#64748b"}}>📅 Só este mês</button>
+        </div>
         <select value={compMes} onChange={e=>setCompetencia(e.target.value+"/"+compAno)} style={{padding:"6px 9px",borderRadius:7,border:"1px solid var(--border)",fontSize:12,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}>
           {MESES_MM.map(m=><option key={m} value={m}>{MESES_FULL[m]}</option>)}
         </select>
@@ -12785,16 +12863,15 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName}){
                     <span style={{width:32,height:32,borderRadius:9,background:"#6366f122",color:"#6366f1",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:13,flexShrink:0}}>{initials(grupo.nome)}</span>
                     <div style={{minWidth:0}}>
                       <div style={{fontWeight:900,fontSize:13,color:"var(--text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={grupo.nome}>{grupo.nome}</div>
-                      <div style={{fontSize:10,color:"#94a3b8"}}>{grupo.empresas.length} empresa{grupo.empresas.length!==1?"s":""} · resp. {grupo.responsavelPrincipal}</div>
+                      <div style={{fontSize:10,color:"#94a3b8"}}>
+                        {grupo.empresas.length} empresa{grupo.empresas.length!==1?"s":""} · resp. {grupo.responsavelPrincipal}
+                        {" · "}{grupo.concluidas} concluídas{grupo.pendentes>0&&<span style={{color:"#b45309"}}> · {grupo.pendentes} pendentes</span>}
+                      </div>
                     </div>
                   </div>
-                  <div style={{display:"flex",gap:5,flexShrink:0}}>
-                    {grupo.atrasadas>0&&<span style={{background:"#fef2f2",color:"#dc2626",border:"1px solid #fca5a5",padding:"1px 7px",borderRadius:20,fontSize:10,fontWeight:800}}>⚠️ {grupo.atrasadas}</span>}
-                    {grupo.pendentes>0&&<span style={{background:"#fef9c3",color:"#854d0e",border:"1px solid #fde047",padding:"1px 7px",borderRadius:20,fontSize:10,fontWeight:800}}>⏳ {grupo.pendentes}</span>}
-                    {grupo.concluidas>0&&<span style={{background:"#d1fae5",color:"#065f46",border:"1px solid #86efac",padding:"1px 7px",borderRadius:20,fontSize:10,fontWeight:800}}>✅ {grupo.concluidas}</span>}
-                  </div>
+                  {grupo.atrasadas>0&&<span style={{flexShrink:0,color:"#dc2626",fontSize:10.5,fontWeight:800}}>⚠️ {grupo.atrasadas} atrasada{grupo.atrasadas!==1?"s":""}</span>}
                   <div style={{width:110,flexShrink:0}} onClick={e=>e.stopPropagation()}><ProgressoMini pct={grupo.progresso} frac={grupo.concluidas+" de "+grupo.total}/></div>
-                  <GroupMenu grupo={grupo} canConfigurarGrupo={canConfigurarGrupo} abrirConfigGrupo={abrirConfigGrupo} exportCSV={exportCSV} setGrupFiltroTmp={()=>{setGrupFiltro(grupo.key);exportCSV("filtro");}}/>
+                  <GroupMenu grupo={grupo} canConfigurarGrupo={canConfigurarGrupo} abrirConfigGrupo={abrirConfigGrupo} exportCSV={exportCSV} exportPDF={exportPDF}/>
                 </div>
                 {/* Empresas do grupo */}
                 {exp&&(
@@ -12812,7 +12889,18 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName}){
                           <span style={{width:26,height:26,borderRadius:8,background:"#f43f5e18",color:"#e11d48",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:10,flexShrink:0}}>{initials(empU.nome)}</span>
                           <div onClick={()=>toggleEmpresaExpand(empU.key)} style={{flex:1,minWidth:0}}>
                             <div style={{fontWeight:700,fontSize:12,color:"var(--text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={empU.nome}>{empU.nome}</div>
-                            <div style={{fontSize:10,color:"#94a3b8"}}>{empU.cnpj||"CNPJ não informado"}{empU.regime?" · "+empU.regime:""}</div>
+                            <div style={{fontSize:10,color:"#94a3b8",display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                              <span>{empU.cnpj||"CNPJ não informado"}{empU.regime?" · "+empU.regime:""}</span>
+                              {modoVisao==="acumulado"&&(()=>{
+                                const om=empU.obrigacoesMesAtual.filter(o=>o.status!=="nao-se-aplica");
+                                const okM=om.filter(o=>o.status==="concluido").length;
+                                const atrM=om.filter(o=>o.status==="atrasado").length;
+                                if(!om.length)return null;
+                                const cor=atrM>0?"#dc2626":okM===om.length?"#16a34a":"#b45309";
+                                const txt=atrM>0?`${atrM} atrasada(s) em ${MESES_NOME[compMes]}`:okM===om.length?`${MESES_NOME[compMes]} em dia`:`${okM}/${om.length} em ${MESES_NOME[compMes]}`;
+                                return<span style={{color:cor,fontWeight:800}}>· {txt}</span>;
+                              })()}
+                            </div>
                           </div>
                           <div style={{width:130,flexShrink:0,fontSize:10,color:"#64748b"}}>
                             {canEditGeral?(
@@ -12821,9 +12909,9 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName}){
                                 style={{width:"100%",padding:"3px 6px",borderRadius:6,border:"1px solid var(--border)",fontSize:10,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}/>
                             ):(empU.responsavel||"—")}
                           </div>
-                          <div style={{display:"flex",gap:4,flexShrink:0}}>
-                            {empU.atrasadas>0&&<span style={{color:"#dc2626",fontSize:10,fontWeight:800}}>⚠️ {empU.atrasadas}</span>}
-                            {empU.pendentes>0&&<span style={{color:"#854d0e",fontSize:10,fontWeight:800}}>⏳ {empU.pendentes}</span>}
+                          <div style={{display:"flex",gap:8,flexShrink:0,width:95,justifyContent:"flex-end"}}>
+                            {empU.atrasadas>0&&<span style={{color:"#dc2626",fontSize:10,fontWeight:800,whiteSpace:"nowrap"}}>⚠️ {empU.atrasadas} atr.</span>}
+                            {empU.pendentes>0&&<span style={{color:"#854d0e",fontSize:10,fontWeight:800,whiteSpace:"nowrap"}}>{empU.pendentes} pend.</span>}
                           </div>
                           <div style={{width:100,flexShrink:0}} onClick={e=>e.stopPropagation()}><ProgressoMini pct={empU.progresso}/></div>
                         </div>
@@ -12930,7 +13018,8 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName}){
           <button onClick={()=>setMassModal({tipo:"responsavel"})} style={{padding:"6px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg)",color:"var(--text)",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>👤 Atribuir responsável</button>
           <button onClick={()=>setMassModal({tipo:"status"})} style={{padding:"6px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg)",color:"var(--text)",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>🔄 Alterar status</button>
           <button onClick={()=>setMassModal({tipo:"marcador"})} style={{padding:"6px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg)",color:"var(--text)",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>🏷️ Marcador</button>
-          <button onClick={()=>exportCSV("selecao")} style={{padding:"6px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg)",color:"var(--text)",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>📥 Exportar seleção</button>
+          <button onClick={()=>exportCSV("selecao")} style={{padding:"6px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg)",color:"var(--text)",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>📥 CSV</button>
+          <button onClick={()=>exportPDF("selecao")} style={{padding:"6px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg)",color:"var(--text)",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>🖨 PDF</button>
           <button onClick={clearSelecao} style={{padding:"6px 10px",borderRadius:8,border:"none",background:"transparent",color:"#94a3b8",fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>✕ Limpar seleção</button>
         </div>
       )}
@@ -12962,17 +13051,19 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName}){
     </div>
   );
 }
-function GroupMenu({grupo,canConfigurarGrupo,abrirConfigGrupo,exportCSV,setGrupFiltroTmp}){
+function GroupMenu({grupo,canConfigurarGrupo,abrirConfigGrupo,exportCSV,exportPDF}){
   const [open,setOpen]=React.useState(false);
+  const empresasDoGrupo=grupo.empresas.map(e=>({...e,grupoNome:grupo.nome}));
   return(
     <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
       <button onClick={()=>setOpen(v=>!v)} style={{background:"none",border:"none",cursor:"pointer",fontSize:16,color:"#94a3b8",width:26,height:26}}>⋮</button>
       {open&&(
         <>
           <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:40}}/>
-          <div style={{position:"absolute",right:0,top:28,zIndex:41,background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:10,boxShadow:"0 8px 24px rgba(0,0,0,.15)",minWidth:180,overflow:"hidden"}}>
+          <div style={{position:"absolute",right:0,top:28,zIndex:41,background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:10,boxShadow:"0 8px 24px rgba(0,0,0,.15)",minWidth:190,overflow:"hidden"}}>
             {canConfigurarGrupo&&<button onClick={()=>{setOpen(false);abrirConfigGrupo(grupo);}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 14px",background:"none",border:"none",cursor:"pointer",fontSize:12,color:"var(--text)",fontFamily:"inherit"}}>⚙️ Configurar grupo</button>}
-            <button onClick={()=>{setOpen(false);setGrupFiltroTmp();}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 14px",background:"none",border:"none",cursor:"pointer",fontSize:12,color:"var(--text)",fontFamily:"inherit"}}>📥 Exportar este grupo</button>
+            <button onClick={()=>{setOpen(false);exportCSV("grupo",empresasDoGrupo);}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 14px",background:"none",border:"none",cursor:"pointer",fontSize:12,color:"var(--text)",fontFamily:"inherit"}}>📥 Exportar este grupo (CSV)</button>
+            <button onClick={()=>{setOpen(false);exportPDF("grupo",empresasDoGrupo);}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 14px",background:"none",border:"none",cursor:"pointer",fontSize:12,color:"var(--text)",fontFamily:"inherit"}}>🖨 Exportar este grupo (PDF)</button>
           </div>
         </>
       )}

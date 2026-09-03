@@ -12474,12 +12474,8 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName}){
   };
   const SS=(s)=>STATUS_DEFS[s]||STATUS_DEFS["nao-iniciado"];
 
-  // Competência única selecionada, no formato "mm/aaaa" — como no mockup ("Setembro/2026")
-  const [competencia,setCompetencia]=React.useState(()=>{
-    try{const s=localStorage.getItem("mdtec_grp_competencia");if(s)return s;}catch(e){}
-    return String(mesAtualNum).padStart(2,"0")+"/"+anoAtual;
-  });
-  React.useEffect(()=>{try{localStorage.setItem("mdtec_grp_competencia",competencia);}catch(e){}},[competencia]);
+  // Competência única selecionada, no formato "mm/aaaa" — SEMPRE abre no mês/ano atual (não fica "preso" numa escolha antiga)
+  const [competencia,setCompetencia]=React.useState(()=>String(mesAtualNum).padStart(2,"0")+"/"+anoAtual);
   const [compMes,compAno]=competencia.split("/");
 
   const [busca,setBusca]=React.useState("");
@@ -12496,7 +12492,7 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName}){
   const padY=densidade==="compact"?5:densidade==="ample"?11:7;
 
   // ── Modo de visão: competência específica ou acumulado (evita "0%" só porque o mês selecionado ainda não começou) ──
-  const [modoVisao,setModoVisao]=React.useState(()=>{try{return localStorage.getItem("mdtec_grp_modovisao")||"acumulado";}catch(e){return"acumulado";}});
+  const [modoVisao,setModoVisao]=React.useState(()=>{try{return localStorage.getItem("mdtec_grp_modovisao")||"mes";}catch(e){return"mes";}});
   React.useEffect(()=>{try{localStorage.setItem("mdtec_grp_modovisao",modoVisao);}catch(e){}},[modoVisao]);
 
   const filtrosAtivos=busca||grupFiltro!=="todos"||statusFiltro!=="todos"||respFiltro!=="todos"||somenteAtrasadas;
@@ -12920,8 +12916,8 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName}){
           </div>
         ))}
       </div>
-      <div style={{fontSize:10,color:"#94a3b8",marginTop:-8,marginBottom:14}}>{kpis.concluidas} de {kpis.totalObrig} obrigações concluídas {modoVisao==="acumulado"?`— acumulado de ${compAno} até ${MESES_FULL[compMes]}`:`na competência ${MESES_FULL[compMes]}/${compAno}`}.</div>
-      {modoVisao==="acumulado"&&<div style={{fontSize:10,color:"#6366f1",marginTop:-10,marginBottom:14,fontWeight:600}}>💡 Somando todos os meses já decorridos de {compAno}. Mude para "Só este mês" para ver apenas {MESES_FULL[compMes]}/{compAno}.</div>}
+      <div style={{fontSize:10,color:"#94a3b8",marginTop:-8,marginBottom:14}}>{kpis.concluidas} de {kpis.totalObrig} obrigações concluídas {modoVisao==="acumulado"?`— visão anual de ${compAno} (acumulado até ${MESES_FULL[compMes]})`:`na competência ${MESES_FULL[compMes]}/${compAno}`}.</div>
+      {modoVisao==="acumulado"&&<div style={{fontSize:10,color:"#6366f1",marginTop:-10,marginBottom:14,fontWeight:600}}>💡 Somando todos os meses já decorridos de {compAno}. Mude para "Mensal" para ver apenas {MESES_FULL[compMes]}/{compAno}.</div>}
 
       {/* Filtros */}
       <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:14,padding:"10px 12px",background:"var(--bg2)",borderRadius:10,border:"1px solid var(--border)",alignItems:"center"}}>
@@ -12942,8 +12938,8 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName}){
           {todosResponsaveis.map(r=><option key={r} value={r}>{r}</option>)}
         </select>
         <div style={{display:"flex",background:"var(--bg3)",borderRadius:8,padding:2,gap:2}} title="Como calcular o progresso">
-          <button onClick={()=>setModoVisao("acumulado")} style={{padding:"5px 9px",borderRadius:6,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"inherit",background:modoVisao==="acumulado"?"#6366f1":"transparent",color:modoVisao==="acumulado"?"#fff":"#64748b"}}>📊 Acumulado</button>
-          <button onClick={()=>setModoVisao("mes")} style={{padding:"5px 9px",borderRadius:6,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"inherit",background:modoVisao==="mes"?"#6366f1":"transparent",color:modoVisao==="mes"?"#fff":"#64748b"}}>📅 Só este mês</button>
+          <button onClick={()=>setModoVisao("mes")} title="Mostra o progresso apenas da competência selecionada" style={{padding:"5px 9px",borderRadius:6,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"inherit",background:modoVisao==="mes"?"#6366f1":"transparent",color:modoVisao==="mes"?"#fff":"#64748b"}}>📅 Mensal</button>
+          <button onClick={()=>setModoVisao("acumulado")} title="Soma todos os meses do ano já decorridos" style={{padding:"5px 9px",borderRadius:6,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"inherit",background:modoVisao==="acumulado"?"#6366f1":"transparent",color:modoVisao==="acumulado"?"#fff":"#64748b"}}>📊 Anual</button>
         </div>
         <select value={compMes} onChange={e=>setCompetencia(e.target.value+"/"+compAno)} style={{padding:"6px 9px",borderRadius:7,border:"1px solid var(--border)",fontSize:12,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}>
           {MESES_MM.map(m=><option key={m} value={m}>{MESES_FULL[m]}</option>)}

@@ -8742,6 +8742,19 @@ function ContabilPage({toast,data}){
   const [linkModal,setLinkModal]=useState(null);
   const getGuestLink=(grpId)=>`${window.location.origin}${window.location.pathname}?guest=1&grp=${grpId}&page=contabil`;
   const getSubgrupos=(pid)=>cGrupos.filter(g=>g.parentId===pid);
+  // ── Abas: "Visão Rápida" + uma aba por grupo ──
+  const [abaAtivaC,setAbaAtivaC]=useState(()=>{try{return localStorage.getItem("mdtec_abaativa_contabil")||"rapida";}catch(e){return"rapida";}});
+  useEffect(()=>{try{localStorage.setItem("mdtec_abaativa_contabil",abaAtivaC);}catch(e){}},[abaAtivaC]);
+  const expandirTudoC=()=>{const all={};cGrupos.forEach(g=>{all[g.id]=true;});setGrpOpen(all);setCEmpresas(prev=>prev.map(e=>({...e,expandido:true})));};
+  const recolherTudoC=()=>{setGrpOpen({});setCEmpresas(prev=>prev.map(e=>({...e,expandido:false})));};
+  const irParaEmpresaC=(emp)=>{
+    const gDireto=cGrupos.find(g=>g.id===emp.grupoId);
+    const rootId=gDireto?(gDireto.parentId||gDireto.id):null;
+    setAbaAtivaC(rootId!=null?String(rootId):"semgrupo");
+    if(rootId!=null)setGrpOpen(p=>({...p,[rootId]:true}));
+    setCEmpresas(prev=>prev.map(e=>e.id===emp.id?{...e,expandido:true}:e));
+    setTimeout(()=>{const t=document.getElementById("emp-row-"+emp.id);if(t)t.scrollIntoView({behavior:"smooth",block:"center"});},220);
+  };
 
   // ─── Selection ───────────────────────────────────────────────
   const toggleSel=(id)=>setSelectedEmps(prev=>{const n=new Set(prev);n.has(id)?n.delete(id):n.add(id);return n;});
@@ -8903,11 +8916,65 @@ function ContabilPage({toast,data}){
         </div>
       )}
 
+      {/* Abas: Visão Rápida + uma aba por grupo — fixo no topo mesmo rolando a tela */}
+      <div style={{position:"sticky",top:0,zIndex:30,background:"var(--bg)",paddingTop:6,paddingBottom:8,marginBottom:10,borderBottom:"1px solid var(--border)"}}>
+        <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+          <div style={{display:"flex",gap:6,overflowX:"auto",flex:1}}>
+            <button onClick={()=>setAbaAtivaC("rapida")} style={{padding:"7px 14px",borderRadius:9,border:"1.5px solid "+(abaAtivaC==="rapida"?"#f59e0b":"var(--border)"),background:abaAtivaC==="rapida"?"#f59e0b":"var(--bg2)",color:abaAtivaC==="rapida"?"#fff":"#64748b",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",flexShrink:0}}>⚡ Visão Rápida</button>
+            {gruposRaiz.map(g=>(
+              <button key={g.id} onClick={()=>setAbaAtivaC(String(g.id))} style={{padding:"7px 14px",borderRadius:9,border:"1.5px solid "+(abaAtivaC===String(g.id)?getGrpColor(g.id):"var(--border)"),background:abaAtivaC===String(g.id)?getGrpColor(g.id):"var(--bg2)",color:abaAtivaC===String(g.id)?"#fff":"#64748b",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",flexShrink:0}}>👥 {g.nome}</button>
+            ))}
+            {empresasFiltradas.some(e=>!e.grupoId)&&(
+              <button onClick={()=>setAbaAtivaC("semgrupo")} style={{padding:"7px 14px",borderRadius:9,border:"1.5px solid "+(abaAtivaC==="semgrupo"?"#94a3b8":"var(--border)"),background:abaAtivaC==="semgrupo"?"#94a3b8":"var(--bg2)",color:abaAtivaC==="semgrupo"?"#fff":"#64748b",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",flexShrink:0}}>Sem grupo</button>
+            )}
+          </div>
+          <div style={{display:"flex",gap:6,flexShrink:0}}>
+            <button onClick={expandirTudoC} title="Expandir tudo" style={{padding:"7px 10px",borderRadius:9,border:"1px solid var(--border)",background:"var(--bg2)",color:"#64748b",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>▥ Expandir</button>
+            <button onClick={recolherTudoC} title="Recolher tudo" style={{padding:"7px 10px",borderRadius:9,border:"1px solid var(--border)",background:"var(--bg2)",color:"#64748b",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>▤ Recolher</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Visão Rápida — empresas com meses ainda não analisados/concluídos */}
+      {abaAtivaC==="rapida"&&(()=>{
+        const hojeC=new Date();const mesAtualC=String(hojeC.getMonth()+1).padStart(2,"0")+"/"+hojeC.getFullYear();
+        const pendentesC=empresasFiltradas.map(emp=>{
+          const dadosEmp=getDadosEmp(emp.id);
+          const item=dadosEmp.find(d=>d.competencia===mesAtualC);
+          const pendente=!item||!item.analisado||!estaContab(item);
+          const okCount=item?contarOk(item):0;
+          const grpNome=emp.grupoId?(cGrupos.find(g=>g.id===emp.grupoId)?.nome||""):"";
+          return{emp,pendente,okCount,grpNome};
+        }).filter(x=>x.pendente).sort((a,b)=>a.okCount-b.okCount);
+        if(!pendentesC.length)return(
+          <div style={{marginBottom:20,padding:"18px",textAlign:"center",color:"#16a34a",fontWeight:700,fontSize:13,background:"#f0fdf4",border:"1.5px solid #86efac",borderRadius:14}}>✅ Nenhuma pendência em {mesAtualC} — tudo em dia!</div>
+        );
+        return(
+          <div style={{marginBottom:20,borderRadius:14,border:"1.5px solid #fbbf24",overflow:"hidden",background:"var(--bg2)",boxShadow:"0 2px 12px rgba(245,158,11,.10)"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",background:"linear-gradient(135deg,#fffbeb,#fef3c7)",borderBottom:"1.5px solid #fcd34d"}}>
+              <span style={{fontSize:18}}>⚡</span><span style={{fontSize:13,fontWeight:900,color:"#92400e"}}>Visão Rápida</span><span style={{fontSize:11,color:"#b45309",fontWeight:600}}>· pendências de {mesAtualC}</span>
+              <span style={{marginLeft:"auto",background:"#fef2f2",color:"#dc2626",border:"1.5px solid #fca5a5",padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:800}}>{pendentesC.length} pendente{pendentesC.length!==1?"s":""}</span>
+            </div>
+            <div style={{padding:"4px 0"}}>
+              {pendentesC.map(({emp,okCount,grpNome})=>(
+                <div key={emp.id} onClick={()=>irParaEmpresaC(emp)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 16px",cursor:"pointer",borderBottom:"1px solid rgba(0,0,0,.04)"}}
+                  onMouseEnter={e=>e.currentTarget.style.background="rgba(99,102,241,.06)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                  <span style={{fontSize:13,fontWeight:800,color:"var(--text)",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={emp.nome}>🏢 {emp.nome}</span>
+                  {grpNome&&<span style={{fontSize:10,color:"#94a3b8"}}>👥 {grpNome}</span>}
+                  <span style={{background:"#fffbeb",color:"#d97706",border:"1.5px solid #fcd34d",padding:"3px 9px",borderRadius:20,fontSize:10,fontWeight:800,whiteSpace:"nowrap"}}>{okCount}/5 itens</span>
+                  <span style={{fontSize:10,color:"#94a3b8"}}>▼</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* ── Grupos Raiz + Empresas agrupadas ── */}
-      {empresasFiltradas.length===0&&<div style={{textAlign:"center",padding:"60px",color:"#94a3b8",border:"2px dashed var(--border)",borderRadius:14,fontSize:14}}>📭 Nenhuma empresa encontrada</div>}
+      {abaAtivaC!=="rapida"&&empresasFiltradas.length===0&&<div style={{textAlign:"center",padding:"60px",color:"#94a3b8",border:"2px dashed var(--border)",borderRadius:14,fontSize:14}}>📭 Nenhuma empresa encontrada</div>}
 
       {/* Render groups section */}
-      {gruposRaiz.map(grp=>{
+      {gruposRaiz.filter(g=>abaAtivaC===String(g.id)).map(grp=>{
         const color=getGrpColor(grp.id);
         const empsGrp=empresasFiltradas.filter(e=>e.grupoId===grp.id);
         // subgrupos dentro desse grupo raiz
@@ -8959,7 +9026,7 @@ function ContabilPage({toast,data}){
       })}
 
       {/* Empresas sem grupo */}
-      {(()=>{
+      {abaAtivaC==="semgrupo"&&(()=>{
         const semGrp=empresasFiltradas.filter(e=>!e.grupoId);
         if(semGrp.length===0) return null;
         return(
@@ -9765,7 +9832,7 @@ function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgC
   const [abaAno,setAbaAno]=useState(anosComMeses[0]||ANOS[0]);
 
   return(
-    <div style={{borderBottom:isLast?"none":"1px solid var(--border)",background:isSelected?"#eff6ff":selectedEmpPanel===emp.id?"rgba(99,102,241,.06)":undefined}}>
+    <div id={"emp-row-"+emp.id} style={{borderBottom:isLast?"none":"1px solid var(--border)",background:isSelected?"#eff6ff":selectedEmpPanel===emp.id?"rgba(99,102,241,.06)":undefined}}>
       {/* Header */}
       <div style={{display:"flex",alignItems:"center",padding:indent?"11px 14px 11px 28px":"11px 14px",gap:8,transition:"background .1s",background:emp.expandido?"var(--bg2)":undefined,borderLeft:selectedEmpPanel===emp.id?"3px solid #6366f1":"3px solid transparent"}}
         onMouseEnter={e=>!batchMode&&(e.currentTarget.style.background="rgba(99,102,241,.04)")}
@@ -11331,6 +11398,20 @@ function makePageComponent(PAGE_CFG){
     const [abaAnoMap,setAbaAnoMap]=useState({});
     const getAbaAno=(eid)=>{const e=empresas.find(x=>x.id===eid);const anos=ANOS.filter(a=>getMeses(e?.periodoInicial||"01/2025").some(m=>m.endsWith("/"+a)));return abaAnoMap[eid]||anos[0]||ANOS[0];};
     const toggleEmpExp=(eid)=>setExpandedEmps(prev=>{const n=new Set(prev);n.has(eid)?n.delete(eid):n.add(eid);return n;});
+    // ── Abas: "Visão Rápida" + uma aba por grupo (em vez de tudo empilhado numa rolagem só) ──
+    const [abaAtiva,setAbaAtiva]=useState(()=>{try{return localStorage.getItem("mdtec_abaativa_"+ROW_ID)||"rapida";}catch(e){return"rapida";}});
+    useEffect(()=>{try{localStorage.setItem("mdtec_abaativa_"+ROW_ID,abaAtiva);}catch(e){}},[abaAtiva]);
+    const expandirTudo=()=>{const all={};grupos.forEach(g=>{all[g.id]=true;});setGrpOpen(all);setExpandedEmps(new Set(empresas.map(e=>e.id)));};
+    const recolherTudo=()=>{setGrpOpen({});setExpandedEmps(new Set());};
+    const irParaEmpresa=(emp,mesRef)=>{
+      const gDireto=grupos.find(g=>g.id===emp.grupoId);
+      const rootId=gDireto?(gDireto.parentId||gDireto.id):null;
+      setAbaAtiva(rootId!=null?String(rootId):"semgrupo");
+      if(rootId!=null)setGrpOpen(p=>({...p,[rootId]:true}));
+      setExpandedEmps(prev=>new Set(prev).add(emp.id));
+      if(mesRef)setAbaAnoMap(m=>({...m,[emp.id]:mesRef.split("/")[1]}));
+      setTimeout(()=>{const t=document.getElementById("emp-row-"+emp.id);if(t)t.scrollIntoView({behavior:"smooth",block:"center"});},220);
+    };
 
     // ── Side panel ───────────────────────────────────────────────
     const [selectedEmpPanel,setSelectedEmpPanel]=useState(null);
@@ -11616,8 +11697,26 @@ function makePageComponent(PAGE_CFG){
             <div key={l} style={{background:"var(--bg2)",borderRadius:12,padding:"14px",border:"1px solid var(--border)",textAlign:"center"}}><div style={{fontSize:28,fontWeight:900,color:c,lineHeight:1}}>{v}</div><div style={{fontSize:11,fontWeight:700,color:"#64748b",marginTop:4}}>{l}</div></div>
           ))}
         </div>
+        {/* Abas: Visão Rápida + uma aba por grupo — fica fixo no topo mesmo rolando a tela */}
+        <div style={{position:"sticky",top:0,zIndex:30,background:"var(--bg)",paddingTop:6,paddingBottom:8,marginBottom:10,borderBottom:"1px solid var(--border)"}}>
+          <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+            <div style={{display:"flex",gap:6,overflowX:"auto",flex:1}}>
+              <button onClick={()=>setAbaAtiva("rapida")} style={{padding:"7px 14px",borderRadius:9,border:"1.5px solid "+(abaAtiva==="rapida"?"#f59e0b":"var(--border)"),background:abaAtiva==="rapida"?"#f59e0b":"var(--bg2)",color:abaAtiva==="rapida"?"#fff":"#64748b",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",flexShrink:0}}>⚡ Visão Rápida</button>
+              {gruposRaiz.map(g=>(
+                <button key={g.id} onClick={()=>setAbaAtiva(String(g.id))} style={{padding:"7px 14px",borderRadius:9,border:"1.5px solid "+(abaAtiva===String(g.id)?getGrpColor(g.id):"var(--border)"),background:abaAtiva===String(g.id)?getGrpColor(g.id):"var(--bg2)",color:abaAtiva===String(g.id)?"#fff":"#64748b",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",flexShrink:0}}>👥 {g.nome}</button>
+              ))}
+              {empsFiltradas.some(e=>!e.grupoId)&&(
+                <button onClick={()=>setAbaAtiva("semgrupo")} style={{padding:"7px 14px",borderRadius:9,border:"1.5px solid "+(abaAtiva==="semgrupo"?"#94a3b8":"var(--border)"),background:abaAtiva==="semgrupo"?"#94a3b8":"var(--bg2)",color:abaAtiva==="semgrupo"?"#fff":"#64748b",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",flexShrink:0}}>Sem grupo</button>
+              )}
+            </div>
+            <div style={{display:"flex",gap:6,flexShrink:0}}>
+              <button onClick={expandirTudo} title="Expandir tudo" style={{padding:"7px 10px",borderRadius:9,border:"1px solid var(--border)",background:"var(--bg2)",color:"#64748b",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>▥ Expandir</button>
+              <button onClick={recolherTudo} title="Recolher tudo" style={{padding:"7px 10px",borderRadius:9,border:"1px solid var(--border)",background:"var(--bg2)",color:"#64748b",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>▤ Recolher</button>
+            </div>
+          </div>
+        </div>
         {/* Visao Rapida */}
-        {empsFiltradas.length>0&&(()=>{
+        {abaAtiva==="rapida"&&empsFiltradas.length>0&&(()=>{
           const hoje=new Date();hoje.setHours(0,0,0,0);
           const mesAtual=String(hoje.getMonth()+1).padStart(2,"0")+"/"+hoje.getFullYear();
           const parseData=(p)=>{const pts=(p||"").split("/");return pts.length===3?new Date(parseInt(pts[2]),parseInt(pts[1])-1,parseInt(pts[0])):null;};
@@ -11699,15 +11798,7 @@ function makePageComponent(PAGE_CFG){
                   }
                   return(
                     <div key={emp.id}
-                      onClick={()=>{
-                        // Abre o grupo raiz da empresa (mesmo que ela esteja num subgrupo) e expande a linha dela
-                        const gDireto=grupos.find(g=>g.id===emp.grupoId);
-                        const rootId=gDireto?(gDireto.parentId||gDireto.id):null;
-                        if(rootId!=null)setGrpOpen(p=>({...p,[rootId]:true}));
-                        setExpandedEmps(prev=>new Set(prev).add(emp.id));
-                        setAbaAnoMap(m=>({...m,[emp.id]:anoRef}));
-                        setTimeout(()=>{const t=document.getElementById("emp-row-"+emp.id);if(t)t.scrollIntoView({behavior:"smooth",block:"center"});},180);
-                      }}
+                      onClick={()=>irParaEmpresa(emp,mesPendente)}
                       style={{display:"grid",gridTemplateColumns:GRID,columnGap:8,alignItems:"center",padding:"7px 8px",borderRadius:0,cursor:"pointer",borderBottom:"1px solid rgba(0,0,0,.04)",transition:"background .12s"}}
                       onMouseEnter={e=>e.currentTarget.style.background="rgba(99,102,241,.06)"}
                       onMouseLeave={e=>e.currentTarget.style.background="transparent"}
@@ -11739,8 +11830,8 @@ function makePageComponent(PAGE_CFG){
           );
         })()}
         {/* Lista */}
-        {empsFiltradas.length===0&&<div style={{textAlign:"center",padding:"60px",color:"#94a3b8",border:"2px dashed var(--border)",borderRadius:14,fontSize:14}}>📭 Nenhuma empresa. Clique "+ Empresa" para adicionar.</div>}
-        {gruposRaiz.map(grp=>{
+        {abaAtiva!=="rapida"&&empsFiltradas.length===0&&<div style={{textAlign:"center",padding:"60px",color:"#94a3b8",border:"2px dashed var(--border)",borderRadius:14,fontSize:14}}>📭 Nenhuma empresa. Clique "+ Empresa" para adicionar.</div>}
+        {gruposRaiz.filter(g=>abaAtiva===String(g.id)).map(grp=>{
           const color=getGrpColor(grp.id);const subGrps=grupos.filter(g=>g.parentId===grp.id);
           const empsGrp=empsFiltradas.filter(e=>e.grupoId===grp.id);const allEmps=[...empsGrp,...subGrps.flatMap(sg=>empsFiltradas.filter(e=>e.grupoId===sg.id))];if(!allEmps.length)return null;
           return(<div key={grp.id} style={{marginBottom:20}}>
@@ -11758,7 +11849,7 @@ function makePageComponent(PAGE_CFG){
             </div>)}
           </div>);
         })}
-        {(()=>{const sg=empsFiltradas.filter(e=>!e.grupoId);if(!sg.length)return null;return(<div style={{marginBottom:20}}><div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 14px",background:"var(--bg3)",borderRadius:"10px 10px 0 0",border:"1px solid var(--border)",borderBottom:"none"}}><span style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".08em"}}>Sem Grupo</span><span style={{fontSize:11,color:"#94a3b8"}}>{sg.length}</span></div><div style={{border:"1px solid var(--border)",borderTop:"none",borderRadius:"0 0 10px 10px",overflow:"hidden",background:"var(--bg2)"}}>{sg.map((emp,idx)=>renderEmpRow(emp,idx===sg.length-1,false,"#94a3b8"))}</div></div>);})()}
+        {abaAtiva==="semgrupo"&&(()=>{const sg=empsFiltradas.filter(e=>!e.grupoId);if(!sg.length)return null;return(<div style={{marginBottom:20}}><div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 14px",background:"var(--bg3)",borderRadius:"10px 10px 0 0",border:"1px solid var(--border)",borderBottom:"none"}}><span style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".08em"}}>Sem Grupo</span><span style={{fontSize:11,color:"#94a3b8"}}>{sg.length}</span></div><div style={{border:"1px solid var(--border)",borderTop:"none",borderRadius:"0 0 10px 10px",overflow:"hidden",background:"var(--bg2)"}}>{sg.map((emp,idx)=>renderEmpRow(emp,idx===sg.length-1,false,"#94a3b8"))}</div></div>);})()}
         {/* MODALS */}
         <Modal open={editColsModal} onClose={()=>setEditColsModal(false)} title="✏️ Editar Colunas" width={540}>
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -12293,6 +12384,29 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName}){
     return()=>{ok=false;};
   },[]);
 
+  // ── Atualização automática: assim que alguém marca uma obrigação em Contábil/Tributário/Folha,
+  //     o relatório reflete na hora (realtime) — com fallback por broadcast (outra aba) e por polling ──
+  const [ultimaAtualizacao,setUltimaAtualizacao]=React.useState(Date.now());
+  const buscarPayload=React.useCallback(async(mod)=>{
+    try{const{data:row}=await sb.from("app_data").select("payload").eq("id",mod.rowId).maybeSingle();
+      if(row?.payload){setPayloads(prev=>({...prev,[mod.id]:row.payload}));setUltimaAtualizacao(Date.now());}
+    }catch(e){}
+  },[]);
+  React.useEffect(()=>{
+    const channels=MODULOS.map(mod=>
+      sb.channel("relgrp_"+mod.rowId).on("postgres_changes",{event:"UPDATE",schema:"public",table:"app_data",filter:`id=eq.${mod.rowId}`},
+        pl=>{if(pl.new?.payload){setPayloads(prev=>({...prev,[mod.id]:pl.new.payload}));setUltimaAtualizacao(Date.now());}}).subscribe()
+    );
+    const rowIds=new Set(MODULOS.map(m=>m.rowId));
+    const onBc=(e)=>{if(e.data?.rowId&&rowIds.has(e.data.rowId)){const mod=MODULOS.find(m=>m.rowId===e.data.rowId);if(mod)buscarPayload(mod);}};
+    if(typeof _bc!=="undefined"&&_bc)_bc.addEventListener("message",onBc);
+    const onFocus=()=>MODULOS.forEach(buscarPayload); // ao voltar para a aba, garante que está tudo em dia
+    window.addEventListener("focus",onFocus);
+    document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")onFocus();});
+    const poll=setInterval(()=>MODULOS.forEach(buscarPayload),30000); // fallback a cada 30s
+    return()=>{channels.forEach(ch=>sb.removeChannel(ch));if(typeof _bc!=="undefined"&&_bc)_bc.removeEventListener("message",onBc);window.removeEventListener("focus",onFocus);clearInterval(poll);};
+  },[buscarPayload]);
+
   const parseD=(s)=>{if(!s)return null;const p=s.split("/");return p.length===3?new Date(parseInt(p[2]),parseInt(p[1])-1,parseInt(p[0])):null;};
   const norm=(s)=>(s||"").toString().trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const soDigitos=(s)=>(s||"").toString().replace(/\D/g,"");
@@ -12771,6 +12885,8 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName}){
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
           <span title={"Seu papel nesta tela: "+roleLabel} style={{background:roleColor+"18",color:roleColor,border:"1px solid "+roleColor+"55",padding:"5px 10px",borderRadius:20,fontSize:11,fontWeight:800}}>👤 {roleLabel}</span>
+          <span title="Atualiza automaticamente em tempo real" style={{fontSize:10,color:"#16a34a",fontWeight:700,display:"flex",alignItems:"center",gap:4}}>🟢 Ao vivo · {new Date(ultimaAtualizacao).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</span>
+          <button onClick={()=>MODULOS.forEach(buscarPayload)} title="Atualizar agora" style={{padding:"6px 9px",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg)",color:"#64748b",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>🔄</button>
           <select value={densidade} onChange={e=>setDensidade(e.target.value)} title="Densidade visual"
             style={{padding:"6px 9px",borderRadius:8,border:"1px solid var(--border)",fontSize:11,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}>
             <option value="compact">▤ Compacta</option>

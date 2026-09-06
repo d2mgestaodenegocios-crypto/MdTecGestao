@@ -222,6 +222,7 @@ const LOCK_TTL=22000; // lock expires after 22s without heartbeat
 const SESSION_ID=Math.random().toString(36).slice(2,10); // unique per tab
 
 const uid=()=>crypto.randomUUID?crypto.randomUUID():`${Date.now().toString(36)}${Math.random().toString(36).slice(2,6)}`;
+const soDigitosGlobal=(s)=>(s||"").toString().replace(/\D/g,"");
 // Chave canônica de empresa (mesma lógica usada em "Grupos e Empresas") — permite sincronizar o campo Responsável entre Contábil/Tributário/Folha
 const canonEmpKeyGlobal=(cnpj,nome)=>{
   const digits=(cnpj||"").toString().replace(/\D/g,"");
@@ -8289,6 +8290,16 @@ function ContabilPage({toast,data,isAdmin,myCollab}){
     return()=>{ok=false;sb.removeChannel(ch);};
   },[]);
   const getRespSync=(emp)=>respSync[canonEmpKeyGlobal(emp?.cnpj,emp?.nome)]||"";
+  // Sócio responsável — vem do cadastro global de Empresas (Cadastros > Empresas), casado por CNPJ
+  const getSocioInfo=(emp)=>{
+    if(!emp)return null;
+    const digits=soDigitosGlobal(emp.cnpj);
+    const co=(data?.companies||[]).find(c=>digits&&soDigitosGlobal(c.cnpj)===digits)||(data?.companies||[]).find(c=>(c.name||"").trim().toLowerCase()===(emp.nome||"").trim().toLowerCase());
+    if(!co)return null;
+    if(co.socio)return{nome:co.socio,cpf:co.cpfSocio||""};
+    const s0=toArr(co.socios)[0];
+    return s0?{nome:s0.nome,cpf:s0.cpf||""}:null;
+  };
   const getMesNomeC=(m)=>{const p=m.split("/");return p.length!==2?m:`${MESES_NOMES_C[p[0]]}/${p[1]}`;};
   const getMesesC=(pi)=>{const i=TODOS_MESES_C.indexOf(pi);return i===-1?[pi]:TODOS_MESES_C.slice(i);};
   const getAnoMes=(m)=>m.split("/")[1]||"";
@@ -9045,15 +9056,24 @@ function ContabilPage({toast,data,isAdmin,myCollab}){
               <span style={{marginLeft:"auto",background:"#fef2f2",color:"#dc2626",border:"1.5px solid #fca5a5",padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:800}}>{pendentesC.length} pendente{pendentesC.length!==1?"s":""}</span>
             </div>
             <div style={{padding:"4px 0"}}>
-              {pendentesC.map(({emp,okCount,grpNome})=>(
+              {pendentesC.map(({emp,okCount,grpNome})=>{
+                const socio=getSocioInfo(emp);
+                return(
                 <div key={emp.id} onClick={()=>irParaEmpresaC(emp)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 16px",cursor:"pointer",borderBottom:"1px solid rgba(0,0,0,.04)"}}
                   onMouseEnter={e=>e.currentTarget.style.background="rgba(99,102,241,.06)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                  <span style={{fontSize:13,fontWeight:800,color:"var(--text)",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={emp.nome}>🏢 {emp.nome}</span>
-                  {grpNome&&<span style={{fontSize:10,color:"#94a3b8"}}>👥 {grpNome}</span>}
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:800,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={emp.nome}>🏢 {emp.nome}</div>
+                    <div style={{fontSize:10,color:"#94a3b8",display:"flex",gap:8,flexWrap:"wrap",marginTop:1}}>
+                      {emp.cnpj&&<span style={{fontFamily:"monospace"}}>{emp.cnpj}</span>}
+                      {socio?.nome&&<span>👤 {socio.nome}{socio.cpf&&` · ${socio.cpf}`}</span>}
+                      {grpNome&&<span>👥 {grpNome}</span>}
+                    </div>
+                  </div>
                   <span style={{background:"#fffbeb",color:"#d97706",border:"1.5px solid #fcd34d",padding:"3px 9px",borderRadius:20,fontSize:10,fontWeight:800,whiteSpace:"nowrap"}}>{okCount}/5 itens</span>
                   <span style={{fontSize:10,color:"#94a3b8"}}>▼</span>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         );
@@ -11503,6 +11523,16 @@ function makePageComponent(PAGE_CFG){
       return()=>{ok=false;sb.removeChannel(ch);};
     },[]);
     const getRespSync=(emp)=>respSync[canonEmpKeyGlobal(emp?.cnpj,emp?.nome)]||"";
+    // Sócio responsável — vem do cadastro global de Empresas (Cadastros > Empresas), casado por CNPJ
+    const getSocioInfo=(emp)=>{
+      if(!emp)return null;
+      const digits=soDigitosGlobal(emp.cnpj);
+      const co=(sysData?.companies||[]).find(c=>digits&&soDigitosGlobal(c.cnpj)===digits)||(sysData?.companies||[]).find(c=>(c.name||"").trim().toLowerCase()===(emp.nome||"").trim().toLowerCase());
+      if(!co)return null;
+      if(co.socio)return{nome:co.socio,cpf:co.cpfSocio||""};
+      const s0=toArr(co.socios)[0];
+      return s0?{nome:s0.nome,cpf:s0.cpf||""}:null;
+    };
     const [abaAnoMap,setAbaAnoMap]=useState({});
     const getAbaAno=(eid)=>{const e=empresas.find(x=>x.id===eid);const anos=ANOS.filter(a=>getMeses(e?.periodoInicial||"01/2025").some(m=>m.endsWith("/"+a)));return abaAnoMap[eid]||anos[0]||ANOS[0];};
     const toggleEmpExp=(eid)=>setExpandedEmps(prev=>{const n=new Set(prev);n.has(eid)?n.delete(eid):n.add(eid);return n;});
@@ -11891,7 +11921,7 @@ function makePageComponent(PAGE_CFG){
           const totalVencendo=empresasComPendencia.filter(x=>x.vencendoAtual).length;
           const totalPendenteMes=empresasComPendencia.filter(x=>x.pendenteMesAtual&&!x.vencidoAtual&&!x.vencendoAtual).length;
           // 7 colunas alinhadas: Empresa | Regime | Grupo | Situação | Prazo | Progresso | (seta)
-          const GRID="minmax(160px,2fr) 120px 110px 160px 100px 90px 20px";
+          const GRID="minmax(200px,2.4fr) 100px 110px 160px 100px 90px 20px";
           const thSt={fontSize:10,fontWeight:800,color:"#92400e",textTransform:"uppercase",letterSpacing:".06em",padding:"4px 8px"};
           return(
             <div style={{marginBottom:20,borderRadius:14,border:"1.5px solid #fbbf24",overflow:"hidden",background:"var(--bg2)",boxShadow:"0 2px 12px rgba(245,158,11,.10)"}}>
@@ -11935,7 +11965,14 @@ function makePageComponent(PAGE_CFG){
                       onMouseLeave={e=>e.currentTarget.style.background="transparent"}
                     >
                       {/* Empresa */}
-                      <span style={{fontSize:13,fontWeight:800,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={emp.nome}>🏢 {emp.nome}</span>
+                      <div style={{minWidth:0}}>
+                        <div style={{fontSize:13,fontWeight:800,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={emp.nome}>🏢 {emp.nome}</div>
+                        {(()=>{const socio=getSocioInfo(emp);return(
+                          <div style={{fontSize:9.5,color:"#94a3b8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                            {emp.cnpj||"—"}{socio?.nome&&` · 👤 ${socio.nome}${socio.cpf?" · "+socio.cpf:""}`}
+                          </div>
+                        );})()}
+                      </div>
                       {/* Regime */}
                       <span style={{...getRegStyle(emp.regime),overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{RegLabel[emp.regime]||emp.regime}</span>
                       {/* Grupo */}

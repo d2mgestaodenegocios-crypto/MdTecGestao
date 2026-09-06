@@ -85,7 +85,7 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 @keyframes lockPulse{0%,100%{box-shadow:0 0 0 0 rgba(139,92,246,.4)}70%{box-shadow:0 0 0 8px rgba(139,92,246,0)}}
 
 
-.shell{display:flex;width:100%;min-height:100dvh}
+.shell{display:flex;flex-wrap:nowrap;width:100%;min-height:100dvh}
 .sidebar{
   width:228px;background:#0f172a;display:flex;flex-direction:column;
   height:100vh;position:sticky;top:0;flex-shrink:0;
@@ -172,6 +172,9 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
   .kanban-wrap{gap:10px!important;scroll-snap-type:x mandatory!important;-webkit-overflow-scrolling:touch!important;padding-bottom:16px!important}
   .kanban-col{width:calc(100vw - 48px)!important;min-width:calc(100vw - 48px)!important;scroll-snap-align:start!important}
   .kanban-sticky-header{margin:-12px -14px 10px!important;padding:8px 14px 8px!important}
+
+  /* Grupos e Empresas / Relatório — empilha o painel lateral abaixo da lista principal */
+  .grp-emp-grid{grid-template-columns:1fr!important}
 }
 @media(max-width:420px){
   .dash-kpis{grid-template-columns:repeat(2,1fr)!important}
@@ -309,7 +312,6 @@ const RINTS=[
 ];
 const NAV_GROUPS=[
   {label:"Visualizações",items:[{id:"dashboard",icon:"✦",label:"Dashboard"},{id:"kanban",icon:"⊞",label:"Kanban"},{id:"lista",icon:"☰",label:"Lista"},{id:"calendario",icon:"📅",label:"Calendário"},{id:"gantt",icon:"🗓",label:"Linha do Tempo"},{id:"tabela",icon:"▦",label:"Tabela"},{id:"hoje",icon:"🌅",label:"Hoje"},{id:"minhas",icon:"👤",label:"Minhas Tarefas"},{id:"arquivadas",icon:"📦",label:"Arquivadas"}]},
-  {label:"",items:[{id:"relatorio-contabil",icon:"👥",label:"Grupos e Empresas"}]},
   {label:"Cadastros",items:[{id:"modelos",icon:"◧",label:"Modelos"},{id:"empresas",icon:"⬡",label:"Empresas"},{id:"setores",icon:"◫",label:"Setores"},{id:"colaboradores",icon:"◉",label:"Colaboradores"},{id:"marcadores",icon:"◈",label:"Marcadores"},{id:"recorrencias",icon:"↻",label:"Recorrências"},{id:"painel-rec",icon:"⊹",label:"Painel Recorrências"},{id:"servicos",icon:"S",label:"Serviços"}]},
   {label:"Relatórios",items:[{id:"relatorio",icon:"📧",label:"Relatório por Empresa"},{id:"carga",icon:"⚖",label:"Carga de Trabalho"}]},
   {label:"Contabilidade",items:[{id:"contabil",icon:"📊",label:"Contábil"},{id:"fiscal",icon:"📋",label:"Tributário"},{id:"folha-pagamento",icon:"👥",label:"Folha Pgto"},{id:"relatorio-contabil",icon:"📊",label:"Relatório"}]},
@@ -7145,7 +7147,22 @@ function App(){
   const _initPage=(()=>{const p=new URLSearchParams(window.location.search);return p.get("guest")==="1"?"contabil":"dashboard";})();
   const [page,setPage]      = useState(_initPage);
   const [taskModal,setTM]   = useState({open:false,task:null,defStatus:"todo",lockInfo:null});
-  const [sideCol,setSideCol]= useState(false);
+  const [sideCol,setSideCol]= useState(()=>typeof window!=="undefined"&&window.innerWidth<1024&&window.innerWidth>768);
+  // ── Responsividade: em telas "médias" (tablet/laptop pequeno) recolhe a barra lateral sozinho, sem precisar clicar ──
+  const userToggledSideCol=useRef(false);
+  useEffect(()=>{
+    const onResize=()=>{
+      if(userToggledSideCol.current)return; // respeita a escolha manual do usuário nesta sessão
+      const w=window.innerWidth;
+      if(w>768&&w<1024)setSideCol(true);
+      else if(w>=1024)setSideCol(false);
+      // abaixo de 768px o CSS mobile assume (barra vira menu inferior), então não mexemos aqui
+    };
+    onResize();
+    window.addEventListener("resize",onResize);
+    return()=>window.removeEventListener("resize",onResize);
+  },[]);
+
   const [darkMode,setDarkMode] = useState(()=>localStorage.getItem("mdtec_dark")==="1");
   const [showSearch,setShowSearch] = useState(false);
   const [focusMode,setFocusMode] = useState(false);
@@ -8045,7 +8062,7 @@ function App(){
               <button onClick={resetData} aria-label="Restaurar dados padrão" title="Restaurar dados" style={{padding:"5px 8px",borderRadius:6,border:"1px solid rgba(239,68,68,.18)",background:"transparent",color:"#475569",cursor:"pointer",fontSize:10,fontFamily:"inherit"}} onMouseEnter={e=>e.currentTarget.style.color="#f87171"} onMouseLeave={e=>e.currentTarget.style.color="#475569"}>⟳</button>
             </div>
           )}
-          <button onClick={()=>setSideCol(s=>!s)} style={{width:"100%",padding:"7px",borderRadius:8,border:"1px solid rgba(255,255,255,.06)",background:"transparent",color:"#475569",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit",gap:4}} onMouseEnter={e=>e.currentTarget.style.color="#94a3b8"} onMouseLeave={e=>e.currentTarget.style.color="#475569"}>
+          <button onClick={()=>{userToggledSideCol.current=true;setSideCol(s=>!s);}} style={{width:"100%",padding:"7px",borderRadius:8,border:"1px solid rgba(255,255,255,.06)",background:"transparent",color:"#475569",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit",gap:4}} onMouseEnter={e=>e.currentTarget.style.color="#94a3b8"} onMouseLeave={e=>e.currentTarget.style.color="#475569"}>
             {sideCol?"›":"‹"}{!sideCol&&<span style={{fontSize:10}}>Recolher</span>}
           </button>
         </div>
@@ -13183,7 +13200,7 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
       </div>
 
       {/* Corpo: lista de grupos + painel lateral */}
-      <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 300px",gap:16,alignItems:"start"}}>
+      <div className="grp-emp-grid" style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 300px",gap:16,alignItems:"start"}}>
         <div>
           {gruposFiltrados.length===0&&(
             temRestricaoGrupos&&arvore.length===0?(

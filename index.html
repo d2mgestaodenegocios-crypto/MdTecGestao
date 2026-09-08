@@ -13149,6 +13149,21 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
 
   const roleColor=myRole==="admin"?"#6366f1":myRole==="gestor"?"#0ea5e9":"#94a3b8";
 
+  // ── Diagnóstico de dados (admin) — mostra exatamente o que o sistema está lendo de cada módulo ──
+  const [diagOpen,setDiagOpen]=React.useState(false);
+  const [diagEmpKey,setDiagEmpKey]=React.useState("");
+  const diagResumoModulos=MODULOS.map(mod=>{
+    const p=payloads[mod.id];
+    if(!p)return{mod,carregado:false};
+    const nDados=mod.id==="contabil"?(Array.isArray(p.dados)?p.dados.length:0):Object.keys(p.dados||{}).length;
+    const amostra=mod.id==="contabil"
+      ?(Array.isArray(p.dados)?p.dados.slice(0,3).map(d=>`${d.empresaId}_${d.competencia}`):[])
+      :Object.keys(p.dados||{}).filter(k=>!k.endsWith("__analisado")).slice(0,3);
+    return{mod,carregado:true,nEmpresas:(p.empresas||[]).length,nGrupos:(p.grupos||[]).length,nCols:(Array.isArray(p.cols)?p.cols.length:0)||mod.defaultCols.length,usaColsPadrao:!(Array.isArray(p.cols)&&p.cols.length>0),nDados,amostra};
+  });
+  const todasEmpresasDiag=empresasComputadas.flatMap(g=>g.empresas.map(e=>({...e,grupoNome:g.nome})));
+  const empDiag=todasEmpresasDiag.find(e=>e.key===diagEmpKey)||todasEmpresasDiag[0];
+
   return(
     <div style={{padding:"20px 24px",maxWidth:1500,margin:"0 auto"}}>
       {/* Cabeçalho */}
@@ -13161,6 +13176,7 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
           <span title={"Seu papel nesta tela: "+roleLabel} style={{background:roleColor+"18",color:roleColor,border:"1px solid "+roleColor+"55",padding:"5px 10px",borderRadius:20,fontSize:11,fontWeight:800}}>👤 {roleLabel}</span>
           <span title="Atualiza automaticamente em tempo real" style={{fontSize:10,color:"#16a34a",fontWeight:700,display:"flex",alignItems:"center",gap:4}}>🟢 Ao vivo · {new Date(ultimaAtualizacao).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</span>
           <button onClick={()=>MODULOS.forEach(buscarPayload)} title="Atualizar agora" style={{padding:"6px 9px",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg)",color:"#64748b",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>🔄</button>
+          {isAdmin&&<button onClick={()=>setDiagOpen(true)} title="Ver exatamente quais dados o sistema está lendo de cada módulo (para conferir divergências)" style={{padding:"6px 9px",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg)",color:"#64748b",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>🔍</button>}
           <select value={densidade} onChange={e=>setDensidade(e.target.value)} title="Densidade visual"
             style={{padding:"6px 9px",borderRadius:8,border:"1px solid var(--border)",fontSize:11,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}>
             <option value="compact">▤ Compacta</option>
@@ -13472,6 +13488,58 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
           salvarConfigGrupo={salvarConfigGrupo} setGrupoConfig={setGrupoConfig}
           todosResponsaveis={todosResponsaveis} roleLabel={roleLabel}
           auditLog={(meta.auditLog||[]).filter(a=>a.desc.includes(grupoConfig.nome))}/>
+      )}
+
+      {diagOpen&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(15,23,42,.55)",zIndex:95,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setDiagOpen(false)}>
+          <div style={{background:"var(--bg2)",borderRadius:16,maxWidth:720,width:"100%",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:"0 20px 60px rgba(0,0,0,.3)"}} onClick={e=>e.stopPropagation()}>
+            <div style={{padding:"18px 22px 0"}}>
+              <div style={{fontSize:18,fontWeight:900,color:"var(--text)"}}>🔍 Diagnóstico de dados</div>
+              <div style={{fontSize:11,color:"#94a3b8",marginBottom:10}}>Mostra exatamente o que este relatório está lendo de cada módulo, pra você comparar com o que aparece no Contábil/Tributário/Folha.</div>
+            </div>
+            <div style={{padding:"0 22px 16px",overflowY:"auto",flex:1}}>
+              <div style={{fontSize:11,fontWeight:800,color:"#64748b",marginBottom:6}}>STATUS POR MÓDULO</div>
+              {diagResumoModulos.map(({mod,carregado,nEmpresas,nGrupos,nCols,usaColsPadrao,nDados,amostra})=>(
+                <div key={mod.id} style={{background:"var(--bg3)",borderRadius:10,padding:"10px 12px",marginBottom:8}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,fontWeight:800,color:"var(--text)"}}>
+                    {mod.icon} {mod.label} {carregado?<span style={{color:"#16a34a"}}>✅ carregado</span>:<span style={{color:"#dc2626"}}>❌ não carregou (payload vazio ou erro)</span>}
+                  </div>
+                  {carregado&&(
+                    <div style={{fontSize:11,color:"#94a3b8",marginTop:4}}>
+                      {nEmpresas} empresas · {nGrupos} grupos · {nCols} coluna(s) {usaColsPadrao&&<span style={{color:"#d97706",fontWeight:700}}>(usando colunas padrão do sistema — verifique se bate com as colunas reais configuradas em "✏️ Colunas")</span>} · {nDados} registro(s) em "dados"
+                      {nDados===0&&<div style={{color:"#dc2626",fontWeight:700,marginTop:2}}>⚠️ Nenhum dado gravado neste módulo ainda — nada será contado como concluído.</div>}
+                      {amostra.length>0&&<div style={{marginTop:3,fontFamily:"monospace",fontSize:10}}>Amostra de chaves: {amostra.join(", ")}</div>}
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              <div style={{fontSize:11,fontWeight:800,color:"#64748b",margin:"14px 0 6px"}}>CONFERIR UMA EMPRESA ESPECÍFICA — competência {competencia}</div>
+              <select value={empDiag?.key||""} onChange={e=>setDiagEmpKey(e.target.value)} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid var(--border)",fontSize:12,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)",marginBottom:10}}>
+                {todasEmpresasDiag.map(e=><option key={e.key} value={e.key}>{e.grupoNome} — {e.nome}</option>)}
+              </select>
+              {empDiag&&(
+                <table style={{width:"100%",fontSize:11,borderCollapse:"collapse"}}>
+                  <thead><tr style={{textAlign:"left",color:"#94a3b8"}}><th style={{padding:"4px 6px"}}>Módulo</th><th>Obrigação (coluna)</th><th>Valor bruto lido</th><th>Analisado?</th><th>Status final</th></tr></thead>
+                  <tbody>
+                    {computeObrigacoesForMes(empDiag,competencia).map((o,i)=>(
+                      <tr key={i} style={{borderTop:"1px solid var(--border)"}}>
+                        <td style={{padding:"4px 6px"}}>{o.mod.icon} {o.mod.label}</td>
+                        <td>{o.label}</td>
+                        <td style={{fontFamily:"monospace"}}>{o.valorBruto}</td>
+                        <td>{o.analisado?"sim":"não"}</td>
+                        <td><StatusBadge status={o.status} small/></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div style={{padding:"14px 22px",borderTop:"1px solid var(--border)",display:"flex",justifyContent:"flex-end"}}>
+              <button onClick={()=>setDiagOpen(false)} style={{padding:"9px 16px",borderRadius:9,border:"none",background:"#6366f1",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Fechar</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

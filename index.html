@@ -3955,14 +3955,15 @@ function CollaboratorsPage({ data, setData, toast=()=>{} }) {
   const [open,setOpen]=useState(false);
   const [editing,setEditing]=useState(null);
   const PERM_DEFAULTS={canAdvanceStatus:true,canComplete:true,canDelete:false,canArchive:false,canEdit:true};
-  const [form,setForm]=useState({name:"",role:"",companies:[],sectors:[],gruposContabeis:[],color:"#8b5cf6",initials:"",email:"",password:"",userId:"",accessLevel:"user",permissions:{...PERM_DEFAULTS},photo:""});
-  const openNew=()=>{setEditing(null);setForm({name:"",role:"",companies:[],sectors:[],gruposContabeis:[],color:"#8b5cf6",initials:"",email:"",password:"",userId:"",accessLevel:"user",permissions:{...PERM_DEFAULTS},photo:""});setOpen(true);};
+  const [form,setForm]=useState({name:"",role:"",companies:[],sectors:[],gruposContabeis:[],modulosOcultos:[],color:"#8b5cf6",initials:"",email:"",password:"",userId:"",accessLevel:"user",permissions:{...PERM_DEFAULTS},photo:""});
+  const openNew=()=>{setEditing(null);setForm({name:"",role:"",companies:[],sectors:[],gruposContabeis:[],modulosOcultos:[],color:"#8b5cf6",initials:"",email:"",password:"",userId:"",accessLevel:"user",permissions:{...PERM_DEFAULTS},photo:""});setOpen(true);};
   const openEdit=(u)=>{
     setEditing(u);
     setForm({name:u.name,role:u.role,
       companies:toArr(u.companies).length>0?toArr(u.companies):(u.company?[u.company]:[]),
       sectors:toArr(u.sectors).length>0?toArr(u.sectors):(u.sector?[u.sector]:[]),
       gruposContabeis:toArr(u.gruposContabeis),
+      modulosOcultos:toArr(u.modulosOcultos),
       color:u.color,initials:u.initials,email:u.email||"",
       password:"",userId:u.userId||"",accessLevel:u.accessLevel||"user",
       permissions:{...PERM_DEFAULTS,...(u.permissions||{})},photo:u.photo||""});
@@ -3971,6 +3972,7 @@ function CollaboratorsPage({ data, setData, toast=()=>{} }) {
   const togUCo=(id)=>setForm(f=>({...f,companies:toArr(f.companies).includes(id)?toArr(f.companies).filter(x=>x!==id):[...toArr(f.companies),id]}));
   const togUSec=(id)=>setForm(f=>({...f,sectors:toArr(f.sectors).includes(id)?toArr(f.sectors).filter(x=>x!==id):[...toArr(f.sectors),id]}));
   const togUGrpContab=(nome)=>setForm(f=>({...f,gruposContabeis:toArr(f.gruposContabeis).includes(nome)?toArr(f.gruposContabeis).filter(x=>x!==nome):[...toArr(f.gruposContabeis),nome]}));
+  const togUModOculto=(id)=>setForm(f=>({...f,modulosOcultos:toArr(f.modulosOcultos).includes(id)?toArr(f.modulosOcultos).filter(x=>x!==id):[...toArr(f.modulosOcultos),id]}));
   // ── Lista de grupos empresariais (Contábil/Tributário/Folha) para restringir visibilidade por usuário ──
   const [gruposContabDisponiveis,setGruposContabDisponiveis]=useState([]);
   useEffect(()=>{
@@ -4166,6 +4168,22 @@ function CollaboratorsPage({ data, setData, toast=()=>{} }) {
               {gruposContabDisponiveis.map(nome=>{const sel=toArr(form.gruposContabeis).includes(nome);return(
                 <button key={nome} onClick={()=>togUGrpContab(nome)} style={{padding:"4px 12px",borderRadius:20,border:"2px solid "+(sel?"#6366f1":"#e5e7eb"),background:sel?"#6366f118":"#fafafa",color:sel?"#4338ca":"#6b7280",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>👥 {nome}</button>
               );})}
+            </div>
+          </div>
+          <div>
+            <label style={{fontSize:12,fontWeight:700,color:"#64748b",display:"block",marginBottom:8}}>🙈 Páginas que este usuário NÃO vê (opcional, exceção individual)</label>
+            <div style={{fontSize:10,color:"#94a3b8",marginBottom:8}}>Além do que está habilitado em Configurações → Recursos do sistema, você pode esconder páginas específicas só para este usuário — por exemplo, um cliente que não deve ver "Arquivadas" ou o módulo Contábil, mas outros usuários continuam vendo normalmente. Administradores sempre veem tudo.</div>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              {NAV_GROUPS.map(g=>(
+                <div key={g.label}>
+                  {g.label&&<div style={{fontSize:9.5,fontWeight:800,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".04em",marginBottom:4}}>{g.label}</div>}
+                  <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                    {g.items.map(item=>{const oculto=toArr(form.modulosOcultos).includes(item.id);return(
+                      <button key={item.id} onClick={()=>togUModOculto(item.id)} style={{padding:"4px 10px",borderRadius:20,border:"2px solid "+(oculto?"#ef4444":"#e5e7eb"),background:oculto?"#fef2f2":"#fafafa",color:oculto?"#b91c1c":"#6b7280",fontSize:11.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{oculto?"🙈":item.icon} {item.label}</button>
+                    );})}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
           <Inp label="Iniciais (auto se vazio)" value={form.initials} onChange={v=>setForm(f=>({...f,initials:v}))} placeholder="Ex: AL"/>
@@ -8128,7 +8146,7 @@ function App(){
               "auditoria":"#8b5cf6","configuracoes":"#94a3b8"
             };
             const groupColor=groupColors[group.label]||"#6366f1";
-            const visibleItems=group.items.filter(item=>isAdmin||featureFlags.modules[item.id]!==false);
+            const visibleItems=group.items.filter(item=>isAdmin||(featureFlags.modules[item.id]!==false&&!toArr(myCollab?.modulosOcultos).includes(item.id)));
             if(visibleItems.length===0)return null;
             return(
               <div key={group.label} style={{marginBottom:4}}>
@@ -8222,7 +8240,7 @@ function App(){
           </div>
         </div>
 
-        {!isAdmin&&featureFlags.modules[page]===false?(
+        {!isAdmin&&(featureFlags.modules[page]===false||toArr(myCollab?.modulosOcultos).includes(page))?(
           <div style={{textAlign:"center",padding:"80px 20px",color:"#94a3b8"}}>
             <div style={{fontSize:44,marginBottom:12}}>🔒</div>
             <div style={{fontSize:16,fontWeight:800,color:"var(--text)",marginBottom:6}}>Este recurso não está disponível no seu plano</div>

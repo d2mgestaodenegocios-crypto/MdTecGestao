@@ -1134,7 +1134,7 @@ function RelatorioPage({data,isAdmin}){
 }
 
 
-function ConfigPage({data,setData,toast,deduplicateTasks}){
+function ConfigPage({data,setData,toast,deduplicateTasks,isAdmin,featureFlags,saveFeatureFlags,DEFAULT_FEATURE_FLAGS}){
   const [days,setDays]=useState(data.archiveDays||30);
   const [soundOn,setSoundOn]=useState(()=>localStorage.getItem("mdtec_sound")!=="0");
   const toggleSound=(v)=>{
@@ -1167,7 +1167,7 @@ function ConfigPage({data,setData,toast,deduplicateTasks}){
   const iSt={padding:"9px 12px",borderRadius:9,fontSize:14,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",color:"#111",background:"var(--bg2)",width:"100%"};
 
   return(
-    <div style={{maxWidth:560}}>
+    <div style={{maxWidth:720}}>
       <PH title="Configurações" icon="⚙"/>
 
       {/* Sound setting */}
@@ -1281,6 +1281,8 @@ function ConfigPage({data,setData,toast,deduplicateTasks}){
         </div>
       </div>
 
+      {isAdmin&&<AdminFeatureFlagsPanel featureFlags={featureFlags} saveFeatureFlags={saveFeatureFlags} DEFAULT_FEATURE_FLAGS={DEFAULT_FEATURE_FLAGS} toast={toast}/>}
+
       <div style={{background:"var(--bg2)",borderRadius:16,padding:24,border:"1px solid var(--border)",boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
         <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:4}}>ℹ️ Sobre o sistema</h3>
         <p style={{fontSize:13,color:"#64748b",lineHeight:1.6}}>
@@ -1289,6 +1291,88 @@ function ConfigPage({data,setData,toast,deduplicateTasks}){
           Versão 6.0 — Multiusuário com login.
         </p>
       </div>
+    </div>
+  );
+}
+
+function AdminFeatureFlagsPanel({featureFlags,saveFeatureFlags,DEFAULT_FEATURE_FLAGS,toast}){
+  const [busca,setBusca]=useState("");
+  const toggleModule=(id)=>{
+    const next={...featureFlags,modules:{...featureFlags.modules,[id]:featureFlags.modules[id]===false?true:false}};
+    saveFeatureFlags(next);
+    toast(next.modules[id]?"✅ Recurso habilitado!":"🔒 Recurso desabilitado.","ok");
+  };
+  const toggleField=(id)=>{
+    const next={...featureFlags,fields:{...featureFlags.fields,[id]:featureFlags.fields[id]===false?true:false}};
+    saveFeatureFlags(next);
+    toast(next.fields[id]?"✅ Recurso habilitado!":"🔒 Recurso desabilitado.","ok");
+  };
+  const restaurarPadrao=()=>{
+    if(!window.confirm("Restaurar todos os módulos e campos para o padrão (tudo habilitado)?"))return;
+    saveFeatureFlags(DEFAULT_FEATURE_FLAGS);
+    toast("↺ Padrão restaurado!","ok");
+  };
+  const buscaN=busca.trim().toLowerCase();
+  const gruposVisiveis=NAV_GROUPS.filter(g=>g.items.some(it=>!buscaN||it.label.toLowerCase().includes(buscaN)));
+
+  const FIELDS=[
+    {id:"socioResponsavel",label:"👤 Sócio responsável na Visão Rápida",hint:"Mostra nome e CPF do sócio (cruzado do cadastro de Empresas) nas listas rápidas do Contábil/Tributário/Folha."},
+    {id:"slaGrupo",label:"🎯 SLA / meta por grupo",hint:"Permite definir 'deve estar 100% até o dia X' em cada grupo, com alerta de ritmo."},
+    {id:"checklistPersonalizavel",label:"✏️ Checklist personalizável por tipo de obrigação",hint:"Permite editar os passos do checklist de cada tipo de obrigação (ex: DAS, EFD-Reinf) separadamente."},
+    {id:"acoesMassaObrigacao",label:"🎯 Seleção de obrigações individuais para ações em massa",hint:"Permite marcar obrigações específicas (de empresas diferentes) e aplicar uma ação em massa só nelas."},
+    {id:"exportarPDF",label:"🖨 Exportar relatório em PDF",hint:"Mostra o botão de exportação em PDF em Grupos e Empresas."},
+    {id:"notificacoesAtraso",label:"🔔 Notificações automáticas de atraso",hint:"Avisa no sino quando há obrigações atrasadas em Grupos e Empresas."},
+    {id:"restricaoGruposPorUsuario",label:"🔒 Restrição de grupos por usuário",hint:"Permite limitar quais grupos contábeis cada colaborador enxerga (configurado em Colaboradores)."},
+  ];
+
+  const ToggleRow=({checked,onClick,label,hint})=>(
+    <div onClick={onClick} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 12px",borderRadius:10,background:checked?"var(--bg3)":"rgba(239,68,68,.06)",border:`1.5px solid ${checked?"var(--border)":"rgba(239,68,68,.25)"}`,cursor:"pointer",marginBottom:6,transition:"all .15s"}}>
+      <div style={{width:38,height:21,borderRadius:11,background:checked?"#22c55e":"#e2e8f0",position:"relative",transition:"background .2s",flexShrink:0}}>
+        <div style={{position:"absolute",top:2,left:checked?18:2,width:17,height:17,borderRadius:"50%",background:"#fff",boxShadow:"0 1px 3px rgba(0,0,0,.2)",transition:"left .2s"}}/>
+      </div>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:13,fontWeight:700,color:checked?"var(--text)":"#991b1b"}}>{label}</div>
+        {hint&&<div style={{fontSize:10.5,color:"#94a3b8",marginTop:1}}>{hint}</div>}
+      </div>
+    </div>
+  );
+
+  return(
+    <div style={{background:"var(--bg2)",borderRadius:16,padding:24,border:"1.5px solid #6366f1",marginBottom:16,boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4,flexWrap:"wrap",gap:8}}>
+        <h3 style={{fontSize:15,fontWeight:900,color:"#0f172a"}}>🔐 Área administrativa — Recursos do sistema</h3>
+        <button onClick={restaurarPadrao} style={{fontSize:11,fontWeight:700,color:"#6366f1",background:"none",border:"1px solid #6366f1",borderRadius:8,padding:"5px 10px",cursor:"pointer",fontFamily:"inherit"}}>↺ Restaurar padrão</button>
+      </div>
+      <p style={{fontSize:12.5,color:"#64748b",marginBottom:16,lineHeight:1.5}}>
+        Habilite ou desabilite módulos e recursos por instalação do sistema — útil ao configurar o produto para um cliente específico (ex: um cliente que não usa Folha de Pagamento). As mudanças valem para todos os usuários dessa conta, exceto administradores, que sempre veem tudo.
+      </p>
+
+      <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="🔍 Buscar módulo…" style={{width:"100%",padding:"8px 12px",borderRadius:9,border:"1.5px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)",marginBottom:14,outline:"none"}}/>
+
+      <div style={{fontSize:11,fontWeight:800,color:"#64748b",marginBottom:8,textTransform:"uppercase",letterSpacing:".05em"}}>Módulos e páginas</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:"4px 14px",marginBottom:18}}>
+        {gruposVisiveis.map(g=>(
+          <div key={g.label} style={{gridColumn:"1/-1",marginTop:8}}>
+            {g.label&&<div style={{fontSize:10.5,fontWeight:800,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".04em",marginBottom:4}}>{g.label}</div>}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:6}}>
+              {g.items.filter(it=>!buscaN||it.label.toLowerCase().includes(buscaN)).map(item=>{
+                const checked=featureFlags.modules[item.id]!==false;
+                return<div key={item.id} onClick={()=>toggleModule(item.id)} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:8,background:checked?"var(--bg3)":"rgba(239,68,68,.06)",border:`1px solid ${checked?"var(--border)":"rgba(239,68,68,.25)"}`,cursor:"pointer"}}>
+                  <div style={{width:30,height:17,borderRadius:9,background:checked?"#22c55e":"#e2e8f0",position:"relative",flexShrink:0}}>
+                    <div style={{position:"absolute",top:1.5,left:checked?14:1.5,width:14,height:14,borderRadius:"50%",background:"#fff",boxShadow:"0 1px 2px rgba(0,0,0,.2)"}}/>
+                  </div>
+                  <span style={{fontSize:12,fontWeight:600,color:checked?"var(--text)":"#991b1b",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.icon} {item.label}</span>
+                </div>;
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{fontSize:11,fontWeight:800,color:"#64748b",margin:"18px 0 8px",textTransform:"uppercase",letterSpacing:".05em"}}>Campos e recursos extras (Grupos e Empresas)</div>
+      {FIELDS.map(f=>(
+        <ToggleRow key={f.id} checked={featureFlags.fields[f.id]!==false} onClick={()=>toggleField(f.id)} label={f.label} hint={f.hint}/>
+      ))}
     </div>
   );
 }
@@ -7165,6 +7249,32 @@ function App(){
   },[]);
 
   const [darkMode,setDarkMode] = useState(()=>localStorage.getItem("mdtec_dark")==="1");
+  // ── Recursos do sistema (feature flags) — permite habilitar/desabilitar módulos e campos por cliente ──
+  const FEATURE_FLAGS_ROW_ID=21;
+  const DEFAULT_FEATURE_FLAGS={
+    modules:{dashboard:true,kanban:true,lista:true,calendario:true,gantt:true,tabela:true,hoje:true,minhas:true,arquivadas:true,
+      modelos:true,empresas:true,setores:true,colaboradores:true,marcadores:true,recorrencias:true,"painel-rec":true,servicos:true,
+      relatorio:true,carga:true,contabil:true,fiscal:true,"folha-pagamento":true,"relatorio-contabil":true,auditoria:true},
+    fields:{socioResponsavel:true,slaGrupo:true,checklistPersonalizavel:true,acoesMassaObrigacao:true,exportarPDF:true,notificacoesAtraso:true,restricaoGruposPorUsuario:true}
+  };
+  const [featureFlags,setFeatureFlags]=useState(DEFAULT_FEATURE_FLAGS);
+  useEffect(()=>{
+    let ok=true;
+    (async()=>{
+      try{
+        const{data:row}=await sb.from("app_data").select("payload").eq("id",FEATURE_FLAGS_ROW_ID).maybeSingle();
+        if(ok&&row?.payload)setFeatureFlags(f=>({modules:{...DEFAULT_FEATURE_FLAGS.modules,...(row.payload.modules||{})},fields:{...DEFAULT_FEATURE_FLAGS.fields,...(row.payload.fields||{})}}));
+      }catch(e){}
+    })();
+    const ch=sb.channel("feature_flags").on("postgres_changes",{event:"UPDATE",schema:"public",table:"app_data",filter:`id=eq.${FEATURE_FLAGS_ROW_ID}`},
+      pl=>{if(pl.new?.payload)setFeatureFlags(f=>({modules:{...DEFAULT_FEATURE_FLAGS.modules,...(pl.new.payload.modules||{})},fields:{...DEFAULT_FEATURE_FLAGS.fields,...(pl.new.payload.fields||{})}}));}).subscribe();
+    return()=>{ok=false;sb.removeChannel(ch);};
+  },[]);
+  const saveFeatureFlags=async(next)=>{
+    setFeatureFlags(next);
+    try{await sb.from("app_data").upsert({id:FEATURE_FLAGS_ROW_ID,payload:next});}catch(e){}
+  };
+
   const [showSearch,setShowSearch] = useState(false);
   const [focusMode,setFocusMode] = useState(false);
   const [pomodoroTask,setPomodoroTask] = useState(null);
@@ -8018,10 +8128,12 @@ function App(){
               "auditoria":"#8b5cf6","configuracoes":"#94a3b8"
             };
             const groupColor=groupColors[group.label]||"#6366f1";
+            const visibleItems=group.items.filter(item=>isAdmin||featureFlags.modules[item.id]!==false);
+            if(visibleItems.length===0)return null;
             return(
               <div key={group.label} style={{marginBottom:4}}>
                 {!sideCol&&group.label&&<div className="sb-section-lbl" style={{fontSize:10,fontWeight:800,color:groupColor,textTransform:"uppercase",letterSpacing:".05em",padding:"10px 12px 6px",background:`${groupColor}12`,borderRadius:8,transition:"all .2s",borderLeft:`3px solid ${groupColor}`,marginBottom:4}}>{group.label}</div>}
-                {group.items.map(item=>{
+                {visibleItems.map(item=>{
                   const active=page===item.id;
                   const itemColor=itemColors[item.id]||groupColor;
                   const chatUnread=0;
@@ -8110,6 +8222,13 @@ function App(){
           </div>
         </div>
 
+        {!isAdmin&&featureFlags.modules[page]===false?(
+          <div style={{textAlign:"center",padding:"80px 20px",color:"#94a3b8"}}>
+            <div style={{fontSize:44,marginBottom:12}}>🔒</div>
+            <div style={{fontSize:16,fontWeight:800,color:"var(--text)",marginBottom:6}}>Este recurso não está disponível no seu plano</div>
+            <div style={{fontSize:13}}>Fale com um administrador se precisar de acesso.</div>
+          </div>
+        ):(<>
         {page==="dashboard"     && <Dashboard data={dataForUser}/>}
         {page==="kanban"        && <>
           {focusMode&&(
@@ -8165,12 +8284,13 @@ function App(){
         {page==="recorrencias"  && <RecurrencesPage data={data} setData={setData}/>}
         {page==="painel-rec"    && <PainelRecorrencias data={data} setData={setData} onEdit={openEdit} toast={toast}/>}
         {page==="arquivadas"    && <ArchivedPage data={data} setData={setData} toast={toast}/>}
-        {page==="configuracoes" && <ConfigPage data={data} setData={setData} toast={toast} deduplicateTasks={deduplicateTasks}/>}
+        {page==="configuracoes" && <ConfigPage data={data} setData={setData} toast={toast} deduplicateTasks={deduplicateTasks} isAdmin={isAdmin} featureFlags={featureFlags} saveFeatureFlags={saveFeatureFlags} DEFAULT_FEATURE_FLAGS={DEFAULT_FEATURE_FLAGS}/>}
         {page==="auditoria"     && <AuditoriaPage data={data} setData={setData}/>}
-        {page==="contabil"      && <ContabilPage toast={toast} data={data} isAdmin={isAdmin} myCollab={myCollab}/>}
-        {page==="fiscal"          && <FiscalPage toast={toast} sysData={data} onNavigate={setPage} isAdmin={isAdmin} myCollab={myCollab}/>}
-        {page==="folha-pagamento" && <FolhaPagPage toast={toast} sysData={data} onNavigate={setPage} isAdmin={isAdmin} myCollab={myCollab}/>}
-        {page==="relatorio-contabil" && <RelatorioContabilPage toast={toast} isAdmin={isAdmin} myPerms={myPerms} userName={userName} sysNotifications={data.notifications||[]} addNotification={addNotification} myCollabId={myCollabId} myCollab={myCollab}/>}
+        {page==="contabil"      && <ContabilPage toast={toast} data={data} isAdmin={isAdmin} myCollab={myCollab} featureFlags={featureFlags}/>}
+        {page==="fiscal"          && <FiscalPage toast={toast} sysData={data} onNavigate={setPage} isAdmin={isAdmin} myCollab={myCollab} featureFlags={featureFlags}/>}
+        {page==="folha-pagamento" && <FolhaPagPage toast={toast} sysData={data} onNavigate={setPage} isAdmin={isAdmin} myCollab={myCollab} featureFlags={featureFlags}/>}
+        {page==="relatorio-contabil" && <RelatorioContabilPage toast={toast} isAdmin={isAdmin} myPerms={myPerms} userName={userName} sysNotifications={data.notifications||[]} addNotification={addNotification} myCollabId={myCollabId} myCollab={myCollab} featureFlags={featureFlags}/>}
+        </>)}
       </main>
 
       {/* Modal de tarefa */}
@@ -8273,7 +8393,8 @@ function App(){
 
 /* ===========================================
    CONTABIL PAGE — Controle de Contabilização (Enhanced) */
-function ContabilPage({toast,data,isAdmin,myCollab}){
+function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
+  const flagsC=featureFlags?.fields||{socioResponsavel:true};
   // ─── Constants ───────────────────────────────────────────────
   const STORAGE_KEY="mdtec_contabil_v2";
   const CUR_YEAR_C=new Date().getFullYear();
@@ -8796,10 +8917,10 @@ function ContabilPage({toast,data,isAdmin,myCollab}){
 
   // ── Trava de visibilidade: quais grupos este usuário pode ver (admin sempre vê tudo) ──
   const meusGruposPermitidos=useMemo(()=>{
-    if(isAdmin)return null;
+    if(isAdmin||!flagsC.restricaoGruposPorUsuario)return null;
     const g=toArr(myCollab?.gruposContabeis);
     return g.length>0?g:null;
-  },[isAdmin,myCollab]);
+  },[isAdmin,myCollab,flagsC.restricaoGruposPorUsuario]);
   const nomeGrupoRaizDe=(e)=>{
     if(!e.grupoId)return null;
     const g=cGrupos.find(x=>x.id===e.grupoId);
@@ -9065,7 +9186,7 @@ function ContabilPage({toast,data,isAdmin,myCollab}){
                     <div style={{fontSize:13,fontWeight:800,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={emp.nome}>🏢 {emp.nome}</div>
                     <div style={{fontSize:10,color:"#94a3b8",display:"flex",gap:8,flexWrap:"wrap",marginTop:1}}>
                       {emp.cnpj&&<span style={{fontFamily:"monospace"}}>{emp.cnpj}</span>}
-                      {socio?.nome&&<span>👤 {socio.nome}{socio.cpf&&` · ${socio.cpf}`}</span>}
+                      {flagsC.socioResponsavel&&socio?.nome&&<span>👤 {socio.nome}{socio.cpf&&` · ${socio.cpf}`}</span>}
                       {grpNome&&<span>👥 {grpNome}</span>}
                     </div>
                   </div>
@@ -11162,7 +11283,8 @@ function GuestView({grpId, pageId, toast, toasts}){
 const ICON_OPTIONS=["📋","💰","🏦","📄","✅","➕","➖","🏖","🎁","📑","🔢","📊","🗂","📬","🧾","📌","🔖","⚙️","📎","📝","🔍","🏛","🏢","👥","📆","⏰","🚨","💼","🧮","📤","📥","✏️","💳","🗓","🧾"];
 
 function makePageComponent(PAGE_CFG){
-  return function SharedPage({toast,sysData,onNavigate,isAdmin,myCollab}){
+  return function SharedPage({toast,sysData,onNavigate,isAdmin,myCollab,featureFlags}){
+    const flagsMP=featureFlags?.fields||{socioResponsavel:true};
     const {useState,useMemo,useEffect,useRef,useCallback}=React;
     const {STORAGE_KEY,ROW_ID,PAGE_TITLE,HEADER_ICON,PAGE_DESC,PAGE_ID,DEFAULT_COLS,COLS_KEY}=PAGE_CFG;
 
@@ -11583,10 +11705,10 @@ function makePageComponent(PAGE_CFG){
     const guestEmpIds=useMemo(()=>{if(!isGuestMode||!guestGrpId)return null;const sids=grupos.filter(g=>g.parentId===guestGrpId).map(g=>g.id);return new Set(empresas.filter(e=>e.grupoId===guestGrpId||sids.includes(e.grupoId)).map(e=>e.id));},[isGuestMode,guestGrpId,empresas,grupos]);
     // ── Trava de visibilidade: quais grupos este usuário pode ver (admin sempre vê tudo) ──
     const meusGruposPermitidos=useMemo(()=>{
-      if(isAdmin)return null;
+      if(isAdmin||!flagsMP.restricaoGruposPorUsuario)return null;
       const g=toArr(myCollab?.gruposContabeis);
       return g.length>0?g:null;
-    },[isAdmin,myCollab]);
+    },[isAdmin,myCollab,flagsMP.restricaoGruposPorUsuario]);
     const nomeGrupoRaizDeMP=(e)=>{
       if(!e.grupoId)return null;
       const g=grupos.find(x=>x.id===e.grupoId);
@@ -11969,7 +12091,7 @@ function makePageComponent(PAGE_CFG){
                         <div style={{fontSize:13,fontWeight:800,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={emp.nome}>🏢 {emp.nome}</div>
                         {(()=>{const socio=getSocioInfo(emp);return(
                           <div style={{fontSize:9.5,color:"#94a3b8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                            {emp.cnpj||"—"}{socio?.nome&&` · 👤 ${socio.nome}${socio.cpf?" · "+socio.cpf:""}`}
+                            {emp.cnpj||"—"}{flagsMP.socioResponsavel&&socio?.nome&&` · 👤 ${socio.nome}${socio.cpf?" · "+socio.cpf:""}`}
                           </div>
                         );})()}
                       </div>
@@ -12483,7 +12605,8 @@ function makePageComponent(PAGE_CFG){
 // ═══════════════════════════════════════════════════════════════
 // 📊 RELATÓRIO CONTÁBIL — Visão unificada dos 3 módulos
 // ═══════════════════════════════════════════════════════════════
-function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,addNotification,myCollabId,myCollab}){
+function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,addNotification,myCollabId,myCollab,featureFlags}){
+  const flags=featureFlags?.fields||{socioResponsavel:true,slaGrupo:true,checklistPersonalizavel:true,acoesMassaObrigacao:true,exportarPDF:true,notificacoesAtraso:true,restricaoGruposPorUsuario:true};
   const hoje=new Date();hoje.setHours(0,0,0,0);
   const mesAtualNum=hoje.getMonth()+1;
   const anoAtual=hoje.getFullYear();
@@ -12499,7 +12622,7 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
   const canEditGeral = myRole==="admin"||myRole==="gestor";
   const canConfigurarGrupo = myRole==="admin";
   const canAcoesMassa = myRole==="admin"||myRole==="gestor";
-  const temRestricaoGrupos = !isAdmin && toArr(myCollab?.gruposContabeis).length>0;
+  const temRestricaoGrupos = !isAdmin && flags.restricaoGruposPorUsuario && toArr(myCollab?.gruposContabeis).length>0;
 
   const MODULOS=[
     {id:"contabil",label:"Contábil",icon:"📊",cor:"#6366f1",rowId:2,
@@ -12633,12 +12756,12 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
       });
     });
     return[...gruposMap.values()].filter(g=>{
-      if(isAdmin)return true;
+      if(isAdmin||!flags.restricaoGruposPorUsuario)return true;
       const permitidos=toArr(myCollab?.gruposContabeis);
       if(!permitidos.length)return true; // sem restrição definida = vê tudo
       return permitidos.includes(g.nome);
     }).sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR"));
-  },[payloads,isAdmin,myCollab]);
+  },[payloads,isAdmin,myCollab,flags.restricaoGruposPorUsuario]);
 
   const todosGrupos=arvore.map(g=>({key:g.key,nome:g.nome}));
   // ── Sistema de status padronizado (cor + ícone + texto) ──
@@ -12837,6 +12960,7 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
 
   // ── Sino de notificações: avisa 1x/dia sobre obrigações atrasadas, sem duplicar ──
   React.useEffect(()=>{
+    if(!flags.notificacoesAtraso)return;
     if(!metaLoaded||loading||!addNotification||!myCollabId)return;
     if(kpis.atrasadas===0)return;
     const hojeStr=hoje.toISOString().slice(0,10);
@@ -13184,7 +13308,7 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
             <option value="ample">▦ Ampla</option>
           </select>
           <button onClick={()=>exportCSV("filtro")} title="Baixa uma planilha com os dados filtrados (abre no Excel/Sheets)" style={{background:"#22c55e",color:"#fff",border:"none",padding:"7px 14px",borderRadius:9,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>📥 Exportar CSV</button>
-          <button onClick={()=>exportPDF("filtro")} title="Gera um relatório em PDF pronto para imprimir ou enviar" style={{background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",border:"none",padding:"7px 14px",borderRadius:9,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>🖨 Exportar PDF</button>
+          {flags.exportarPDF&&<button onClick={()=>exportPDF("filtro")} title="Gera um relatório em PDF pronto para imprimir ou enviar" style={{background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",border:"none",padding:"7px 14px",borderRadius:9,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>🖨 Exportar PDF</button>}
         </div>
       </div>
 
@@ -13244,7 +13368,7 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
           {ANOS_DISP.map(a=><option key={a} value={a}>{a}</option>)}
         </select>
         <button onClick={()=>{setExpandAll(v=>!v);setExpandedGroup(null);}} title="Mostra todos os grupos abertos ao mesmo tempo (por padrão só um grupo fica aberto por vez)" style={{padding:"6px 10px",borderRadius:7,border:"1px solid "+(expandAll?"#6366f1":"var(--border)"),background:expandAll?"#6366f1":"var(--bg)",color:expandAll?"#fff":"#64748b",fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>{expandAll?"▤ Recolher todos":"▥ Expandir todos"}</button>
-        {canAcoesMassa&&(
+        {canAcoesMassa&&flags.acoesMassaObrigacao&&(
           <button onClick={()=>{if(modoSelecaoObr)sairModoSelecaoObr();else{setModoSelecaoObr(true);clearSelecao();}}} title="Selecione obrigações individuais em qualquer empresa/mês para agir em massa só nelas"
             style={{padding:"6px 10px",borderRadius:7,border:"1px solid "+(modoSelecaoObr?"#8b5cf6":"var(--border)"),background:modoSelecaoObr?"#8b5cf6":"var(--bg)",color:modoSelecaoObr?"#fff":"#64748b",fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>{modoSelecaoObr?"🎯 Selecionando obrigações (sair)":"🎯 Selecionar obrigações"}</button>
         )}
@@ -13286,13 +13410,13 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
                       <div style={{fontSize:10,color:"#94a3b8"}}>
                         {grupo.empresas.length} empresa{grupo.empresas.length!==1?"s":""} · resp. {grupo.responsavelPrincipal}
                         {" · "}{grupo.concluidas} concluídas{grupo.pendentes>0&&<span style={{color:"#b45309"}}> · {grupo.pendentes} pendentes</span>}
-                        {grupo.sla&&<span style={{color:grupo.sla.cor,fontWeight:800}}> · {grupo.sla.label}</span>}
+                        {flags.slaGrupo&&grupo.sla&&<span style={{color:grupo.sla.cor,fontWeight:800}}> · {grupo.sla.label}</span>}
                       </div>
                     </div>
                   </div>
                   {grupo.atrasadas>0&&<span style={{flexShrink:0,color:"#dc2626",fontSize:10.5,fontWeight:800}}>⚠️ {grupo.atrasadas} atrasada{grupo.atrasadas!==1?"s":""}</span>}
                   <div style={{width:110,flexShrink:0}} onClick={e=>e.stopPropagation()}><ProgressoMini pct={grupo.progresso} frac={grupo.concluidas+" de "+grupo.total}/></div>
-                  <GroupMenu grupo={grupo} canConfigurarGrupo={canConfigurarGrupo} abrirConfigGrupo={abrirConfigGrupo} exportCSV={exportCSV} exportPDF={exportPDF}/>
+                  <GroupMenu grupo={grupo} canConfigurarGrupo={canConfigurarGrupo} abrirConfigGrupo={abrirConfigGrupo} exportCSV={exportCSV} exportPDF={exportPDF} pdfHabilitado={flags.exportarPDF}/>
                 </div>
                 {/* Empresas do grupo */}
                 {exp&&(
@@ -13448,7 +13572,7 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
           <button onClick={()=>setMassModal({tipo:"status"})} style={{padding:"6px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg)",color:"var(--text)",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>🔄 Alterar status</button>
           <button onClick={()=>setMassModal({tipo:"marcador"})} style={{padding:"6px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg)",color:"var(--text)",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>🏷️ Marcador</button>
           <button onClick={()=>exportCSV("selecao")} style={{padding:"6px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg)",color:"var(--text)",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>📥 CSV</button>
-          <button onClick={()=>exportPDF("selecao")} style={{padding:"6px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg)",color:"var(--text)",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>🖨 PDF</button>
+          {flags.exportarPDF&&<button onClick={()=>exportPDF("selecao")} style={{padding:"6px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg)",color:"var(--text)",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>🖨 PDF</button>}
           <button onClick={clearSelecao} style={{padding:"6px 10px",borderRadius:8,border:"none",background:"transparent",color:"#94a3b8",fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>✕ Limpar seleção</button>
         </div>
       )}
@@ -13473,7 +13597,7 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
 
       {drawer&&(
         <ObrigacaoDrawer drawer={drawer} fecharDrawer={fecharDrawer} SS={SS} canEditGeral={canEditGeral}
-          getChecklist={getChecklist} toggleChecklistItem={toggleChecklistItem} getChecklistTemplate={getChecklistTemplate} salvarChecklistTemplate={salvarChecklistTemplate}
+          getChecklist={getChecklist} toggleChecklistItem={toggleChecklistItem} getChecklistTemplate={getChecklistTemplate} salvarChecklistTemplate={salvarChecklistTemplate} checklistPersonalizavelHabilitado={flags.checklistPersonalizavel}
           setStatusOverride={setStatusOverride} limparStatusOverride={limparStatusOverride}
           getObrResponsavel={getObrResponsavel} setObrResponsavel={setObrResponsavel}
           comments={meta.comments?.[drawer.obrKey]||[]} addComentario={addComentario}
@@ -13486,7 +13610,7 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
         <GrupoConfigModal grupoConfig={grupoConfig} grupoConfigTab={grupoConfigTab} setGrupoConfigTab={setGrupoConfigTab}
           grupoConfigDraft={grupoConfigDraft} setGrupoConfigDraft={setGrupoConfigDraft}
           salvarConfigGrupo={salvarConfigGrupo} setGrupoConfig={setGrupoConfig}
-          todosResponsaveis={todosResponsaveis} roleLabel={roleLabel}
+          todosResponsaveis={todosResponsaveis} roleLabel={roleLabel} slaHabilitado={flags.slaGrupo}
           auditLog={(meta.auditLog||[]).filter(a=>a.desc.includes(grupoConfig.nome))}/>
       )}
 
@@ -13544,7 +13668,7 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
     </div>
   );
 }
-function GroupMenu({grupo,canConfigurarGrupo,abrirConfigGrupo,exportCSV,exportPDF}){
+function GroupMenu({grupo,canConfigurarGrupo,abrirConfigGrupo,exportCSV,exportPDF,pdfHabilitado}){
   const [open,setOpen]=React.useState(false);
   const empresasDoGrupo=grupo.empresas.map(e=>({...e,grupoNome:grupo.nome}));
   return(
@@ -13556,7 +13680,7 @@ function GroupMenu({grupo,canConfigurarGrupo,abrirConfigGrupo,exportCSV,exportPD
           <div style={{position:"absolute",right:0,top:28,zIndex:41,background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:10,boxShadow:"0 8px 24px rgba(0,0,0,.15)",minWidth:190,overflow:"hidden"}}>
             {canConfigurarGrupo&&<button onClick={()=>{setOpen(false);abrirConfigGrupo(grupo);}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 14px",background:"none",border:"none",cursor:"pointer",fontSize:12,color:"var(--text)",fontFamily:"inherit"}}>⚙️ Configurar grupo</button>}
             <button onClick={()=>{setOpen(false);exportCSV("grupo",empresasDoGrupo);}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 14px",background:"none",border:"none",cursor:"pointer",fontSize:12,color:"var(--text)",fontFamily:"inherit"}}>📥 Exportar este grupo (CSV)</button>
-            <button onClick={()=>{setOpen(false);exportPDF("grupo",empresasDoGrupo);}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 14px",background:"none",border:"none",cursor:"pointer",fontSize:12,color:"var(--text)",fontFamily:"inherit"}}>🖨 Exportar este grupo (PDF)</button>
+            {pdfHabilitado&&<button onClick={()=>{setOpen(false);exportPDF("grupo",empresasDoGrupo);}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 14px",background:"none",border:"none",cursor:"pointer",fontSize:12,color:"var(--text)",fontFamily:"inherit"}}>🖨 Exportar este grupo (PDF)</button>}
           </div>
         </>
       )}
@@ -13601,7 +13725,7 @@ function MassActionModal({massModal,massForm,setMassForm,setMassModal,empresasSe
   );
 }
 
-function ObrigacaoDrawer({drawer,fecharDrawer,SS,canEditGeral,getChecklist,toggleChecklistItem,getChecklistTemplate,salvarChecklistTemplate,setStatusOverride,limparStatusOverride,getObrResponsavel,setObrResponsavel,comments,addComentario,attachments,addAnexo,auditLog,userName,MESES_FULL}){
+function ObrigacaoDrawer({drawer,fecharDrawer,SS,canEditGeral,getChecklist,toggleChecklistItem,getChecklistTemplate,salvarChecklistTemplate,checklistPersonalizavelHabilitado,setStatusOverride,limparStatusOverride,getObrResponsavel,setObrResponsavel,comments,addComentario,attachments,addAnexo,auditLog,userName,MESES_FULL}){
   const[comentTxt,setComentTxt]=React.useState("");
   const s=SS(drawer.status);
   const respAtual=getObrResponsavel(drawer.obrKey,drawer.empU.responsavel);
@@ -13656,7 +13780,7 @@ function ObrigacaoDrawer({drawer,fecharDrawer,SS,canEditGeral,getChecklist,toggl
         <div style={{marginBottom:14}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:5}}>
             <div style={{fontSize:11,fontWeight:800,color:"#64748b"}}>CHECKLIST</div>
-            {canEditGeral&&<button onClick={()=>{setEditandoChecklist(v=>!v);setChecklistDraft(getChecklistTemplate(drawer.label).join("\n"));}} title="Edita o modelo de checklist para todas as obrigações deste tipo (ex: todas as 'Apuração DAS')" style={{fontSize:9,fontWeight:700,color:"#6366f1",background:"none",border:"none",cursor:"pointer",fontFamily:"inherit"}}>{editandoChecklist?"✕ cancelar":"✏️ personalizar p/ este tipo"}</button>}
+            {canEditGeral&&checklistPersonalizavelHabilitado&&<button onClick={()=>{setEditandoChecklist(v=>!v);setChecklistDraft(getChecklistTemplate(drawer.label).join("\n"));}} title="Edita o modelo de checklist para todas as obrigações deste tipo (ex: todas as 'Apuração DAS')" style={{fontSize:9,fontWeight:700,color:"#6366f1",background:"none",border:"none",cursor:"pointer",fontFamily:"inherit"}}>{editandoChecklist?"✕ cancelar":"✏️ personalizar p/ este tipo"}</button>}
           </div>
           {editandoChecklist?(
             <div>
@@ -13715,7 +13839,7 @@ function ObrigacaoDrawer({drawer,fecharDrawer,SS,canEditGeral,getChecklist,toggl
   );
 }
 
-function GrupoConfigModal({grupoConfig,grupoConfigTab,setGrupoConfigTab,grupoConfigDraft,setGrupoConfigDraft,salvarConfigGrupo,setGrupoConfig,todosResponsaveis,roleLabel,auditLog}){
+function GrupoConfigModal({grupoConfig,grupoConfigTab,setGrupoConfigTab,grupoConfigDraft,setGrupoConfigDraft,salvarConfigGrupo,setGrupoConfig,todosResponsaveis,roleLabel,auditLog,slaHabilitado}){
   const TABS=[["dados","Dados do grupo"],["empresas","Empresas vinculadas"],["regras","Regras"],["responsaveis","Responsáveis"],["calendario","Calendário"],["permissoes","Permissões"],["historico","Histórico"]];
   const RegraToggle=({k,label,hint})=>(
     <label style={{display:"flex",alignItems:"flex-start",gap:10,padding:"8px 0",cursor:"pointer"}}>
@@ -13767,6 +13891,7 @@ function GrupoConfigModal({grupoConfig,grupoConfigTab,setGrupoConfigTab,grupoCon
               <RegraToggle k="aplicarCalendario" label="Aplicar calendário de obrigações do grupo" hint="Usar o calendário do grupo como padrão nas empresas."/>
               <RegraToggle k="consolidarIndicadores" label="Consolidar indicadores no relatório" hint="Exibir métricas consolidadas no painel e relatórios."/>
               <RegraToggle k="permitirAcoesMassa" label="Permitir ações em massa" hint="Habilitar ações em lote para empresas do grupo."/>
+              {slaHabilitado&&(
               <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid var(--border)"}}>
                 <div style={{fontSize:12,fontWeight:800,color:"var(--text)",marginBottom:4}}>🎯 Meta (SLA) do grupo</div>
                 <div style={{fontSize:10.5,color:"#94a3b8",marginBottom:8}}>Dia do mês até o qual o grupo deve estar 100% concluído na competência corrente. Deixe vazio para não acompanhar meta.</div>
@@ -13778,6 +13903,7 @@ function GrupoConfigModal({grupoConfig,grupoConfigTab,setGrupoConfigTab,grupoCon
                   {grupoConfigDraft.slaDia&&<button onClick={()=>setGrupoConfigDraft(d=>({...d,slaDia:null}))} style={{fontSize:10,color:"#dc2626",background:"none",border:"none",cursor:"pointer",fontFamily:"inherit"}}>✕ remover meta</button>}
                 </div>
               </div>
+              )}
             </div>
           )}
           {grupoConfigTab==="responsaveis"&&(

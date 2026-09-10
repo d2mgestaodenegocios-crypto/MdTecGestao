@@ -232,7 +232,14 @@ const canonEmpKeyGlobal=(cnpj,nome)=>{
 const RESP_SYNC_ROW_ID=20;
 const PRESET_TAGS=["SEM MOV.","SEM CERT.","INATIVA","PENDENTE DOC.","EM ENCERRAMENTO"];
 const TAG_COLORS={"SEM MOV.":"#f59e0b","SEM CERT.":"#ef4444","INATIVA":"#6b7280","PENDENTE DOC.":"#8b5cf6","EM ENCERRAMENTO":"#0ea5e9"};
-const getTagColor=(t)=>TAG_COLORS[t]||"#6366f1";
+// Paleta extra pra tags personalizadas — nenhuma cor repete as dos presets, pra sempre destacar
+const TAG_CUSTOM_PALETTE=["#16a34a","#db2777","#0891b2","#ca8a04","#7c3aed","#059669","#e11d48","#2563eb","#65a30d","#c2410c","#4338ca","#0d9488"];
+const getTagColor=(t)=>{
+  if(TAG_COLORS[t])return TAG_COLORS[t];
+  // hash simples e estável a partir do texto da tag, pra sempre cair na mesma cor pra mesma tag
+  let h=0;for(let i=0;i<t.length;i++)h=(h*31+t.charCodeAt(i))>>>0;
+  return TAG_CUSTOM_PALETTE[h%TAG_CUSTOM_PALETTE.length];
+};
 
 // ── Selo de marcador (tag) de empresa — compartilhado entre Contábil/Tributário/Folha/Grupos e Empresas ──
 function TagBadges({tags}){
@@ -246,14 +253,28 @@ function TagBadges({tags}){
 function TagPicker({tags,onAdd,onRemove,small}){
   const [open,setOpen]=React.useState(false);
   const [custom,setCustom]=React.useState("");
+  const [pos,setPos]=React.useState(null);
+  const btnRef=React.useRef(null);
   const atuais=tags||[];
+  const PANEL_W=210,PANEL_MAX_H=260;
+  const abrirPainel=()=>{
+    const r=btnRef.current?.getBoundingClientRect();
+    if(r){
+      const abrirParaCima=r.bottom+PANEL_MAX_H>window.innerHeight&&r.top>PANEL_MAX_H;
+      let left=r.left;
+      if(left+PANEL_W>window.innerWidth-8)left=window.innerWidth-PANEL_W-8;
+      if(left<8)left=8;
+      setPos({left,top:abrirParaCima?null:r.bottom+4,bottom:abrirParaCima?(window.innerHeight-r.top+4):null});
+    }
+    setOpen(v=>!v);
+  };
   return(
-    <div style={{position:"relative",display:"inline-block"}} onClick={e=>e.stopPropagation()}>
-      <button onClick={()=>setOpen(v=>!v)} title="Adicionar/remover lembrete (tag)" style={{background:"none",border:"1px dashed #94a3b8",borderRadius:14,color:"#94a3b8",cursor:"pointer",fontSize:small?9.5:10.5,padding:small?"1px 6px":"2px 8px",fontFamily:"inherit",fontWeight:700}}>+ 🏷</button>
-      {open&&(
+    <div style={{display:"inline-block"}} onClick={e=>e.stopPropagation()}>
+      <button ref={btnRef} onClick={abrirPainel} title="Adicionar/remover lembrete (tag)" style={{background:"none",border:"1px dashed #94a3b8",borderRadius:14,color:"#94a3b8",cursor:"pointer",fontSize:small?9.5:10.5,padding:small?"1px 6px":"2px 8px",fontFamily:"inherit",fontWeight:700}}>+ 🏷</button>
+      {open&&pos&&(
         <>
-          <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:60}}/>
-          <div style={{position:"absolute",left:0,top:"120%",zIndex:61,background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:10,boxShadow:"0 8px 24px rgba(0,0,0,.18)",padding:10,minWidth:200}}>
+          <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:200}}/>
+          <div style={{position:"fixed",left:pos.left,top:pos.top??"auto",bottom:pos.bottom??"auto",zIndex:201,background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:10,boxShadow:"0 8px 24px rgba(0,0,0,.25)",padding:10,width:PANEL_W,maxHeight:PANEL_MAX_H,overflowY:"auto"}}>
             {atuais.length>0&&(
               <div style={{marginBottom:8,display:"flex",flexWrap:"wrap",gap:4}}>
                 {atuais.map(t=>(
@@ -361,7 +382,7 @@ const RINTS=[
 ];
 const NAV_GROUPS=[
   {label:"Visualizações",items:[{id:"dashboard",icon:"✦",label:"Dashboard"},{id:"kanban",icon:"⊞",label:"Kanban"},{id:"lista",icon:"☰",label:"Lista"},{id:"calendario",icon:"📅",label:"Calendário"},{id:"gantt",icon:"🗓",label:"Linha do Tempo"},{id:"tabela",icon:"▦",label:"Tabela"},{id:"hoje",icon:"🌅",label:"Hoje"},{id:"minhas",icon:"👤",label:"Minhas Tarefas"},{id:"arquivadas",icon:"📦",label:"Arquivadas"}]},
-  {label:"Cadastros",items:[{id:"modelos",icon:"◧",label:"Modelos"},{id:"empresas",icon:"⬡",label:"Empresas"},{id:"setores",icon:"◫",label:"Setores"},{id:"colaboradores",icon:"◉",label:"Colaboradores"},{id:"marcadores",icon:"◈",label:"Marcadores"},{id:"recorrencias",icon:"↻",label:"Recorrências"},{id:"painel-rec",icon:"⊹",label:"Painel Recorrências"},{id:"servicos",icon:"S",label:"Serviços"}]},
+  {label:"Cadastros",items:[{id:"modelos",icon:"◧",label:"Modelos"},{id:"empresas",icon:"⬡",label:"Empresas"},{id:"setores",icon:"◫",label:"Setores"},{id:"colaboradores",icon:"◉",label:"Colaboradores"},{id:"marcadores",icon:"◈",label:"Marcadores"},{id:"recorrencias",icon:"↻",label:"Recorrências"},{id:"painel-rec",icon:"⊹",label:"Painel Recorrências"},{id:"servicos",icon:"S",label:"Serviços"},{id:"links-uteis",icon:"🔗",label:"Links Úteis"}]},
   {label:"Relatórios",items:[{id:"relatorio",icon:"📧",label:"Relatório por Empresa"},{id:"carga",icon:"⚖",label:"Carga de Trabalho"}]},
   {label:"Contabilidade",items:[{id:"contabil",icon:"📊",label:"Contábil"},{id:"fiscal",icon:"📋",label:"Tributário"},{id:"folha-pagamento",icon:"👥",label:"Folha Pgto"},{id:"relatorio-contabil",icon:"📊",label:"Relatório"}]},
   {label:"Sistema",items:[{id:"auditoria",icon:"🛡",label:"Auditoria"},{id:"configuracoes",icon:"⚙",label:"Configurações"}]},
@@ -1421,6 +1442,158 @@ function AdminFeatureFlagsPanel({featureFlags,saveFeatureFlags,DEFAULT_FEATURE_F
       {FIELDS.map(f=>(
         <ToggleRow key={f.id} checked={featureFlags.fields[f.id]!==false} onClick={()=>toggleField(f.id)} label={f.label} hint={f.hint}/>
       ))}
+    </div>
+  );
+}
+
+function LinksUteisPage({toast,userName}){
+  const LINKS_ROW_ID=22;
+  const {useState,useEffect}=React;
+  const [links,setLinks]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [busca,setBusca]=useState("");
+  const [modal,setModal]=useState(null); // {editing:link|null}
+  const [form,setForm]=useState({nome:"",url:"",usuario:"",senha:"",notas:""});
+  const [visiveis,setVisiveis]=useState({}); // controla mostrar/ocultar senha por linha
+
+  useEffect(()=>{
+    let ok=true;
+    (async()=>{
+      try{const{data:row}=await sb.from("app_data").select("payload").eq("id",LINKS_ROW_ID).maybeSingle();if(ok)setLinks(row?.payload?.links||[]);}catch(e){}
+      if(ok)setLoading(false);
+    })();
+    const ch=sb.channel("links_uteis").on("postgres_changes",{event:"UPDATE",schema:"public",table:"app_data",filter:`id=eq.${LINKS_ROW_ID}`},
+      pl=>{if(pl.new?.payload)setLinks(pl.new.payload.links||[]);}).subscribe();
+    return()=>{ok=false;sb.removeChannel(ch);};
+  },[]);
+
+  const salvar=async(next)=>{
+    setLinks(next);
+    try{await sb.from("app_data").upsert({id:LINKS_ROW_ID,payload:{links:next}});}catch(e){toast("⚠️ Não foi possível salvar.","err");}
+  };
+
+  const abrirNovo=()=>{setForm({nome:"",url:"",usuario:"",senha:"",notas:""});setModal({editing:null});};
+  const abrirEditar=(l)=>{setForm({nome:l.nome,url:l.url,usuario:l.usuario||"",senha:l.senha||"",notas:l.notas||""});setModal({editing:l});};
+
+  const confirmarSalvar=()=>{
+    if(!form.nome.trim()){toast("Digite o nome do site.","warn");return;}
+    if(!form.url.trim()){toast("Digite o link de acesso.","warn");return;}
+    let urlNorm=form.url.trim();
+    if(!/^https?:\/\//i.test(urlNorm))urlNorm="https://"+urlNorm;
+    if(modal.editing){
+      salvar(links.map(l=>l.id===modal.editing.id?{...l,nome:form.nome.trim(),url:urlNorm,usuario:form.usuario.trim(),senha:form.senha,notas:form.notas.trim()}:l));
+      toast("✅ Link atualizado!","ok");
+    }else{
+      salvar([...links,{id:uid(),nome:form.nome.trim(),url:urlNorm,usuario:form.usuario.trim(),senha:form.senha,notas:form.notas.trim(),criadoPor:userName||"Usuário",criadoEm:new Date().toISOString()}]);
+      toast("✅ Link adicionado!","ok");
+    }
+    setModal(null);
+  };
+
+  const excluir=(l)=>{
+    if(!window.confirm(`Excluir o link "${l.nome}"?`))return;
+    salvar(links.filter(x=>x.id!==l.id));
+    toast("🗑 Link excluído.","ok");
+  };
+
+  const copiar=(txt,label)=>{
+    if(!txt)return;
+    navigator.clipboard?.writeText(txt).then(()=>toast(`📋 ${label} copiado!`,"ok")).catch(()=>{});
+  };
+
+  const buscaN=busca.trim().toLowerCase();
+  const linksFiltrados=links.filter(l=>!buscaN||l.nome.toLowerCase().includes(buscaN)||l.url.toLowerCase().includes(buscaN)).sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR"));
+
+  if(loading)return<div style={{padding:40,textAlign:"center",color:"#94a3b8"}}>⏳ Carregando links…</div>;
+
+  return(
+    <div style={{maxWidth:840}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:16,flexWrap:"wrap"}}>
+        <div>
+          <h2 style={{fontSize:20,fontWeight:900,color:"var(--text)"}}>🔗 Links Úteis</h2>
+          <p style={{fontSize:12.5,color:"#64748b"}}>Guarde sites, acessos e senhas usados no dia a dia — Receita, e-CAC, Simples Nacional, portais dos clientes, etc.</p>
+        </div>
+        <button onClick={abrirNovo} style={{background:"#6366f1",color:"#fff",border:"none",padding:"9px 16px",borderRadius:10,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>+ Novo link</button>
+      </div>
+
+      <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="🔍 Buscar por nome ou link…" style={{width:"100%",padding:"9px 14px",borderRadius:10,border:"1.5px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",marginBottom:16,outline:"none"}}/>
+
+      {linksFiltrados.length===0&&(
+        <div style={{textAlign:"center",padding:50,color:"#94a3b8",border:"2px dashed var(--border)",borderRadius:14}}>
+          🔗 {links.length===0?"Nenhum link cadastrado ainda.":"Nada encontrado para essa busca."}
+        </div>
+      )}
+
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {linksFiltrados.map(l=>(
+          <div key={l.id} style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 16px"}}>
+            <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+              <div style={{minWidth:0,flex:1}}>
+                <a href={l.url} target="_blank" rel="noopener noreferrer" style={{fontSize:14,fontWeight:800,color:"#6366f1",textDecoration:"none",display:"inline-flex",alignItems:"center",gap:6}}>🔗 {l.nome} <span style={{fontSize:11,color:"#94a3b8",fontWeight:600}}>↗</span></a>
+                <div style={{fontSize:11,color:"#94a3b8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:1}}>{l.url}</div>
+              </div>
+              <div style={{display:"flex",gap:6,flexShrink:0}}>
+                <button onClick={()=>abrirEditar(l)} title="Editar" style={{background:"none",border:"1px solid var(--border)",borderRadius:8,padding:"5px 9px",cursor:"pointer",fontSize:12,color:"#64748b"}}>✏️</button>
+                <button onClick={()=>excluir(l)} title="Excluir" style={{background:"none",border:"1px solid var(--border)",borderRadius:8,padding:"5px 9px",cursor:"pointer",fontSize:12,color:"#dc2626"}}>🗑</button>
+              </div>
+            </div>
+            {(l.usuario||l.senha)&&(
+              <div style={{display:"flex",gap:16,flexWrap:"wrap",marginTop:10,paddingTop:10,borderTop:"1px solid var(--border)"}}>
+                {l.usuario&&(
+                  <div style={{fontSize:12}}>
+                    <span style={{color:"#94a3b8"}}>Usuário: </span>
+                    <span style={{fontWeight:700,color:"var(--text)",fontFamily:"monospace"}}>{l.usuario}</span>
+                    <button onClick={()=>copiar(l.usuario,"Usuário")} title="Copiar" style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:11,marginLeft:5}}>📋</button>
+                  </div>
+                )}
+                {l.senha&&(
+                  <div style={{fontSize:12}}>
+                    <span style={{color:"#94a3b8"}}>Senha: </span>
+                    <span style={{fontWeight:700,color:"var(--text)",fontFamily:"monospace"}}>{visiveis[l.id]?l.senha:"••••••••"}</span>
+                    <button onClick={()=>setVisiveis(v=>({...v,[l.id]:!v[l.id]}))} title={visiveis[l.id]?"Ocultar":"Mostrar"} style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:11,marginLeft:5}}>{visiveis[l.id]?"🙈":"👁"}</button>
+                    <button onClick={()=>copiar(l.senha,"Senha")} title="Copiar" style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:11,marginLeft:3}}>📋</button>
+                  </div>
+                )}
+              </div>
+            )}
+            {l.notas&&<div style={{fontSize:11.5,color:"#94a3b8",marginTop:8,fontStyle:"italic"}}>📝 {l.notas}</div>}
+          </div>
+        ))}
+      </div>
+
+      {modal&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(15,23,42,.55)",zIndex:90,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setModal(null)}>
+          <div style={{background:"var(--bg2)",borderRadius:16,padding:22,maxWidth:420,width:"100%",boxShadow:"0 20px 60px rgba(0,0,0,.3)"}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:16,fontWeight:900,marginBottom:14,color:"var(--text)"}}>{modal.editing?"✏️ Editar link":"+ Novo link"}</div>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <div>
+                <label style={{fontSize:11,fontWeight:700,color:"#64748b",display:"block",marginBottom:4}}>Nome do site *</label>
+                <input value={form.nome} onChange={e=>setForm(f=>({...f,nome:e.target.value}))} placeholder="Ex: e-CAC Receita Federal" style={{width:"100%",padding:"8px 11px",borderRadius:8,border:"1px solid var(--border)",fontSize:13,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}/>
+              </div>
+              <div>
+                <label style={{fontSize:11,fontWeight:700,color:"#64748b",display:"block",marginBottom:4}}>Link de acesso *</label>
+                <input value={form.url} onChange={e=>setForm(f=>({...f,url:e.target.value}))} placeholder="https://..." style={{width:"100%",padding:"8px 11px",borderRadius:8,border:"1px solid var(--border)",fontSize:13,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}/>
+              </div>
+              <div>
+                <label style={{fontSize:11,fontWeight:700,color:"#64748b",display:"block",marginBottom:4}}>Usuário (opcional)</label>
+                <input value={form.usuario} onChange={e=>setForm(f=>({...f,usuario:e.target.value}))} style={{width:"100%",padding:"8px 11px",borderRadius:8,border:"1px solid var(--border)",fontSize:13,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}/>
+              </div>
+              <div>
+                <label style={{fontSize:11,fontWeight:700,color:"#64748b",display:"block",marginBottom:4}}>Senha (opcional)</label>
+                <input value={form.senha} onChange={e=>setForm(f=>({...f,senha:e.target.value}))} style={{width:"100%",padding:"8px 11px",borderRadius:8,border:"1px solid var(--border)",fontSize:13,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}/>
+              </div>
+              <div>
+                <label style={{fontSize:11,fontWeight:700,color:"#64748b",display:"block",marginBottom:4}}>Notas (opcional)</label>
+                <textarea value={form.notas} onChange={e=>setForm(f=>({...f,notas:e.target.value}))} rows={2} style={{width:"100%",padding:"8px 11px",borderRadius:8,border:"1px solid var(--border)",fontSize:13,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)",resize:"vertical"}}/>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:18}}>
+              <button onClick={()=>setModal(null)} style={{padding:"9px 16px",borderRadius:9,border:"1px solid var(--border)",background:"var(--bg)",color:"var(--text)",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Cancelar</button>
+              <button onClick={confirmarSalvar} style={{padding:"9px 18px",borderRadius:9,border:"none",background:"#6366f1",color:"#fff",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>💾 Salvar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -7319,7 +7492,7 @@ function App(){
   const FEATURE_FLAGS_ROW_ID=21;
   const DEFAULT_FEATURE_FLAGS={
     modules:{dashboard:true,kanban:true,lista:true,calendario:true,gantt:true,tabela:true,hoje:true,minhas:true,arquivadas:true,
-      modelos:true,empresas:true,setores:true,colaboradores:true,marcadores:true,recorrencias:true,"painel-rec":true,servicos:true,
+      modelos:true,empresas:true,setores:true,colaboradores:true,marcadores:true,recorrencias:true,"painel-rec":true,servicos:true,"links-uteis":true,
       relatorio:true,carga:true,contabil:true,fiscal:true,"folha-pagamento":true,"relatorio-contabil":true,auditoria:true},
     fields:{socioResponsavel:true,slaGrupo:true,checklistPersonalizavel:true,acoesMassaObrigacao:true,exportarPDF:true,notificacoesAtraso:true,restricaoGruposPorUsuario:true}
   };
@@ -8342,6 +8515,7 @@ function App(){
         {page==="relatorio"     && <RelatorioPage data={isAdmin?data:dataForUser} isAdmin={isAdmin} myCollabId={myCollabId}/>}
         {page==="carga"         && <CargaPage data={dataForUser}/>}
         {page==="servicos"      && <ServicosPage data={data} setData={setData}/>}
+        {page==="links-uteis"   && <LinksUteisPage toast={toast} userName={userName}/>}
         {page==="modelos"       && <TemplatesPage data={data} setData={setData} onUseTemplate={useTemplate}/>}
         {page==="empresas"      && <CompaniesPage data={data} setData={setData}/>}
         {page==="setores"       && <SectorsPage data={data} setData={setData}/>}
@@ -11272,7 +11446,17 @@ function GuestView({grpId, pageId, toast, toasts}){
   const SS={"nao-iniciado":{background:"#f8fafc",color:"#94a3b8",border:"1.5px solid #e2e8f0"},"pendente":{background:"#fff7ed",color:"#c2410c",border:"1.5px solid #fed7aa"},"ok":{background:"#f0fdf4",color:"#15803d",border:"1.5px solid #86efac"},"nao-aplica":{background:"#f1f5f9",color:"#cbd5e1",border:"1.5px dashed #cbd5e1"}};
   const SL={"nao-iniciado":"✗ Não","pendente":"⏳ Pend.","ok":"✅ Ok","nao-aplica":"— N/A"};
   const gc3=(eid,mes,col)=>dados[eid+"_"+mes+"_"+col]||"nao-iniciado";
-  const cycle=async(eid,mes,col)=>{const cur=gc3(eid,mes,col);const nd={...dados,[eid+"_"+mes+"_"+col]:SEQ[(SEQ.indexOf(cur)+1)%SEQ.length]};setDados(nd);await save(nd,obs);toast("✅ Salvo!","ok");};
+  const cycle=async(eid,mes,col)=>{
+    let ndCaptured=null;
+    setDados(prevDados=>{
+      const cur=prevDados[eid+"_"+mes+"_"+col]||"nao-iniciado";
+      const nd={...prevDados,[eid+"_"+mes+"_"+col]:SEQ[(SEQ.indexOf(cur)+1)%SEQ.length]};
+      ndCaptured=nd;
+      return nd;
+    });
+    await save(ndCaptured,obs);
+    toast("✅ Salvo!","ok");
+  };
   const getPrazo=(mes)=>prazos[mes]||"";
   const isV=(mes)=>{const p=getPrazo(mes);if(!p)return false;const pts=p.split("/");if(pts.length!==3)return false;return new Date(parseInt(pts[2]),parseInt(pts[1])-1,parseInt(pts[0]))<new Date();};
   const isVe=(mes)=>{const p=getPrazo(mes);if(!p)return false;const pts=p.split("/");if(pts.length!==3)return false;const d=new Date(parseInt(pts[2]),parseInt(pts[1])-1,parseInt(pts[0]));return(d-new Date())/86400000<=7&&d>=new Date();};
@@ -11621,11 +11805,13 @@ function makePageComponent(PAGE_CFG){
     // Reseta TODAS as colunas do mês para "Não" (nao-iniciado) — útil para limpar dados de teste/legado
     const resetarMes=(eid,mes)=>{
       const empC=safeCols(eid);
-      const nd={...dados};
-      empC.forEach(c=>{nd[eid+"_"+mes+"_"+c.key]="nao-iniciado";});
-      delete nd[eid+"_"+mes+"__analisado"];
-      setDados(nd);
-      saveToDB(empresas,grupos,nd,obs,prazos,nextEmpId,nextGrpId,colsRef.current,empObservacoes,empCliente,empColsOverride,true);
+      setDados(prevDados=>{
+        const nd={...prevDados};
+        empC.forEach(c=>{nd[eid+"_"+mes+"_"+c.key]="nao-iniciado";});
+        delete nd[eid+"_"+mes+"__analisado"];
+        saveToDB(empresas,grupos,nd,obs,prazos,nextEmpId,nextGrpId,colsRef.current,empObservacoes,empCliente,empColsOverride,true);
+        return nd;
+      });
       toast("🔄 Mês resetado para 'Não'!","ok");
     };
     // Retorna colunas ativas para a empresa — fallback para DEFAULT_COLS se cols não for array
@@ -11644,8 +11830,22 @@ function makePageComponent(PAGE_CFG){
 
     const estaContab=(eid,mes)=>{const empC=safeCols(eid);return empC.length>0&&empC.every(c=>getCell(eid,mes,c.key)==="ok"||getCell(eid,mes,c.key)==="nao-aplica");};
     const estaAnalisado=(eid,mes)=>dados[eid+"_"+mes+"__analisado"]===true;
-    const analisarMes=(eid,mes)=>{const nd={...dados,[eid+"_"+mes+"__analisado"]:true};setDados(nd);saveToDB(empresas,grupos,nd,obs,prazos,nextEmpId,nextGrpId,colsRef.current,empObservacoes,empCliente,empColsOverride,true);toast("✅ Mês analisado!","ok");};
-    const reverterAnalise=(eid,mes)=>{const nd={...dados,[eid+"_"+mes+"__analisado"]:false};setDados(nd);saveToDB(empresas,grupos,nd,obs,prazos,nextEmpId,nextGrpId,colsRef.current,empObservacoes,empCliente,empColsOverride,true);toast("↩ Análise revertida!","ok");};
+    const analisarMes=(eid,mes)=>{
+      setDados(prevDados=>{
+        const nd={...prevDados,[eid+"_"+mes+"__analisado"]:true};
+        saveToDB(empresas,grupos,nd,obs,prazos,nextEmpId,nextGrpId,colsRef.current,empObservacoes,empCliente,empColsOverride,true);
+        return nd;
+      });
+      toast("✅ Mês analisado!","ok");
+    };
+    const reverterAnalise=(eid,mes)=>{
+      setDados(prevDados=>{
+        const nd={...prevDados,[eid+"_"+mes+"__analisado"]:false};
+        saveToDB(empresas,grupos,nd,obs,prazos,nextEmpId,nextGrpId,colsRef.current,empObservacoes,empCliente,empColsOverride,true);
+        return nd;
+      });
+      toast("↩ Análise revertida!","ok");
+    };
     const calcProg=(eid,mes)=>{const empC=safeCols(eid);const atv=empC.filter(c=>getCell(eid,mes,c.key)!=="nao-aplica");if(!atv.length)return 100;return Math.round(atv.filter(c=>getCell(eid,mes,c.key)==="ok").length/atv.length*100);};
     const getProgClr=(p)=>p===100?"#22c55e":p>=50?"#f59e0b":p>0?"#ef4444":"#cbd5e1";
 
@@ -12901,6 +13101,7 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
   const [grupFiltro,setGrupFiltro]=React.useState("todos");
   const [statusFiltro,setStatusFiltro]=React.useState("todos");
   const [respFiltro,setRespFiltro]=React.useState("todos");
+  const [tagFiltro,setTagFiltro]=React.useState("todas");
   const [somenteAtrasadas,setSomenteAtrasadas]=React.useState(false);
   const [expandedGroup,setExpandedGroup]=React.useState(null); // apenas 1 grupo principal por vez…
   const [expandAll,setExpandAll]=React.useState(false); // …a menos que "Expandir todos" esteja ativo
@@ -12914,8 +13115,8 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
   const [modoVisao,setModoVisao]=React.useState(()=>{try{return localStorage.getItem("mdtec_grp_modovisao")||"mes";}catch(e){return"mes";}});
   React.useEffect(()=>{try{localStorage.setItem("mdtec_grp_modovisao",modoVisao);}catch(e){}},[modoVisao]);
 
-  const filtrosAtivos=busca||grupFiltro!=="todos"||statusFiltro!=="todos"||respFiltro!=="todos"||somenteAtrasadas;
-  const limparFiltros=()=>{setBusca("");setGrupFiltro("todos");setStatusFiltro("todos");setRespFiltro("todos");setSomenteAtrasadas(false);};
+  const filtrosAtivos=busca||grupFiltro!=="todos"||statusFiltro!=="todos"||respFiltro!=="todos"||tagFiltro!=="todas"||somenteAtrasadas;
+  const limparFiltros=()=>{setBusca("");setGrupFiltro("todos");setStatusFiltro("todos");setRespFiltro("todos");setTagFiltro("todas");setSomenteAtrasadas(false);};
 
   const getResponsavel=(eKey)=>meta.responsaveis?.[eKey]||"";
   const getTagsEmpU=(eKey)=>meta.marcadores?.[eKey]||[];
@@ -12956,6 +13157,11 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
     const s=new Set(Object.values(meta.responsaveis||{}).filter(Boolean));
     return[...s].sort((a,b)=>a.localeCompare(b,"pt-BR"));
   },[meta.responsaveis]);
+  const todasTagsUsadas=React.useMemo(()=>{
+    const s=new Set();
+    Object.values(meta.marcadores||{}).forEach(arr=>(arr||[]).forEach(t=>s.add(t)));
+    return[...s].sort((a,b)=>a.localeCompare(b,"pt-BR"));
+  },[meta.marcadores]);
 
   // ── Calcula as obrigações de uma empresa unificada em uma competência qualquer (reusado na tabela mensal) ──
   const computeObrigacoesForMes=(empU,mes)=>{
@@ -13026,6 +13232,7 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
       emps=emps.filter(e=>{
         if(buscaN&&!(norm(e.nome).includes(buscaN)||norm(grupo.nome).includes(buscaN)||soDigitos(e.cnpj).includes(soDigitos(busca))))return false;
         if(respFiltro!=="todos"&&e.responsavel!==respFiltro)return false;
+        if(tagFiltro!=="todas"&&!(meta.marcadores?.[e.key]||[]).includes(tagFiltro))return false;
         if(somenteAtrasadas&&e.atrasadas===0)return false;
         if(statusFiltro!=="todos"){
           if(statusFiltro==="atrasado"&&e.atrasadas===0)return false;
@@ -13046,7 +13253,7 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
       const sla=slaStatusGrupo(gm.slaDia,progresso);
       return{...grupo,empresas:emps,total,concluidas,atrasadas,pendentes,progresso,responsavelPrincipal,saude,slaDia:gm.slaDia,sla};
     }).filter(g=>g.empresas.length>0||(!filtrosAtivos&&grupFiltro==="todos"));
-  },[empresasComputadas,busca,grupFiltro,statusFiltro,respFiltro,somenteAtrasadas,meta.grupoMeta]);
+  },[empresasComputadas,busca,grupFiltro,statusFiltro,respFiltro,tagFiltro,somenteAtrasadas,meta.grupoMeta,meta.marcadores]);
 
   const kpis=React.useMemo(()=>{
     const totalGrupos=empresasComputadas.length;
@@ -13184,6 +13391,8 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
   const obrigacoesSelecionadasCount=modoSelecaoObr?selectedObrKeys.size:empresasSelecionadasObjs.reduce((s,e)=>s+e.total,0);
 
   const [massModal,setMassModal]=React.useState(null); // {tipo:'responsavel'|'status'|'marcador'|'prazo'}
+  const [diagOpen,setDiagOpen]=React.useState(false);
+  const [diagEmpKey,setDiagEmpKey]=React.useState("");
   const [massForm,setMassForm]=React.useState({responsavel:"",status:"concluido",marcador:"",motivo:""});
 
   const confirmarAcaoMassa=()=>{
@@ -13313,9 +13522,9 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
   // ── Exportação (respeita filtros, grupo, competência e seleção) ──
   const exportCSV=(escopo,empresasExplicit)=>{
     const alvo=empresasExplicit||(escopo==="selecao"?empresasSelecionadasObjs.map(e=>({...e,grupoNome:e.grupoNome})):gruposFiltrados.flatMap(g=>g.empresas.map(e=>({...e,grupoNome:g.nome}))));
-    const rows=[["Grupo","Empresa","CNPJ","Regime","Responsável","Competência","Obrigação","Módulo","Status","Prazo"]];
+    const rows=[["Grupo","Empresa","CNPJ","Regime","Responsável","Tags","Competência","Obrigação","Módulo","Status","Prazo"]];
     alvo.forEach(e=>e.obrigacoes.forEach(o=>{
-      rows.push([e.grupoNome,e.nome,e.cnpj||"",e.regime||"",e.responsavel||"",competencia,o.label,o.mod.label,SS(o.status).txt,o.prazoStr||""]);
+      rows.push([e.grupoNome,e.nome,e.cnpj||"",e.regime||"",e.responsavel||"",(meta.marcadores?.[e.key]||[]).join("; "),competencia,o.label,o.mod.label,SS(o.status).txt,o.prazoStr||""]);
     }));
     const csv=rows.map(r=>r.map(v=>'"'+String(v||"").replace(/"/g,'""')+'"').join(",")).join("\n");
     const a=document.createElement("a");a.href=URL.createObjectURL(new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8"}));
@@ -13337,8 +13546,9 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
           const s=SS(o.status);
           return `<span style="display:inline-block;margin:1px 3px 1px 0;padding:2px 7px;border-radius:10px;font-size:9px;font-weight:700;background:${s.bg};color:${s.c};border:1px solid ${s.bd};">${s.ic} ${o.label}</span>`;
         }).join("");
+        const tagsE=(meta.marcadores?.[e.key]||[]).map(t=>`<span style="display:inline-block;margin:0 3px 0 0;padding:1px 6px;border-radius:10px;font-size:8.5px;font-weight:700;background:${getTagColor(t)}18;color:${getTagColor(t)};border:1px solid ${getTagColor(t)}55;">🏷 ${t}</span>`).join("");
         return `<tr>
-          <td style="padding:6px 8px;font-weight:700;">${e.nome}</td>
+          <td style="padding:6px 8px;font-weight:700;">${e.nome}${tagsE?"<br/>"+tagsE:""}</td>
           <td style="padding:6px 8px;color:#64748b;">${e.cnpj||"—"}</td>
           <td style="padding:6px 8px;color:#64748b;">${e.regime||"—"}</td>
           <td style="padding:6px 8px;color:#64748b;">${e.responsavel||"—"}</td>
@@ -13400,8 +13610,6 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
   const roleColor=myRole==="admin"?"#6366f1":myRole==="gestor"?"#0ea5e9":"#94a3b8";
 
   // ── Diagnóstico de dados (admin) — mostra exatamente o que o sistema está lendo de cada módulo ──
-  const [diagOpen,setDiagOpen]=React.useState(false);
-  const [diagEmpKey,setDiagEmpKey]=React.useState("");
   const diagResumoModulos=MODULOS.map(mod=>{
     const p=payloads[mod.id];
     if(!p)return{mod,carregado:false};
@@ -13483,6 +13691,12 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
           <option value="todos">Todos os responsáveis</option>
           {todosResponsaveis.map(r=><option key={r} value={r}>{r}</option>)}
         </select>
+        {todasTagsUsadas.length>0&&(
+          <select value={tagFiltro} onChange={e=>setTagFiltro(e.target.value)} style={{padding:"6px 9px",borderRadius:7,border:"1px solid var(--border)",fontSize:12,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}>
+            <option value="todas">Todas as tags</option>
+            {todasTagsUsadas.map(t=><option key={t} value={t}>🏷 {t}</option>)}
+          </select>
+        )}
         <div style={{display:"flex",background:"var(--bg3)",borderRadius:8,padding:2,gap:2}} title="Como calcular o progresso">
           <button onClick={()=>setModoVisao("mes")} title="Mostra o progresso apenas da competência selecionada" style={{padding:"5px 9px",borderRadius:6,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"inherit",background:modoVisao==="mes"?"#6366f1":"transparent",color:modoVisao==="mes"?"#fff":"#64748b"}}>📅 Mensal</button>
           <button onClick={()=>setModoVisao("acumulado")} title="Soma todos os meses do ano já decorridos" style={{padding:"5px 9px",borderRadius:6,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"inherit",background:modoVisao==="acumulado"?"#6366f1":"transparent",color:modoVisao==="acumulado"?"#fff":"#64748b"}}>📊 Anual</button>

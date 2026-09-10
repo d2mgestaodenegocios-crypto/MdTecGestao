@@ -230,6 +230,54 @@ const canonEmpKeyGlobal=(cnpj,nome)=>{
   return "n_"+(nome||"").toString().trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
 };
 const RESP_SYNC_ROW_ID=20;
+const PRESET_TAGS=["SEM MOV.","SEM CERT.","INATIVA","PENDENTE DOC.","EM ENCERRAMENTO"];
+const TAG_COLORS={"SEM MOV.":"#f59e0b","SEM CERT.":"#ef4444","INATIVA":"#6b7280","PENDENTE DOC.":"#8b5cf6","EM ENCERRAMENTO":"#0ea5e9"};
+const getTagColor=(t)=>TAG_COLORS[t]||"#6366f1";
+
+// ── Selo de marcador (tag) de empresa — compartilhado entre Contábil/Tributário/Folha/Grupos e Empresas ──
+function TagBadges({tags}){
+  if(!tags||!tags.length)return null;
+  return tags.map(t=>(
+    <span key={t} style={{fontSize:9.5,fontWeight:800,color:getTagColor(t),background:getTagColor(t)+"18",border:`1px solid ${getTagColor(t)}44`,padding:"1px 6px",borderRadius:20,whiteSpace:"nowrap"}}>🏷 {t}</span>
+  ));
+}
+
+// ── Botão + popover pra adicionar/remover marcadores rápidos numa empresa ──
+function TagPicker({tags,onAdd,onRemove,small}){
+  const [open,setOpen]=React.useState(false);
+  const [custom,setCustom]=React.useState("");
+  const atuais=tags||[];
+  return(
+    <div style={{position:"relative",display:"inline-block"}} onClick={e=>e.stopPropagation()}>
+      <button onClick={()=>setOpen(v=>!v)} title="Adicionar/remover lembrete (tag)" style={{background:"none",border:"1px dashed #94a3b8",borderRadius:14,color:"#94a3b8",cursor:"pointer",fontSize:small?9.5:10.5,padding:small?"1px 6px":"2px 8px",fontFamily:"inherit",fontWeight:700}}>+ 🏷</button>
+      {open&&(
+        <>
+          <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:60}}/>
+          <div style={{position:"absolute",left:0,top:"120%",zIndex:61,background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:10,boxShadow:"0 8px 24px rgba(0,0,0,.18)",padding:10,minWidth:200}}>
+            {atuais.length>0&&(
+              <div style={{marginBottom:8,display:"flex",flexWrap:"wrap",gap:4}}>
+                {atuais.map(t=>(
+                  <span key={t} onClick={()=>onRemove(t)} title="Clique para remover" style={{fontSize:10,fontWeight:800,color:getTagColor(t),background:getTagColor(t)+"18",border:`1px solid ${getTagColor(t)}44`,padding:"2px 7px",borderRadius:20,cursor:"pointer",whiteSpace:"nowrap"}}>🏷 {t} ✕</span>
+                ))}
+              </div>
+            )}
+            <div style={{fontSize:9.5,fontWeight:800,color:"#94a3b8",marginBottom:4,textTransform:"uppercase"}}>Sugestões</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8}}>
+              {PRESET_TAGS.filter(t=>!atuais.includes(t)).map(t=>(
+                <button key={t} onClick={()=>onAdd(t)} style={{fontSize:10,fontWeight:700,color:getTagColor(t),background:"var(--bg3)",border:`1px solid ${getTagColor(t)}44`,padding:"3px 8px",borderRadius:20,cursor:"pointer",fontFamily:"inherit"}}>🏷 {t}</button>
+              ))}
+            </div>
+            <div style={{display:"flex",gap:5}}>
+              <input value={custom} onChange={e=>setCustom(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&custom.trim()){onAdd(custom.trim().toUpperCase());setCustom("");}}} placeholder="Personalizado…" style={{flex:1,padding:"4px 8px",borderRadius:7,border:"1px solid var(--border)",fontSize:11,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}/>
+              <button onClick={()=>{if(custom.trim()){onAdd(custom.trim().toUpperCase());setCustom("");}}} style={{padding:"4px 9px",borderRadius:7,border:"none",background:"#6366f1",color:"#fff",fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>+</button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 
 // Normaliza uma tarefa do Supabase/storage, preservando TODOS os campos
 function normalizeTask(t){
@@ -8421,14 +8469,33 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
   const MESES_NOMES_C={"01":"JAN","02":"FEV","03":"MAR","04":"ABR","05":"MAI","06":"JUN","07":"JUL","08":"AGO","09":"SET","10":"OUT","11":"NOV","12":"DEZ"};
   // ── Responsável sincronizado com "Grupos e Empresas" ──
   const [respSync,setRespSync]=useState({});
+  const [marcadoresSync,setMarcadoresSync]=useState({});
   useEffect(()=>{
     let ok=true;
-    (async()=>{try{const{data:row}=await sb.from("app_data").select("payload").eq("id",RESP_SYNC_ROW_ID).maybeSingle();if(ok&&row?.payload?.responsaveis)setRespSync(row.payload.responsaveis);}catch(e){}})();
+    (async()=>{try{const{data:row}=await sb.from("app_data").select("payload").eq("id",RESP_SYNC_ROW_ID).maybeSingle();if(ok&&row?.payload){if(row.payload.responsaveis)setRespSync(row.payload.responsaveis);setMarcadoresSync(row.payload.marcadores||{});}}catch(e){}})();
     const ch=sb.channel("respsync_contabil").on("postgres_changes",{event:"UPDATE",schema:"public",table:"app_data",filter:`id=eq.${RESP_SYNC_ROW_ID}`},
-      pl=>{if(pl.new?.payload?.responsaveis)setRespSync(pl.new.payload.responsaveis);}).subscribe();
+      pl=>{if(pl.new?.payload){if(pl.new.payload.responsaveis)setRespSync(pl.new.payload.responsaveis);setMarcadoresSync(pl.new.payload.marcadores||{});}}).subscribe();
     return()=>{ok=false;sb.removeChannel(ch);};
   },[]);
   const getRespSync=(emp)=>respSync[canonEmpKeyGlobal(emp?.cnpj,emp?.nome)]||"";
+  const getTagsEmp=(emp)=>marcadoresSync[canonEmpKeyGlobal(emp?.cnpj,emp?.nome)]||[];
+  const salvarMarcadoresRow=async(nextMap)=>{
+    setMarcadoresSync(nextMap);
+    try{
+      const{data:row}=await sb.from("app_data").select("payload").eq("id",RESP_SYNC_ROW_ID).maybeSingle();
+      await sb.from("app_data").upsert({id:RESP_SYNC_ROW_ID,payload:{...(row?.payload||{}),marcadores:nextMap}});
+    }catch(e){}
+  };
+  const addTagEmp=(emp,tag)=>{
+    const k=canonEmpKeyGlobal(emp?.cnpj,emp?.nome);
+    const atuais=marcadoresSync[k]||[];
+    if(atuais.includes(tag))return;
+    salvarMarcadoresRow({...marcadoresSync,[k]:[...atuais,tag]});
+  };
+  const removeTagEmp=(emp,tag)=>{
+    const k=canonEmpKeyGlobal(emp?.cnpj,emp?.nome);
+    salvarMarcadoresRow({...marcadoresSync,[k]:(marcadoresSync[k]||[]).filter(t=>t!==tag)});
+  };
   // Sócio responsável — vem do cadastro global de Empresas (Cadastros > Empresas), casado por CNPJ
   const getSocioInfo=(emp)=>{
     if(!emp)return null;
@@ -9201,7 +9268,11 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
                 <div key={emp.id} onClick={()=>irParaEmpresaC(emp)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 16px",cursor:"pointer",borderBottom:"1px solid rgba(0,0,0,.04)"}}
                   onMouseEnter={e=>e.currentTarget.style.background="rgba(99,102,241,.06)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:13,fontWeight:800,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={emp.nome}>🏢 {emp.nome}</div>
+                    <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                      <span style={{fontSize:13,fontWeight:800,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={emp.nome}>🏢 {emp.nome}</span>
+                      <TagBadges tags={getTagsEmp(emp)}/>
+                      <TagPicker small tags={getTagsEmp(emp)} onAdd={t=>addTagEmp(emp,t)} onRemove={t=>removeTagEmp(emp,t)}/>
+                    </div>
                     <div style={{fontSize:10,color:"#94a3b8",display:"flex",gap:8,flexWrap:"wrap",marginTop:1}}>
                       {emp.cnpj&&<span style={{fontFamily:"monospace"}}>{emp.cnpj}</span>}
                       {flagsC.socioResponsavel&&socio?.nome&&<span>👤 {socio.nome}{socio.cpf&&` · ${socio.cpf}`}</span>}
@@ -9256,7 +9327,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
 
             {/* Empresas diretas do grupo — only shown when open */}
             {isGrpOpen(grp.id)&&<div style={{border:`1.5px solid ${color}44`,borderTop:"none",borderRadius:"0 0 12px 12px",overflow:"hidden",background:"var(--bg2)"}}>
-              {empsGrp.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} isLast={idx===empsGrp.length-1&&subGrps.length===0} {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor:color,openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal}}/>)}
+              {empsGrp.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} isLast={idx===empsGrp.length-1&&subGrps.length===0} {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor:color,openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal,getTagsEmp,addTagEmp,removeTagEmp}}/>)}
 
               {/* Subgroups */}
               {subGrps.map(sg=>{
@@ -9272,7 +9343,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
                       <span style={{fontSize:10,color:"#94a3b8"}}>{empsSg.length} empresa(s)</span>
                       <button onClick={()=>confirmarDeleteGrupo(sg)} title="Excluir subgrupo" style={{background:"none",border:"none",cursor:"pointer",color:"#f87171",fontSize:11,padding:"2px 6px",borderRadius:6,marginLeft:"auto"}} onMouseEnter={e=>e.currentTarget.style.background="#fef2f2"} onMouseLeave={e=>e.currentTarget.style.background="none"}>🗑</button>
                     </div>
-                    {empsSg.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} isLast={idx===empsSg.length-1} indent {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor:sgColor,openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal}}/>)}
+                    {empsSg.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} isLast={idx===empsSg.length-1} indent {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor:sgColor,openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal,getTagsEmp,addTagEmp,removeTagEmp}}/>)}
                   </div>
                 );
               })}
@@ -9292,7 +9363,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
               <span style={{fontSize:11,color:"#94a3b8"}}>{semGrp.length} empresa(s)</span>
             </div>
             <div style={{border:"1px solid var(--border)",borderTop:"none",borderRadius:"0 0 10px 10px",overflow:"hidden",background:"var(--bg2)"}}>
-              {semGrp.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} isLast={idx===semGrp.length-1} {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor:"#94a3b8",openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal}}/>)}
+              {semGrp.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} isLast={idx===semGrp.length-1} {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor:"#94a3b8",openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal,getTagsEmp,addTagEmp,removeTagEmp}}/>)}
             </div>
           </div>
         );
@@ -10073,7 +10144,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
 }
 
 /* Sub-component: EmpresaRow */
-function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor,openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal}){
+function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor,openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal,getTagsEmp,addTagEmp,removeTagEmp}){
   const stats=getStatsEmp(emp.id);
   const pct=stats.total>0?Math.round((stats.analisados/stats.total)*100):0;
   const mesesEmp=getMesesC(emp.periodoInicial);
@@ -10111,6 +10182,8 @@ function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgC
         <div onClick={()=>{if(openSidePanel)openSidePanel(emp.id);}} style={{display:"flex",alignItems:"center",gap:5,flex:1,minWidth:0,cursor:"pointer",flexWrap:"wrap"}}>
           <span style={getRegStyle(emp.regime)}>{getRegimeLbl(emp.regime)}</span>
           {getRespSync&&getRespSync(emp)&&<span title="Responsável (definido em Grupos e Empresas)" style={{display:"inline-flex",alignItems:"center",gap:3,background:"#eef2ff",color:"#4338ca",padding:"2px 7px",borderRadius:20,fontSize:10,fontWeight:700,border:"1px solid #c7d2fe",whiteSpace:"nowrap"}}>👤 {getRespSync(emp)}</span>}
+          {getTagsEmp&&<TagBadges tags={getTagsEmp(emp)}/>}
+          {addTagEmp&&<TagPicker small tags={getTagsEmp(emp)} onAdd={t=>addTagEmp(emp,t)} onRemove={t=>removeTagEmp(emp,t)}/>}
           {obsCount>0&&<span style={{display:"inline-flex",alignItems:"center",gap:3,background:"#fef3c7",color:"#92400e",padding:"2px 7px",borderRadius:20,fontSize:10,fontWeight:800,border:"1.5px solid #fcd34d",whiteSpace:"nowrap"}}>📝 {obsCount}</span>}
           {obsCount===0&&obsVerifCount>0&&<span style={{display:"inline-flex",alignItems:"center",gap:3,background:"#f1f5f9",color:"#94a3b8",padding:"2px 6px",borderRadius:20,fontSize:10,fontWeight:700,border:"1px solid #e2e8f0",whiteSpace:"nowrap"}}>✔️ {obsVerifCount}</span>}
         </div>
@@ -11655,14 +11728,33 @@ function makePageComponent(PAGE_CFG){
     const isGrpOpen=(id)=>!!grpOpen[id];
     // ── Responsável sincronizado com "Grupos e Empresas" ──
     const [respSync,setRespSync]=useState({});
+    const [marcadoresSync,setMarcadoresSync]=useState({});
     useEffect(()=>{
       let ok=true;
-      (async()=>{try{const{data:row}=await sb.from("app_data").select("payload").eq("id",RESP_SYNC_ROW_ID).maybeSingle();if(ok&&row?.payload?.responsaveis)setRespSync(row.payload.responsaveis);}catch(e){}})();
+      (async()=>{try{const{data:row}=await sb.from("app_data").select("payload").eq("id",RESP_SYNC_ROW_ID).maybeSingle();if(ok&&row?.payload){if(row.payload.responsaveis)setRespSync(row.payload.responsaveis);setMarcadoresSync(row.payload.marcadores||{});}}catch(e){}})();
       const ch=sb.channel("respsync_"+ROW_ID).on("postgres_changes",{event:"UPDATE",schema:"public",table:"app_data",filter:`id=eq.${RESP_SYNC_ROW_ID}`},
-        pl=>{if(pl.new?.payload?.responsaveis)setRespSync(pl.new.payload.responsaveis);}).subscribe();
+        pl=>{if(pl.new?.payload){if(pl.new.payload.responsaveis)setRespSync(pl.new.payload.responsaveis);setMarcadoresSync(pl.new.payload.marcadores||{});}}).subscribe();
       return()=>{ok=false;sb.removeChannel(ch);};
     },[]);
     const getRespSync=(emp)=>respSync[canonEmpKeyGlobal(emp?.cnpj,emp?.nome)]||"";
+    const getTagsEmp=(emp)=>marcadoresSync[canonEmpKeyGlobal(emp?.cnpj,emp?.nome)]||[];
+    const salvarMarcadoresRow=async(nextMap)=>{
+      setMarcadoresSync(nextMap);
+      try{
+        const{data:row}=await sb.from("app_data").select("payload").eq("id",RESP_SYNC_ROW_ID).maybeSingle();
+        await sb.from("app_data").upsert({id:RESP_SYNC_ROW_ID,payload:{...(row?.payload||{}),marcadores:nextMap}});
+      }catch(e){}
+    };
+    const addTagEmp=(emp,tag)=>{
+      const k=canonEmpKeyGlobal(emp?.cnpj,emp?.nome);
+      const atuais=marcadoresSync[k]||[];
+      if(atuais.includes(tag))return;
+      salvarMarcadoresRow({...marcadoresSync,[k]:[...atuais,tag]});
+    };
+    const removeTagEmp=(emp,tag)=>{
+      const k=canonEmpKeyGlobal(emp?.cnpj,emp?.nome);
+      salvarMarcadoresRow({...marcadoresSync,[k]:(marcadoresSync[k]||[]).filter(t=>t!==tag)});
+    };
     // Sócio responsável — vem do cadastro global de Empresas (Cadastros > Empresas), casado por CNPJ
     const getSocioInfo=(emp)=>{
       if(!emp)return null;
@@ -11817,6 +11909,8 @@ function makePageComponent(PAGE_CFG){
               <span style={getRegStyle(emp.regime)}>{RegLabel[emp.regime]||emp.regime}</span>
               {emp.grupoId&&<span style={{background:grpColor+"22",color:grpColor,border:`1px solid ${grpColor}44`,padding:"2px 6px",borderRadius:12,fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>{grupos.find(g=>g.id===emp.grupoId)?.nome||""}</span>}
               {getRespSync(emp)&&<span title="Responsável (definido em Grupos e Empresas)" style={{display:"inline-flex",alignItems:"center",gap:3,background:"#eef2ff",color:"#4338ca",padding:"2px 7px",borderRadius:20,fontSize:10,fontWeight:700,border:"1px solid #c7d2fe",whiteSpace:"nowrap"}}>👤 {getRespSync(emp)}</span>}
+              <TagBadges tags={getTagsEmp(emp)}/>
+              <TagPicker small tags={getTagsEmp(emp)} onAdd={t=>addTagEmp(emp,t)} onRemove={t=>removeTagEmp(emp,t)}/>
               {obsCount>0&&<span style={{display:"inline-flex",alignItems:"center",gap:3,background:"#fef3c7",color:"#92400e",padding:"2px 7px",borderRadius:20,fontSize:10,fontWeight:800,border:"1.5px solid #fcd34d",whiteSpace:"nowrap"}}>📝 {obsCount}</span>}
               {obsCount===0&&obsVerifCount>0&&<span style={{display:"inline-flex",alignItems:"center",gap:3,background:"#f1f5f9",color:"#94a3b8",padding:"2px 6px",borderRadius:20,fontSize:10,fontWeight:700,border:"1px solid #e2e8f0",whiteSpace:"nowrap"}}>✔️ {obsVerifCount}</span>}
               {empHasOverride&&<span onClick={e=>{e.stopPropagation();if(window.confirm("Restaurar as colunas padrão para "+emp.nome+"? Isso remove a personalização desta empresa."))  {const no={...empColsOverride};delete no[emp.id];saveEmpColsOverride(no);toast("↩ Colunas restauradas ao padrão","ok");}}} title="Esta empresa usa colunas personalizadas — clique para restaurar ao padrão" style={{display:"inline-flex",alignItems:"center",gap:3,background:"#fef3c7",color:"#b45309",padding:"2px 7px",borderRadius:20,fontSize:10,fontWeight:800,border:"1.5px solid #fcd34d",whiteSpace:"nowrap",cursor:"pointer"}}>✎ personalizada</span>}
@@ -12106,7 +12200,11 @@ function makePageComponent(PAGE_CFG){
                     >
                       {/* Empresa */}
                       <div style={{minWidth:0}}>
-                        <div style={{fontSize:13,fontWeight:800,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={emp.nome}>🏢 {emp.nome}</div>
+                        <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
+                          <span style={{fontSize:13,fontWeight:800,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={emp.nome}>🏢 {emp.nome}</span>
+                          <TagBadges tags={getTagsEmp(emp)}/>
+                          <TagPicker small tags={getTagsEmp(emp)} onAdd={t=>addTagEmp(emp,t)} onRemove={t=>removeTagEmp(emp,t)}/>
+                        </div>
                         {(()=>{const socio=getSocioInfo(emp);return(
                           <div style={{fontSize:9.5,color:"#94a3b8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                             {emp.cnpj||"—"}{flagsMP.socioResponsavel&&socio?.nome&&` · 👤 ${socio.nome}${socio.cpf?" · "+socio.cpf:""}`}
@@ -12820,6 +12918,16 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
   const limparFiltros=()=>{setBusca("");setGrupFiltro("todos");setStatusFiltro("todos");setRespFiltro("todos");setSomenteAtrasadas(false);};
 
   const getResponsavel=(eKey)=>meta.responsaveis?.[eKey]||"";
+  const getTagsEmpU=(eKey)=>meta.marcadores?.[eKey]||[];
+  const addTagEmpU=(eKey,tag)=>{
+    const atuais=meta.marcadores?.[eKey]||[];
+    if(atuais.includes(tag))return;
+    updateMeta(prev=>({...prev,marcadores:{...(prev.marcadores||{}),[eKey]:[...atuais,tag]}}),true);
+    logAudit(`${userName||"Usuário"} adicionou o marcador "${tag}".`);
+  };
+  const removeTagEmpU=(eKey,tag)=>{
+    updateMeta(prev=>({...prev,marcadores:{...(prev.marcadores||{}),[eKey]:(prev.marcadores?.[eKey]||[]).filter(t=>t!==tag)}}),true);
+  };
   const getGrupoMeta=(gKey)=>meta.grupoMeta?.[gKey]||{descricao:"",regras:{compartilharResponsaveis:true,aplicarCalendario:true,consolidarIndicadores:true,permitirAcoesMassa:true},responsavelPrincipal:"",slaDia:null};
   // Status do SLA de um grupo: compara o progresso real com o ritmo esperado até o "dia limite" do mês
   const slaStatusGrupo=(slaDia,progresso)=>{
@@ -13451,8 +13559,12 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
                           <button onClick={()=>toggleEmpresaExpand(empU.key)} title={empExp?"Recolher":"Expandir obrigações"} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#94a3b8",width:22,height:22,flexShrink:0}}>{empExp?"▾":"▸"}</button>
                           <span style={{width:26,height:26,borderRadius:8,background:"#f43f5e18",color:"#e11d48",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:10,flexShrink:0}}>{initials(empU.nome)}</span>
                           <div onClick={()=>toggleEmpresaExpand(empU.key)} style={{flex:1,minWidth:0}}>
-                            <div style={{fontWeight:700,fontSize:12,color:"var(--text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={empU.nome}>{empU.nome}</div>
-                            <div style={{fontSize:10,color:"#94a3b8",display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                            <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}} onClick={e=>e.stopPropagation()}>
+                              <span onClick={()=>toggleEmpresaExpand(empU.key)} style={{fontWeight:700,fontSize:12,color:"var(--text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",cursor:"pointer"}} title={empU.nome}>{empU.nome}</span>
+                              <TagBadges tags={getTagsEmpU(empU.key)}/>
+                              <TagPicker small tags={getTagsEmpU(empU.key)} onAdd={t=>addTagEmpU(empU.key,t)} onRemove={t=>removeTagEmpU(empU.key,t)}/>
+                            </div>
+                            <div style={{fontSize:10,color:"#94a3b8",display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}} onClick={()=>toggleEmpresaExpand(empU.key)}>
                               <span>{empU.cnpj||"CNPJ não informado"}{empU.regime?" · "+empU.regime:""}</span>
                               {modoVisao==="acumulado"&&(()=>{
                                 const om=empU.obrigacoesMesAtual.filter(o=>o.status!=="nao-se-aplica");

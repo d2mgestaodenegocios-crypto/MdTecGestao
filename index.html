@@ -234,29 +234,33 @@ const PRESET_TAGS=["SEM MOV.","SEM CERT.","INATIVA","PENDENTE DOC.","EM ENCERRAM
 const TAG_COLORS={"SEM MOV.":"#f59e0b","SEM CERT.":"#ef4444","INATIVA":"#6b7280","PENDENTE DOC.":"#8b5cf6","EM ENCERRAMENTO":"#0ea5e9"};
 // Paleta extra pra tags personalizadas — nenhuma cor repete as dos presets, pra sempre destacar
 const TAG_CUSTOM_PALETTE=["#16a34a","#db2777","#0891b2","#ca8a04","#7c3aed","#059669","#e11d48","#2563eb","#65a30d","#c2410c","#4338ca","#0d9488"];
-const getTagColor=(t)=>{
+const getTagColorAuto=(t)=>{
   if(TAG_COLORS[t])return TAG_COLORS[t];
   // hash simples e estável a partir do texto da tag, pra sempre cair na mesma cor pra mesma tag
   let h=0;for(let i=0;i<t.length;i++)h=(h*31+t.charCodeAt(i))>>>0;
   return TAG_CUSTOM_PALETTE[h%TAG_CUSTOM_PALETTE.length];
 };
+// getTagColor agora aceita um mapa de cores escolhidas manualmente (tagCores), que tem prioridade sobre a cor automática
+const getTagColor=(t,colorMap)=>colorMap?.[t]||getTagColorAuto(t);
+const PALETA_CORES_TAG=["#ef4444","#f97316","#f59e0b","#ca8a04","#84cc16","#16a34a","#059669","#0d9488","#0891b2","#0ea5e9","#2563eb","#4338ca","#7c3aed","#9333ea","#c026d3","#db2777","#e11d48","#6b7280"];
 
 // ── Selo de marcador (tag) de empresa — compartilhado entre Contábil/Tributário/Folha/Grupos e Empresas ──
-function TagBadges({tags}){
+function TagBadges({tags,colorMap}){
   if(!tags||!tags.length)return null;
-  return tags.map(t=>(
-    <span key={t} style={{fontSize:9.5,fontWeight:800,color:getTagColor(t),background:getTagColor(t)+"18",border:`1px solid ${getTagColor(t)}44`,padding:"1px 6px",borderRadius:20,whiteSpace:"nowrap"}}>🏷 {t}</span>
-  ));
+  return tags.map(t=>{const c=getTagColor(t,colorMap);return(
+    <span key={t} style={{fontSize:9.5,fontWeight:800,color:c,background:c+"18",border:`1px solid ${c}44`,padding:"1px 6px",borderRadius:20,whiteSpace:"nowrap"}}>🏷 {t}</span>
+  );});
 }
 
 // ── Botão + popover pra adicionar/remover marcadores rápidos numa empresa ──
-function TagPicker({tags,onAdd,onRemove,small}){
+function TagPicker({tags,onAdd,onRemove,small,colorMap,onSetColor}){
   const [open,setOpen]=React.useState(false);
   const [custom,setCustom]=React.useState("");
   const [pos,setPos]=React.useState(null);
+  const [editandoCorDe,setEditandoCorDe]=React.useState(null);
   const btnRef=React.useRef(null);
   const atuais=tags||[];
-  const PANEL_W=210,PANEL_MAX_H=260;
+  const PANEL_W=230,PANEL_MAX_H=320;
   const abrirPainel=()=>{
     const r=btnRef.current?.getBoundingClientRect();
     if(r){
@@ -266,6 +270,7 @@ function TagPicker({tags,onAdd,onRemove,small}){
       if(left<8)left=8;
       setPos({left,top:abrirParaCima?null:r.bottom+4,bottom:abrirParaCima?(window.innerHeight-r.top+4):null});
     }
+    setEditandoCorDe(null);
     setOpen(v=>!v);
   };
   return(
@@ -276,17 +281,30 @@ function TagPicker({tags,onAdd,onRemove,small}){
           <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:200}}/>
           <div style={{position:"fixed",left:pos.left,top:pos.top??"auto",bottom:pos.bottom??"auto",zIndex:201,background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:10,boxShadow:"0 8px 24px rgba(0,0,0,.25)",padding:10,width:PANEL_W,maxHeight:PANEL_MAX_H,overflowY:"auto"}}>
             {atuais.length>0&&(
-              <div style={{marginBottom:8,display:"flex",flexWrap:"wrap",gap:4}}>
-                {atuais.map(t=>(
-                  <span key={t} onClick={()=>onRemove(t)} title="Clique para remover" style={{fontSize:10,fontWeight:800,color:getTagColor(t),background:getTagColor(t)+"18",border:`1px solid ${getTagColor(t)}44`,padding:"2px 7px",borderRadius:20,cursor:"pointer",whiteSpace:"nowrap"}}>🏷 {t} ✕</span>
-                ))}
+              <div style={{marginBottom:8}}>
+                {atuais.map(t=>{const c=getTagColor(t,colorMap);return(
+                  <div key={t} style={{marginBottom:4}}>
+                    <span style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:10,fontWeight:800,color:c,background:c+"18",border:`1px solid ${c}44`,padding:"2px 7px",borderRadius:20,whiteSpace:"nowrap"}}>
+                      🏷 {t}
+                      {onSetColor&&<span onClick={()=>setEditandoCorDe(v=>v===t?null:t)} title="Mudar cor" style={{width:11,height:11,borderRadius:"50%",background:c,border:"1.5px solid #fff",boxShadow:"0 0 0 1px "+c,cursor:"pointer",display:"inline-block"}}/>}
+                      <span onClick={()=>onRemove(t)} title="Remover" style={{cursor:"pointer"}}>✕</span>
+                    </span>
+                    {editandoCorDe===t&&(
+                      <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:5,padding:6,background:"var(--bg3)",borderRadius:8}}>
+                        {PALETA_CORES_TAG.map(cor=>(
+                          <span key={cor} onClick={()=>{onSetColor(t,cor);setEditandoCorDe(null);}} style={{width:16,height:16,borderRadius:"50%",background:cor,cursor:"pointer",border:cor===c?"2px solid var(--text)":"1px solid rgba(0,0,0,.1)"}}/>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );})}
               </div>
             )}
             <div style={{fontSize:9.5,fontWeight:800,color:"#94a3b8",marginBottom:4,textTransform:"uppercase"}}>Sugestões</div>
             <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8}}>
-              {PRESET_TAGS.filter(t=>!atuais.includes(t)).map(t=>(
-                <button key={t} onClick={()=>onAdd(t)} style={{fontSize:10,fontWeight:700,color:getTagColor(t),background:"var(--bg3)",border:`1px solid ${getTagColor(t)}44`,padding:"3px 8px",borderRadius:20,cursor:"pointer",fontFamily:"inherit"}}>🏷 {t}</button>
-              ))}
+              {PRESET_TAGS.filter(t=>!atuais.includes(t)).map(t=>{const c=getTagColor(t,colorMap);return(
+                <button key={t} onClick={()=>onAdd(t)} style={{fontSize:10,fontWeight:700,color:c,background:"var(--bg3)",border:`1px solid ${c}44`,padding:"3px 8px",borderRadius:20,cursor:"pointer",fontFamily:"inherit"}}>🏷 {t}</button>
+              );})}
             </div>
             <div style={{display:"flex",gap:5}}>
               <input value={custom} onChange={e=>setCustom(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&custom.trim()){onAdd(custom.trim().toUpperCase());setCustom("");}}} placeholder="Personalizado…" style={{flex:1,padding:"4px 8px",borderRadius:7,border:"1px solid var(--border)",fontSize:11,fontFamily:"inherit",background:"var(--bg)",color:"var(--text)"}}/>
@@ -738,9 +756,10 @@ function useSharedData() {
         if (p._savedBy === myUser && isSavingRef.current) return;
 
         // É uma atualização de outro colaborador — aplica e notifica
-        // Se temos um save em trânsito, não sobrescrevemos (o merge guard vai incluir esses dados)
-        if (isSavingRef.current) {
-          console.log("[MergeGuard] Realtime ignorado durante save em trânsito");
+        // Se temos um save em trânsito OU uma edição local ainda aguardando o debounce, não sobrescrevemos
+        // (evita perder edições recentes — ex: um colaborador recém-criado que ainda não foi salvo)
+        if (isSavingRef.current || pendingSave.current) {
+          console.log("[MergeGuard] Realtime ignorado — save em trânsito ou edição local pendente");
           return;
         }
         if (!p.sectors || !Array.isArray(p.sectors)) p.sectors = SEED.sectors;
@@ -810,7 +829,36 @@ function useSharedData() {
             !currentIds.has(st.id) && !intentionalDeletes.current.has(st.id)
           );
 
+          // ── Mesma proteção para colaboradores, empresas e setores — evita que um cadastro
+          //     recém-criado "suma" se um realtime de outra aba chegar entre a edição e o save ──
+          const serverCollabs = serverPayload.collaborators || [];
+          const currentCollabIds = new Set((current.collaborators||[]).map(c=>c.id));
+          const rescuedCollabs = serverCollabs.filter(sc =>
+            !currentCollabIds.has(sc.id) && !intentionalDeletes.current.has(sc.id)
+          );
+          const serverCompanies = serverPayload.companies || [];
+          const currentCompanyIds = new Set((current.companies||[]).map(c=>c.id));
+          const rescuedCompanies = serverCompanies.filter(sc =>
+            !currentCompanyIds.has(sc.id) && !intentionalDeletes.current.has(sc.id)
+          );
+          const serverSectors = serverPayload.sectors || [];
+          const currentSectorIds = new Set((current.sectors||[]).map(c=>c.id));
+          const rescuedSectors = serverSectors.filter(sc =>
+            !currentSectorIds.has(sc.id) && !intentionalDeletes.current.has(sc.id)
+          );
+
           let finalState = current;
+          if (rescuedCollabs.length>0||rescuedCompanies.length>0||rescuedSectors.length>0) {
+            finalState = {
+              ...finalState,
+              collaborators:[...(finalState.collaborators||[]),...rescuedCollabs],
+              companies:[...(finalState.companies||[]),...rescuedCompanies],
+              sectors:[...(finalState.sectors||[]),...rescuedSectors],
+            };
+            setRaw(finalState);
+            latestStateRef.current = finalState;
+            console.warn("[MergeGuard] 🛡️ Resgatados cadastros:",{colaboradores:rescuedCollabs.map(c=>c.name),empresas:rescuedCompanies.map(c=>c.name),setores:rescuedSectors.map(c=>c.name)});
+          }
           if (rescued.length > 0) {
             const auditEntry = {
               id: "aug_"+Date.now(),
@@ -8644,11 +8692,12 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
   // ── Responsável sincronizado com "Grupos e Empresas" ──
   const [respSync,setRespSync]=useState({});
   const [marcadoresSync,setMarcadoresSync]=useState({});
+  const [tagCoresSync,setTagCoresSync]=useState({});
   useEffect(()=>{
     let ok=true;
-    (async()=>{try{const{data:row}=await sb.from("app_data").select("payload").eq("id",RESP_SYNC_ROW_ID).maybeSingle();if(ok&&row?.payload){if(row.payload.responsaveis)setRespSync(row.payload.responsaveis);setMarcadoresSync(row.payload.marcadores||{});}}catch(e){}})();
+    (async()=>{try{const{data:row}=await sb.from("app_data").select("payload").eq("id",RESP_SYNC_ROW_ID).maybeSingle();if(ok&&row?.payload){if(row.payload.responsaveis)setRespSync(row.payload.responsaveis);setMarcadoresSync(row.payload.marcadores||{});setTagCoresSync(row.payload.tagCores||{});}}catch(e){}})();
     const ch=sb.channel("respsync_contabil").on("postgres_changes",{event:"UPDATE",schema:"public",table:"app_data",filter:`id=eq.${RESP_SYNC_ROW_ID}`},
-      pl=>{if(pl.new?.payload){if(pl.new.payload.responsaveis)setRespSync(pl.new.payload.responsaveis);setMarcadoresSync(pl.new.payload.marcadores||{});}}).subscribe();
+      pl=>{if(pl.new?.payload){if(pl.new.payload.responsaveis)setRespSync(pl.new.payload.responsaveis);setMarcadoresSync(pl.new.payload.marcadores||{});setTagCoresSync(pl.new.payload.tagCores||{});}}).subscribe();
     return()=>{ok=false;sb.removeChannel(ch);};
   },[]);
   const getRespSync=(emp)=>respSync[canonEmpKeyGlobal(emp?.cnpj,emp?.nome)]||"";
@@ -8658,6 +8707,14 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
     try{
       const{data:row}=await sb.from("app_data").select("payload").eq("id",RESP_SYNC_ROW_ID).maybeSingle();
       await sb.from("app_data").upsert({id:RESP_SYNC_ROW_ID,payload:{...(row?.payload||{}),marcadores:nextMap}});
+    }catch(e){}
+  };
+  const setTagColorEmp=async(tag,cor)=>{
+    const next={...tagCoresSync,[tag]:cor};
+    setTagCoresSync(next);
+    try{
+      const{data:row}=await sb.from("app_data").select("payload").eq("id",RESP_SYNC_ROW_ID).maybeSingle();
+      await sb.from("app_data").upsert({id:RESP_SYNC_ROW_ID,payload:{...(row?.payload||{}),tagCores:next}});
     }catch(e){}
   };
   const addTagEmp=(emp,tag)=>{
@@ -9444,8 +9501,8 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                       <span style={{fontSize:13,fontWeight:800,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={emp.nome}>🏢 {emp.nome}</span>
-                      <TagBadges tags={getTagsEmp(emp)}/>
-                      <TagPicker small tags={getTagsEmp(emp)} onAdd={t=>addTagEmp(emp,t)} onRemove={t=>removeTagEmp(emp,t)}/>
+                      <TagBadges tags={getTagsEmp(emp)} colorMap={tagCoresSync}/>
+                      <TagPicker small tags={getTagsEmp(emp)} onAdd={t=>addTagEmp(emp,t)} onRemove={t=>removeTagEmp(emp,t)} colorMap={tagCoresSync} onSetColor={setTagColorEmp}/>
                     </div>
                     <div style={{fontSize:10,color:"#94a3b8",display:"flex",gap:8,flexWrap:"wrap",marginTop:1}}>
                       {emp.cnpj&&<span style={{fontFamily:"monospace"}}>{emp.cnpj}</span>}
@@ -9501,7 +9558,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
 
             {/* Empresas diretas do grupo — only shown when open */}
             {isGrpOpen(grp.id)&&<div style={{border:`1.5px solid ${color}44`,borderTop:"none",borderRadius:"0 0 12px 12px",overflow:"hidden",background:"var(--bg2)"}}>
-              {empsGrp.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} isLast={idx===empsGrp.length-1&&subGrps.length===0} {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor:color,openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal,getTagsEmp,addTagEmp,removeTagEmp}}/>)}
+              {empsGrp.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} isLast={idx===empsGrp.length-1&&subGrps.length===0} {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor:color,openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal,getTagsEmp,addTagEmp,removeTagEmp,tagCoresSync,setTagColorEmp}}/>)}
 
               {/* Subgroups */}
               {subGrps.map(sg=>{
@@ -9517,7 +9574,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
                       <span style={{fontSize:10,color:"#94a3b8"}}>{empsSg.length} empresa(s)</span>
                       <button onClick={()=>confirmarDeleteGrupo(sg)} title="Excluir subgrupo" style={{background:"none",border:"none",cursor:"pointer",color:"#f87171",fontSize:11,padding:"2px 6px",borderRadius:6,marginLeft:"auto"}} onMouseEnter={e=>e.currentTarget.style.background="#fef2f2"} onMouseLeave={e=>e.currentTarget.style.background="none"}>🗑</button>
                     </div>
-                    {empsSg.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} isLast={idx===empsSg.length-1} indent {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor:sgColor,openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal,getTagsEmp,addTagEmp,removeTagEmp}}/>)}
+                    {empsSg.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} isLast={idx===empsSg.length-1} indent {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor:sgColor,openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal,getTagsEmp,addTagEmp,removeTagEmp,tagCoresSync,setTagColorEmp}}/>)}
                   </div>
                 );
               })}
@@ -9537,7 +9594,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
               <span style={{fontSize:11,color:"#94a3b8"}}>{semGrp.length} empresa(s)</span>
             </div>
             <div style={{border:"1px solid var(--border)",borderTop:"none",borderRadius:"0 0 10px 10px",overflow:"hidden",background:"var(--bg2)"}}>
-              {semGrp.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} isLast={idx===semGrp.length-1} {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor:"#94a3b8",openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal,getTagsEmp,addTagEmp,removeTagEmp}}/>)}
+              {semGrp.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} isLast={idx===semGrp.length-1} {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor:"#94a3b8",openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal,getTagsEmp,addTagEmp,removeTagEmp,tagCoresSync,setTagColorEmp}}/>)}
             </div>
           </div>
         );
@@ -10318,7 +10375,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
 }
 
 /* Sub-component: EmpresaRow */
-function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor,openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal,getTagsEmp,addTagEmp,removeTagEmp}){
+function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor,openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal,getTagsEmp,addTagEmp,removeTagEmp,tagCoresSync,setTagColorEmp}){
   const stats=getStatsEmp(emp.id);
   const pct=stats.total>0?Math.round((stats.analisados/stats.total)*100):0;
   const mesesEmp=getMesesC(emp.periodoInicial);
@@ -10356,8 +10413,8 @@ function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgC
         <div onClick={()=>{if(openSidePanel)openSidePanel(emp.id);}} style={{display:"flex",alignItems:"center",gap:5,flex:1,minWidth:0,cursor:"pointer",flexWrap:"wrap"}}>
           <span style={getRegStyle(emp.regime)}>{getRegimeLbl(emp.regime)}</span>
           {getRespSync&&getRespSync(emp)&&<span title="Responsável (definido em Grupos e Empresas)" style={{display:"inline-flex",alignItems:"center",gap:3,background:"#eef2ff",color:"#4338ca",padding:"2px 7px",borderRadius:20,fontSize:10,fontWeight:700,border:"1px solid #c7d2fe",whiteSpace:"nowrap"}}>👤 {getRespSync(emp)}</span>}
-          {getTagsEmp&&<TagBadges tags={getTagsEmp(emp)}/>}
-          {addTagEmp&&<TagPicker small tags={getTagsEmp(emp)} onAdd={t=>addTagEmp(emp,t)} onRemove={t=>removeTagEmp(emp,t)}/>}
+          {getTagsEmp&&<TagBadges tags={getTagsEmp(emp)} colorMap={tagCoresSync}/>}
+          {addTagEmp&&<TagPicker small tags={getTagsEmp(emp)} onAdd={t=>addTagEmp(emp,t)} onRemove={t=>removeTagEmp(emp,t)} colorMap={tagCoresSync} onSetColor={setTagColorEmp}/>}
           {obsCount>0&&<span style={{display:"inline-flex",alignItems:"center",gap:3,background:"#fef3c7",color:"#92400e",padding:"2px 7px",borderRadius:20,fontSize:10,fontWeight:800,border:"1.5px solid #fcd34d",whiteSpace:"nowrap"}}>📝 {obsCount}</span>}
           {obsCount===0&&obsVerifCount>0&&<span style={{display:"inline-flex",alignItems:"center",gap:3,background:"#f1f5f9",color:"#94a3b8",padding:"2px 6px",borderRadius:20,fontSize:10,fontWeight:700,border:"1px solid #e2e8f0",whiteSpace:"nowrap"}}>✔️ {obsVerifCount}</span>}
         </div>
@@ -11929,11 +11986,12 @@ function makePageComponent(PAGE_CFG){
     // ── Responsável sincronizado com "Grupos e Empresas" ──
     const [respSync,setRespSync]=useState({});
     const [marcadoresSync,setMarcadoresSync]=useState({});
+    const [tagCoresSync,setTagCoresSync]=useState({});
     useEffect(()=>{
       let ok=true;
-      (async()=>{try{const{data:row}=await sb.from("app_data").select("payload").eq("id",RESP_SYNC_ROW_ID).maybeSingle();if(ok&&row?.payload){if(row.payload.responsaveis)setRespSync(row.payload.responsaveis);setMarcadoresSync(row.payload.marcadores||{});}}catch(e){}})();
+      (async()=>{try{const{data:row}=await sb.from("app_data").select("payload").eq("id",RESP_SYNC_ROW_ID).maybeSingle();if(ok&&row?.payload){if(row.payload.responsaveis)setRespSync(row.payload.responsaveis);setMarcadoresSync(row.payload.marcadores||{});setTagCoresSync(row.payload.tagCores||{});}}catch(e){}})();
       const ch=sb.channel("respsync_"+ROW_ID).on("postgres_changes",{event:"UPDATE",schema:"public",table:"app_data",filter:`id=eq.${RESP_SYNC_ROW_ID}`},
-        pl=>{if(pl.new?.payload){if(pl.new.payload.responsaveis)setRespSync(pl.new.payload.responsaveis);setMarcadoresSync(pl.new.payload.marcadores||{});}}).subscribe();
+        pl=>{if(pl.new?.payload){if(pl.new.payload.responsaveis)setRespSync(pl.new.payload.responsaveis);setMarcadoresSync(pl.new.payload.marcadores||{});setTagCoresSync(pl.new.payload.tagCores||{});}}).subscribe();
       return()=>{ok=false;sb.removeChannel(ch);};
     },[]);
     const getRespSync=(emp)=>respSync[canonEmpKeyGlobal(emp?.cnpj,emp?.nome)]||"";
@@ -11943,6 +12001,14 @@ function makePageComponent(PAGE_CFG){
       try{
         const{data:row}=await sb.from("app_data").select("payload").eq("id",RESP_SYNC_ROW_ID).maybeSingle();
         await sb.from("app_data").upsert({id:RESP_SYNC_ROW_ID,payload:{...(row?.payload||{}),marcadores:nextMap}});
+      }catch(e){}
+    };
+    const setTagColorEmp=async(tag,cor)=>{
+      const next={...tagCoresSync,[tag]:cor};
+      setTagCoresSync(next);
+      try{
+        const{data:row}=await sb.from("app_data").select("payload").eq("id",RESP_SYNC_ROW_ID).maybeSingle();
+        await sb.from("app_data").upsert({id:RESP_SYNC_ROW_ID,payload:{...(row?.payload||{}),tagCores:next}});
       }catch(e){}
     };
     const addTagEmp=(emp,tag)=>{
@@ -12109,8 +12175,8 @@ function makePageComponent(PAGE_CFG){
               <span style={getRegStyle(emp.regime)}>{RegLabel[emp.regime]||emp.regime}</span>
               {emp.grupoId&&<span style={{background:grpColor+"22",color:grpColor,border:`1px solid ${grpColor}44`,padding:"2px 6px",borderRadius:12,fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>{grupos.find(g=>g.id===emp.grupoId)?.nome||""}</span>}
               {getRespSync(emp)&&<span title="Responsável (definido em Grupos e Empresas)" style={{display:"inline-flex",alignItems:"center",gap:3,background:"#eef2ff",color:"#4338ca",padding:"2px 7px",borderRadius:20,fontSize:10,fontWeight:700,border:"1px solid #c7d2fe",whiteSpace:"nowrap"}}>👤 {getRespSync(emp)}</span>}
-              <TagBadges tags={getTagsEmp(emp)}/>
-              <TagPicker small tags={getTagsEmp(emp)} onAdd={t=>addTagEmp(emp,t)} onRemove={t=>removeTagEmp(emp,t)}/>
+              <TagBadges tags={getTagsEmp(emp)} colorMap={tagCoresSync}/>
+              <TagPicker small tags={getTagsEmp(emp)} onAdd={t=>addTagEmp(emp,t)} onRemove={t=>removeTagEmp(emp,t)} colorMap={tagCoresSync} onSetColor={setTagColorEmp}/>
               {obsCount>0&&<span style={{display:"inline-flex",alignItems:"center",gap:3,background:"#fef3c7",color:"#92400e",padding:"2px 7px",borderRadius:20,fontSize:10,fontWeight:800,border:"1.5px solid #fcd34d",whiteSpace:"nowrap"}}>📝 {obsCount}</span>}
               {obsCount===0&&obsVerifCount>0&&<span style={{display:"inline-flex",alignItems:"center",gap:3,background:"#f1f5f9",color:"#94a3b8",padding:"2px 6px",borderRadius:20,fontSize:10,fontWeight:700,border:"1px solid #e2e8f0",whiteSpace:"nowrap"}}>✔️ {obsVerifCount}</span>}
               {empHasOverride&&<span onClick={e=>{e.stopPropagation();if(window.confirm("Restaurar as colunas padrão para "+emp.nome+"? Isso remove a personalização desta empresa."))  {const no={...empColsOverride};delete no[emp.id];saveEmpColsOverride(no);toast("↩ Colunas restauradas ao padrão","ok");}}} title="Esta empresa usa colunas personalizadas — clique para restaurar ao padrão" style={{display:"inline-flex",alignItems:"center",gap:3,background:"#fef3c7",color:"#b45309",padding:"2px 7px",borderRadius:20,fontSize:10,fontWeight:800,border:"1.5px solid #fcd34d",whiteSpace:"nowrap",cursor:"pointer"}}>✎ personalizada</span>}
@@ -12402,8 +12468,8 @@ function makePageComponent(PAGE_CFG){
                       <div style={{minWidth:0}}>
                         <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
                           <span style={{fontSize:13,fontWeight:800,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={emp.nome}>🏢 {emp.nome}</span>
-                          <TagBadges tags={getTagsEmp(emp)}/>
-                          <TagPicker small tags={getTagsEmp(emp)} onAdd={t=>addTagEmp(emp,t)} onRemove={t=>removeTagEmp(emp,t)}/>
+                          <TagBadges tags={getTagsEmp(emp)} colorMap={tagCoresSync}/>
+                          <TagPicker small tags={getTagsEmp(emp)} onAdd={t=>addTagEmp(emp,t)} onRemove={t=>removeTagEmp(emp,t)} colorMap={tagCoresSync} onSetColor={setTagColorEmp}/>
                         </div>
                         {(()=>{const socio=getSocioInfo(emp);return(
                           <div style={{fontSize:9.5,color:"#94a3b8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
@@ -13129,6 +13195,9 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
   const removeTagEmpU=(eKey,tag)=>{
     updateMeta(prev=>({...prev,marcadores:{...(prev.marcadores||{}),[eKey]:(prev.marcadores?.[eKey]||[]).filter(t=>t!==tag)}}),true);
   };
+  const setTagColorEmpU=(tag,cor)=>{
+    updateMeta(prev=>({...prev,tagCores:{...(prev.tagCores||{}),[tag]:cor}}),true);
+  };
   const getGrupoMeta=(gKey)=>meta.grupoMeta?.[gKey]||{descricao:"",regras:{compartilharResponsaveis:true,aplicarCalendario:true,consolidarIndicadores:true,permitirAcoesMassa:true},responsavelPrincipal:"",slaDia:null};
   // Status do SLA de um grupo: compara o progresso real com o ritmo esperado até o "dia limite" do mês
   const slaStatusGrupo=(slaDia,progresso)=>{
@@ -13546,7 +13615,7 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
           const s=SS(o.status);
           return `<span style="display:inline-block;margin:1px 3px 1px 0;padding:2px 7px;border-radius:10px;font-size:9px;font-weight:700;background:${s.bg};color:${s.c};border:1px solid ${s.bd};">${s.ic} ${o.label}</span>`;
         }).join("");
-        const tagsE=(meta.marcadores?.[e.key]||[]).map(t=>`<span style="display:inline-block;margin:0 3px 0 0;padding:1px 6px;border-radius:10px;font-size:8.5px;font-weight:700;background:${getTagColor(t)}18;color:${getTagColor(t)};border:1px solid ${getTagColor(t)}55;">🏷 ${t}</span>`).join("");
+        const tagsE=(meta.marcadores?.[e.key]||[]).map(t=>{const tc=getTagColor(t,meta.tagCores);return `<span style="display:inline-block;margin:0 3px 0 0;padding:1px 6px;border-radius:10px;font-size:8.5px;font-weight:700;background:${tc}18;color:${tc};border:1px solid ${tc}55;">🏷 ${t}</span>`;}).join("");
         return `<tr>
           <td style="padding:6px 8px;font-weight:700;">${e.nome}${tagsE?"<br/>"+tagsE:""}</td>
           <td style="padding:6px 8px;color:#64748b;">${e.cnpj||"—"}</td>
@@ -13775,8 +13844,8 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
                           <div onClick={()=>toggleEmpresaExpand(empU.key)} style={{flex:1,minWidth:0}}>
                             <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}} onClick={e=>e.stopPropagation()}>
                               <span onClick={()=>toggleEmpresaExpand(empU.key)} style={{fontWeight:700,fontSize:12,color:"var(--text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",cursor:"pointer"}} title={empU.nome}>{empU.nome}</span>
-                              <TagBadges tags={getTagsEmpU(empU.key)}/>
-                              <TagPicker small tags={getTagsEmpU(empU.key)} onAdd={t=>addTagEmpU(empU.key,t)} onRemove={t=>removeTagEmpU(empU.key,t)}/>
+                              <TagBadges tags={getTagsEmpU(empU.key)} colorMap={meta.tagCores}/>
+                              <TagPicker small tags={getTagsEmpU(empU.key)} onAdd={t=>addTagEmpU(empU.key,t)} onRemove={t=>removeTagEmpU(empU.key,t)} colorMap={meta.tagCores} onSetColor={setTagColorEmpU}/>
                             </div>
                             <div style={{fontSize:10,color:"#94a3b8",display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}} onClick={()=>toggleEmpresaExpand(empU.key)}>
                               <span>{empU.cnpj||"CNPJ não informado"}{empU.regime?" · "+empU.regime:""}</span>

@@ -811,6 +811,7 @@ function useSharedData() {
 
       pendingSave.current = setTimeout(async () => {
         isSavingRef.current = true;
+        pendingSave.current = null; // libera a trava assim que o debounce dispara (o save em si já é protegido por isSavingRef)
         try {
           // Usa o estado MAIS RECENTE (pode ter mudado durante o debounce por Realtime)
           const current = latestStateRef.current || next;
@@ -1510,7 +1511,7 @@ function LinksUteisPage({toast,userName}){
       try{const{data:row}=await sb.from("app_data").select("payload").eq("id",LINKS_ROW_ID).maybeSingle();if(ok)setLinks(row?.payload?.links||[]);}catch(e){}
       if(ok)setLoading(false);
     })();
-    const ch=sb.channel("links_uteis").on("postgres_changes",{event:"UPDATE",schema:"public",table:"app_data",filter:`id=eq.${LINKS_ROW_ID}`},
+    const ch=sb.channel("links_uteis").on("postgres_changes",{event:"*",schema:"public",table:"app_data",filter:`id=eq.${LINKS_ROW_ID}`},
       pl=>{if(pl.new?.payload)setLinks(pl.new.payload.links||[]);}).subscribe();
     return()=>{ok=false;sb.removeChannel(ch);};
   },[]);
@@ -7553,7 +7554,7 @@ function App(){
         if(ok&&row?.payload)setFeatureFlags(f=>({modules:{...DEFAULT_FEATURE_FLAGS.modules,...(row.payload.modules||{})},fields:{...DEFAULT_FEATURE_FLAGS.fields,...(row.payload.fields||{})}}));
       }catch(e){}
     })();
-    const ch=sb.channel("feature_flags").on("postgres_changes",{event:"UPDATE",schema:"public",table:"app_data",filter:`id=eq.${FEATURE_FLAGS_ROW_ID}`},
+    const ch=sb.channel("feature_flags").on("postgres_changes",{event:"*",schema:"public",table:"app_data",filter:`id=eq.${FEATURE_FLAGS_ROW_ID}`},
       pl=>{if(pl.new?.payload)setFeatureFlags(f=>({modules:{...DEFAULT_FEATURE_FLAGS.modules,...(pl.new.payload.modules||{})},fields:{...DEFAULT_FEATURE_FLAGS.fields,...(pl.new.payload.fields||{})}}));}).subscribe();
     return()=>{ok=false;sb.removeChannel(ch);};
   },[]);
@@ -8696,7 +8697,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
   useEffect(()=>{
     let ok=true;
     (async()=>{try{const{data:row}=await sb.from("app_data").select("payload").eq("id",RESP_SYNC_ROW_ID).maybeSingle();if(ok&&row?.payload){if(row.payload.responsaveis)setRespSync(row.payload.responsaveis);setMarcadoresSync(row.payload.marcadores||{});setTagCoresSync(row.payload.tagCores||{});}}catch(e){}})();
-    const ch=sb.channel("respsync_contabil").on("postgres_changes",{event:"UPDATE",schema:"public",table:"app_data",filter:`id=eq.${RESP_SYNC_ROW_ID}`},
+    const ch=sb.channel("respsync_contabil").on("postgres_changes",{event:"*",schema:"public",table:"app_data",filter:`id=eq.${RESP_SYNC_ROW_ID}`},
       pl=>{if(pl.new?.payload){if(pl.new.payload.responsaveis)setRespSync(pl.new.payload.responsaveis);setMarcadoresSync(pl.new.payload.marcadores||{});setTagCoresSync(pl.new.payload.tagCores||{});}}).subscribe();
     return()=>{ok=false;sb.removeChannel(ch);};
   },[]);
@@ -8809,12 +8810,15 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
   // Save to Supabase + localStorage whenever state changes (debounced)
   const saveContabilToDb=useCallback((empresas,grupos,dados,obs,ecdEcf,nextEmpId,nextGrpId,immediate=false)=>{
     const payload={empresas,grupos,dados,obs,ecdEcf,nextEmpId,nextGrpId,_savedAt:Date.now()};
+    // Marca o timestamp IMEDIATAMENTE (mesmo em save debounced) — bloqueia Realtime/poll de
+    // aplicar dados mais antigos que essa edição enquanto ela ainda não foi persistida.
+    myLastContabilSaveTs.current=payload._savedAt;
     // localStorage always
     try{localStorage.setItem(STORAGE_KEY,JSON.stringify(payload));}catch(e){}
     if(pendingContabilSave.current) clearTimeout(pendingContabilSave.current);
     const doSave=async()=>{
       isSavingContabilRef.current=true;
-      myLastContabilSaveTs.current=payload._savedAt;
+      pendingContabilSave.current=null;
       try{const {error}=await sb.from("app_data").upsert({id:CONTABIL_ROW_ID,payload});
         if(error)console.warn("Contabil save error:",error);else broadcastSync(CONTABIL_ROW_ID);
       }catch(e){console.warn("Contabil save failed:",e);}
@@ -8822,7 +8826,6 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
     };
     if(immediate){
       isSavingContabilRef.current=true;
-      myLastContabilSaveTs.current=payload._savedAt;
       doSave();
     }else{pendingContabilSave.current=setTimeout(doSave,800);}
   },[]);
@@ -8878,7 +8881,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
 
   // ── Realtime sync ──────────────────────────────────────────────
   const _applyCP=(p)=>{
-    if(isSavingContabilRef.current)return;
+    if(isSavingContabilRef.current||pendingContabilSave.current)return;
     const pTs=p._savedAt||p._t||0;
     if(myLastContabilSaveTs.current&&pTs<=myLastContabilSaveTs.current)return;
     if(p.empresas&&Array.isArray(p.empresas))setCEmpresas(p.empresas.map(e=>({...e,expandido:false})));
@@ -8889,7 +8892,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
     if(p.nextEmpId)setNextEmpId(p.nextEmpId);if(p.nextGrpId)setNextGrpId(p.nextGrpId);
   };
   useEffect(()=>{
-    const ch=sb.channel("cp_rt").on("postgres_changes",{event:"UPDATE",schema:"public",table:"app_data",filter:`id=eq.${CONTABIL_ROW_ID}`},pl=>{if(pl.new?.payload)_applyCP(pl.new.payload);}).subscribe();
+    const ch=sb.channel("cp_rt").on("postgres_changes",{event:"*",schema:"public",table:"app_data",filter:`id=eq.${CONTABIL_ROW_ID}`},pl=>{if(pl.new?.payload)_applyCP(pl.new.payload);}).subscribe();
     const h=(e)=>{if(e.data?.rowId===CONTABIL_ROW_ID&&e.data?.tabId!==_tabId)sb.from("app_data").select("payload").eq("id",CONTABIL_ROW_ID).maybeSingle().then(({data:r})=>{if(r?.payload)_applyCP(r.payload);});};
     if(_bc)_bc.addEventListener("message",h);
     const poll=setInterval(async()=>{try{const{data:r}=await sb.from("app_data").select("payload").eq("id",CONTABIL_ROW_ID).maybeSingle();if(r?.payload)_applyCP(r.payload);}catch(e){}},60000);
@@ -11483,7 +11486,7 @@ function GuestView({grpId, pageId, toast, toasts}){
   const applyP=(p)=>{if(p.empresas)setEmpresas(p.empresas.map(e=>({...e,expandido:false})));if(p.grupos)setGrupos(p.grupos);if(p.dados)setDados(p.dados);if(p.obs)setObs(p.obs);if(p.prazos)setPrazos(p.prazos);};
   useEffect(()=>{
     (async()=>{try{const{data:row}=await sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle();if(row?.payload)applyP(row.payload);}catch(e){}setLoaded(true);})();
-    const ch=sb.channel("gv_"+ROW_ID).on("postgres_changes",{event:"UPDATE",schema:"public",table:"app_data",filter:`id=eq.${ROW_ID}`},pl=>{if(pl.new?.payload)applyP(pl.new.payload);}).subscribe();
+    const ch=sb.channel("gv_"+ROW_ID).on("postgres_changes",{event:"*",schema:"public",table:"app_data",filter:`id=eq.${ROW_ID}`},pl=>{if(pl.new?.payload)applyP(pl.new.payload);}).subscribe();
     const h=(e)=>{if(e.data?.rowId===ROW_ID&&e.data?.tabId!==_tabId){sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle().then(({data:r})=>{if(r?.payload)applyP(r.payload);});}};
     if(_bc)_bc.addEventListener("message",h);
     return()=>{sb.removeChannel(ch);if(_bc)_bc.removeEventListener("message",h);};
@@ -11771,7 +11774,7 @@ function makePageComponent(PAGE_CFG){
       })();
       // Real-time: Supabase Postgres changes
       const ch=sb.channel("sp_"+ROW_ID)
-        .on("postgres_changes",{event:"UPDATE",schema:"public",table:"app_data",filter:`id=eq.${ROW_ID}`},
+        .on("postgres_changes",{event:"*",schema:"public",table:"app_data",filter:`id=eq.${ROW_ID}`},
           pl=>{if(pl.new?.payload&&mounted&&!saveInFlight.current)applyPayload(pl.new.payload);})
         .subscribe();
       // BroadcastChannel: mudanças na mesma aba/browser
@@ -11990,7 +11993,7 @@ function makePageComponent(PAGE_CFG){
     useEffect(()=>{
       let ok=true;
       (async()=>{try{const{data:row}=await sb.from("app_data").select("payload").eq("id",RESP_SYNC_ROW_ID).maybeSingle();if(ok&&row?.payload){if(row.payload.responsaveis)setRespSync(row.payload.responsaveis);setMarcadoresSync(row.payload.marcadores||{});setTagCoresSync(row.payload.tagCores||{});}}catch(e){}})();
-      const ch=sb.channel("respsync_"+ROW_ID).on("postgres_changes",{event:"UPDATE",schema:"public",table:"app_data",filter:`id=eq.${RESP_SYNC_ROW_ID}`},
+      const ch=sb.channel("respsync_"+ROW_ID).on("postgres_changes",{event:"*",schema:"public",table:"app_data",filter:`id=eq.${RESP_SYNC_ROW_ID}`},
         pl=>{if(pl.new?.payload){if(pl.new.payload.responsaveis)setRespSync(pl.new.payload.responsaveis);setMarcadoresSync(pl.new.payload.marcadores||{});setTagCoresSync(pl.new.payload.tagCores||{});}}).subscribe();
       return()=>{ok=false;sb.removeChannel(ch);};
     },[]);
@@ -13074,7 +13077,7 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
   },[]);
   React.useEffect(()=>{
     const channels=MODULOS.map(mod=>
-      sb.channel("relgrp_"+mod.rowId).on("postgres_changes",{event:"UPDATE",schema:"public",table:"app_data",filter:`id=eq.${mod.rowId}`},
+      sb.channel("relgrp_"+mod.rowId).on("postgres_changes",{event:"*",schema:"public",table:"app_data",filter:`id=eq.${mod.rowId}`},
         pl=>{if(pl.new?.payload){setPayloads(prev=>({...prev,[mod.id]:pl.new.payload}));setUltimaAtualizacao(Date.now());}}).subscribe()
     );
     const rowIds=new Set(MODULOS.map(m=>m.rowId));

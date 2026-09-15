@@ -8399,7 +8399,7 @@ function App(){
           </div>
         )}
         <nav className="sb-nav" style={{flex:1,padding:"8px 10px",overflowY:"auto",display:"flex",flexDirection:"column",gap:"4px"}}>
-          {NAV_GROUPS.filter(g=>isAdmin||g.label==="Visualizações"||g.label==="Relatórios"||g.label==="Contabilidade").map(group=>{
+          {NAV_GROUPS.filter(g=>isAdmin||g.label!=="Sistema").map(group=>{
             // Cores temáticas para cada grupo
             const groupColors={
               "Visualizações":"#6366f1",
@@ -8510,7 +8510,7 @@ function App(){
           </div>
         </div>
 
-        {!isAdmin&&(featureFlags.modules[page]===false||toArr(myCollab?.modulosOcultos).includes(page))?(
+        {!isAdmin&&(featureFlags.modules[page]===false||toArr(myCollab?.modulosOcultos).includes(page)||page==="configuracoes"||page==="auditoria")?(
           <div style={{textAlign:"center",padding:"80px 20px",color:"#94a3b8"}}>
             <div style={{fontSize:44,marginBottom:12}}>🔒</div>
             <div style={{fontSize:16,fontWeight:800,color:"var(--text)",marginBottom:6}}>Este recurso não está disponível no seu plano</div>

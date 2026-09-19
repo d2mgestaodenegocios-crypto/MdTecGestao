@@ -101,33 +101,27 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 
 
 @media(max-width:768px){
-  /* Mobile: bottom nav bar */
-  .shell{flex-direction:column}
+  /* Mobile: menu lateral vira uma gaveta oculta, puxada pelo botão ☰ no topo */
+  .mobile-menu-btn{display:flex!important}
+  .shell{flex-direction:row}
   .sidebar{
-    position:fixed!important;bottom:0!important;left:0!important;right:0!important;
-    top:auto!important;width:100%!important;height:auto!important;
-    flex-direction:row!important;
-    border-top:1px solid rgba(255,255,255,.08)!important;
-    box-shadow:0 -4px 24px rgba(0,0,0,.2)!important
+    position:fixed!important;top:0!important;left:0!important;bottom:0!important;right:auto!important;
+    width:250px!important;height:100dvh!important;
+    flex-direction:column!important;
+    transform:translateX(-100%);
+    transition:transform .25s cubic-bezier(.4,0,.2,1);
+    z-index:300!important;
+    box-shadow:4px 0 24px rgba(0,0,0,.25)!important;
   }
-  .sidebar.slim{width:100%!important}
-  .sb-logo,.sb-stats,.sb-bottom{display:none!important}
-  .sb-nav{
-    flex-direction:row!important;overflow-x:auto!important;overflow-y:hidden!important;
-    padding:5px 8px!important;gap:2px!important;width:100%!important;
-    -ms-overflow-style:none;scrollbar-width:none
-  }
-  .sb-nav::-webkit-scrollbar{display:none}
-  .sb-section-lbl{display:none!important}
-  .nav-btn{
-    flex-direction:column!important;gap:1px!important;
-    padding:6px 10px!important;font-size:9px!important;
-    min-width:52px!important;border-radius:10px!important;
-    white-space:nowrap!important
-  }
-  .nav-btn .nb-icon{font-size:17px!important;width:auto!important}
-  .nav-btn .nb-dot{display:none!important}
-  .main-content{padding:14px 14px 80px!important;height:100dvh!important}
+  .sidebar.mobile-open{transform:translateX(0)}
+  .sidebar.slim{width:250px!important} /* no celular a gaveta sempre abre completa, nunca "fininha" */
+  .mobile-menu-backdrop{display:none;position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:290;backdrop-filter:blur(1px)}
+  .mobile-menu-backdrop.show{display:block}
+  .sb-logo,.sb-stats,.sb-bottom{display:flex!important}
+  .sb-nav{flex-direction:column!important;overflow-y:auto!important;overflow-x:hidden!important}
+  .sb-section-lbl{display:block!important}
+  .nav-btn{flex-direction:row!important}
+  .main-content{padding:14px!important;height:100dvh!important}
 
   /* Modal slides up from bottom */
   .modal-backdrop{align-items:flex-end!important;padding:0!important}
@@ -801,6 +795,17 @@ function useSharedData() {
       const prevIds = new Set((prev.tasks||[]).map(t=>t.id));
       const nextIds = new Set((next.tasks||[]).map(t=>t.id));
       prevIds.forEach(id => { if(!nextIds.has(id)) intentionalDeletes.current.add(id); });
+      // Mesma auto-detecção para colaboradores, empresas e setores — senão o "resgate" (proteção
+      // contra perda de dados) restaura de volta qualquer cadastro que o usuário tenha excluído de propósito
+      const prevCollabIds = new Set((prev.collaborators||[]).map(c=>c.id));
+      const nextCollabIds = new Set((next.collaborators||[]).map(c=>c.id));
+      prevCollabIds.forEach(id => { if(!nextCollabIds.has(id)) intentionalDeletes.current.add(id); });
+      const prevCompanyIds = new Set((prev.companies||[]).map(c=>c.id));
+      const nextCompanyIds = new Set((next.companies||[]).map(c=>c.id));
+      prevCompanyIds.forEach(id => { if(!nextCompanyIds.has(id)) intentionalDeletes.current.add(id); });
+      const prevSectorIds = new Set((prev.sectors||[]).map(c=>c.id));
+      const nextSectorIds = new Set((next.sectors||[]).map(c=>c.id));
+      prevSectorIds.forEach(id => { if(!nextSectorIds.has(id)) intentionalDeletes.current.add(id); });
       if (_deletedIds.length > 0) _deletedIds.forEach(id => intentionalDeletes.current.add(id));
 
       // Atualiza ref com estado mais recente
@@ -2726,7 +2731,7 @@ function QuickCreateBar({data,onAdd}){
   );
 }
 
-function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusChange,myCollabId,myCollab,onArchive,onPomodoro,onPin,onMoveTop,onUrgent}){
+function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusChange,myCollabId,myCollab,isAdmin,onArchive,onPomodoro,onPin,onMoveTop,onUrgent}){
   const [kanbanFilter,setKanbanFilter]=useState("week");
   const [ownerFilter,setOwnerFilter]=useState("all");
   const [collabFilter,setCollabFilter]=useState(""); // NEW: filter by specific collaborator
@@ -2818,7 +2823,8 @@ function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusC
             exportTasksCSV(allVisible,data);
           }} title="Exportar Kanban como CSV" style={{background:"none",border:"1.5px solid #e2e8f0",borderRadius:7,padding:"3px 10px",fontSize:11,fontWeight:700,color:"#64748b",cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:5,flexShrink:0,transition:"all .15s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor="#6366f1";e.currentTarget.style.color="#6366f1";}} onMouseLeave={e=>{e.currentTarget.style.borderColor="#e2e8f0";e.currentTarget.style.color="#64748b";}}>⬇ CSV</button>
         </div>
-        {/* Filtro por colaborador específico */}
+        {/* Filtro por colaborador específico — só admin, pra não expor a lista de todo mundo aos usuários comuns */}
+        {isAdmin&&(
         <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap",marginTop:6}}>
           <span style={{fontSize:12,fontWeight:700,color:"#64748b",marginRight:2}}>🔍 Colaborador:</span>
           <button style={btnStyle(collabFilter==="","#6366f1")} onClick={()=>setCollabFilter("")}>Todos</button>
@@ -2830,6 +2836,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusC
             </button>
           ))}
         </div>
+        )}
       </div>
 
       <div className="kanban-wrap" style={{display:"flex",gap:14,overflowX:"auto",paddingBottom:20,paddingLeft:28,paddingRight:28,margin:"0 -28px",alignItems:"flex-start"}}>
@@ -5085,7 +5092,7 @@ function TemplatesPage({ data, setData, onUseTemplate }) {
 //  PART 6: Dashboard com filtros mensais + gráficos por empresa/colaborador
 // ===================================================================
 
-function Dashboard({ data }) {
+function Dashboard({ data, isAdmin }) {
   const thisMonth = new Date().getMonth();
   const thisYear  = new Date().getFullYear();
   const [fMonth, setFMonth] = useState(thisMonth);
@@ -5095,6 +5102,7 @@ function Dashboard({ data }) {
 
   const [viewMode, setViewMode] = useState("month"); // month | year
   const [dashTab, setDashTab] = useState("overview"); // overview | colaboradores | setores
+  useEffect(()=>{if(!isAdmin&&dashTab!=="overview")setDashTab("overview");},[isAdmin]);
 
   const filteredTasks = useMemo(()=>{
     return data.tasks.filter(t=>{
@@ -5220,10 +5228,11 @@ function Dashboard({ data }) {
       </div>
 
       {/* Tab switcher */}
-      <div style={{display:"flex",gap:6,marginBottom:20}}>
-        {[["overview","📊 Visão Geral"],["colaboradores","👥 Por Colaborador"],["setores","◫ Por Setor"]].map(([v,l])=>(
+      <div style={{display:"flex",gap:6,marginBottom:20,alignItems:"center",flexWrap:"wrap"}}>
+        {[["overview","📊 Visão Geral"],...(isAdmin?[["colaboradores","👥 Por Colaborador"],["setores","◫ Por Setor"]]:[])].map(([v,l])=>(
           <button key={v} onClick={()=>setDashTab(v)} style={{padding:"7px 16px",borderRadius:10,border:"1.5px solid "+(dashTab===v?"#6366f1":"var(--border)"),background:dashTab===v?"#6366f1":"var(--bg3)",color:dashTab===v?"#fff":"#64748b",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .15s"}}>{l}</button>
         ))}
+        {!isAdmin&&<span style={{fontSize:11,color:"#94a3b8",fontWeight:600}}>🔒 Mostrando só as suas tarefas</span>}
       </div>
 
       {/* KPIs — only in overview */}
@@ -5551,7 +5560,7 @@ function Dashboard({ data }) {
    MENTION INPUT — @autocomplete */
 /* ===========================================
    POMODORO TIMER */
-function PomodoroTimer({taskTitle,onClose}){
+function PomodoroTimer({taskTitle,taskId,onRecord,onClose}){
   const MODES=[
     {id:"focus",   label:"🍅 Foco 25",   mins:25,  color:"#ef4444"},
     {id:"focus30", label:"🍅 Foco 30",   mins:30,  color:"#f97316"},
@@ -5574,6 +5583,25 @@ function PomodoroTimer({taskTitle,onClose}){
   const ss=String(secs%60).padStart(2,"0");
   const circ=2*Math.PI*45;
 
+  // Bipe sonoro ao terminar — funciona mesmo sem o navegador permitir notificação/áudio externo
+  const tocarBipe=useCallback(()=>{
+    try{
+      const Ctx=window.AudioContext||window.webkitAudioContext;
+      if(!Ctx)return;
+      const ctx=new Ctx();
+      [0,0.22,0.44].forEach(delay=>{
+        const osc=ctx.createOscillator();
+        const gain=ctx.createGain();
+        osc.type="sine";osc.frequency.value=880;
+        gain.gain.setValueAtTime(0.001,ctx.currentTime+delay);
+        gain.gain.exponentialRampToValueAtTime(0.35,ctx.currentTime+delay+0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+delay+0.18);
+        osc.connect(gain);gain.connect(ctx.destination);
+        osc.start(ctx.currentTime+delay);osc.stop(ctx.currentTime+delay+0.2);
+      });
+    }catch(e){}
+  },[]);
+
   // Tick via requestAnimationFrame + timestamp — imune a throttle e re-renders
   const tick=useCallback(()=>{
     if(!endTimeRef.current) return;
@@ -5583,11 +5611,16 @@ function PomodoroTimer({taskTitle,onClose}){
       endTimeRef.current=null;
       setRunning(false);
       setFinished(true);
-      if(mode===0||mode===1||mode===2) setRounds(r=>r+1);
-      // Notificação do navegador
+      const isFoco=mode===0||mode===1||mode===2;
+      if(isFoco) setRounds(r=>r+1);
+      // Alerta mais efetivo: som + notificação do navegador + vibração (celular)
+      tocarBipe();
       if(Notification?.permission==="granted"){
-        new Notification("⏱ Pomodoro finalizado!",{body:taskTitle,icon:"🍅"});
+        new Notification(isFoco?"🍅 Pomodoro concluído!":"☕ Pausa terminada!",{body:taskTitle?`${taskTitle} — hora de ${isFoco?"descansar":"voltar ao foco"}`:"Hora de "+(isFoco?"descansar":"voltar ao foco"),icon:"🍅",requireInteraction:true});
       }
+      if(navigator.vibrate)navigator.vibrate([200,100,200]);
+      // Registra a sessão de foco concluída no histórico da própria tarefa
+      if(isFoco&&taskId&&onRecord)onRecord(taskId,cur.mins,"foco");
       return;
     }
     rafRef.current=requestAnimationFrame(tick);
@@ -7521,6 +7554,7 @@ function App(){
   const [page,setPage]      = useState(_initPage);
   const [taskModal,setTM]   = useState({open:false,task:null,defStatus:"todo",lockInfo:null});
   const [sideCol,setSideCol]= useState(()=>typeof window!=="undefined"&&window.innerWidth<1024&&window.innerWidth>768);
+  const [mobileMenuOpen,setMobileMenuOpen]=useState(false); // menu lateral em celular/tela pequena — fica oculto até tocar no ☰
   // ── Responsividade: em telas "médias" (tablet/laptop pequeno) recolhe a barra lateral sozinho, sem precisar clicar ──
   const userToggledSideCol=useRef(false);
   useEffect(()=>{
@@ -7566,6 +7600,11 @@ function App(){
   const [showSearch,setShowSearch] = useState(false);
   const [focusMode,setFocusMode] = useState(false);
   const [pomodoroTask,setPomodoroTask] = useState(null);
+  // Registra uma sessão de pomodoro concluída no histórico da própria tarefa
+  const recordPomodoro=(taskId,minutos,tipo)=>{
+    if(!taskId)return;
+    setData(d=>({...d,tasks:d.tasks.map(t=>t.id===taskId?{...t,history:[...toArr(t.history),{user:userName||"Usuário",at:new Date().toISOString(),changes:`🍅 Pomodoro de ${tipo==="foco"?"foco":"pausa"} concluído (${minutos} min)`}]}:t)}));
+  };
   const [recDeleteModal,setRecDeleteModal]=useState({open:false,taskId:null,title:"",serie:[],futuras:[]});
   const topbarRef = useRef(null);
 
@@ -7904,6 +7943,9 @@ function App(){
         return assignees.length===0 || assignees.includes(myCollabId);
       });
   const dataForUser = isAdmin ? data : {...data, tasks: visibleTasks};
+  // Painéis de totais (Dashboard) — usuário comum só deve ver os PRÓPRIOS números, não a empresa toda
+  const minhasTasksSomente = data.tasks.filter(t=>toArr(t.assignees).includes(myCollabId));
+  const dataForDashboard = isAdmin ? data : {...data, tasks: minhasTasksSomente};
 
   const openNew=(status="todo")=>{
     // Rejeita eventos de clique do React (SyntheticEvent / HTMLElement)
@@ -8372,14 +8414,18 @@ function App(){
   const importData=()=>{const i=document.createElement("input");i.type="file";i.accept=".json";i.onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{try{const p=JSON.parse(ev.target.result);if(p.tasks&&p.companies){setData(p);toast("Dados importados!","ok");}else toast("Arquivo inválido.","err");}catch{toast("Erro ao importar.","err");}};r.readAsText(f);};i.click();};
   const resetData=()=>{ askDelete("Todos os dados serão apagados e substituídos pelos dados iniciais!", ()=>{setData(SEED);toast("Dados restaurados.","warn");}); };
 
-  const overdueCount=data.tasks.filter(t=>t.status!=="archived"&&isLate(t)).length;
-  const doingCount  =data.tasks.filter(t=>t.status==="doing").length;
+  // Para usuários comuns, os totais da barra lateral mostram só as tarefas atribuídas a eles — só admin vê o total da conta inteira
+  const tasksParaStats=isAdmin?data.tasks:data.tasks.filter(t=>toArr(t.assignees).includes(myCollabId));
+  const overdueCount=tasksParaStats.filter(t=>t.status!=="archived"&&isLate(t)).length;
+  const doingCount  =tasksParaStats.filter(t=>t.status==="doing").length;
   const curPage     =NAV_GROUPS.flatMap(g=>g.items).find(i=>i.id===page);
 
   return(
     <div className="shell" style={{minHeight:"100dvh",width:"100%"}}>
+      {/* Fundo escuro atrás do menu quando aberto no celular — toca pra fechar */}
+      <div className={`mobile-menu-backdrop${mobileMenuOpen?" show":""}`} onClick={()=>setMobileMenuOpen(false)}/>
       {/* Sidebar */}
-      <aside className={`sidebar${sideCol?" slim":""}`}>
+      <aside className={`sidebar${sideCol?" slim":""}${mobileMenuOpen?" mobile-open":""}`}>
         <div className="sb-logo" style={{padding:sideCol?"14px 12px":"20px 16px",borderBottom:"1px solid rgba(255,255,255,.06)"}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <div style={{width:36,height:36,borderRadius:10,flexShrink:0,background:"linear-gradient(135deg,#6366f1,#8b5cf6)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,color:"#fff",fontWeight:900,boxShadow:"0 4px 14px rgba(99,102,241,.5)"}}>M</div>
@@ -8389,7 +8435,7 @@ function App(){
         {!sideCol&&(
           <div className="sb-stats" style={{margin:"10px 12px",padding:"10px 12px",background:"rgba(255,255,255,.04)",borderRadius:10,border:"1px solid rgba(255,255,255,.06)"}}>
             <div style={{display:"flex",justifyContent:"space-between"}}>
-              {[{v:data.tasks.length,l:"Total",c:"#818cf8"},{v:doingCount,l:"Andamento",c:"#fbbf24"},{v:overdueCount,l:"Atraso",c:overdueCount>0?"#f87171":"#475569"}].map(({v,l,c})=>(
+              {[{v:tasksParaStats.length,l:"Total",c:"#818cf8"},{v:doingCount,l:"Andamento",c:"#fbbf24"},{v:overdueCount,l:"Atraso",c:overdueCount>0?"#f87171":"#475569"}].map(({v,l,c})=>(
                 <div key={l} style={{textAlign:"center"}}>
                   <div style={{fontSize:16,fontWeight:900,color:c}}>{v}</div>
                   <div style={{fontSize:9,color:"#475569",fontWeight:600,textTransform:"uppercase",letterSpacing:".05em"}}>{l}</div>
@@ -8426,7 +8472,7 @@ function App(){
                   const itemColor=itemColors[item.id]||groupColor;
                   const chatUnread=0;
                   return(
-                    <button key={item.id} className="nav-btn" onClick={()=>setPage(item.id)} title={sideCol?item.label:""} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:sideCol?"center":"flex-start",gap:sideCol?0:10,padding:sideCol?"10px 0":"8px 12px",borderRadius:8,border:active?`1.5px solid ${itemColor}`:"1px solid transparent",cursor:"pointer",background:active?`${itemColor}18`:"transparent",color:active?itemColor:"#64748b",fontSize:13,fontWeight:active?700:600,fontFamily:"inherit",transition:"all .2s cubic-bezier(.4,0,.2,1)",marginBottom:2,boxShadow:active?`0 2px 8px ${itemColor}25`:"none",position:"relative",overflow:"hidden"}}
+                    <button key={item.id} className="nav-btn" onClick={()=>{setPage(item.id);setMobileMenuOpen(false);}} title={sideCol?item.label:""} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:sideCol?"center":"flex-start",gap:sideCol?0:10,padding:sideCol?"10px 0":"8px 12px",borderRadius:8,border:active?`1.5px solid ${itemColor}`:"1px solid transparent",cursor:"pointer",background:active?`${itemColor}18`:"transparent",color:active?itemColor:"#64748b",fontSize:13,fontWeight:active?700:600,fontFamily:"inherit",transition:"all .2s cubic-bezier(.4,0,.2,1)",marginBottom:2,boxShadow:active?`0 2px 8px ${itemColor}25`:"none",position:"relative",overflow:"hidden"}}
                       onMouseEnter={e=>{if(!active){e.currentTarget.style.background=`${itemColor}08`;e.currentTarget.style.borderColor=`${itemColor}40`;e.currentTarget.style.transform="translateX(2px)";}}}
                       onMouseLeave={e=>{if(!active){e.currentTarget.style.background="transparent";e.currentTarget.style.borderColor="transparent";e.currentTarget.style.transform="translateX(0)}";}}}
                     >
@@ -8472,9 +8518,12 @@ function App(){
       {/* Conteúdo principal */}
       <main className="main-content">
         <div ref={topbarRef} className="topbar" style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:20,gap:12,position:"sticky",top:0,zIndex:55,background:"var(--bg)",padding:"16px 0 12px",margin:"0 0 12px",borderBottom:"1px solid var(--border)"}}>
-          <div>
-            <h1 style={{fontSize:26,fontWeight:900,color:"#0f172a",lineHeight:1.1,letterSpacing:"-.02em"}}>{curPage?.icon} {curPage?.label}</h1>
-            <p style={{fontSize:13,color:"#94a3b8",marginTop:4,fontWeight:500}}>{new Date().toLocaleDateString("pt-BR",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</p>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <button className="mobile-menu-btn" onClick={()=>setMobileMenuOpen(true)} aria-label="Abrir menu" style={{display:"none",background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:9,width:38,height:38,fontSize:18,cursor:"pointer",color:"var(--text)",flexShrink:0,alignItems:"center",justifyContent:"center"}}>☰</button>
+            <div>
+              <h1 style={{fontSize:26,fontWeight:900,color:"#0f172a",lineHeight:1.1,letterSpacing:"-.02em"}}>{curPage?.icon} {curPage?.label}</h1>
+              <p style={{fontSize:13,color:"#94a3b8",marginTop:4,fontWeight:500}}>{new Date().toLocaleDateString("pt-BR",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</p>
+            </div>
           </div>
           <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
             {/* Indicador de atualização de colaborador */}
@@ -8517,7 +8566,7 @@ function App(){
             <div style={{fontSize:13}}>Fale com um administrador se precisar de acesso.</div>
           </div>
         ):(<>
-        {page==="dashboard"     && <Dashboard data={dataForUser}/>}
+        {page==="dashboard"     && <Dashboard data={dataForDashboard} isAdmin={isAdmin}/>}
         {page==="kanban"        && <>
           {focusMode&&(
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,padding:"10px 16px",background:"var(--bg2)",borderRadius:12,border:"1px solid var(--border)",boxShadow:"0 2px 8px rgba(0,0,0,.08)"}}>
@@ -8531,7 +8580,7 @@ function App(){
               </div>
             </div>
           )}
-          <KanbanView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onAdd={openNew} onDuplicate={duplicateTask} onComplete={quickComplete} onStatusChange={dragStatusChange} myCollabId={myCollabId} myCollab={myCollab} onArchive={archiveTask} onPomodoro={t=>setPomodoroTask(t)}
+          <KanbanView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onAdd={openNew} onDuplicate={duplicateTask} onComplete={quickComplete} onStatusChange={dragStatusChange} myCollabId={myCollabId} myCollab={myCollab} isAdmin={isAdmin} onArchive={archiveTask} onPomodoro={t=>setPomodoroTask(t)}
             onPin={(id,val)=>{setData(d=>({...d,tasks:d.tasks.map(t=>t.id===id?{...t,pinned:val}:t)}));toast(val?"📌 Tarefa fixada no topo!":"📍 Tarefa desafixada.","ok");}}
             onMoveTop={(id,colId)=>{
               setData(d=>{
@@ -8665,7 +8714,7 @@ function App(){
         );
       })()}
       <Toasts list={toasts}/>
-      {pomodoroTask&&<PomodoroTimer taskTitle={pomodoroTask.title} onClose={()=>setPomodoroTask(null)}/>}
+      {pomodoroTask&&<PomodoroTimer taskTitle={pomodoroTask.title} taskId={pomodoroTask.id} onRecord={recordPomodoro} onClose={()=>setPomodoroTask(null)}/>}
       <ChatWidget data={data} setData={setData} currentUser={userName} currentUserId={myCollabId} myCollab={myCollab}/>
       <MentionAlertBanner
         notifications={data.notifications||[]}

@@ -1947,6 +1947,44 @@ function Modal({open,onClose,title,children,width=630}){
   );
 }
 
+function InativarEmpresaModal({emp,onClose,onConfirm}){
+  const [motivo,setMotivo]=useState("");
+  const [salvando,setSalvando]=useState(false);
+  useEffect(()=>{setMotivo("");setSalvando(false);},[emp?.id]);
+  const SUG=["Falta de pagamento","Encerrou as atividades","Sem movimento","Contrato encerrado","Mudou de contabilidade"];
+  const confirmar=async()=>{if(salvando)return;setSalvando(true);try{await onConfirm(motivo.trim());}finally{setSalvando(false);}};
+  return(
+    <Modal open={!!emp} onClose={salvando?()=>{}:onClose} title="⏸ Inativar empresa" width={480}>
+      {emp&&<div style={{display:"flex",flexDirection:"column",gap:14}}>
+        <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 14px",borderRadius:12,background:"var(--bg3)",border:"1px solid var(--border)"}}>
+          <div style={{width:42,height:42,borderRadius:11,background:"linear-gradient(135deg,#94a3b8,#64748b)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:"#fff",flexShrink:0}}>⏸</div>
+          <div style={{minWidth:0}}>
+            <div style={{fontSize:14,fontWeight:900,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{emp.nome}</div>
+            <div style={{fontSize:11,color:"#94a3b8",fontWeight:600}}>{emp.cnpj||"Sem CNPJ cadastrado"}</div>
+          </div>
+        </div>
+        <div style={{padding:"10px 14px",borderRadius:12,background:"#f8fafc",border:"1px solid #e2e8f0",display:"flex",flexDirection:"column",gap:5}}>
+          {["Sai da Visão Rápida, dos totais e dos alertas","Fica cinza na lista — nenhum dado é apagado","Vale para Contábil, Tributário e Folha Pgto","Pode ser reativada a qualquer momento"].map(t=>(
+            <div key={t} style={{fontSize:12,color:"#475569",fontWeight:600,display:"flex",gap:7}}><span style={{color:"#22c55e",fontWeight:900}}>✓</span>{t}</div>
+          ))}
+        </div>
+        <Fld label="Motivo" hint="(opcional)">
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {SUG.map(m=>{const on=motivo===m;return(
+              <button key={m} onClick={()=>setMotivo(on?"":m)} style={{padding:"4px 11px",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",border:`1.5px solid ${on?"#64748b":"#e2e8f0"}`,background:on?"#e2e8f0":"var(--bg2)",color:on?"#334155":"#64748b",transition:"all .12s"}}>{m}</button>
+            );})}
+          </div>
+        </Fld>
+        <Txt value={motivo} onChange={setMotivo} placeholder="Escreva o motivo ou escolha uma opção acima…" rows={2}/>
+        <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:2}}>
+          <Btn v="ghost" onClick={onClose} disabled={salvando}>Cancelar</Btn>
+          <Btn onClick={confirmar} col="#475569" disabled={salvando}>{salvando?"Salvando…":"⏸ Inativar empresa"}</Btn>
+        </div>
+      </div>}
+    </Modal>
+  );
+}
+
 function PH({title,icon,badge,action}){
   return(
     <div className="page-hdr" style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:22}}>
@@ -8812,16 +8850,18 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
   },[]);
   // ── Empresas inativas (compartilhado entre os módulos contábeis) ──
   const {isInativa,getInfoInativa,setInativa}=useInativas();
+  const [inativarAlvoC,setInativarAlvoC]=useState(null);
   const alternarInativaC=async(emp)=>{
-    const inativar=!isInativa(emp);
-    let motivo="";
-    if(inativar){
-      const r=window.prompt("Inativar \""+emp.nome+"\"?\n\nEla deixa de aparecer na Visão Rápida e nos totais e fica cinza até ser reativada (os dados são mantidos).\n\nMotivo (opcional):","");
-      if(r===null)return; // cancelou
-      motivo=r;
-    }
-    const ok=await setInativa(emp,inativar,myCollab?.name||"",motivo);
-    toast(ok?(inativar?"⏸ "+emp.nome+" inativada":"▶ "+emp.nome+" reativada"):"⚠️ Não foi possível salvar. Tente novamente.",ok?"ok":"err");
+    if(isInativa(emp)){ // reativar: direto
+      const ok=await setInativa(emp,false,myCollab?.name||"","");
+      toast(ok?"▶ "+emp.nome+" reativada":"⚠️ Não foi possível salvar. Tente novamente.",ok?"ok":"err");
+    } else setInativarAlvoC(emp); // inativar: abre a janela com o motivo
+  };
+  const confirmarInativarC=async(motivo)=>{
+    const emp=inativarAlvoC;if(!emp)return;
+    const ok=await setInativa(emp,true,myCollab?.name||"",motivo);
+    toast(ok?"⏸ "+emp.nome+" inativada":"⚠️ Não foi possível salvar. Tente novamente.",ok?"ok":"err");
+    if(ok)setInativarAlvoC(null);
   };
   const getRespSync=(emp)=>respSync[canonEmpKeyGlobal(emp?.cnpj,emp?.nome)]||"";
   const getTagsEmp=(emp)=>marcadoresSync[canonEmpKeyGlobal(emp?.cnpj,emp?.nome)]||[];
@@ -9765,6 +9805,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
         );
       })()}
 
+      <InativarEmpresaModal emp={inativarAlvoC} onClose={()=>setInativarAlvoC(null)} onConfirm={confirmarInativarC}/>
       {/* ── Modal Nova Empresa ── */}
       <Modal open={showNovaEmpModal} onClose={()=>{setShowNovaEmpModal(false);setNovaEmpForm({nome:"",cnpj:"",grupoId:"",subgrupoId:"",regime:"simples",periodoInicial:"01/"+new Date().getFullYear(),importarDe:""});}} title="➕ Nova Empresa" width={500}>
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -12180,16 +12221,21 @@ function makePageComponent(PAGE_CFG){
     },[]);
     // ── Empresas inativas (compartilhado entre os módulos contábeis) ──
     const {isInativa,getInfoInativa,setInativa}=useInativas();
+    const [inativarAlvo,setInativarAlvo]=useState(null);
+    const [mostrarInativas,setMostrarInativas]=useState(false);
+    const [rapidaFiltro,setRapidaFiltro]=useState("");      // "" | "vencido" | "vencendo" | "afazer"
+    const [rapidaOrdem,setRapidaOrdem]=useState("urgencia"); // urgencia | nome | grupo | progresso
     const alternarInativa=async(emp)=>{
-      const inativar=!isInativa(emp);
-      let motivo="";
-      if(inativar){
-        const r=window.prompt("Inativar \""+emp.nome+"\"?\n\nEla deixa de aparecer na Visão Rápida e nos totais e fica cinza até ser reativada (os dados são mantidos).\n\nMotivo (opcional):","");
-        if(r===null)return; // cancelou
-        motivo=r;
-      }
-      const ok=await setInativa(emp,inativar,myCollab?.name||"",motivo);
-      toast(ok?(inativar?"⏸ "+emp.nome+" inativada":"▶ "+emp.nome+" reativada"):"⚠️ Não foi possível salvar. Tente novamente.",ok?"ok":"err");
+      if(isInativa(emp)){ // reativar: direto
+        const ok=await setInativa(emp,false,myCollab?.name||"","");
+        toast(ok?"▶ "+emp.nome+" reativada":"⚠️ Não foi possível salvar. Tente novamente.",ok?"ok":"err");
+      } else setInativarAlvo(emp); // inativar: abre a janela com o motivo
+    };
+    const confirmarInativar=async(motivo)=>{
+      const emp=inativarAlvo;if(!emp)return;
+      const ok=await setInativa(emp,true,myCollab?.name||"",motivo);
+      toast(ok?"⏸ "+emp.nome+" inativada":"⚠️ Não foi possível salvar. Tente novamente.",ok?"ok":"err");
+      if(ok)setInativarAlvo(null);
     };
     const getRespSync=(emp)=>respSync[canonEmpKeyGlobal(emp?.cnpj,emp?.nome)]||"";
     const getTagsEmp=(emp)=>marcadoresSync[canonEmpKeyGlobal(emp?.cnpj,emp?.nome)]||[];
@@ -12640,6 +12686,17 @@ function makePageComponent(PAGE_CFG){
           const totalVencidos=empresasComPendencia.filter(x=>x.vencidoAtual).length;
           const totalVencendo=empresasComPendencia.filter(x=>x.vencendoAtual).length;
           const totalPendenteMes=empresasComPendencia.filter(x=>x.pendenteMesAtual&&!x.vencidoAtual&&!x.vencendoAtual).length;
+          // Lista exibida: aplica o filtro (clique nos selos) e a ordenação escolhida
+          const listaVR=empresasComPendencia.filter(x=>!rapidaFiltro
+            ||(rapidaFiltro==="vencido"&&x.vencidoAtual)
+            ||(rapidaFiltro==="vencendo"&&x.vencendoAtual)
+            ||(rapidaFiltro==="afazer"&&x.pendenteMesAtual&&!x.vencidoAtual&&!x.vencendoAtual)
+          ).slice().sort((a,b)=>{
+            if(rapidaOrdem==="nome")return a.emp.nome.localeCompare(b.emp.nome,"pt-BR");
+            if(rapidaOrdem==="grupo")return (a.grupoNome||"~").localeCompare(b.grupoNome||"~","pt-BR")||a.emp.nome.localeCompare(b.emp.nome,"pt-BR");
+            if(rapidaOrdem==="progresso")return a.progAtual-b.progAtual;
+            return 0; // urgência: mantém a ordem já calculada (vencidos → vencendo → a fazer)
+          });
           // 7 colunas alinhadas: Empresa | Regime | Grupo | Situação | Prazo | Progresso | (seta)
           const GRID="minmax(200px,2.4fr) 100px 110px 160px 100px 90px 20px";
           const thSt={fontSize:10,fontWeight:800,color:"#92400e",textTransform:"uppercase",letterSpacing:".06em",padding:"4px 8px"};
@@ -12651,18 +12708,24 @@ function makePageComponent(PAGE_CFG){
                 <span style={{fontSize:13,fontWeight:900,color:"#92400e"}}>Visão Rápida</span>
                 <span style={{fontSize:11,color:"#b45309",fontWeight:600}}>· pendências em aberto</span>
                 <div style={{display:"flex",gap:6,marginLeft:"auto",alignItems:"center"}}>
+                  <select value={rapidaOrdem} onChange={e=>setRapidaOrdem(e.target.value)} title="Ordenar a Visão Rápida" style={{padding:"3px 8px",borderRadius:8,border:"1.5px solid #fcd34d",background:"#fff",color:"#92400e",fontSize:11,fontWeight:800,fontFamily:"inherit",cursor:"pointer",outline:"none"}}>
+                    <option value="urgencia">↕ Urgência</option>
+                    <option value="nome">↕ Nome (A–Z)</option>
+                    <option value="grupo">↕ Grupo</option>
+                    <option value="progresso">↕ Menor progresso</option>
+                  </select>
                   <button onClick={()=>{
                     const linhas=[["Empresa","CNPJ","Grupo","Regime","Responsável","Sócio","Situação","Competência pendente","Prazo","Progresso (%)"]];
-                    empresasComPendencia.forEach(({emp,vencidoAtual,vencendoAtual,mesPendente,mesRef,prazoAtual,diasRestantes,progAtual,grupoNome})=>{
+                    listaVR.forEach(({emp,vencidoAtual,vencendoAtual,mesPendente,mesRef,prazoAtual,diasRestantes,progAtual,grupoNome})=>{
                       const sit=vencidoAtual?(diasRestantes!=null?(diasRestantes===0?"Vence hoje":"Venceu há "+Math.abs(diasRestantes)+" dia(s)"):"Pendente"):vencendoAtual?"Vence em "+(diasRestantes??"")+" dia(s)":"A fazer";
                       linhas.push([emp.nome,emp.cnpj||"",grupoNome,RegLabel[emp.regime]||emp.regime||"",getRespSync(emp)||"",getSocioInfo(emp)?.nome||"",sit,mesPendente||mesRef||"",prazoAtual||"",progAtual]);
                     });
                     baixarCSV("visao-rapida-"+PAGE_ID+"-"+new Date().toISOString().slice(0,10)+".csv",linhas);
-                    toast("⬇ Visão Rápida exportada ("+empresasComPendencia.length+" empresa"+(empresasComPendencia.length!==1?"s":"")+")","ok");
+                    toast("⬇ Visão Rápida exportada ("+listaVR.length+" empresa"+(listaVR.length!==1?"s":"")+")","ok");
                   }} title="Baixar as pendências desta lista em CSV (abre no Excel)" style={{background:"#fff",color:"#92400e",border:"1.5px solid #fcd34d",borderRadius:8,padding:"3px 10px",fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>⬇ CSV</button>
-                  {totalVencidos>0&&<span style={{background:"#fef2f2",color:"#dc2626",border:"1.5px solid #fca5a5",padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:800}}>🔴 {totalVencidos} vencido{totalVencidos!==1?"s":""}</span>}
-                  {totalVencendo>0&&<span style={{background:"#fffbeb",color:"#d97706",border:"1.5px solid #fcd34d",padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:800}}>🟡 {totalVencendo} vencendo</span>}
-                  {totalPendenteMes>0&&<span style={{background:"#eff6ff",color:"#1d4ed8",border:"1.5px solid #bfdbfe",padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:800}}>🔵 {totalPendenteMes} a fazer</span>}
+                  {totalVencidos>0&&<span onClick={()=>setRapidaFiltro(f=>f==="vencido"?"":"vencido")} title="Clique para filtrar só os vencidos" style={{cursor:"pointer",boxShadow:rapidaFiltro==="vencido"?"0 0 0 2px #dc2626":"none",background:"#fef2f2",color:"#dc2626",border:"1.5px solid #fca5a5",padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:800}}>🔴 {totalVencidos} vencido{totalVencidos!==1?"s":""}</span>}
+                  {totalVencendo>0&&<span onClick={()=>setRapidaFiltro(f=>f==="vencendo"?"":"vencendo")} title="Clique para filtrar só os que estão vencendo" style={{cursor:"pointer",boxShadow:rapidaFiltro==="vencendo"?"0 0 0 2px #d97706":"none",background:"#fffbeb",color:"#d97706",border:"1.5px solid #fcd34d",padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:800}}>🟡 {totalVencendo} vencendo</span>}
+                  {totalPendenteMes>0&&<span onClick={()=>setRapidaFiltro(f=>f==="afazer"?"":"afazer")} title="Clique para filtrar só os a fazer" style={{cursor:"pointer",boxShadow:rapidaFiltro==="afazer"?"0 0 0 2px #1d4ed8":"none",background:"#eff6ff",color:"#1d4ed8",border:"1.5px solid #bfdbfe",padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:800}}>🔵 {totalPendenteMes} a fazer</span>}
                 </div>
               </div>
               {/* Cabeçalho da grade */}
@@ -12671,7 +12734,8 @@ function makePageComponent(PAGE_CFG){
               </div>
               {/* Linhas */}
               <div style={{padding:"4px 0"}}>
-                {empresasComPendencia.map(({emp,vencidoAtual,vencendoAtual,pendenteMesAtual,mesPendente,prazoAtual,diasRestantes,progAtual,grupoNome,grpC})=>{
+                {listaVR.length===0&&<div style={{padding:"18px",textAlign:"center",fontSize:12,color:"#92400e",fontWeight:700}}>Nenhuma empresa neste filtro. <span onClick={()=>setRapidaFiltro("")} style={{textDecoration:"underline",cursor:"pointer"}}>Mostrar todas</span></div>}
+                {listaVR.map(({emp,vencidoAtual,vencendoAtual,pendenteMesAtual,mesPendente,prazoAtual,diasRestantes,progAtual,grupoNome,grpC})=>{
                   const anoRef=mesPendente?mesPendente.split("/")[1]:String(hoje.getFullYear());
                   let alerta;
                   if(vencidoAtual){
@@ -12757,6 +12821,31 @@ function makePageComponent(PAGE_CFG){
           </div>);
         })}
         {abaAtiva==="semgrupo"&&(()=>{const sg=empsFiltradas.filter(e=>!e.grupoId);if(!sg.length)return null;return(<div style={{marginBottom:20}}><div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 14px",background:"var(--bg3)",borderRadius:"10px 10px 0 0",border:"1px solid var(--border)",borderBottom:"none"}}><span style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".08em"}}>Sem Grupo</span><span style={{fontSize:11,color:"#94a3b8"}}>{sg.length}</span></div><div style={{border:"1px solid var(--border)",borderTop:"none",borderRadius:"0 0 10px 10px",overflow:"hidden",background:"var(--bg2)"}}>{sg.map((emp,idx)=>renderEmpRow(emp,idx===sg.length-1,false,"#94a3b8"))}</div></div>);})()}
+        {/* Empresas inativas — reativar rápido */}
+        {abaAtiva==="rapida"&&(()=>{
+          const lista=empresas.filter(e=>isInativa(e)&&(!guestEmpIds||guestEmpIds.has(e.id))&&(!meusGruposPermitidos||(()=>{const rn=nomeGrupoRaizDeMP(e);return !!rn&&meusGruposPermitidos.includes(rn);})()));
+          if(lista.length===0)return null;
+          return(
+            <div style={{marginBottom:20,borderRadius:14,border:"1.5px solid #cbd5e1",overflow:"hidden",background:"var(--bg2)"}}>
+              <div onClick={()=>setMostrarInativas(v=>!v)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",cursor:"pointer",background:"linear-gradient(135deg,#f8fafc,#e2e8f0)",borderBottom:mostrarInativas?"1.5px solid #cbd5e1":"none"}}>
+                <span style={{fontSize:16}}>⏸</span>
+                <span style={{fontSize:13,fontWeight:900,color:"#475569"}}>Empresas inativas</span>
+                <span style={{background:"#cbd5e1",color:"#334155",padding:"1px 9px",borderRadius:20,fontSize:11,fontWeight:800}}>{lista.length}</span>
+                <span style={{marginLeft:"auto",fontSize:11,fontWeight:700,color:"#64748b"}}>{mostrarInativas?"▲ ocultar":"▼ mostrar"}</span>
+              </div>
+              {mostrarInativas&&lista.map(e=>{const info=getInfoInativa(e);return(
+                <div key={e.id} style={{display:"flex",alignItems:"center",gap:12,padding:"9px 16px",borderBottom:"1px solid rgba(0,0,0,.05)"}}>
+                  <div style={{minWidth:0,flex:1,opacity:.7,filter:"grayscale(1)"}}>
+                    <div style={{fontSize:13,fontWeight:800,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🏢 {e.nome}</div>
+                    <div style={{fontSize:10.5,color:"#94a3b8",fontWeight:600}}>{textoInativa(info)}</div>
+                  </div>
+                  {!isGuestMode&&<button onClick={()=>alternarInativa(e)} style={{background:"#dcfce7",border:"1px solid #86efac",cursor:"pointer",color:"#15803d",fontSize:11,fontWeight:800,padding:"4px 12px",borderRadius:20,whiteSpace:"nowrap",fontFamily:"inherit"}}>▶ Reativar</button>}
+                </div>
+              );})}
+            </div>
+          );
+        })()}
+        <InativarEmpresaModal emp={inativarAlvo} onClose={()=>setInativarAlvo(null)} onConfirm={confirmarInativar}/>
         {/* MODALS */}
         <Modal open={editColsModal} onClose={()=>setEditColsModal(false)} title="✏️ Editar Colunas" width={540}>
           <div style={{display:"flex",flexDirection:"column",gap:10}}>

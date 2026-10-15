@@ -224,6 +224,63 @@ const canonEmpKeyGlobal=(cnpj,nome)=>{
   return "n_"+(nome||"").toString().trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
 };
 const RESP_SYNC_ROW_ID=20;
+
+// ── Empresas INATIVAS ─────────────────────────────────────────────────────────
+// Guardado numa linha própria do app_data (id 23): { inativas: { [chave canônica da empresa]: {nome,em,por,motivo} } }.
+// A chave é a mesma usada em Responsável/Marcadores (CNPJ ou nome), então inativar uma vez vale para
+// Contábil, Tributário, Folha Pgto, Visão Geral e Grupos e Empresas.
+const INATIVAS_ROW_ID=23;
+function useInativas(){
+  const [mapa,setMapa]=useState({});
+  const recarregar=useCallback(async()=>{
+    try{const{data:row}=await sb.from("app_data").select("payload").eq("id",INATIVAS_ROW_ID).maybeSingle();setMapa((row?.payload&&row.payload.inativas)||{});}catch(e){}
+  },[]);
+  useEffect(()=>{
+    let ok=true;
+    const aplicar=(p)=>{if(ok)setMapa((p&&p.inativas)||{});};
+    (async()=>{try{const{data:row}=await sb.from("app_data").select("payload").eq("id",INATIVAS_ROW_ID).maybeSingle();aplicar(row?.payload);}catch(e){}})();
+    const ch=sb.channel("inativas_"+Math.random().toString(36).slice(2,8))
+      .on("postgres_changes",{event:"*",schema:"public",table:"app_data",filter:`id=eq.${INATIVAS_ROW_ID}`},pl=>{if(pl.new?.payload)aplicar(pl.new.payload);})
+      .subscribe();
+    const h=(e)=>{if(e.data?.rowId===INATIVAS_ROW_ID&&e.data?.tabId!==_tabId)sb.from("app_data").select("payload").eq("id",INATIVAS_ROW_ID).maybeSingle().then(({data:r})=>aplicar(r?.payload));};
+    if(_bc)_bc.addEventListener("message",h);
+    return()=>{ok=false;sb.removeChannel(ch);if(_bc)_bc.removeEventListener("message",h);};
+  },[]);
+  const isInativa=useCallback((emp)=>!!(emp&&mapa[canonEmpKeyGlobal(emp.cnpj,emp.nome)]),[mapa]);
+  const getInfoInativa=useCallback((emp)=>emp?(mapa[canonEmpKeyGlobal(emp.cnpj,emp.nome)]||null):null,[mapa]);
+  const setInativa=useCallback(async(emp,valor,quem,motivo)=>{
+    if(!emp)return false;
+    const k=canonEmpKeyGlobal(emp.cnpj,emp.nome);
+    const info=valor?{nome:emp.nome,em:new Date().toISOString(),por:quem||"",motivo:(motivo||"").trim()}:null;
+    setMapa(prev=>{const n={...prev};if(valor)n[k]=info;else delete n[k];return n;}); // atualiza na hora (otimista)
+    try{
+      // lê a versão mais recente antes de gravar, para não apagar a inativação feita por outra pessoa
+      const{data:row}=await sb.from("app_data").select("payload").eq("id",INATIVAS_ROW_ID).maybeSingle();
+      const next={...((row?.payload&&row.payload.inativas)||{})};
+      if(valor)next[k]=info;else delete next[k];
+      const{error}=await sb.from("app_data").upsert({id:INATIVAS_ROW_ID,payload:{inativas:next,_savedAt:Date.now()}});
+      if(error)throw error;
+      broadcastSync(INATIVAS_ROW_ID);
+      return true;
+    }catch(e){
+      console.warn("Falha ao salvar situação da empresa:",e);
+      recarregar(); // desfaz a mudança otimista
+      return false;
+    }
+  },[recarregar]);
+  return{isInativa,getInfoInativa,setInativa,mapa};
+}
+const fmtDataInativa=(iso)=>{try{return iso?new Date(iso).toLocaleDateString("pt-BR"):"";}catch(e){return "";}};
+const textoInativa=(info)=>info?("Inativa"+(info.em?" desde "+fmtDataInativa(info.em):"")+(info.por?" · por "+info.por:"")+(info.motivo?" — "+info.motivo:"")):"Inativa";
+
+// Baixa uma lista de linhas como CSV (separador ";" e BOM — abre direto no Excel em português)
+function baixarCSV(nomeArquivo,linhas){
+  const esc=(v)=>{const t=(v==null?"":String(v)).replace(/\r?\n/g," ");return /[";]/.test(t)?'"'+t.replace(/"/g,'""')+'"':t;};
+  const txt="\uFEFF"+linhas.map(l=>l.map(esc).join(";")).join("\r\n");
+  const url=URL.createObjectURL(new Blob([txt],{type:"text/csv;charset=utf-8"}));
+  const a=document.createElement("a");a.href=url;a.download=nomeArquivo;document.body.appendChild(a);a.click();
+  setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},500);
+}
 const PRESET_TAGS=["SEM MOV.","SEM CERT.","INATIVA","PENDENTE DOC.","EM ENCERRAMENTO"];
 const TAG_COLORS={"SEM MOV.":"#f59e0b","SEM CERT.":"#ef4444","INATIVA":"#6b7280","PENDENTE DOC.":"#8b5cf6","EM ENCERRAMENTO":"#0ea5e9"};
 // Paleta extra pra tags personalizadas — nenhuma cor repete as dos presets, pra sempre destacar
@@ -1679,9 +1736,12 @@ function useLocks(){
     // Heartbeat: keep own locks alive, prune stale ones
     const iv=setInterval(()=>{
       try{
-        const raw=pruneExpired(JSON.parse(localStorage.getItem(LOCK_KEY)||"{}"));
-        Object.entries(raw).forEach(([k,v])=>{if(v.sid===SESSION_ID)raw[k]={...v,ts:Date.now()};});
-        persist(raw);
+        const bruto=JSON.parse(localStorage.getItem(LOCK_KEY)||"{}");
+        const raw=pruneExpired(bruto);
+        let mudou=Object.keys(raw).length!==Object.keys(bruto).length; // algum lock expirou
+        Object.entries(raw).forEach(([k,v])=>{if(v.sid===SESSION_ID){raw[k]={...v,ts:Date.now()};mudou=true;}});
+        // Antes gravava no localStorage e re-renderizava o App INTEIRO a cada 8s, mesmo sem nenhum lock ativo.
+        if(mudou)persist(raw);
       }catch(e){}
     },8000);
 
@@ -8750,6 +8810,19 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
       pl=>{if(pl.new?.payload){if(pl.new.payload.responsaveis)setRespSync(pl.new.payload.responsaveis);setMarcadoresSync(pl.new.payload.marcadores||{});setTagCoresSync(pl.new.payload.tagCores||{});}}).subscribe();
     return()=>{ok=false;sb.removeChannel(ch);};
   },[]);
+  // ── Empresas inativas (compartilhado entre os módulos contábeis) ──
+  const {isInativa,getInfoInativa,setInativa}=useInativas();
+  const alternarInativaC=async(emp)=>{
+    const inativar=!isInativa(emp);
+    let motivo="";
+    if(inativar){
+      const r=window.prompt("Inativar \""+emp.nome+"\"?\n\nEla deixa de aparecer na Visão Rápida e nos totais e fica cinza até ser reativada (os dados são mantidos).\n\nMotivo (opcional):","");
+      if(r===null)return; // cancelou
+      motivo=r;
+    }
+    const ok=await setInativa(emp,inativar,myCollab?.name||"",motivo);
+    toast(ok?(inativar?"⏸ "+emp.nome+" inativada":"▶ "+emp.nome+" reativada"):"⚠️ Não foi possível salvar. Tente novamente.",ok?"ok":"err");
+  };
   const getRespSync=(emp)=>respSync[canonEmpKeyGlobal(emp?.cnpj,emp?.nome)]||"";
   const getTagsEmp=(emp)=>marcadoresSync[canonEmpKeyGlobal(emp?.cnpj,emp?.nome)]||[];
   const salvarMarcadoresRow=async(nextMap)=>{
@@ -8855,10 +8928,19 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
   const isSavingContabilRef=useRef(false);
   const myLastContabilSaveTs=useRef(null);
   const skipNextDebounceC=useRef(false);
+  // "Assinatura" do último estado salvo/recebido. Só salvamos quando o estado MUDOU de verdade.
+  // Antes, todo dado recebido do servidor (ou só expandir/recolher uma empresa) disparava um novo save,
+  // que chegava nos outros usuários, que salvavam de volta... um ping-pong infinito entre os computadores.
+  const lastSigC=useRef("");
+  const stateRefC=useRef({});
+  stateRefC.current={empresas:cEmpresas,grupos:cGrupos,dados:cDados,obs:cObs,ecdEcf:cEcdEcf,nextEmpId,nextGrpId};
+  const sigC=(e,g,d,o,x,ne,ng)=>{try{return JSON.stringify([(e||[]).map(({expandido,...r})=>r),g,d,o,x,ne,ng]);}catch(err){return String(Math.random());}};
+  const adotarSigC=(p)=>{const c=stateRefC.current;lastSigC.current=sigC(Array.isArray(p.empresas)?p.empresas:c.empresas,Array.isArray(p.grupos)?p.grupos:c.grupos,Array.isArray(p.dados)?p.dados:c.dados,Array.isArray(p.obs)?p.obs:c.obs,(p.ecdEcf&&typeof p.ecdEcf==="object")?p.ecdEcf:c.ecdEcf,p.nextEmpId||c.nextEmpId,p.nextGrpId||c.nextGrpId);};
 
   // Save to Supabase + localStorage whenever state changes (debounced)
   const saveContabilToDb=useCallback((empresas,grupos,dados,obs,ecdEcf,nextEmpId,nextGrpId,immediate=false)=>{
     const payload={empresas,grupos,dados,obs,ecdEcf,nextEmpId,nextGrpId,_savedAt:Date.now()};
+    lastSigC.current=sigC(empresas,grupos,dados,obs,ecdEcf,nextEmpId,nextGrpId);
     // Marca o timestamp IMEDIATAMENTE (mesmo em save debounced) — bloqueia Realtime/poll de
     // aplicar dados mais antigos que essa edição enquanto ela ainda não foi persistida.
     myLastContabilSaveTs.current=payload._savedAt;
@@ -8905,6 +8987,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
         if(error){console.warn("Contabil load error:",error);setDbSynced(true);return;}
         if(row?.payload){
           const p=row.payload;
+          adotarSigC(p); // dado que acabou de vir do banco não precisa ser regravado
           if(p.empresas&&Array.isArray(p.empresas)) setCEmpresas(p.empresas.map(e=>({...e,expandido:false})));
           if(p.grupos&&Array.isArray(p.grupos)) setCGrupos(p.grupos);
           if(p.dados&&Array.isArray(p.dados)) setCDados(p.dados);
@@ -8925,6 +9008,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
   // Trigger save on any state change (after initial db load)
   useEffect(()=>{
     if(!dbSynced) return;
+    if(sigC(cEmpresas,cGrupos,cDados,cObs,cEcdEcf,nextEmpId,nextGrpId)===lastSigC.current) return; // nada mudou de verdade
     saveContabilToDb(cEmpresas,cGrupos,cDados,cObs,cEcdEcf,nextEmpId,nextGrpId);
   },[cEmpresas,cGrupos,cDados,cObs,cEcdEcf,nextEmpId,nextGrpId,dbSynced]);
 
@@ -8933,6 +9017,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
     if(isSavingContabilRef.current||pendingContabilSave.current)return;
     const pTs=p._savedAt||p._t||0;
     if(myLastContabilSaveTs.current&&pTs<=myLastContabilSaveTs.current)return;
+    adotarSigC(p); // veio de outro usuário: aplica, mas NÃO regrava (quebra o ping-pong)
     if(p.empresas&&Array.isArray(p.empresas))setCEmpresas(p.empresas.map(e=>({...e,expandido:false})));
     if(p.grupos&&Array.isArray(p.grupos))setCGrupos(p.grupos);
     if(p.dados&&Array.isArray(p.dados))setCDados(p.dados);
@@ -8964,6 +9049,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
   const [filterEmp,setFilterEmp]=useState("");
   const [filterGrp,setFilterGrp]=useState("");
   const [filterReg,setFilterReg]=useState("");
+  const [filterSit,setFilterSit]=useState(""); // "" = todas | "ativas" | "inativas"
 
   // Modals
   const [showNovaEmpModal,setShowNovaEmpModal]=useState(false);
@@ -9301,23 +9387,36 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
     const raizNome=g.parentId?(cGrupos.find(x=>x.id===g.parentId)?.nome):g.nome;
     return meusGruposPermitidos.includes(raizNome);
   }),[cGrupos,meusGruposPermitidos]);
+  // Busca ampliada: nome, CNPJ (com ou sem pontuação), responsável, sócio e marcadores
+  const bateBuscaC=(e,q)=>{
+    const t=(q||"").trim().toLowerCase();if(!t)return true;
+    const dq=t.replace(/\D/g,"");
+    if((e.nome||"").toLowerCase().includes(t))return true;
+    if(dq&&(e.cnpj||"").replace(/\D/g,"").includes(dq))return true;
+    if((getRespSync(e)||"").toLowerCase().includes(t))return true;
+    if((getSocioInfo(e)?.nome||"").toLowerCase().includes(t))return true;
+    return getTagsEmp(e).some(x=>(x||"").toLowerCase().includes(t));
+  };
   const empresasFiltradas=useMemo(()=>cEmpresas.filter(e=>{
     if(guestEmpIds&&!guestEmpIds.has(e.id)) return false;
     if(meusGruposPermitidos){const rn=nomeGrupoRaizDe(e);if(!rn||!meusGruposPermitidos.includes(rn))return false;}
-    if(filterEmp&&!e.nome.toLowerCase().includes(filterEmp.toLowerCase())) return false;
+    if(filterEmp&&!bateBuscaC(e,filterEmp)) return false;
+    if(filterSit==="ativas"&&isInativa(e)) return false;
+    if(filterSit==="inativas"&&!isInativa(e)) return false;
     if(filterGrp==="__sem__"&&e.grupoId!==null) return false;
     if(filterGrp&&filterGrp!=="__sem__"&&e.grupoId!==parseInt(filterGrp)) return false;
     if(filterReg&&e.regime!==filterReg) return false;
     return true;
-  }),[cEmpresas,filterEmp,filterGrp,filterReg,guestEmpIds,meusGruposPermitidos,cGrupos]);
+  }),[cEmpresas,filterEmp,filterGrp,filterReg,filterSit,guestEmpIds,meusGruposPermitidos,cGrupos,isInativa,respSync,marcadoresSync,data?.companies]);
 
   const statsGlobais=useMemo(()=>{
     let tm=0,tc=0,ta=0,tl=0;
-    for(const e of empresasFiltradas){const s=getStatsEmp(e.id);tm+=s.total;tc+=s.contabilizados;ta+=s.analisados;if(isLiberado(e.id))tl++;}
-    return{total:empresasFiltradas.length,meses:tm,contab:tc,analisados:ta,liberados:tl};
-  },[empresasFiltradas,cDados,cEcdEcf]);
+    const ativas=empresasFiltradas.filter(e=>!isInativa(e)); // inativas não entram nos totais
+    for(const e of ativas){const s=getStatsEmp(e.id);tm+=s.total;tc+=s.contabilizados;ta+=s.analisados;if(isLiberado(e.id))tl++;}
+    return{total:ativas.length,meses:tm,contab:tc,analisados:ta,liberados:tl,inativas:empresasFiltradas.length-ativas.length};
+  },[empresasFiltradas,cDados,cEcdEcf,isInativa]);
 
-  const empresasECD=useMemo(()=>empresasFiltradas.filter(e=>isLiberado(e.id)&&precisaECD(e.regime)),[empresasFiltradas,cDados]);
+  const empresasECD=useMemo(()=>empresasFiltradas.filter(e=>!isInativa(e)&&isLiberado(e.id)&&precisaECD(e.regime)),[empresasFiltradas,cDados,isInativa]);
 
   // Grupos raiz e subgrupos
   const gruposRaiz=useMemo(()=>cGrupos.filter(g=>!g.parentId&&(!meusGruposPermitidos||meusGruposPermitidos.includes(g.nome))),[cGrupos,meusGruposPermitidos]);
@@ -9428,7 +9527,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
       {/* ── Filtros ── */}
       <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",padding:"12px 16px",background:"var(--bg2)",borderRadius:12,border:"1px solid var(--border)",marginBottom:16}}>
         <span style={{fontSize:12,fontWeight:700,color:"#64748b"}}>🔍 Empresa:</span>
-        <input value={filterEmp} onChange={e=>setFilterEmp(e.target.value)} placeholder="Filtrar..." style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",width:140}}/>
+        <input value={filterEmp} onChange={e=>setFilterEmp(e.target.value)} placeholder="Nome, CNPJ, responsável…" title="Busca por nome, CNPJ, responsável, sócio ou marcador" style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",width:190}}/>
         <span style={{fontSize:12,fontWeight:700,color:"#64748b"}}>👥 {meusGruposPermitidos?"Seus grupos":"Grupo"}:</span>
         <select value={filterGrp} onChange={e=>setFilterGrp(e.target.value)} style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}}>
           <option value="">{meusGruposPermitidos?"Seus grupos":"Todos"}</option>
@@ -9443,12 +9542,18 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
           <option value="imune">🛡️ Imune</option>
           <option value="isenta">📋 Isenta</option>
         </select>
-        {(filterEmp||filterGrp||filterReg)&&<Btn onClick={()=>{setFilterEmp("");setFilterGrp("");setFilterReg("");}} v="ghost" sz="sm">× Limpar</Btn>}
+        <span style={{fontSize:12,fontWeight:700,color:"#64748b"}}>⏸ Situação:</span>
+        <select value={filterSit} onChange={e=>setFilterSit(e.target.value)} style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}}>
+          <option value="">Todas</option>
+          <option value="ativas">Somente ativas</option>
+          <option value="inativas">Somente inativas</option>
+        </select>
+        {(filterEmp||filterGrp||filterReg||filterSit)&&<Btn onClick={()=>{setFilterEmp("");setFilterGrp("");setFilterReg("");setFilterSit("");}} v="ghost" sz="sm">× Limpar</Btn>}
       </div>
 
       {/* ── KPIs ── */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:10,marginBottom:20}}>
-        {[{v:statsGlobais.total,l:"Empresas",c:"#6366f1"},{v:statsGlobais.meses,l:"Total Meses",c:"#0ea5e9"},{v:statsGlobais.contab,l:"Contabilizados",c:"#8b5cf6"},{v:statsGlobais.analisados,l:"Analisados",c:"#22c55e"},{v:statsGlobais.liberados,l:"Períodos Lib.",c:"#f59e0b"}].map(({v,l,c})=>(
+        {[{v:statsGlobais.total,l:"Empresas",c:"#6366f1"},{v:statsGlobais.meses,l:"Total Meses",c:"#0ea5e9"},{v:statsGlobais.contab,l:"Contabilizados",c:"#8b5cf6"},{v:statsGlobais.analisados,l:"Analisados",c:"#22c55e"},{v:statsGlobais.liberados,l:"Períodos Lib.",c:"#f59e0b"},...(statsGlobais.inativas>0?[{v:statsGlobais.inativas,l:"Inativas",c:"#94a3b8"}]:[])].map(({v,l,c})=>(
           <div key={l} style={{background:"var(--bg2)",borderRadius:12,padding:"14px",border:"1px solid var(--border)",textAlign:"center",boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
             <div style={{fontSize:28,fontWeight:900,color:c,lineHeight:1}}>{v}</div>
             <div style={{fontSize:11,fontWeight:700,color:"#64748b",marginTop:4}}>{l}</div>
@@ -9524,7 +9629,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
       {/* Visão Rápida — empresas com meses ainda não analisados/concluídos */}
       {abaAtivaC==="rapida"&&(()=>{
         const hojeC=new Date();const mesAtualC=String(hojeC.getMonth()+1).padStart(2,"0")+"/"+hojeC.getFullYear();
-        const pendentesC=empresasFiltradas.map(emp=>{
+        const pendentesC=empresasFiltradas.filter(emp=>!isInativa(emp)).map(emp=>{
           const dadosEmp=getDadosEmp(emp.id);
           const item=dadosEmp.find(d=>d.competencia===mesAtualC);
           const pendente=!item||!item.analisado||!estaContab(item);
@@ -9542,7 +9647,15 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
           <div style={{marginBottom:20,borderRadius:14,border:"1.5px solid #fbbf24",overflow:"hidden",background:"var(--bg2)",boxShadow:"0 2px 12px rgba(245,158,11,.10)"}}>
             <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",background:"linear-gradient(135deg,#fffbeb,#fef3c7)",borderBottom:"1.5px solid #fcd34d"}}>
               <span style={{fontSize:18}}>⚡</span><span style={{fontSize:13,fontWeight:900,color:"#92400e"}}>Visão Rápida</span><span style={{fontSize:11,color:"#b45309",fontWeight:600}}>· pendências de {mesAtualC}</span>
-              <span style={{marginLeft:"auto",background:"#fef2f2",color:"#dc2626",border:"1.5px solid #fca5a5",padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:800}}>{pendentesC.length} pendente{pendentesC.length!==1?"s":""}</span>
+              <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8}}>
+                <button onClick={()=>{
+                  const linhas=[["Empresa","CNPJ","Grupo","Regime","Responsável","Sócio","Competência","Itens concluídos (de 5)"]];
+                  pendentesC.forEach(({emp,okCount,grpNome})=>{linhas.push([emp.nome,emp.cnpj||"",grpNome,getRegimeLbl(emp.regime).replace(/^\S+\s/,""),getRespSync(emp)||"",getSocioInfo(emp)?.nome||"",mesAtualC,okCount]);});
+                  baixarCSV("visao-rapida-contabil-"+mesAtualC.replace("/","-")+".csv",linhas);
+                  toast("⬇ Visão Rápida exportada ("+pendentesC.length+" empresa"+(pendentesC.length!==1?"s":"")+")","ok");
+                }} title="Baixar as pendências desta lista em CSV (abre no Excel)" style={{background:"#fff",color:"#92400e",border:"1.5px solid #fcd34d",borderRadius:8,padding:"3px 10px",fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>⬇ CSV</button>
+                <span style={{background:"#fef2f2",color:"#dc2626",border:"1.5px solid #fca5a5",padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:800}}>{pendentesC.length} pendente{pendentesC.length!==1?"s":""}</span>
+              </div>
             </div>
             <div style={{padding:"4px 0"}}>
               {pendentesC.map(({emp,okCount,grpNome})=>{
@@ -9610,7 +9723,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
 
             {/* Empresas diretas do grupo — only shown when open */}
             {isGrpOpen(grp.id)&&<div style={{border:`1.5px solid ${color}44`,borderTop:"none",borderRadius:"0 0 12px 12px",overflow:"hidden",background:"var(--bg2)"}}>
-              {empsGrp.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} isLast={idx===empsGrp.length-1&&subGrps.length===0} {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor:color,openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal,getTagsEmp,addTagEmp,removeTagEmp,tagCoresSync,setTagColorEmp}}/>)}
+              {empsGrp.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} inativa={isInativa(emp)} infoInativa={getInfoInativa(emp)} onToggleInativa={alternarInativaC} isLast={idx===empsGrp.length-1&&subGrps.length===0} {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor:color,openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal,getTagsEmp,addTagEmp,removeTagEmp,tagCoresSync,setTagColorEmp}}/>)}
 
               {/* Subgroups */}
               {subGrps.map(sg=>{
@@ -9626,7 +9739,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
                       <span style={{fontSize:10,color:"#94a3b8"}}>{empsSg.length} empresa(s)</span>
                       <button onClick={()=>confirmarDeleteGrupo(sg)} title="Excluir subgrupo" style={{background:"none",border:"none",cursor:"pointer",color:"#f87171",fontSize:11,padding:"2px 6px",borderRadius:6,marginLeft:"auto"}} onMouseEnter={e=>e.currentTarget.style.background="#fef2f2"} onMouseLeave={e=>e.currentTarget.style.background="none"}>🗑</button>
                     </div>
-                    {empsSg.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} isLast={idx===empsSg.length-1} indent {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor:sgColor,openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal,getTagsEmp,addTagEmp,removeTagEmp,tagCoresSync,setTagColorEmp}}/>)}
+                    {empsSg.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} inativa={isInativa(emp)} infoInativa={getInfoInativa(emp)} onToggleInativa={alternarInativaC} isLast={idx===empsSg.length-1} indent {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor:sgColor,openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal,getTagsEmp,addTagEmp,removeTagEmp,tagCoresSync,setTagColorEmp}}/>)}
                   </div>
                 );
               })}
@@ -9646,7 +9759,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
               <span style={{fontSize:11,color:"#94a3b8"}}>{semGrp.length} empresa(s)</span>
             </div>
             <div style={{border:"1px solid var(--border)",borderTop:"none",borderRadius:"0 0 10px 10px",overflow:"hidden",background:"var(--bg2)"}}>
-              {semGrp.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} isLast={idx===semGrp.length-1} {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor:"#94a3b8",openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal,getTagsEmp,addTagEmp,removeTagEmp,tagCoresSync,setTagColorEmp}}/>)}
+              {semGrp.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} inativa={isInativa(emp)} infoInativa={getInfoInativa(emp)} onToggleInativa={alternarInativaC} isLast={idx===semGrp.length-1} {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor:"#94a3b8",openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal,getTagsEmp,addTagEmp,removeTagEmp,tagCoresSync,setTagColorEmp}}/>)}
             </div>
           </div>
         );
@@ -10427,7 +10540,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
 }
 
 /* Sub-component: EmpresaRow */
-function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor,openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal,getTagsEmp,addTagEmp,removeTagEmp,tagCoresSync,setTagColorEmp}){
+function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor,openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal,getTagsEmp,addTagEmp,removeTagEmp,tagCoresSync,setTagColorEmp,inativa,infoInativa,onToggleInativa}){
   const stats=getStatsEmp(emp.id);
   const pct=stats.total>0?Math.round((stats.analisados/stats.total)*100):0;
   const mesesEmp=getMesesC(emp.periodoInicial);
@@ -10436,13 +10549,15 @@ function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgC
   const obsCount=obsEmpAll.filter(o=>!o.verificado).length;
   const obsVerifCount=obsEmpAll.length-obsCount;
   const isSelected=selectedEmps.has(emp.id);
+  // Empresa inativa: tudo em tons de cinza (sem usar "filter" no contêiner, para não quebrar o popup fixo das marcações)
+  const gr=inativa?{opacity:.5,filter:"grayscale(1)"}:null;
 
   // Which year tab is active — default to first year that has months
   const anosComMeses=ANOS.filter(a=>mesesEmp.some(m=>m.endsWith("/"+a)));
   const [abaAno,setAbaAno]=useState(anosComMeses[0]||ANOS[0]);
 
   return(
-    <div id={"emp-row-"+emp.id} style={{borderBottom:isLast?"none":"1px solid var(--border)",background:isSelected?"#eff6ff":selectedEmpPanel===emp.id?"rgba(99,102,241,.06)":undefined}}>
+    <div id={"emp-row-"+emp.id} style={{borderBottom:isLast?"none":"1px solid var(--border)",background:isSelected?"#eff6ff":selectedEmpPanel===emp.id?"rgba(99,102,241,.06)":inativa?"rgba(148,163,184,.16)":undefined}}>
       {/* Header */}
       <div style={{display:"flex",alignItems:"center",padding:indent?"11px 14px 11px 28px":"11px 14px",gap:8,transition:"background .1s",background:emp.expandido?"var(--bg2)":undefined,borderLeft:selectedEmpPanel===emp.id?"3px solid #6366f1":"3px solid transparent"}}
         onMouseEnter={e=>!batchMode&&(e.currentTarget.style.background="rgba(99,102,241,.04)")}
@@ -10453,17 +10568,18 @@ function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgC
         {/* Checkbox (batch mode) */}
         {batchMode&&<input type="checkbox" checked={isSelected} onChange={()=>toggleSel(emp.id)} onClick={e=>e.stopPropagation()} style={{width:16,height:16,cursor:"pointer",accentColor:"#6366f1",flexShrink:0}}/>}
         {/* Avatar */}
-        <div onClick={()=>{if(openSidePanel)openSidePanel(emp.id);}} style={{width:34,height:34,borderRadius:8,background:grpColor,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:12,color:"#fff",flexShrink:0,cursor:"pointer",letterSpacing:"-.5px"}}>
+        <div onClick={()=>{if(openSidePanel)openSidePanel(emp.id);}} style={{...gr,width:34,height:34,borderRadius:8,background:grpColor,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:12,color:"#fff",flexShrink:0,cursor:"pointer",letterSpacing:"-.5px"}}>
           {emp.nome.slice(0,2).toUpperCase()}
         </div>
         {/* Name + CNPJ */}
-        <div onClick={()=>{if(openSidePanel)openSidePanel(emp.id);}} style={{flex:"0 0 auto",minWidth:0,cursor:"pointer",maxWidth:200}}>
+        <div onClick={()=>{if(openSidePanel)openSidePanel(emp.id);}} style={{...gr,flex:"0 0 auto",minWidth:0,cursor:"pointer",maxWidth:200}}>
           <div style={{fontSize:13,fontWeight:800,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{emp.nome}</div>
           {emp.cnpj&&<div style={{fontSize:10,color:"#94a3b8",fontFamily:"monospace",whiteSpace:"nowrap"}}>{emp.cnpj}</div>}
         </div>
         {/* Regime + obs badges */}
         <div onClick={()=>{if(openSidePanel)openSidePanel(emp.id);}} style={{display:"flex",alignItems:"center",gap:5,flex:1,minWidth:0,cursor:"pointer",flexWrap:"wrap"}}>
-          <span style={getRegStyle(emp.regime)}>{getRegimeLbl(emp.regime)}</span>
+          {inativa&&<span title={textoInativa(infoInativa)} style={{display:"inline-flex",alignItems:"center",gap:3,background:"#e2e8f0",color:"#475569",padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:800,border:"1px solid #cbd5e1",whiteSpace:"nowrap"}}>⏸ INATIVA</span>}
+          <span style={{...getRegStyle(emp.regime),...gr}}>{getRegimeLbl(emp.regime)}</span>
           {getRespSync&&getRespSync(emp)&&<span title="Responsável (definido em Grupos e Empresas)" style={{display:"inline-flex",alignItems:"center",gap:3,background:"#eef2ff",color:"#4338ca",padding:"2px 7px",borderRadius:20,fontSize:10,fontWeight:700,border:"1px solid #c7d2fe",whiteSpace:"nowrap"}}>👤 {getRespSync(emp)}</span>}
           {getTagsEmp&&<TagBadges tags={getTagsEmp(emp)} colorMap={tagCoresSync}/>}
           {addTagEmp&&<TagPicker small tags={getTagsEmp(emp)} onAdd={t=>addTagEmp(emp,t)} onRemove={t=>removeTagEmp(emp,t)} colorMap={tagCoresSync} onSetColor={setTagColorEmp}/>}
@@ -10471,7 +10587,7 @@ function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgC
           {obsCount===0&&obsVerifCount>0&&<span style={{display:"inline-flex",alignItems:"center",gap:3,background:"#f1f5f9",color:"#94a3b8",padding:"2px 6px",borderRadius:20,fontSize:10,fontWeight:700,border:"1px solid #e2e8f0",whiteSpace:"nowrap"}}>✔️ {obsVerifCount}</span>}
         </div>
         {/* Stats */}
-        <div style={{display:"flex",gap:12,flexShrink:0}}>
+        <div style={{...gr,display:"flex",gap:12,flexShrink:0}}>
           {[{v:stats.analisados,l:"Analisa.",c:"#22c55e"},{v:stats.contabilizados,l:"Contab.",c:"#6366f1"},{v:stats.pendentes,l:"Pendentes",c:stats.pendentes>0?"#ef4444":"#94a3b8"}].map(({v,l,c})=>(
             <div key={l} style={{textAlign:"center",minWidth:36}}>
               <div style={{fontSize:14,fontWeight:900,color:c,lineHeight:1}}>{v}</div>
@@ -10480,16 +10596,17 @@ function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgC
           ))}
         </div>
         {/* Year badges */}
-        <div style={{display:"flex",gap:4,flexShrink:0}}>
+        <div style={{...gr,display:"flex",gap:4,flexShrink:0}}>
           {ANOS.map(ano=>{const r=getResumoAno(emp.id,ano);if(r.total===0)return null;const pctAno=Math.round((r.analisados/r.total)*100);return(<span key={ano} style={{background:pctAno===100?"#d1fae5":"#e0e7ff",color:pctAno===100?"#065f46":"#3730a3",padding:"2px 6px",borderRadius:6,fontSize:9,fontWeight:700,border:`1px solid ${pctAno===100?"#86efac":"#c7d2fe"}`,whiteSpace:"nowrap"}}>{ano}: {r.analisados}/{r.total}</span>);})}
         </div>
         {/* Progress */}
-        <div style={{display:"flex",alignItems:"center",gap:5,flexShrink:0,minWidth:68}}>
+        <div style={{...gr,display:"flex",alignItems:"center",gap:5,flexShrink:0,minWidth:68}}>
           <div style={{width:46,height:5,borderRadius:3,background:"#e2e8f0",overflow:"hidden"}}><div style={{height:"100%",borderRadius:3,background:getProgClr(pct),width:`${pct}%`,transition:"width .4s"}}/></div>
           <span style={{fontSize:11,fontWeight:700,color:"#64748b"}}>{pct}%</span>
         </div>
         {/* Actions */}
         <div style={{display:"flex",gap:3,alignItems:"center",flexShrink:0}}>
+          {!window.__isGuest&&onToggleInativa&&<button onClick={e=>{e.stopPropagation();onToggleInativa(emp);}} title={inativa?"Reativar empresa (volta para a Visão Rápida e para os totais)":"Inativar empresa (some da Visão Rápida e fica cinza)"} style={inativa?{background:"#dcfce7",border:"1px solid #86efac",cursor:"pointer",color:"#15803d",fontSize:11,fontWeight:800,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap"}:{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:13,padding:"3px 5px",borderRadius:6}}>{inativa?"▶ Reativar":"⏸"}</button>}
           {!window.__isGuest&&<button onClick={e=>{e.stopPropagation();setEditEmpCForm({nome:emp.nome,cnpj:emp.cnpj||"",regime:emp.regime||"simples",grupoId:emp.grupoId||""});setEditEmpCModal({emp});}} title="Editar" style={{background:"none",border:"none",cursor:"pointer",color:"#6366f1",fontSize:13,padding:"3px 5px",borderRadius:6}}>✏️</button>}
           {!window.__isGuest&&<button onClick={e=>{e.stopPropagation();confirmarDeleteEmp(emp);}} title="Excluir" style={{background:"none",border:"none",cursor:"pointer",color:"#fca5a5",fontSize:13,padding:"3px 5px",borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#fca5a5"}>🗑</button>}
         </div>
@@ -10498,6 +10615,7 @@ function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgC
       {/* Detalhes com abas por ano */}
       {emp.expandido&&(
         <div style={{borderTop:"1px solid var(--border)",background:"var(--bg3)"}}>
+          {inativa&&<div style={{padding:"8px 16px",background:"#e2e8f0",color:"#475569",fontSize:12,fontWeight:700,borderBottom:"1px solid #cbd5e1"}}>⏸ {textoInativa(infoInativa)} — fora da Visão Rápida e dos totais. Use “▶ Reativar” para voltar.</div>}
           {/* ── Tabs de ano ── */}
           <div style={{display:"flex",gap:0,borderBottom:"2px solid var(--border)",padding:"0 20px",background:"var(--bg2)"}}>
             {anosComMeses.map(ano=>{
@@ -11455,7 +11573,10 @@ function ContabilModulosDash(){
   const MODS=[{id:"contabil",title:"Contábil",icon:"📊",color:"#6366f1",rid:2},{id:"fiscal",title:"Tributário",icon:"📋",color:"#0ea5e9",rid:4},{id:"folha",title:"Folha Pgto",icon:"👥",color:"#10b981",rid:5}];
   const [md,setMd]=useState({});const [loading,setLoading]=useState(true);const [tab,setTab]=useState("contabil");
   useEffect(()=>{(async()=>{const r={};for(const m of MODS){try{const{data:row}=await sb.from("app_data").select("payload").eq("id",m.rid).maybeSingle();if(row?.payload)r[m.id]=row.payload;}catch(e){}}setMd(r);setLoading(false);})();},[]);
-  const gs=(mid)=>{const d=md[mid];if(!d||!d.empresas?.length)return{emps:0,an:0,tot:0,pct:0,vd:[],ve:[]};
+  // Empresas inativas não entram nos números nem nas listas desta visão geral
+  const {isInativa}=useInativas();
+  const mdA={};Object.keys(md).forEach(k=>{const p=md[k];mdA[k]=(p&&Array.isArray(p.empresas))?{...p,empresas:p.empresas.filter(e=>!isInativa(e))}:p;});
+  const gs=(mid)=>{const d=mdA[mid];if(!d||!d.empresas?.length)return{emps:0,an:0,tot:0,pct:0,vd:[],ve:[]};
     let an=0,tot=0;const vd=[],ve=[],now=new Date();
     if(mid==="contabil"){const dd=d.dados||[];d.empresas.forEach(e=>{const ms=gm(e.periodoInicial||"01/2025");tot+=ms.length;an+=dd.filter(x=>x.empresaId===e.id&&x.analisado).length;});}
     else{const dd=d.dados||{};d.empresas.forEach(e=>{const ms=gm(e.periodoInicial||"01/2025");tot+=ms.length;an+=ms.filter(m=>dd[e.id+"_"+m+"__analisado"]===true).length;});}
@@ -11463,7 +11584,7 @@ function ContabilModulosDash(){
     return{emps:d.empresas.length,an,tot,pct:tot?Math.round(an/tot*100):0,vd,ve};
   };
   if(loading)return<div style={{padding:"20px",textAlign:"center",color:"#94a3b8"}}>⏳ Carregando contabilidade...</div>;
-  const renderTab=(mid)=>{const d=md[mid];const s=gs(mid);
+  const renderTab=(mid)=>{const d=mdA[mid];const s=gs(mid);
     if(!d)return<div style={{textAlign:"center",padding:30,color:"#94a3b8",fontSize:13}}>📭 Sem dados</div>;
     const gs2=d.grupos||[];const gr=gs2.filter(g=>!g.parentId);
     const ga=(eid)=>mid==="contabil"?(d.dados||[]).filter(x=>x.empresaId===eid&&x.analisado):(gm((d.empresas||[]).find(e=>e.id===eid)?.periodoInicial||"01/2025").filter(m=>(d.dados||{})[eid+"_"+m+"__analisado"]===true));
@@ -11726,11 +11847,19 @@ function makePageComponent(PAGE_CFG){
     const EMP_COLS_KEY_REF=React.useRef(COLS_KEY+"_empoverride");
 
     // ── Salva no Supabase (fila serializada — evita upserts concorrentes) ──
+    // "Assinatura" do último estado salvo/recebido: só salvamos quando o estado MUDOU de verdade.
+    // Antes, o aviso "veio do servidor, não re-salva" era desligado numa microtask ANTES do React
+    // renderizar, então todo dado recebido era regravado e reenviado aos demais usuários (ping-pong infinito).
+    const lastSigP=useRef("");
+    const stateRefP=useRef({});
+    stateRefP.current={empresas,grupos,dados,obs,prazos,nextEmpId,nextGrpId,empObservacoes,empCliente,empColsOverride};
+    const sigP=(e,g,d,o,pr,ne,ng,eo,ec,eco)=>{try{return JSON.stringify([(e||[]).map(({expandido,...r})=>r),g,d,o,pr,ne,ng,eo,ec,eco]);}catch(err){return String(Math.random());}};
     const saveInFlight=useRef(false);
     const latestPendingPayload=useRef(null);
     const saveToDB=useCallback((e,g,d,o,pr,ne,ng,cl,eo,ec,eco,immediate=false)=>{
       const ts=Date.now();
       const payload={empresas:e,grupos:g,dados:d,obs:o,prazos:pr,nextEmpId:ne,nextGrpId:ng,cols:cl,empObservacoes:eo,empCliente:ec,empColsOverride:eco,_t:ts,_savedAt:ts};
+      lastSigP.current=sigP(e,g,d,o,pr,ne,ng,eo,ec,eco);
       // Marca o timestamp IMEDIATAMENTE — bloqueia Realtime/poll de sobrescrever
       // com dados antigos enquanto este save está em voo (debounce ou rede).
       myLastSaveTs.current=ts;
@@ -11773,6 +11902,7 @@ function makePageComponent(PAGE_CFG){
         if(saveInFlight.current)return; // save em andamento — ignorar qualquer dado remoto
         if(pTs>0&&pTs<=myLastSaveTs.current)return; // dado mais antigo que o local
       }
+      {const c=stateRefP.current;lastSigP.current=sigP(p.empresas?p.empresas:c.empresas,p.grupos||c.grupos,p.dados||c.dados,p.obs||c.obs,p.prazos||c.prazos,p.nextEmpId||c.nextEmpId,p.nextGrpId||c.nextGrpId,(p.empObservacoes&&!isEditingAviso.current)?p.empObservacoes:c.empObservacoes,p.empCliente||c.empCliente,p.empColsOverride||c.empColsOverride);}
       isApplyingRemote.current=true;
       // Colunas: fonte de verdade é o Supabase — sempre aplica
       if(p.cols&&Array.isArray(p.cols)&&p.cols.length>0){
@@ -11844,6 +11974,7 @@ function makePageComponent(PAGE_CFG){
     useEffect(()=>{
       if(!dbSynced)return;               // aguarda load inicial
       if(isApplyingRemote.current)return; // veio do servidor, não re-salva
+      if(sigP(empresas,grupos,dados,obs,prazos,nextEmpId,nextGrpId,empObservacoes,empCliente,empColsOverride)===lastSigP.current)return; // nada mudou de verdade
       saveToDB(empresas,grupos,dados,obs,prazos,nextEmpId,nextGrpId,colsRef.current,empObservacoes,empCliente,empColsOverride);
     },[empresas,grupos,dados,obs,prazos,nextEmpId,nextGrpId,empObservacoes,empCliente,empColsOverride,dbSynced]); // empObservacoes incluído para sync de avisos em tempo real
 
@@ -12030,6 +12161,7 @@ function makePageComponent(PAGE_CFG){
     const [filterEmp,setFilterEmp]=useState("");
     const [filterGrp,setFilterGrp]=useState("");
     const [filterReg,setFilterReg]=useState("");
+    const [filterSit,setFilterSit]=useState(""); // "" = todas | "ativas" | "inativas"
     const [batchMode,setBatchMode]=useState(false);
     const [selectedEmps,setSelectedEmps]=useState(new Set());
     const [grpOpen,setGrpOpen]=useState({});
@@ -12046,6 +12178,19 @@ function makePageComponent(PAGE_CFG){
         pl=>{if(pl.new?.payload){if(pl.new.payload.responsaveis)setRespSync(pl.new.payload.responsaveis);setMarcadoresSync(pl.new.payload.marcadores||{});setTagCoresSync(pl.new.payload.tagCores||{});}}).subscribe();
       return()=>{ok=false;sb.removeChannel(ch);};
     },[]);
+    // ── Empresas inativas (compartilhado entre os módulos contábeis) ──
+    const {isInativa,getInfoInativa,setInativa}=useInativas();
+    const alternarInativa=async(emp)=>{
+      const inativar=!isInativa(emp);
+      let motivo="";
+      if(inativar){
+        const r=window.prompt("Inativar \""+emp.nome+"\"?\n\nEla deixa de aparecer na Visão Rápida e nos totais e fica cinza até ser reativada (os dados são mantidos).\n\nMotivo (opcional):","");
+        if(r===null)return; // cancelou
+        motivo=r;
+      }
+      const ok=await setInativa(emp,inativar,myCollab?.name||"",motivo);
+      toast(ok?(inativar?"⏸ "+emp.nome+" inativada":"▶ "+emp.nome+" reativada"):"⚠️ Não foi possível salvar. Tente novamente.",ok?"ok":"err");
+    };
     const getRespSync=(emp)=>respSync[canonEmpKeyGlobal(emp?.cnpj,emp?.nome)]||"";
     const getTagsEmp=(emp)=>marcadoresSync[canonEmpKeyGlobal(emp?.cnpj,emp?.nome)]||[];
     const salvarMarcadoresRow=async(nextMap)=>{
@@ -12144,14 +12289,24 @@ function makePageComponent(PAGE_CFG){
       const raizId=g.parentId||g.id;
       return grupos.find(x=>x.id===raizId)?.nome||null;
     };
-    const empsFiltradas=useMemo(()=>empresas.filter(e=>{if(guestEmpIds&&!guestEmpIds.has(e.id))return false;if(meusGruposPermitidos){const rn=nomeGrupoRaizDeMP(e);if(!rn||!meusGruposPermitidos.includes(rn))return false;}if(filterEmp&&!e.nome.toLowerCase().includes(filterEmp.toLowerCase())&&!(e.cnpj||"").includes(filterEmp))return false;if(filterGrp==="__sem__"&&e.grupoId)return false;if(filterGrp&&filterGrp!=="__sem__"&&e.grupoId!==parseInt(filterGrp))return false;if(filterReg&&e.regime!==filterReg)return false;return true;}),[empresas,filterEmp,filterGrp,filterReg,guestEmpIds,meusGruposPermitidos,grupos]);
+    // Busca ampliada: nome, CNPJ (com ou sem pontuação), responsável, sócio e marcadores
+    const bateBuscaMP=(e,q)=>{
+      const t=(q||"").trim().toLowerCase();if(!t)return true;
+      const dq=t.replace(/\D/g,"");
+      if((e.nome||"").toLowerCase().includes(t))return true;
+      if(dq&&(e.cnpj||"").replace(/\D/g,"").includes(dq))return true;
+      if((getRespSync(e)||"").toLowerCase().includes(t))return true;
+      if((getSocioInfo(e)?.nome||"").toLowerCase().includes(t))return true;
+      return getTagsEmp(e).some(x=>(x||"").toLowerCase().includes(t));
+    };
+    const empsFiltradas=useMemo(()=>empresas.filter(e=>{if(guestEmpIds&&!guestEmpIds.has(e.id))return false;if(meusGruposPermitidos){const rn=nomeGrupoRaizDeMP(e);if(!rn||!meusGruposPermitidos.includes(rn))return false;}if(filterEmp&&!bateBuscaMP(e,filterEmp))return false;if(filterSit==="ativas"&&isInativa(e))return false;if(filterSit==="inativas"&&!isInativa(e))return false;if(filterGrp==="__sem__"&&e.grupoId)return false;if(filterGrp&&filterGrp!=="__sem__"&&e.grupoId!==parseInt(filterGrp))return false;if(filterReg&&e.regime!==filterReg)return false;return true;}),[empresas,filterEmp,filterGrp,filterReg,filterSit,guestEmpIds,meusGruposPermitidos,grupos,isInativa,respSync,marcadoresSync,sysData?.companies]);
     const gruposRaiz=useMemo(()=>grupos.filter(g=>!g.parentId&&(!meusGruposPermitidos||meusGruposPermitidos.includes(g.nome))),[grupos,meusGruposPermitidos]);
     const gruposVisiveisDropdown=useMemo(()=>grupos.filter(g=>{
       if(!meusGruposPermitidos)return true;
       const raizNome=g.parentId?(grupos.find(x=>x.id===g.parentId)?.nome):g.nome;
       return meusGruposPermitidos.includes(raizNome);
     }),[grupos,meusGruposPermitidos]);
-    const statsGlobais=useMemo(()=>{let tot=0,contab=0,an=0;for(const e of empsFiltradas){const s=getStatsEmp(e.id);tot+=s.total;contab+=s.contabilizados;an+=s.analisados;}return{total:empsFiltradas.length,meses:tot,contab,analisados:an};},[empsFiltradas,dados,cols]);
+    const statsGlobais=useMemo(()=>{let tot=0,contab=0,an=0;const ativas=empsFiltradas.filter(e=>!isInativa(e));for(const e of ativas){const s=getStatsEmp(e.id);tot+=s.total;contab+=s.contabilizados;an+=s.analisados;}return{total:ativas.length,meses:tot,contab,analisados:an,inativas:empsFiltradas.length-ativas.length};},[empsFiltradas,dados,cols,isInativa]);
 
     // ── Modals ───────────────────────────────────────────────────
     const [obsModal,setObsModal]=useState(null);const [obsEdit,setObsEdit]=useState("");
@@ -12202,10 +12357,13 @@ function makePageComponent(PAGE_CFG){
       const mesesEmp=getMeses(emp.periodoInicial);const anosComMeses=ANOS.filter(a=>mesesEmp.some(m=>m.endsWith("/"+a)));
       const abaAtiva=getAbaAno(emp.id);const obsEmp=obs.filter(o=>o.eid===emp.id);const obsCount=obsEmp.filter(o=>!o.verificado).length;const obsVerifCount=obsEmp.length-obsCount;
       const isSelected=selectedEmps.has(emp.id);const isExpanded=expandedEmps.has(emp.id);
+      const inativa=isInativa(emp);const infoInativa=inativa?getInfoInativa(emp):null;
+      // tons de cinza sem usar "filter" no contêiner (o popup fixo das marcações quebraria)
+      const gr=inativa?{opacity:.5,filter:"grayscale(1)"}:null;
       const empCols=getColsForEmp(emp.id);
       const empHasOverride=!!empColsOverride[emp.id];
       return(
-        <div id={"emp-row-"+emp.id} key={emp.id} style={{borderBottom:isLast?"none":"1px solid var(--border)",background:isSelected?"#eff6ff":selectedEmpPanel===emp.id?"rgba(99,102,241,.06)":undefined}}>
+        <div id={"emp-row-"+emp.id} key={emp.id} style={{borderBottom:isLast?"none":"1px solid var(--border)",background:isSelected?"#eff6ff":selectedEmpPanel===emp.id?"rgba(99,102,241,.06)":inativa?"rgba(148,163,184,.16)":undefined}}>
           <div style={{display:"flex",alignItems:"center",padding:indent?"11px 14px 11px 28px":"11px 14px",gap:8,transition:"background .1s",background:isExpanded?"var(--bg2)":undefined,borderLeft:selectedEmpPanel===emp.id?"3px solid #6366f1":"3px solid transparent"}}
             onMouseEnter={e=>!batchMode&&(e.currentTarget.style.background="rgba(99,102,241,.04)")}
             onMouseLeave={e=>!batchMode&&!isExpanded&&(e.currentTarget.style.background=selectedEmpPanel===emp.id?"rgba(99,102,241,.06)":"transparent")}
@@ -12214,17 +12372,18 @@ function makePageComponent(PAGE_CFG){
             <span onClick={e=>{e.stopPropagation();toggleEmpExp(emp.id);}} style={{fontSize:11,color:"#94a3b8",transition:"transform .25s",transform:isExpanded?"rotate(90deg)":"none",cursor:"pointer",flexShrink:0,userSelect:"none"}}>▶</span>
             {batchMode&&<input type="checkbox" checked={isSelected} onChange={()=>setSelectedEmps(prev=>{const n=new Set(prev);n.has(emp.id)?n.delete(emp.id):n.add(emp.id);return n;})} onClick={e=>e.stopPropagation()} style={{width:16,height:16,cursor:"pointer",accentColor:"#6366f1",flexShrink:0}}/>}
             {/* Avatar — opens side panel */}
-            <div onClick={()=>openSidePanel(emp.id)} style={{width:34,height:34,borderRadius:8,background:grpColor,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:12,color:"#fff",flexShrink:0,cursor:"pointer",letterSpacing:"-.5px"}}>
+            <div onClick={()=>openSidePanel(emp.id)} style={{...gr,width:34,height:34,borderRadius:8,background:grpColor,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:12,color:"#fff",flexShrink:0,cursor:"pointer",letterSpacing:"-.5px"}}>
               {emp.nome.slice(0,2).toUpperCase()}
             </div>
             {/* Name */}
-            <div onClick={()=>toggleEmpExp(emp.id)} style={{flex:"0 0 auto",minWidth:0,cursor:"pointer",maxWidth:200}}>
+            <div onClick={()=>toggleEmpExp(emp.id)} style={{...gr,flex:"0 0 auto",minWidth:0,cursor:"pointer",maxWidth:200}}>
               <div style={{fontSize:13,fontWeight:800,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{emp.nome}</div>
               {emp.cnpj&&<div style={{fontSize:10,color:"#94a3b8",fontFamily:"monospace",whiteSpace:"nowrap"}}>{emp.cnpj}</div>}
             </div>
             {/* Regime + badges */}
             <div style={{display:"flex",alignItems:"center",gap:5,flex:1,minWidth:0,flexWrap:"wrap"}}>
-              <span style={getRegStyle(emp.regime)}>{RegLabel[emp.regime]||emp.regime}</span>
+              {inativa&&<span title={textoInativa(infoInativa)} style={{display:"inline-flex",alignItems:"center",gap:3,background:"#e2e8f0",color:"#475569",padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:800,border:"1px solid #cbd5e1",whiteSpace:"nowrap"}}>⏸ INATIVA</span>}
+              <span style={{...getRegStyle(emp.regime),...gr}}>{RegLabel[emp.regime]||emp.regime}</span>
               {emp.grupoId&&<span style={{background:grpColor+"22",color:grpColor,border:`1px solid ${grpColor}44`,padding:"2px 6px",borderRadius:12,fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>{grupos.find(g=>g.id===emp.grupoId)?.nome||""}</span>}
               {getRespSync(emp)&&<span title="Responsável (definido em Grupos e Empresas)" style={{display:"inline-flex",alignItems:"center",gap:3,background:"#eef2ff",color:"#4338ca",padding:"2px 7px",borderRadius:20,fontSize:10,fontWeight:700,border:"1px solid #c7d2fe",whiteSpace:"nowrap"}}>👤 {getRespSync(emp)}</span>}
               <TagBadges tags={getTagsEmp(emp)} colorMap={tagCoresSync}/>
@@ -12234,29 +12393,31 @@ function makePageComponent(PAGE_CFG){
               {empHasOverride&&<span onClick={e=>{e.stopPropagation();if(window.confirm("Restaurar as colunas padrão para "+emp.nome+"? Isso remove a personalização desta empresa."))  {const no={...empColsOverride};delete no[emp.id];saveEmpColsOverride(no);toast("↩ Colunas restauradas ao padrão","ok");}}} title="Esta empresa usa colunas personalizadas — clique para restaurar ao padrão" style={{display:"inline-flex",alignItems:"center",gap:3,background:"#fef3c7",color:"#b45309",padding:"2px 7px",borderRadius:20,fontSize:10,fontWeight:800,border:"1.5px solid #fcd34d",whiteSpace:"nowrap",cursor:"pointer"}}>✎ personalizada</span>}
             </div>
             {/* Stats */}
-            <div style={{display:"flex",gap:12,flexShrink:0}}>
+            <div style={{...gr,display:"flex",gap:12,flexShrink:0}}>
               {[{v:stats.analisados,l:"Analisa.",c:"#22c55e"},{v:stats.contabilizados,l:"Concluídos",c:"#6366f1"},{v:stats.pendentes,l:"Pendentes",c:stats.pendentes>0?"#ef4444":"#94a3b8"}].map(({v,l,c})=>(
                 <div key={l} style={{textAlign:"center",minWidth:36}}><div style={{fontSize:14,fontWeight:900,color:c,lineHeight:1}}>{v}</div><div style={{fontSize:8,color:"#94a3b8",fontWeight:700,textTransform:"uppercase",marginTop:2,whiteSpace:"nowrap"}}>{l}</div></div>
               ))}
             </div>
             {/* Year badges */}
-            <div style={{display:"flex",gap:4,flexShrink:0}}>
+            <div style={{...gr,display:"flex",gap:4,flexShrink:0}}>
               {ANOS.map(ano=>{const r=getResumoAno(emp.id,ano);if(!r.total)return null;const p=Math.round(r.analisados/r.total*100);return(<span key={ano} style={{background:p===100?"#d1fae5":"#e0e7ff",color:p===100?"#065f46":"#3730a3",padding:"2px 6px",borderRadius:6,fontSize:9,fontWeight:700,border:`1px solid ${p===100?"#86efac":"#c7d2fe"}`,whiteSpace:"nowrap"}}>{ano}: {r.analisados}/{r.total}</span>);})}
               {stats.ultimoMes&&<span style={{background:"#f0fdf4",color:"#065f46",padding:"2px 6px",borderRadius:6,fontSize:9,fontWeight:700,border:"1px solid #86efac",whiteSpace:"nowrap"}}>Últ: {getMesNome(stats.ultimoMes)}</span>}
             </div>
             {/* Progress */}
-            <div style={{display:"flex",alignItems:"center",gap:5,flexShrink:0,minWidth:68}}>
+            <div style={{...gr,display:"flex",alignItems:"center",gap:5,flexShrink:0,minWidth:68}}>
               <div style={{width:46,height:5,borderRadius:3,background:"#e2e8f0",overflow:"hidden"}}><div style={{height:"100%",borderRadius:3,background:getProgClr(pct),width:`${pct}%`,transition:"width .4s"}}/></div>
               <span style={{fontSize:11,fontWeight:700,color:"#64748b"}}>{pct}%</span>
             </div>
             {/* Actions */}
             <div style={{display:"flex",gap:3,alignItems:"center",flexShrink:0}}>
+              {!isGuestMode&&<button onClick={e=>{e.stopPropagation();alternarInativa(emp);}} title={inativa?"Reativar empresa (volta para a Visão Rápida e para os totais)":"Inativar empresa (some da Visão Rápida e fica cinza)"} style={inativa?{background:"#dcfce7",border:"1px solid #86efac",cursor:"pointer",color:"#15803d",fontSize:11,fontWeight:800,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap"}:{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:13,padding:"3px 5px",borderRadius:6}}>{inativa?"▶ Reativar":"⏸"}</button>}
               {!isGuestMode&&<button onClick={e=>{e.stopPropagation();setEditEmpForm({nome:emp.nome,cnpj:emp.cnpj||"",regime:emp.regime||"simples",grupoId:emp.grupoId||""});setEditEmpModal({emp});}} title="Editar" style={{background:"none",border:"none",cursor:"pointer",color:"#6366f1",fontSize:13,padding:"3px 5px",borderRadius:6}}>✏️</button>}
               {!isGuestMode&&<button onClick={e=>{e.stopPropagation();setDeleteTyped("");setDeleteEmpModal(emp);}} title="Excluir" style={{background:"none",border:"none",cursor:"pointer",color:"#fca5a5",fontSize:13,padding:"3px 5px",borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#fca5a5"}>🗑</button>}
             </div>
           </div>
           {isExpanded&&(
             <div style={{borderTop:"1px solid var(--border)",background:"var(--bg3)"}}>
+              {inativa&&<div style={{padding:"8px 16px",background:"#e2e8f0",color:"#475569",fontSize:12,fontWeight:700,borderBottom:"1px solid #cbd5e1"}}>⏸ {textoInativa(infoInativa)} — fora da Visão Rápida e dos totais. Use “▶ Reativar” para voltar.</div>}
               <div style={{display:"flex",borderBottom:"2px solid var(--border)",padding:"0 20px",background:"var(--bg2)"}}>
                 {anosComMeses.map(ano=>{const r=getResumoAno(emp.id,ano);const p=r.total?Math.round(r.analisados/r.total*100):0;const ativo=abaAtiva===ano;return(
                   <button key={ano} onClick={()=>setAbaAnoMap(m=>({...m,[emp.id]:ano}))} style={{padding:"10px 20px",border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:ativo?800:600,color:ativo?"#6366f1":"#64748b",background:"transparent",borderBottom:ativo?"3px solid #6366f1":"3px solid transparent",marginBottom:-2,transition:"all .15s",display:"flex",alignItems:"center",gap:6}}>
@@ -12358,6 +12519,7 @@ function makePageComponent(PAGE_CFG){
             const mesH=String(hj.getMonth()+1).padStart(2,"0")+"/"+hj.getFullYear();
             const parseDataBanner=(s)=>{if(!s)return null;const p=s.split("/");return p.length===3?new Date(parseInt(p[2]),parseInt(p[1])-1,parseInt(p[0])):null;};
             const empsPend=empresas.filter(e=>{
+              if(isInativa(e))return false;
               const todos=getMeses(e.periodoInicial||"01/2025");
               const mesRef=todos.find(m=>{const d=parseDataBanner(getPrazo(m));return d&&d.getMonth()===hj.getMonth()&&d.getFullYear()===hj.getFullYear();});
               if(!mesRef)return false;
@@ -12390,7 +12552,7 @@ function makePageComponent(PAGE_CFG){
         {/* Filtros */}
         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",padding:"12px 16px",background:"var(--bg2)",borderRadius:12,border:"1px solid var(--border)",marginBottom:16}}>
           <span style={{fontSize:12,fontWeight:700,color:"#64748b"}}>🔍 Empresa:</span>
-          <input value={filterEmp} onChange={e=>setFilterEmp(e.target.value)} placeholder="Filtrar..." style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",width:140}}/>
+          <input value={filterEmp} onChange={e=>setFilterEmp(e.target.value)} placeholder="Nome, CNPJ, responsável…" title="Busca por nome, CNPJ, responsável, sócio ou marcador" style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",width:190}}/>
           <span style={{fontSize:12,fontWeight:700,color:"#64748b"}}>👥 {meusGruposPermitidos?"Seus grupos":"Grupo"}:</span>
           <select value={filterGrp} onChange={e=>setFilterGrp(e.target.value)} style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}}>
             <option value="">{meusGruposPermitidos?"Seus grupos":"Todos"}</option>{gruposVisiveisDropdown.map(g=><option key={g.id} value={g.id}>{g.parentId?"  ↳ ":""}{g.nome}</option>)}{!meusGruposPermitidos&&<option value="__sem__">-- Sem grupo --</option>}
@@ -12399,11 +12561,17 @@ function makePageComponent(PAGE_CFG){
           <select value={filterReg} onChange={e=>setFilterReg(e.target.value)} style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}}>
             <option value="">Todos</option><option value="simples">Simples</option><option value="lucro">Lucro Real</option><option value="presumido">L. Presumido</option><option value="imune">Imune</option><option value="isenta">Isenta</option>
           </select>
-          {(filterEmp||filterGrp||filterReg)&&<Btn onClick={()=>{setFilterEmp("");setFilterGrp("");setFilterReg("");}} v="ghost" sz="sm">× Limpar</Btn>}
+          <span style={{fontSize:12,fontWeight:700,color:"#64748b"}}>⏸ Situação:</span>
+          <select value={filterSit} onChange={e=>setFilterSit(e.target.value)} style={{padding:"6px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}}>
+            <option value="">Todas</option>
+            <option value="ativas">Somente ativas</option>
+            <option value="inativas">Somente inativas</option>
+          </select>
+          {(filterEmp||filterGrp||filterReg||filterSit)&&<Btn onClick={()=>{setFilterEmp("");setFilterGrp("");setFilterReg("");setFilterSit("");}} v="ghost" sz="sm">× Limpar</Btn>}
         </div>
         {/* KPIs */}
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:10,marginBottom:20}}>
-          {[{v:statsGlobais.total,l:"Empresas",c:"#6366f1"},{v:statsGlobais.meses,l:"Total Meses",c:"#0ea5e9"},{v:statsGlobais.contab,l:"Concluídos",c:"#8b5cf6"},{v:statsGlobais.analisados,l:"Analisados",c:"#22c55e"}].map(({v,l,c})=>(
+          {[{v:statsGlobais.total,l:"Empresas",c:"#6366f1"},{v:statsGlobais.meses,l:"Total Meses",c:"#0ea5e9"},{v:statsGlobais.contab,l:"Concluídos",c:"#8b5cf6"},{v:statsGlobais.analisados,l:"Analisados",c:"#22c55e"},...(statsGlobais.inativas>0?[{v:statsGlobais.inativas,l:"Inativas",c:"#94a3b8"}]:[])].map(({v,l,c})=>(
             <div key={l} style={{background:"var(--bg2)",borderRadius:12,padding:"14px",border:"1px solid var(--border)",textAlign:"center"}}><div style={{fontSize:28,fontWeight:900,color:c,lineHeight:1}}>{v}</div><div style={{fontSize:11,fontWeight:700,color:"#64748b",marginTop:4}}>{l}</div></div>
           ))}
         </div>
@@ -12433,7 +12601,7 @@ function makePageComponent(PAGE_CFG){
           const hoje=new Date();hoje.setHours(0,0,0,0);
           const mesAtual=String(hoje.getMonth()+1).padStart(2,"0")+"/"+hoje.getFullYear();
           const parseData=(p)=>{const pts=(p||"").split("/");return pts.length===3?new Date(parseInt(pts[2]),parseInt(pts[1])-1,parseInt(pts[0])):null;};
-          const empresasComPendencia=empsFiltradas.map(emp=>{
+          const empresasComPendencia=empsFiltradas.filter(emp=>!isInativa(emp)).map(emp=>{
             const mesesEmp=getMeses(emp.periodoInicial||"01/2025");
             // Considera apenas meses já vencidos pelo calendário (até o mês atual), não meses futuros
             const mesesAteAgora=mesesEmp.filter(m=>{
@@ -12482,7 +12650,16 @@ function makePageComponent(PAGE_CFG){
                 <span style={{fontSize:18}}>⚡</span>
                 <span style={{fontSize:13,fontWeight:900,color:"#92400e"}}>Visão Rápida</span>
                 <span style={{fontSize:11,color:"#b45309",fontWeight:600}}>· pendências em aberto</span>
-                <div style={{display:"flex",gap:6,marginLeft:"auto"}}>
+                <div style={{display:"flex",gap:6,marginLeft:"auto",alignItems:"center"}}>
+                  <button onClick={()=>{
+                    const linhas=[["Empresa","CNPJ","Grupo","Regime","Responsável","Sócio","Situação","Competência pendente","Prazo","Progresso (%)"]];
+                    empresasComPendencia.forEach(({emp,vencidoAtual,vencendoAtual,mesPendente,mesRef,prazoAtual,diasRestantes,progAtual,grupoNome})=>{
+                      const sit=vencidoAtual?(diasRestantes!=null?(diasRestantes===0?"Vence hoje":"Venceu há "+Math.abs(diasRestantes)+" dia(s)"):"Pendente"):vencendoAtual?"Vence em "+(diasRestantes??"")+" dia(s)":"A fazer";
+                      linhas.push([emp.nome,emp.cnpj||"",grupoNome,RegLabel[emp.regime]||emp.regime||"",getRespSync(emp)||"",getSocioInfo(emp)?.nome||"",sit,mesPendente||mesRef||"",prazoAtual||"",progAtual]);
+                    });
+                    baixarCSV("visao-rapida-"+PAGE_ID+"-"+new Date().toISOString().slice(0,10)+".csv",linhas);
+                    toast("⬇ Visão Rápida exportada ("+empresasComPendencia.length+" empresa"+(empresasComPendencia.length!==1?"s":"")+")","ok");
+                  }} title="Baixar as pendências desta lista em CSV (abre no Excel)" style={{background:"#fff",color:"#92400e",border:"1.5px solid #fcd34d",borderRadius:8,padding:"3px 10px",fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>⬇ CSV</button>
                   {totalVencidos>0&&<span style={{background:"#fef2f2",color:"#dc2626",border:"1.5px solid #fca5a5",padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:800}}>🔴 {totalVencidos} vencido{totalVencidos!==1?"s":""}</span>}
                   {totalVencendo>0&&<span style={{background:"#fffbeb",color:"#d97706",border:"1.5px solid #fcd34d",padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:800}}>🟡 {totalVencendo} vencendo</span>}
                   {totalPendenteMes>0&&<span style={{background:"#eff6ff",color:"#1d4ed8",border:"1.5px solid #bfdbfe",padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:800}}>🔵 {totalPendenteMes} a fazer</span>}
@@ -13069,6 +13246,7 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
 
   const [payloads,setPayloads]=React.useState({});
   const [loading,setLoading]=React.useState(true);
+  const {mapa:inativasMapa}=useInativas(); // empresas inativas ficam fora das pendências deste relatório
 
   // ── Metadados próprios do módulo Grupos e Empresas (responsáveis, regras, auditoria, comentários…) ──
   const [meta,setMeta]=React.useState({responsaveis:{},grupoMeta:{},statusOverride:{},comments:{},attachments:{},checklist:{},auditLog:[],density:"comfortable"});
@@ -13121,7 +13299,14 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
   const [ultimaAtualizacao,setUltimaAtualizacao]=React.useState(Date.now());
   const buscarPayload=React.useCallback(async(mod)=>{
     try{const{data:row}=await sb.from("app_data").select("payload").eq("id",mod.rowId).maybeSingle();
-      if(row?.payload){setPayloads(prev=>({...prev,[mod.id]:row.payload}));setUltimaAtualizacao(Date.now());}
+      if(row?.payload){
+        setPayloads(prev=>{
+          const antigo=prev[mod.id];const tsA=antigo&&(antigo._savedAt||antigo._t);const tsN=row.payload._savedAt||row.payload._t;
+          if(tsA&&tsN&&tsA===tsN)return prev; // nada novo — evita recalcular a árvore inteira a cada 30s
+          return{...prev,[mod.id]:row.payload};
+        });
+        setUltimaAtualizacao(Date.now());
+      }
     }catch(e){}
   },[]);
   React.useEffect(()=>{
@@ -13134,9 +13319,10 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
     if(typeof _bc!=="undefined"&&_bc)_bc.addEventListener("message",onBc);
     const onFocus=()=>MODULOS.forEach(buscarPayload); // ao voltar para a aba, garante que está tudo em dia
     window.addEventListener("focus",onFocus);
-    document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")onFocus();});
+    const onVis=()=>{if(document.visibilityState==="visible")onFocus();};
+    document.addEventListener("visibilitychange",onVis);
     const poll=setInterval(()=>MODULOS.forEach(buscarPayload),30000); // fallback a cada 30s
-    return()=>{channels.forEach(ch=>sb.removeChannel(ch));if(typeof _bc!=="undefined"&&_bc)_bc.removeEventListener("message",onBc);window.removeEventListener("focus",onFocus);clearInterval(poll);};
+    return()=>{channels.forEach(ch=>sb.removeChannel(ch));if(typeof _bc!=="undefined"&&_bc)_bc.removeEventListener("message",onBc);window.removeEventListener("focus",onFocus);document.removeEventListener("visibilitychange",onVis);clearInterval(poll);};
   },[buscarPayload]);
 
   const parseD=(s)=>{if(!s)return null;const p=s.split("/");return p.length===3?new Date(parseInt(p[2]),parseInt(p[1])-1,parseInt(p[0])):null;};
@@ -13177,6 +13363,7 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
       const cnpjVisto=new Set();
       acc.empresas.forEach(emp=>{
         const eKey=canonEmpKey(emp);
+        if(inativasMapa[eKey])return; // empresa inativa
         if(cnpjVisto.has(mod.id+"_"+eKey))return;cnpjVisto.add(mod.id+"_"+eKey);
         const grpNome=acc.grupos.find(g=>g.id===emp.grupoId)?.nome||"Sem grupo";
         const gKey=norm(grpNome)||"_sem_grupo";
@@ -13195,7 +13382,7 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
       if(!permitidos.length)return true; // sem restrição definida = vê tudo
       return permitidos.includes(g.nome);
     }).sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR"));
-  },[payloads,isAdmin,myCollab,flags.restricaoGruposPorUsuario]);
+  },[payloads,isAdmin,myCollab,flags.restricaoGruposPorUsuario,inativasMapa]);
 
   const todosGrupos=arvore.map(g=>({key:g.key,nome:g.nome}));
   // ── Sistema de status padronizado (cor + ícone + texto) ──

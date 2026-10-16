@@ -248,10 +248,10 @@ function useInativas(){
   },[]);
   const isInativa=useCallback((emp)=>!!(emp&&mapa[canonEmpKeyGlobal(emp.cnpj,emp.nome)]),[mapa]);
   const getInfoInativa=useCallback((emp)=>emp?(mapa[canonEmpKeyGlobal(emp.cnpj,emp.nome)]||null):null,[mapa]);
-  const setInativa=useCallback(async(emp,valor,quem,motivo)=>{
+  const setInativa=useCallback(async(emp,valor,quem,motivo,extra)=>{
     if(!emp)return false;
     const k=canonEmpKeyGlobal(emp.cnpj,emp.nome);
-    const info=valor?{nome:emp.nome,em:new Date().toISOString(),por:quem||"",motivo:(motivo||"").trim()}:null;
+    const info=valor?{nome:emp.nome,em:new Date().toISOString(),por:quem||"",motivo:(motivo||"").trim(),tipo:(extra&&extra.tipo)||"inativa",dataBaixa:(extra&&extra.dataBaixa)||""}:null;
     setMapa(prev=>{const n={...prev};if(valor)n[k]=info;else delete n[k];return n;}); // atualiza na hora (otimista)
     try{
       // lê a versão mais recente antes de gravar, para não apagar a inativação feita por outra pessoa
@@ -268,10 +268,17 @@ function useInativas(){
       return false;
     }
   },[recarregar]);
-  return{isInativa,getInfoInativa,setInativa,mapa};
+  const isBaixada=useCallback((emp)=>!!(emp&&mapa[canonEmpKeyGlobal(emp.cnpj,emp.nome)]&&mapa[canonEmpKeyGlobal(emp.cnpj,emp.nome)].tipo==="baixada"),[mapa]);
+  return{isInativa,isBaixada,getInfoInativa,setInativa,mapa};
 }
 const fmtDataInativa=(iso)=>{try{return iso?new Date(iso).toLocaleDateString("pt-BR"):"";}catch(e){return "";}};
-const textoInativa=(info)=>info?("Inativa"+(info.em?" desde "+fmtDataInativa(info.em):"")+(info.por?" · por "+info.por:"")+(info.motivo?" — "+info.motivo:"")):"Inativa";
+const fmtDataISO=(d)=>{const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(d||"");return m?m[3]+"/"+m[2]+"/"+m[1]:"";};
+const textoInativa=(info)=>{
+  if(!info)return "Inativa";
+  const bx=info.tipo==="baixada";
+  const quando=bx?(info.dataBaixa?fmtDataISO(info.dataBaixa):fmtDataInativa(info.em)):fmtDataInativa(info.em);
+  return (bx?"Baixada":"Inativa")+(quando?(bx&&info.dataBaixa?" em ":" desde ")+quando:"")+(info.por?" · por "+info.por:"")+(info.motivo?" — "+info.motivo:"");
+};
 
 // Baixa uma lista de linhas como CSV (separador ";" e BOM — abre direto no Excel em português)
 function baixarCSV(nomeArquivo,linhas){
@@ -1947,38 +1954,47 @@ function Modal({open,onClose,title,children,width=630}){
   );
 }
 
-function InativarEmpresaModal({emp,onClose,onConfirm}){
+function InativarEmpresaModal({emp,tipo="inativa",onClose,onConfirm}){
+  const baixar=tipo==="baixada";
   const [motivo,setMotivo]=useState("");
+  const [dataBaixa,setDataBaixa]=useState("");
   const [salvando,setSalvando]=useState(false);
-  useEffect(()=>{setMotivo("");setSalvando(false);},[emp?.id]);
-  const SUG=["Falta de pagamento","Encerrou as atividades","Sem movimento","Contrato encerrado","Mudou de contabilidade"];
-  const confirmar=async()=>{if(salvando)return;setSalvando(true);try{await onConfirm(motivo.trim());}finally{setSalvando(false);}};
+  useEffect(()=>{setMotivo("");setDataBaixa("");setSalvando(false);},[emp?.id,tipo]);
+  const SUG=baixar?["Baixa do CNPJ concluída","Encerrou as atividades","Incorporada por outra empresa","Fusão","Cisão"]:["Falta de pagamento","Encerrou as atividades","Sem movimento","Contrato encerrado","Mudou de contabilidade"];
+  const cor=baixar?"#9f1239":"#475569";
+  const confirmar=async()=>{if(salvando)return;setSalvando(true);try{await onConfirm(motivo.trim(),{dataBaixa});}finally{setSalvando(false);}};
+  const itens=baixar
+    ?["Empresa encerrada de vez (CNPJ baixado) — sai de tudo","Sai da Visão Rápida, dos totais e dos alertas","Fica cinza com o selo BAIXADA — nenhum dado é apagado","Vale para Contábil, Tributário e Folha Pgto","Dá para reativar se a baixa foi registrada por engano"]
+    :["Sai da Visão Rápida, dos totais e dos alertas","Fica cinza na lista — nenhum dado é apagado","Vale para Contábil, Tributário e Folha Pgto","Pode ser reativada a qualquer momento"];
   return(
-    <Modal open={!!emp} onClose={salvando?()=>{}:onClose} title="⏸ Inativar empresa" width={480}>
+    <Modal open={!!emp} onClose={salvando?()=>{}:onClose} title={baixar?"🔒 Baixar empresa":"⏸ Inativar empresa"} width={480}>
       {emp&&<div style={{display:"flex",flexDirection:"column",gap:14}}>
         <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 14px",borderRadius:12,background:"var(--bg3)",border:"1px solid var(--border)"}}>
-          <div style={{width:42,height:42,borderRadius:11,background:"linear-gradient(135deg,#94a3b8,#64748b)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:"#fff",flexShrink:0}}>⏸</div>
+          <div style={{width:42,height:42,borderRadius:11,background:baixar?"linear-gradient(135deg,#be123c,#9f1239)":"linear-gradient(135deg,#94a3b8,#64748b)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:"#fff",flexShrink:0}}>{baixar?"🔒":"⏸"}</div>
           <div style={{minWidth:0}}>
             <div style={{fontSize:14,fontWeight:900,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{emp.nome}</div>
             <div style={{fontSize:11,color:"#94a3b8",fontWeight:600}}>{emp.cnpj||"Sem CNPJ cadastrado"}</div>
           </div>
         </div>
-        <div style={{padding:"10px 14px",borderRadius:12,background:"#f8fafc",border:"1px solid #e2e8f0",display:"flex",flexDirection:"column",gap:5}}>
-          {["Sai da Visão Rápida, dos totais e dos alertas","Fica cinza na lista — nenhum dado é apagado","Vale para Contábil, Tributário e Folha Pgto","Pode ser reativada a qualquer momento"].map(t=>(
-            <div key={t} style={{fontSize:12,color:"#475569",fontWeight:600,display:"flex",gap:7}}><span style={{color:"#22c55e",fontWeight:900}}>✓</span>{t}</div>
+        <div style={{padding:"10px 14px",borderRadius:12,background:baixar?"#fff1f2":"#f8fafc",border:"1px solid "+(baixar?"#fecdd3":"#e2e8f0"),display:"flex",flexDirection:"column",gap:5}}>
+          {itens.map(t=>(
+            <div key={t} style={{fontSize:12,color:"#475569",fontWeight:600,display:"flex",gap:7}}><span style={{color:baixar?"#be123c":"#22c55e",fontWeight:900}}>✓</span>{t}</div>
           ))}
         </div>
+        {baixar&&<Fld label="Data da baixa" hint="(opcional)">
+          <input type="date" value={dataBaixa} onChange={e=>setDataBaixa(e.target.value)} style={{...iSt(false),maxWidth:200}}/>
+        </Fld>}
         <Fld label="Motivo" hint="(opcional)">
           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
             {SUG.map(m=>{const on=motivo===m;return(
-              <button key={m} onClick={()=>setMotivo(on?"":m)} style={{padding:"4px 11px",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",border:`1.5px solid ${on?"#64748b":"#e2e8f0"}`,background:on?"#e2e8f0":"var(--bg2)",color:on?"#334155":"#64748b",transition:"all .12s"}}>{m}</button>
+              <button key={m} onClick={()=>setMotivo(on?"":m)} style={{padding:"4px 11px",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",border:`1.5px solid ${on?cor:"#e2e8f0"}`,background:on?(baixar?"#ffe4e6":"#e2e8f0"):"var(--bg2)",color:on?(baixar?"#9f1239":"#334155"):"#64748b",transition:"all .12s"}}>{m}</button>
             );})}
           </div>
         </Fld>
         <Txt value={motivo} onChange={setMotivo} placeholder="Escreva o motivo ou escolha uma opção acima…" rows={2}/>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:2}}>
           <Btn v="ghost" onClick={onClose} disabled={salvando}>Cancelar</Btn>
-          <Btn onClick={confirmar} col="#475569" disabled={salvando}>{salvando?"Salvando…":"⏸ Inativar empresa"}</Btn>
+          <Btn onClick={confirmar} col={cor} disabled={salvando}>{salvando?"Salvando…":(baixar?"🔒 Baixar empresa":"⏸ Inativar empresa")}</Btn>
         </div>
       </div>}
     </Modal>
@@ -8849,18 +8865,19 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
     return()=>{ok=false;sb.removeChannel(ch);};
   },[]);
   // ── Empresas inativas (compartilhado entre os módulos contábeis) ──
-  const {isInativa,getInfoInativa,setInativa}=useInativas();
+  const {isInativa,isBaixada,getInfoInativa,setInativa}=useInativas();
   const [inativarAlvoC,setInativarAlvoC]=useState(null);
   const alternarInativaC=async(emp)=>{
-    if(isInativa(emp)){ // reativar: direto
+    if(isInativa(emp)){ // reativar: direto (vale para inativa e baixada)
       const ok=await setInativa(emp,false,myCollab?.name||"","");
       toast(ok?"▶ "+emp.nome+" reativada":"⚠️ Não foi possível salvar. Tente novamente.",ok?"ok":"err");
-    } else setInativarAlvoC(emp); // inativar: abre a janela com o motivo
+    } else setInativarAlvoC({emp,tipo:"inativa"});
   };
-  const confirmarInativarC=async(motivo)=>{
-    const emp=inativarAlvoC;if(!emp)return;
-    const ok=await setInativa(emp,true,myCollab?.name||"",motivo);
-    toast(ok?"⏸ "+emp.nome+" inativada":"⚠️ Não foi possível salvar. Tente novamente.",ok?"ok":"err");
+  const alternarBaixadaC=(emp)=>setInativarAlvoC({emp,tipo:"baixada"});
+  const confirmarInativarC=async(motivo,extra)=>{
+    const alvo=inativarAlvoC;if(!alvo)return;const emp=alvo.emp;const bx=alvo.tipo==="baixada";
+    const ok=await setInativa(emp,true,myCollab?.name||"",motivo,{tipo:alvo.tipo,dataBaixa:extra?.dataBaixa||""});
+    toast(ok?(bx?"🔒 "+emp.nome+" baixada":"⏸ "+emp.nome+" inativada"):"⚠️ Não foi possível salvar. Tente novamente.",ok?"ok":"err");
     if(ok)setInativarAlvoC(null);
   };
   const getRespSync=(emp)=>respSync[canonEmpKeyGlobal(emp?.cnpj,emp?.nome)]||"";
@@ -9442,12 +9459,13 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
     if(meusGruposPermitidos){const rn=nomeGrupoRaizDe(e);if(!rn||!meusGruposPermitidos.includes(rn))return false;}
     if(filterEmp&&!bateBuscaC(e,filterEmp)) return false;
     if(filterSit==="ativas"&&isInativa(e)) return false;
-    if(filterSit==="inativas"&&!isInativa(e)) return false;
+    if(filterSit==="inativas"&&!(isInativa(e)&&!isBaixada(e))) return false;
+    if(filterSit==="baixadas"&&!isBaixada(e)) return false;
     if(filterGrp==="__sem__"&&e.grupoId!==null) return false;
     if(filterGrp&&filterGrp!=="__sem__"&&e.grupoId!==parseInt(filterGrp)) return false;
     if(filterReg&&e.regime!==filterReg) return false;
     return true;
-  }),[cEmpresas,filterEmp,filterGrp,filterReg,filterSit,guestEmpIds,meusGruposPermitidos,cGrupos,isInativa,respSync,marcadoresSync,data?.companies]);
+  }),[cEmpresas,filterEmp,filterGrp,filterReg,filterSit,guestEmpIds,meusGruposPermitidos,cGrupos,isInativa,isBaixada,respSync,marcadoresSync,data?.companies]);
 
   const statsGlobais=useMemo(()=>{
     let tm=0,tc=0,ta=0,tl=0;
@@ -9587,13 +9605,14 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
           <option value="">Todas</option>
           <option value="ativas">Somente ativas</option>
           <option value="inativas">Somente inativas</option>
+          <option value="baixadas">Somente baixadas</option>
         </select>
         {(filterEmp||filterGrp||filterReg||filterSit)&&<Btn onClick={()=>{setFilterEmp("");setFilterGrp("");setFilterReg("");setFilterSit("");}} v="ghost" sz="sm">× Limpar</Btn>}
       </div>
 
       {/* ── KPIs ── */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:10,marginBottom:20}}>
-        {[{v:statsGlobais.total,l:"Empresas",c:"#6366f1"},{v:statsGlobais.meses,l:"Total Meses",c:"#0ea5e9"},{v:statsGlobais.contab,l:"Contabilizados",c:"#8b5cf6"},{v:statsGlobais.analisados,l:"Analisados",c:"#22c55e"},{v:statsGlobais.liberados,l:"Períodos Lib.",c:"#f59e0b"},...(statsGlobais.inativas>0?[{v:statsGlobais.inativas,l:"Inativas",c:"#94a3b8"}]:[])].map(({v,l,c})=>(
+        {[{v:statsGlobais.total,l:"Empresas",c:"#6366f1"},{v:statsGlobais.meses,l:"Total Meses",c:"#0ea5e9"},{v:statsGlobais.contab,l:"Contabilizados",c:"#8b5cf6"},{v:statsGlobais.analisados,l:"Analisados",c:"#22c55e"},{v:statsGlobais.liberados,l:"Períodos Lib.",c:"#f59e0b"},...(statsGlobais.inativas>0?[{v:statsGlobais.inativas,l:"Inativas/Baixadas",c:"#94a3b8"}]:[])].map(({v,l,c})=>(
           <div key={l} style={{background:"var(--bg2)",borderRadius:12,padding:"14px",border:"1px solid var(--border)",textAlign:"center",boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
             <div style={{fontSize:28,fontWeight:900,color:c,lineHeight:1}}>{v}</div>
             <div style={{fontSize:11,fontWeight:700,color:"#64748b",marginTop:4}}>{l}</div>
@@ -9763,7 +9782,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
 
             {/* Empresas diretas do grupo — only shown when open */}
             {isGrpOpen(grp.id)&&<div style={{border:`1.5px solid ${color}44`,borderTop:"none",borderRadius:"0 0 12px 12px",overflow:"hidden",background:"var(--bg2)"}}>
-              {empsGrp.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} inativa={isInativa(emp)} infoInativa={getInfoInativa(emp)} onToggleInativa={alternarInativaC} isLast={idx===empsGrp.length-1&&subGrps.length===0} {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor:color,openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal,getTagsEmp,addTagEmp,removeTagEmp,tagCoresSync,setTagColorEmp}}/>)}
+              {empsGrp.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} inativa={isInativa(emp)} baixada={isBaixada(emp)} infoInativa={getInfoInativa(emp)} onToggleInativa={alternarInativaC} onBaixar={alternarBaixadaC} isLast={idx===empsGrp.length-1&&subGrps.length===0} {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor:color,openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal,getTagsEmp,addTagEmp,removeTagEmp,tagCoresSync,setTagColorEmp}}/>)}
 
               {/* Subgroups */}
               {subGrps.map(sg=>{
@@ -9779,7 +9798,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
                       <span style={{fontSize:10,color:"#94a3b8"}}>{empsSg.length} empresa(s)</span>
                       <button onClick={()=>confirmarDeleteGrupo(sg)} title="Excluir subgrupo" style={{background:"none",border:"none",cursor:"pointer",color:"#f87171",fontSize:11,padding:"2px 6px",borderRadius:6,marginLeft:"auto"}} onMouseEnter={e=>e.currentTarget.style.background="#fef2f2"} onMouseLeave={e=>e.currentTarget.style.background="none"}>🗑</button>
                     </div>
-                    {empsSg.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} inativa={isInativa(emp)} infoInativa={getInfoInativa(emp)} onToggleInativa={alternarInativaC} isLast={idx===empsSg.length-1} indent {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor:sgColor,openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal,getTagsEmp,addTagEmp,removeTagEmp,tagCoresSync,setTagColorEmp}}/>)}
+                    {empsSg.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} inativa={isInativa(emp)} baixada={isBaixada(emp)} infoInativa={getInfoInativa(emp)} onToggleInativa={alternarInativaC} onBaixar={alternarBaixadaC} isLast={idx===empsSg.length-1} indent {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor:sgColor,openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal,getTagsEmp,addTagEmp,removeTagEmp,tagCoresSync,setTagColorEmp}}/>)}
                   </div>
                 );
               })}
@@ -9799,13 +9818,13 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
               <span style={{fontSize:11,color:"#94a3b8"}}>{semGrp.length} empresa(s)</span>
             </div>
             <div style={{border:"1px solid var(--border)",borderTop:"none",borderRadius:"0 0 10px 10px",overflow:"hidden",background:"var(--bg2)"}}>
-              {semGrp.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} inativa={isInativa(emp)} infoInativa={getInfoInativa(emp)} onToggleInativa={alternarInativaC} isLast={idx===semGrp.length-1} {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor:"#94a3b8",openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal,getTagsEmp,addTagEmp,removeTagEmp,tagCoresSync,setTagColorEmp}}/>)}
+              {semGrp.map((emp,idx)=><EmpresaRow key={emp.id} emp={emp} inativa={isInativa(emp)} baixada={isBaixada(emp)} infoInativa={getInfoInativa(emp)} onToggleInativa={alternarInativaC} onBaixar={alternarBaixadaC} isLast={idx===semGrp.length-1} {...{getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor:"#94a3b8",openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal,getTagsEmp,addTagEmp,removeTagEmp,tagCoresSync,setTagColorEmp}}/>)}
             </div>
           </div>
         );
       })()}
 
-      <InativarEmpresaModal emp={inativarAlvoC} onClose={()=>setInativarAlvoC(null)} onConfirm={confirmarInativarC}/>
+      <InativarEmpresaModal emp={inativarAlvoC?.emp} tipo={inativarAlvoC?.tipo} onClose={()=>setInativarAlvoC(null)} onConfirm={confirmarInativarC}/>
       {/* ── Modal Nova Empresa ── */}
       <Modal open={showNovaEmpModal} onClose={()=>{setShowNovaEmpModal(false);setNovaEmpForm({nome:"",cnpj:"",grupoId:"",subgrupoId:"",regime:"simples",periodoInicial:"01/"+new Date().getFullYear(),importarDe:""});}} title="➕ Nova Empresa" width={500}>
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -10581,7 +10600,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
 }
 
 /* Sub-component: EmpresaRow */
-function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor,openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal,getTagsEmp,addTagEmp,removeTagEmp,tagCoresSync,setTagColorEmp,inativa,infoInativa,onToggleInativa}){
+function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgClr,cDados,cObs,cEmpresas,getRegStyle,getRegimeLbl,getGrupoNomeC,getStStyle,getStTxt,getMesNomeC,getMesesC,estaContab,temObs,getObsTxt,alterarStatus,alterarCliente,analisarMes,abrirObs,toggleEmpC,ANOS,getAnoMes,getResumoAno,batchMode,selectedEmps,toggleSel,setRevertModal,confirmarDeleteEmp,colLabels,grpColor,openSidePanel,selectedEmpPanel,getRespSync,setEditEmpCForm,setEditEmpCModal,getTagsEmp,addTagEmp,removeTagEmp,tagCoresSync,setTagColorEmp,inativa,baixada,infoInativa,onToggleInativa,onBaixar}){
   const stats=getStatsEmp(emp.id);
   const pct=stats.total>0?Math.round((stats.analisados/stats.total)*100):0;
   const mesesEmp=getMesesC(emp.periodoInicial);
@@ -10619,7 +10638,7 @@ function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgC
         </div>
         {/* Regime + obs badges */}
         <div onClick={()=>{if(openSidePanel)openSidePanel(emp.id);}} style={{display:"flex",alignItems:"center",gap:5,flex:1,minWidth:0,cursor:"pointer",flexWrap:"wrap"}}>
-          {inativa&&<span title={textoInativa(infoInativa)} style={{display:"inline-flex",alignItems:"center",gap:3,background:"#e2e8f0",color:"#475569",padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:800,border:"1px solid #cbd5e1",whiteSpace:"nowrap"}}>⏸ INATIVA</span>}
+          {inativa&&<span title={textoInativa(infoInativa)} style={{display:"inline-flex",alignItems:"center",gap:3,background:baixada?"#ffe4e6":"#e2e8f0",color:baixada?"#9f1239":"#475569",padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:800,border:"1px solid #cbd5e1",whiteSpace:"nowrap"}}>{baixada?"🔒 BAIXADA":"⏸ INATIVA"}</span>}
           <span style={{...getRegStyle(emp.regime),...gr}}>{getRegimeLbl(emp.regime)}</span>
           {getRespSync&&getRespSync(emp)&&<span title="Responsável (definido em Grupos e Empresas)" style={{display:"inline-flex",alignItems:"center",gap:3,background:"#eef2ff",color:"#4338ca",padding:"2px 7px",borderRadius:20,fontSize:10,fontWeight:700,border:"1px solid #c7d2fe",whiteSpace:"nowrap"}}>👤 {getRespSync(emp)}</span>}
           {getTagsEmp&&<TagBadges tags={getTagsEmp(emp)} colorMap={tagCoresSync}/>}
@@ -10647,7 +10666,8 @@ function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgC
         </div>
         {/* Actions */}
         <div style={{display:"flex",gap:3,alignItems:"center",flexShrink:0}}>
-          {!window.__isGuest&&onToggleInativa&&<button onClick={e=>{e.stopPropagation();onToggleInativa(emp);}} title={inativa?"Reativar empresa (volta para a Visão Rápida e para os totais)":"Inativar empresa (some da Visão Rápida e fica cinza)"} style={inativa?{background:"#dcfce7",border:"1px solid #86efac",cursor:"pointer",color:"#15803d",fontSize:11,fontWeight:800,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap"}:{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:13,padding:"3px 5px",borderRadius:6}}>{inativa?"▶ Reativar":"⏸"}</button>}
+          {!window.__isGuest&&onToggleInativa&&<button onClick={e=>{e.stopPropagation();onToggleInativa(emp);}} title={inativa?(baixada?"Reativar empresa baixada":"Reativar empresa (volta para a Visão Rápida e para os totais)"):"Inativar empresa (some da Visão Rápida e fica cinza)"} style={inativa?{background:"#dcfce7",border:"1px solid #86efac",cursor:"pointer",color:"#15803d",fontSize:11,fontWeight:800,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap"}:{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:13,padding:"3px 5px",borderRadius:6}}>{inativa?"▶ Reativar":"⏸"}</button>}
+          {!window.__isGuest&&onBaixar&&!baixada&&<button onClick={e=>{e.stopPropagation();onBaixar(emp);}} title="Baixar empresa (encerrada / CNPJ baixado)" style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:13,padding:"3px 5px",borderRadius:6}}>🔒</button>}
           {!window.__isGuest&&<button onClick={e=>{e.stopPropagation();setEditEmpCForm({nome:emp.nome,cnpj:emp.cnpj||"",regime:emp.regime||"simples",grupoId:emp.grupoId||""});setEditEmpCModal({emp});}} title="Editar" style={{background:"none",border:"none",cursor:"pointer",color:"#6366f1",fontSize:13,padding:"3px 5px",borderRadius:6}}>✏️</button>}
           {!window.__isGuest&&<button onClick={e=>{e.stopPropagation();confirmarDeleteEmp(emp);}} title="Excluir" style={{background:"none",border:"none",cursor:"pointer",color:"#fca5a5",fontSize:13,padding:"3px 5px",borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#fca5a5"}>🗑</button>}
         </div>
@@ -10656,7 +10676,7 @@ function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgC
       {/* Detalhes com abas por ano */}
       {emp.expandido&&(
         <div style={{borderTop:"1px solid var(--border)",background:"var(--bg3)"}}>
-          {inativa&&<div style={{padding:"8px 16px",background:"#e2e8f0",color:"#475569",fontSize:12,fontWeight:700,borderBottom:"1px solid #cbd5e1"}}>⏸ {textoInativa(infoInativa)} — fora da Visão Rápida e dos totais. Use “▶ Reativar” para voltar.</div>}
+          {inativa&&<div style={{padding:"8px 16px",background:"#e2e8f0",color:"#475569",fontSize:12,fontWeight:700,borderBottom:"1px solid #cbd5e1"}}>{baixada?"🔒":"⏸"} {textoInativa(infoInativa)} — fora da Visão Rápida e dos totais. Use “▶ Reativar” para voltar.</div>}
           {/* ── Tabs de ano ── */}
           <div style={{display:"flex",gap:0,borderBottom:"2px solid var(--border)",padding:"0 20px",background:"var(--bg2)"}}>
             {anosComMeses.map(ano=>{
@@ -12220,21 +12240,22 @@ function makePageComponent(PAGE_CFG){
       return()=>{ok=false;sb.removeChannel(ch);};
     },[]);
     // ── Empresas inativas (compartilhado entre os módulos contábeis) ──
-    const {isInativa,getInfoInativa,setInativa}=useInativas();
+    const {isInativa,isBaixada,getInfoInativa,setInativa}=useInativas();
     const [inativarAlvo,setInativarAlvo]=useState(null);
     const [mostrarInativas,setMostrarInativas]=useState(false);
     const [rapidaFiltro,setRapidaFiltro]=useState("");      // "" | "vencido" | "vencendo" | "afazer"
     const [rapidaOrdem,setRapidaOrdem]=useState("urgencia"); // urgencia | nome | grupo | progresso
     const alternarInativa=async(emp)=>{
-      if(isInativa(emp)){ // reativar: direto
+      if(isInativa(emp)){ // reativar: direto (vale para inativa e baixada)
         const ok=await setInativa(emp,false,myCollab?.name||"","");
         toast(ok?"▶ "+emp.nome+" reativada":"⚠️ Não foi possível salvar. Tente novamente.",ok?"ok":"err");
-      } else setInativarAlvo(emp); // inativar: abre a janela com o motivo
+      } else setInativarAlvo({emp,tipo:"inativa"});
     };
-    const confirmarInativar=async(motivo)=>{
-      const emp=inativarAlvo;if(!emp)return;
-      const ok=await setInativa(emp,true,myCollab?.name||"",motivo);
-      toast(ok?"⏸ "+emp.nome+" inativada":"⚠️ Não foi possível salvar. Tente novamente.",ok?"ok":"err");
+    const alternarBaixada=(emp)=>setInativarAlvo({emp,tipo:"baixada"});
+    const confirmarInativar=async(motivo,extra)=>{
+      const alvo=inativarAlvo;if(!alvo)return;const emp=alvo.emp;const bx=alvo.tipo==="baixada";
+      const ok=await setInativa(emp,true,myCollab?.name||"",motivo,{tipo:alvo.tipo,dataBaixa:extra?.dataBaixa||""});
+      toast(ok?(bx?"🔒 "+emp.nome+" baixada":"⏸ "+emp.nome+" inativada"):"⚠️ Não foi possível salvar. Tente novamente.",ok?"ok":"err");
       if(ok)setInativarAlvo(null);
     };
     const getRespSync=(emp)=>respSync[canonEmpKeyGlobal(emp?.cnpj,emp?.nome)]||"";
@@ -12345,7 +12366,7 @@ function makePageComponent(PAGE_CFG){
       if((getSocioInfo(e)?.nome||"").toLowerCase().includes(t))return true;
       return getTagsEmp(e).some(x=>(x||"").toLowerCase().includes(t));
     };
-    const empsFiltradas=useMemo(()=>empresas.filter(e=>{if(guestEmpIds&&!guestEmpIds.has(e.id))return false;if(meusGruposPermitidos){const rn=nomeGrupoRaizDeMP(e);if(!rn||!meusGruposPermitidos.includes(rn))return false;}if(filterEmp&&!bateBuscaMP(e,filterEmp))return false;if(filterSit==="ativas"&&isInativa(e))return false;if(filterSit==="inativas"&&!isInativa(e))return false;if(filterGrp==="__sem__"&&e.grupoId)return false;if(filterGrp&&filterGrp!=="__sem__"&&e.grupoId!==parseInt(filterGrp))return false;if(filterReg&&e.regime!==filterReg)return false;return true;}),[empresas,filterEmp,filterGrp,filterReg,filterSit,guestEmpIds,meusGruposPermitidos,grupos,isInativa,respSync,marcadoresSync,sysData?.companies]);
+    const empsFiltradas=useMemo(()=>empresas.filter(e=>{if(guestEmpIds&&!guestEmpIds.has(e.id))return false;if(meusGruposPermitidos){const rn=nomeGrupoRaizDeMP(e);if(!rn||!meusGruposPermitidos.includes(rn))return false;}if(filterEmp&&!bateBuscaMP(e,filterEmp))return false;if(filterSit==="ativas"&&isInativa(e))return false;if(filterSit==="inativas"&&!(isInativa(e)&&!isBaixada(e)))return false;if(filterSit==="baixadas"&&!isBaixada(e))return false;if(filterGrp==="__sem__"&&e.grupoId)return false;if(filterGrp&&filterGrp!=="__sem__"&&e.grupoId!==parseInt(filterGrp))return false;if(filterReg&&e.regime!==filterReg)return false;return true;}),[empresas,filterEmp,filterGrp,filterReg,filterSit,guestEmpIds,meusGruposPermitidos,grupos,isInativa,isBaixada,respSync,marcadoresSync,sysData?.companies]);
     const gruposRaiz=useMemo(()=>grupos.filter(g=>!g.parentId&&(!meusGruposPermitidos||meusGruposPermitidos.includes(g.nome))),[grupos,meusGruposPermitidos]);
     const gruposVisiveisDropdown=useMemo(()=>grupos.filter(g=>{
       if(!meusGruposPermitidos)return true;
@@ -12403,7 +12424,7 @@ function makePageComponent(PAGE_CFG){
       const mesesEmp=getMeses(emp.periodoInicial);const anosComMeses=ANOS.filter(a=>mesesEmp.some(m=>m.endsWith("/"+a)));
       const abaAtiva=getAbaAno(emp.id);const obsEmp=obs.filter(o=>o.eid===emp.id);const obsCount=obsEmp.filter(o=>!o.verificado).length;const obsVerifCount=obsEmp.length-obsCount;
       const isSelected=selectedEmps.has(emp.id);const isExpanded=expandedEmps.has(emp.id);
-      const inativa=isInativa(emp);const infoInativa=inativa?getInfoInativa(emp):null;
+      const inativa=isInativa(emp);const baixada=isBaixada(emp);const infoInativa=inativa?getInfoInativa(emp):null;
       // tons de cinza sem usar "filter" no contêiner (o popup fixo das marcações quebraria)
       const gr=inativa?{opacity:.5,filter:"grayscale(1)"}:null;
       const empCols=getColsForEmp(emp.id);
@@ -12428,7 +12449,7 @@ function makePageComponent(PAGE_CFG){
             </div>
             {/* Regime + badges */}
             <div style={{display:"flex",alignItems:"center",gap:5,flex:1,minWidth:0,flexWrap:"wrap"}}>
-              {inativa&&<span title={textoInativa(infoInativa)} style={{display:"inline-flex",alignItems:"center",gap:3,background:"#e2e8f0",color:"#475569",padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:800,border:"1px solid #cbd5e1",whiteSpace:"nowrap"}}>⏸ INATIVA</span>}
+              {inativa&&<span title={textoInativa(infoInativa)} style={{display:"inline-flex",alignItems:"center",gap:3,background:baixada?"#ffe4e6":"#e2e8f0",color:baixada?"#9f1239":"#475569",padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:800,border:"1px solid #cbd5e1",whiteSpace:"nowrap"}}>{baixada?"🔒 BAIXADA":"⏸ INATIVA"}</span>}
               <span style={{...getRegStyle(emp.regime),...gr}}>{RegLabel[emp.regime]||emp.regime}</span>
               {emp.grupoId&&<span style={{background:grpColor+"22",color:grpColor,border:`1px solid ${grpColor}44`,padding:"2px 6px",borderRadius:12,fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>{grupos.find(g=>g.id===emp.grupoId)?.nome||""}</span>}
               {getRespSync(emp)&&<span title="Responsável (definido em Grupos e Empresas)" style={{display:"inline-flex",alignItems:"center",gap:3,background:"#eef2ff",color:"#4338ca",padding:"2px 7px",borderRadius:20,fontSize:10,fontWeight:700,border:"1px solid #c7d2fe",whiteSpace:"nowrap"}}>👤 {getRespSync(emp)}</span>}
@@ -12456,14 +12477,15 @@ function makePageComponent(PAGE_CFG){
             </div>
             {/* Actions */}
             <div style={{display:"flex",gap:3,alignItems:"center",flexShrink:0}}>
-              {!isGuestMode&&<button onClick={e=>{e.stopPropagation();alternarInativa(emp);}} title={inativa?"Reativar empresa (volta para a Visão Rápida e para os totais)":"Inativar empresa (some da Visão Rápida e fica cinza)"} style={inativa?{background:"#dcfce7",border:"1px solid #86efac",cursor:"pointer",color:"#15803d",fontSize:11,fontWeight:800,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap"}:{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:13,padding:"3px 5px",borderRadius:6}}>{inativa?"▶ Reativar":"⏸"}</button>}
+              {!isGuestMode&&<button onClick={e=>{e.stopPropagation();alternarInativa(emp);}} title={inativa?(baixada?"Reativar empresa baixada":"Reativar empresa (volta para a Visão Rápida e para os totais)"):"Inativar empresa (some da Visão Rápida e fica cinza)"} style={inativa?{background:"#dcfce7",border:"1px solid #86efac",cursor:"pointer",color:"#15803d",fontSize:11,fontWeight:800,padding:"3px 9px",borderRadius:20,whiteSpace:"nowrap"}:{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:13,padding:"3px 5px",borderRadius:6}}>{inativa?"▶ Reativar":"⏸"}</button>}
+              {!isGuestMode&&!baixada&&<button onClick={e=>{e.stopPropagation();alternarBaixada(emp);}} title="Baixar empresa (encerrada / CNPJ baixado)" style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:13,padding:"3px 5px",borderRadius:6}}>🔒</button>}
               {!isGuestMode&&<button onClick={e=>{e.stopPropagation();setEditEmpForm({nome:emp.nome,cnpj:emp.cnpj||"",regime:emp.regime||"simples",grupoId:emp.grupoId||""});setEditEmpModal({emp});}} title="Editar" style={{background:"none",border:"none",cursor:"pointer",color:"#6366f1",fontSize:13,padding:"3px 5px",borderRadius:6}}>✏️</button>}
               {!isGuestMode&&<button onClick={e=>{e.stopPropagation();setDeleteTyped("");setDeleteEmpModal(emp);}} title="Excluir" style={{background:"none",border:"none",cursor:"pointer",color:"#fca5a5",fontSize:13,padding:"3px 5px",borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#fca5a5"}>🗑</button>}
             </div>
           </div>
           {isExpanded&&(
             <div style={{borderTop:"1px solid var(--border)",background:"var(--bg3)"}}>
-              {inativa&&<div style={{padding:"8px 16px",background:"#e2e8f0",color:"#475569",fontSize:12,fontWeight:700,borderBottom:"1px solid #cbd5e1"}}>⏸ {textoInativa(infoInativa)} — fora da Visão Rápida e dos totais. Use “▶ Reativar” para voltar.</div>}
+              {inativa&&<div style={{padding:"8px 16px",background:"#e2e8f0",color:"#475569",fontSize:12,fontWeight:700,borderBottom:"1px solid #cbd5e1"}}>{baixada?"🔒":"⏸"} {textoInativa(infoInativa)} — fora da Visão Rápida e dos totais. Use “▶ Reativar” para voltar.</div>}
               <div style={{display:"flex",borderBottom:"2px solid var(--border)",padding:"0 20px",background:"var(--bg2)"}}>
                 {anosComMeses.map(ano=>{const r=getResumoAno(emp.id,ano);const p=r.total?Math.round(r.analisados/r.total*100):0;const ativo=abaAtiva===ano;return(
                   <button key={ano} onClick={()=>setAbaAnoMap(m=>({...m,[emp.id]:ano}))} style={{padding:"10px 20px",border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:ativo?800:600,color:ativo?"#6366f1":"#64748b",background:"transparent",borderBottom:ativo?"3px solid #6366f1":"3px solid transparent",marginBottom:-2,transition:"all .15s",display:"flex",alignItems:"center",gap:6}}>
@@ -12612,12 +12634,13 @@ function makePageComponent(PAGE_CFG){
             <option value="">Todas</option>
             <option value="ativas">Somente ativas</option>
             <option value="inativas">Somente inativas</option>
+          <option value="baixadas">Somente baixadas</option>
           </select>
           {(filterEmp||filterGrp||filterReg||filterSit)&&<Btn onClick={()=>{setFilterEmp("");setFilterGrp("");setFilterReg("");setFilterSit("");}} v="ghost" sz="sm">× Limpar</Btn>}
         </div>
         {/* KPIs */}
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:10,marginBottom:20}}>
-          {[{v:statsGlobais.total,l:"Empresas",c:"#6366f1"},{v:statsGlobais.meses,l:"Total Meses",c:"#0ea5e9"},{v:statsGlobais.contab,l:"Concluídos",c:"#8b5cf6"},{v:statsGlobais.analisados,l:"Analisados",c:"#22c55e"},...(statsGlobais.inativas>0?[{v:statsGlobais.inativas,l:"Inativas",c:"#94a3b8"}]:[])].map(({v,l,c})=>(
+          {[{v:statsGlobais.total,l:"Empresas",c:"#6366f1"},{v:statsGlobais.meses,l:"Total Meses",c:"#0ea5e9"},{v:statsGlobais.contab,l:"Concluídos",c:"#8b5cf6"},{v:statsGlobais.analisados,l:"Analisados",c:"#22c55e"},...(statsGlobais.inativas>0?[{v:statsGlobais.inativas,l:"Inativas/Baixadas",c:"#94a3b8"}]:[])].map(({v,l,c})=>(
             <div key={l} style={{background:"var(--bg2)",borderRadius:12,padding:"14px",border:"1px solid var(--border)",textAlign:"center"}}><div style={{fontSize:28,fontWeight:900,color:c,lineHeight:1}}>{v}</div><div style={{fontSize:11,fontWeight:700,color:"#64748b",marginTop:4}}>{l}</div></div>
           ))}
         </div>
@@ -12829,7 +12852,7 @@ function makePageComponent(PAGE_CFG){
             <div style={{marginBottom:20,borderRadius:14,border:"1.5px solid #cbd5e1",overflow:"hidden",background:"var(--bg2)"}}>
               <div onClick={()=>setMostrarInativas(v=>!v)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",cursor:"pointer",background:"linear-gradient(135deg,#f8fafc,#e2e8f0)",borderBottom:mostrarInativas?"1.5px solid #cbd5e1":"none"}}>
                 <span style={{fontSize:16}}>⏸</span>
-                <span style={{fontSize:13,fontWeight:900,color:"#475569"}}>Empresas inativas</span>
+                <span style={{fontSize:13,fontWeight:900,color:"#475569"}}>Empresas inativas e baixadas</span>
                 <span style={{background:"#cbd5e1",color:"#334155",padding:"1px 9px",borderRadius:20,fontSize:11,fontWeight:800}}>{lista.length}</span>
                 <span style={{marginLeft:"auto",fontSize:11,fontWeight:700,color:"#64748b"}}>{mostrarInativas?"▲ ocultar":"▼ mostrar"}</span>
               </div>
@@ -12837,7 +12860,7 @@ function makePageComponent(PAGE_CFG){
                 <div key={e.id} style={{display:"flex",alignItems:"center",gap:12,padding:"9px 16px",borderBottom:"1px solid rgba(0,0,0,.05)"}}>
                   <div style={{minWidth:0,flex:1,opacity:.7,filter:"grayscale(1)"}}>
                     <div style={{fontSize:13,fontWeight:800,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🏢 {e.nome}</div>
-                    <div style={{fontSize:10.5,color:"#94a3b8",fontWeight:600}}>{textoInativa(info)}</div>
+                    <div style={{fontSize:10.5,color:"#94a3b8",fontWeight:600}}>{isBaixada(e)?"🔒 ":"⏸ "}{textoInativa(info)}</div>
                   </div>
                   {!isGuestMode&&<button onClick={()=>alternarInativa(e)} style={{background:"#dcfce7",border:"1px solid #86efac",cursor:"pointer",color:"#15803d",fontSize:11,fontWeight:800,padding:"4px 12px",borderRadius:20,whiteSpace:"nowrap",fontFamily:"inherit"}}>▶ Reativar</button>}
                 </div>
@@ -12845,7 +12868,7 @@ function makePageComponent(PAGE_CFG){
             </div>
           );
         })()}
-        <InativarEmpresaModal emp={inativarAlvo} onClose={()=>setInativarAlvo(null)} onConfirm={confirmarInativar}/>
+        <InativarEmpresaModal emp={inativarAlvo?.emp} tipo={inativarAlvo?.tipo} onClose={()=>setInativarAlvo(null)} onConfirm={confirmarInativar}/>
         {/* MODALS */}
         <Modal open={editColsModal} onClose={()=>setEditColsModal(false)} title="✏️ Editar Colunas" width={540}>
           <div style={{display:"flex",flexDirection:"column",gap:10}}>

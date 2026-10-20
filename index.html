@@ -689,9 +689,98 @@ function useAuth() {
    SUPABASE DATA HOOK
    Substitui useSharedData - agora tudo vai
    para o banco de dados online em tempo real */
+// ── Mescla em 3 vias ─────────────────────────────────────────────────────────
+// base = último estado do servidor que este navegador já incorporou
+// local = o que está na tela (com as minhas edições) · remoto = o que está no banco agora
+// Só as minhas EDIÇÕES (diferença local × base) são aplicadas por cima do remoto. Assim uma aba
+// desatualizada nunca desfaz o que outra pessoa fez em itens que eu não mexi.
+function deq(a,b){
+  if(a===b)return true;
+  if(a==null||b==null)return a==null&&b==null;
+  if(typeof a!=="object"||typeof b!=="object")return false;
+  if(Array.isArray(a)!==Array.isArray(b))return false;
+  if(Array.isArray(a)){if(a.length!==b.length)return false;for(let i=0;i<a.length;i++)if(!deq(a[i],b[i]))return false;return true;}
+  for(const k in a){if(!deq(a[k],b[k]))return false;}
+  for(const k in b){if(!(k in a)&&b[k]!=null)return false;}
+  return true;
+}
+const _isObj=(x)=>x!==null&&typeof x==="object"&&!Array.isArray(x);
+const _idKey=(x)=>x&&x.id;
+function merge3(base,local,remote,kf){
+  if(deq(local,base))return remote===undefined?local:remote;   // não editei nada aqui → vale o servidor
+  if(deq(local,remote))return local;
+  const key=kf||_idKey;
+  if(Array.isArray(local)&&Array.isArray(remote)){
+    const b=Array.isArray(base)?base:[];
+    const ok=(arr)=>arr.every(x=>_isObj(x)&&key(x)!=null);
+    if(!ok(local)||!ok(remote)||!ok(b))return local;            // lista sem identificador: vale a minha edição
+    const bm=new Map(b.map(x=>[key(x),x])),rm=new Map(remote.map(x=>[key(x),x])),lm=new Map(local.map(x=>[key(x),x]));
+    const out=[];
+    for(const r of remote){
+      const k=key(r);
+      if(lm.has(k))out.push(merge3(bm.get(k),lm.get(k),r));
+      else if(bm.has(k)){if(!deq(bm.get(k),r))out.push(r);}      // eu apaguei; se outra pessoa alterou depois, mantém
+      else out.push(r);                                          // item novo criado por outra pessoa
+    }
+    for(const l of local){
+      const k=key(l);
+      if(!rm.has(k)){if(!bm.has(k)||!deq(bm.get(k),l))out.push(l);} // novo meu (ou apagado por outra pessoa mas editado por mim)
+    }
+    return out;
+  }
+  if(_isObj(local)&&_isObj(remote)){
+    const b=_isObj(base)?base:{};
+    const out={...remote};
+    for(const k of Object.keys(local)){if(!deq(local[k],b[k]))out[k]=merge3(b[k],local[k],remote[k]);}
+    for(const k of Object.keys(b)){if(!(k in local)&&k in out&&deq(b[k],remote[k]))delete out[k];} // apaguei o campo
+    return out;
+  }
+  return local;
+}
+
+// Mescla um "documento" inteiro (payload) campo a campo. kfs = {campo: funçãoDeChave} para listas sem "id".
+function mergePayload(base,local,remote,kfs){
+  if(deq(local,base))return remote;
+  const b=_isObj(base)?base:{};
+  const out={...remote};
+  for(const k of Object.keys(local)){if(!deq(local[k],b[k]))out[k]=merge3(b[k],local[k],remote[k],kfs&&kfs[k]);}
+  return out;
+}
+
+// Lê a linha do banco, mescla com as minhas edições e grava SOMENTE se ninguém gravou nesse meio-tempo
+// (compare-and-swap no carimbo _savedAt). Se alguém gravou, lê de novo e refaz a mescla (até 5 vezes).
+async function gravarMesclado(rowId,mesclar){
+  for(let t=0;t<5;t++){
+    const{data:row,error:e1}=await sb.from("app_data").select("payload").eq("id",rowId).maybeSingle();
+    if(e1)throw e1;
+    const remoto=row?.payload||null;
+    const final=mesclar(remoto);
+    const ts=Math.max(Date.now(),((remoto&&remoto._savedAt)||0)+1); // sempre cresce, mesmo com relógio atrasado
+    final._savedAt=ts;final._t=ts;
+    if(!remoto||remoto._savedAt==null){
+      const{error}=await sb.from("app_data").upsert({id:rowId,payload:final});
+      if(error)throw error;
+      return final;
+    }
+    const{data:upd,error}=await sb.from("app_data").update({payload:final}).eq("id",rowId).eq("payload->>_savedAt",String(remoto._savedAt)).select("id");
+    if(error)throw error;
+    if(upd&&upd.length>0)return final;
+    // alguém gravou entre a leitura e a gravação → refaz
+  }
+  throw new Error("muitas gravações simultâneas — tentando de novo");
+}
+
 function useSharedData() {
   const [data, setRaw] = useState(SEED);
   const [synced, setSynced] = useState(false);
+  const baseRef = useRef(null);          // último estado do servidor já incorporado (base da mescla)
+  const lastKnownTs = useRef(0);         // carimbo (_savedAt) mais recente já visto
+  const pendingSave = useRef(null);
+  const myLastSave = useRef(null);       // carimbo do meu último save
+  const isSavingRef = useRef(false);
+  const latestStateRef = useRef(null);
+  const failCount = useRef(0);
+  const intentionalDeletes = useRef(new Set());
 
   // Carrega dados do Supabase
   const load = useCallback(async () => {
@@ -702,12 +791,9 @@ function useSharedData() {
         .eq("id", 1)
         .maybeSingle();
 
-      if (error) {
-        console.error("Supabase load error:", error);
-        setRaw(SEED);
-        setSynced(true);
-        return;
-      }
+      // Falha ao carregar NÃO pode liberar a edição com dados de exemplo: senão o próximo save
+      // gravaria o estado errado por cima dos dados reais. Fica "sincronizando" e tenta de novo.
+      if (error) throw error;
 
       if (row?.payload) {
         const p = row.payload;
@@ -724,6 +810,7 @@ function useSharedData() {
         if (!p.archiveDays) p.archiveDays = 7;
         if (!p.recStatus) p.recStatus={};
         // MIGRAÇÃO: converter tarefas recorrentes antigas em tarefas reais
+        const precisaMigrar=!p._migrated_v3;
         if(!p._migrated_v3){
           const recTasks=p.tasks.filter(t=>t.recurrence);
           const normalTasks=p.tasks.filter(t=>!t.recurrence);
@@ -774,210 +861,137 @@ function useSharedData() {
           p._migrated_v3=true;
         }
         p.tasks = (p.tasks || []).map(normalizeTask);
+        baseRef.current = precisaMigrar ? null : p;   // com migração pendente, o 1º save grava tudo
+        lastKnownTs.current = p._savedAt || 0;
+        latestStateRef.current = p;
         setRaw(p);
       } else {
         // First time - save seed data
         const { error: upsertErr } = await sb.from("app_data").upsert({ id: 1, payload: SEED });
-        if (upsertErr) console.error("Seed upsert error:", upsertErr);
+        if (upsertErr) throw upsertErr;
+        baseRef.current = SEED;
+        latestStateRef.current = SEED;
         setRaw(SEED);
       }
+      failCount.current = 0;
       setSynced(true);
     } catch (e) {
-      console.error("Erro ao carregar dados:", e);
-      setSynced(true);
+      console.error("Erro ao carregar dados (nova tentativa em instantes):", e);
+      window.dispatchEvent(new CustomEvent("mdtec_save_error", { detail: "Sem conexão com o banco — tentando novamente…" }));
+      setTimeout(load, 4000);
     }
   }, []);
 
-  const pendingSave = useRef(null);
-  const myLastSave = useRef(null);   // timestamp da última vez que EU salvei
-  const isSavingRef = useRef(false); // true enquanto meu save está em trânsito
+  const preencherPadroes=(p)=>{
+    const q={...p};
+    if (!q.sectors || !Array.isArray(q.sectors)) q.sectors = SEED.sectors;
+    if (!q.collaborators || !Array.isArray(q.collaborators)) q.collaborators = SEED.collaborators;
+    if (!q.companies || !Array.isArray(q.companies)) q.companies = SEED.companies;
+    if (!q.labels || !Array.isArray(q.labels)) q.labels = SEED.labels;
+    if (!q.recurrences || !Array.isArray(q.recurrences)) q.recurrences = SEED.recurrences;
+    if (!q.taskTemplates || !Array.isArray(q.taskTemplates)) q.taskTemplates = [];
+    if (!q.customStatuses) q.customStatuses = [];
+    if (!q.services || !Array.isArray(q.services)) q.services = [];
+    if (!q.chatMessages || !Array.isArray(q.chatMessages)) q.chatMessages = [];
+    if (!q.notifications || !Array.isArray(q.notifications)) q.notifications = [];
+    if (!q.archiveDays) q.archiveDays = 7;
+    if (!q.recStatus) q.recStatus = {};
+    q.tasks = (q.tasks || []).map(normalizeTask);
+    return q;
+  };
+
+  function armSave(delay) {
+    if (pendingSave.current) clearTimeout(pendingSave.current);
+    pendingSave.current = setTimeout(() => { pendingSave.current = null; doSave(); }, delay);
+  }
+
+  // Salva SOMENTE as minhas edições: lê o banco agora, mescla (base × minha tela × banco) e grava o resultado.
+  async function doSave() {
+    if (isSavingRef.current) { armSave(400); return; }
+    isSavingRef.current = true;
+    const snapshot = latestStateRef.current;
+    try {
+      if (!snapshot) return;
+      const me = localStorage.getItem(USER_KEY) || "";
+      const toSave = await gravarMesclado(1, (remoto) => {
+        const merged = remoto ? merge3(baseRef.current || {}, snapshot, preencherPadroes(remoto)) : { ...snapshot };
+        return { ...merged, _savedBy: me };
+      });
+      myLastSave.current = toSave._savedAt;
+      failCount.current = 0;
+      baseRef.current = toSave;
+      lastKnownTs.current = toSave._savedAt;
+      // mostra na tela o que veio de outras pessoas e reaplica por cima o que editei durante o save
+      setRaw(prev => {
+        const r = (prev === snapshot) ? toSave : merge3(snapshot, prev, toSave);
+        latestStateRef.current = r;
+        return r;
+      });
+    } catch (e) {
+      console.error("Erro ao salvar:", e);
+      failCount.current++;
+      window.dispatchEvent(new CustomEvent("mdtec_save_error", { detail: (e && e.message) || "falha de conexão — vou tentar de novo" }));
+      armSave(Math.min(30000, 3000 * failCount.current)); // nova tentativa automática
+    } finally {
+      isSavingRef.current = false;
+    }
+  }
+
+  // Aplica dados vindos do servidor (realtime / verificação periódica) SEM perder o que estou editando
+  function aplicarRemoto(raw) {
+    if (!raw) return;
+    if (raw._savedAt && raw._savedAt === lastKnownTs.current) return;   // já incorporado (inclui o eco do meu save)
+    const p = preencherPadroes(raw);
+    const base = baseRef.current;
+    baseRef.current = p;
+    lastKnownTs.current = p._savedAt || 0;
+    setRaw(prev => {
+      const r = base ? merge3(base, prev, p) : p;
+      latestStateRef.current = r;
+      return r;
+    });
+    const myUser = localStorage.getItem(USER_KEY) || "";
+    if (p._savedBy && p._savedBy !== myUser) {
+      window.dispatchEvent(new CustomEvent("mdtec_collab_update", { detail: p._savedBy }));
+    }
+  }
 
   useEffect(() => {
     load();
-
-    // Escuta mudanças em tempo real (Realtime) — só aplica se vier de outro usuário
-    const myUser = localStorage.getItem(USER_KEY) || "";
     const channel = sb
       .channel("app_data_changes")
-      .on("postgres_changes", {
-        event: "UPDATE",
-        schema: "public",
-        table: "app_data",
-        filter: "id=eq.1"
-      }, (payload) => {
-        if (!payload.new?.payload) return;
-        const p = payload.new.payload;
-
-        // Se o timestamp bate com meu último save, ignoro (foi eu quem salvei)
-        if (p._savedAt && p._savedAt === myLastSave.current) return;
-        // Se o usuário que salvou sou eu e meu save ainda está em trânsito, ignoro
-        if (p._savedBy === myUser && isSavingRef.current) return;
-
-        // É uma atualização de outro colaborador — aplica e notifica
-        // Se temos um save em trânsito OU uma edição local ainda aguardando o debounce, não sobrescrevemos
-        // (evita perder edições recentes — ex: um colaborador recém-criado que ainda não foi salvo)
-        if (isSavingRef.current || pendingSave.current) {
-          console.log("[MergeGuard] Realtime ignorado — save em trânsito ou edição local pendente");
-          return;
-        }
-        if (!p.sectors || !Array.isArray(p.sectors)) p.sectors = SEED.sectors;
-        if (!p.collaborators || !Array.isArray(p.collaborators)) p.collaborators = SEED.collaborators;
-        if (!p.companies || !Array.isArray(p.companies)) p.companies = SEED.companies;
-        if (!p.labels || !Array.isArray(p.labels)) p.labels = SEED.labels;
-        if (!p.recurrences || !Array.isArray(p.recurrences)) p.recurrences = SEED.recurrences;
-        if (!p.taskTemplates || !Array.isArray(p.taskTemplates)) p.taskTemplates = [];
-        if (!p.customStatuses) p.customStatuses = [];
-        if (!p.services || !Array.isArray(p.services)) p.services = [];
-        if (!p.chatMessages || !Array.isArray(p.chatMessages)) p.chatMessages = [];
-        if (!p.notifications || !Array.isArray(p.notifications)) p.notifications = [];
-        if (!p.archiveDays) p.archiveDays = 7;
-        if (!p.recStatus) p.recStatus = {};
-        p.tasks = (p.tasks || []).map(normalizeTask);
-        // Atualiza latestStateRef para que o próximo save inclua dados do colaborador
-        if (latestStateRef) latestStateRef.current = p;
-        setRaw(p);
-        // Dispara evento para o App mostrar "atualizado por colaborador"
-        if(p._savedBy && p._savedBy !== myUser){
-          window.dispatchEvent(new CustomEvent("mdtec_collab_update", { detail: p._savedBy }));
-        }
-      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "app_data", filter: "id=eq.1" },
+        (payload) => { if (payload.new?.payload) aplicarRemoto(payload.new.payload); })
       .subscribe();
 
-    return () => sb.removeChannel(channel);
+    // Rede de segurança: se o realtime cair (computador dormiu, Wi-Fi oscilou), confere a cada 30s e ao voltar para a aba
+    const checar = async () => {
+      try {
+        const { data: r } = await sb.from("app_data").select("ts:payload->>_savedAt").eq("id", 1).maybeSingle();
+        const ts = Number(r?.ts || 0);
+        if (ts && ts !== lastKnownTs.current && ts !== myLastSave.current) {
+          const { data: full } = await sb.from("app_data").select("payload").eq("id", 1).maybeSingle();
+          if (full?.payload) aplicarRemoto(full.payload);
+        }
+      } catch (e) {}
+    };
+    const iv = setInterval(checar, 30000);
+    const onVis = () => { if (document.visibilityState === "visible") checar(); };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("focus", checar);
+    return () => {
+      sb.removeChannel(channel);
+      clearInterval(iv);
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("focus", checar);
+    };
   }, [load]);
-
-  // IDs intencionalmente deletados nesta sessão — nunca serão resgatados pelo merge
-  const intentionalDeletes = useRef(new Set());
-  // Ref para sempre apontar para o estado mais atual (evita closure stale no setTimeout)
-  const latestStateRef = useRef(null);
 
   const setData = useCallback((updater, _deletedIds=[]) => {
     setRaw(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
-
-      // Registra deleções intencionais (auto-detecção)
-      const prevIds = new Set((prev.tasks||[]).map(t=>t.id));
-      const nextIds = new Set((next.tasks||[]).map(t=>t.id));
-      prevIds.forEach(id => { if(!nextIds.has(id)) intentionalDeletes.current.add(id); });
-      // Mesma auto-detecção para colaboradores, empresas e setores — senão o "resgate" (proteção
-      // contra perda de dados) restaura de volta qualquer cadastro que o usuário tenha excluído de propósito
-      const prevCollabIds = new Set((prev.collaborators||[]).map(c=>c.id));
-      const nextCollabIds = new Set((next.collaborators||[]).map(c=>c.id));
-      prevCollabIds.forEach(id => { if(!nextCollabIds.has(id)) intentionalDeletes.current.add(id); });
-      const prevCompanyIds = new Set((prev.companies||[]).map(c=>c.id));
-      const nextCompanyIds = new Set((next.companies||[]).map(c=>c.id));
-      prevCompanyIds.forEach(id => { if(!nextCompanyIds.has(id)) intentionalDeletes.current.add(id); });
-      const prevSectorIds = new Set((prev.sectors||[]).map(c=>c.id));
-      const nextSectorIds = new Set((next.sectors||[]).map(c=>c.id));
-      prevSectorIds.forEach(id => { if(!nextSectorIds.has(id)) intentionalDeletes.current.add(id); });
-      if (_deletedIds.length > 0) _deletedIds.forEach(id => intentionalDeletes.current.add(id));
-
-      // Atualiza ref com estado mais recente
       latestStateRef.current = next;
-
-      // Cancela debounce anterior
-      if(pendingSave.current) clearTimeout(pendingSave.current);
-
-      pendingSave.current = setTimeout(async () => {
-        isSavingRef.current = true;
-        pendingSave.current = null; // libera a trava assim que o debounce dispara (o save em si já é protegido por isSavingRef)
-        try {
-          // Usa o estado MAIS RECENTE (pode ter mudado durante o debounce por Realtime)
-          const current = latestStateRef.current || next;
-
-          // ── MERGE GUARD: busca servidor e protege tarefas de outros colaboradores ──
-          const { data: serverRow } = await sb.from("app_data")
-            .select("payload").eq("id",1).maybeSingle();
-          const serverPayload = serverRow?.payload || {};
-          const serverTasks = serverPayload.tasks || [];
-          const serverTs = serverPayload._savedAt || 0;
-
-          // Só faz merge se o servidor tem dados mais recentes que meu último carregamento
-          // OU se existem tarefas no servidor que não estão no estado atual
-          const currentIds = new Set((current.tasks||[]).map(t=>t.id));
-          const rescued = serverTasks.filter(st =>
-            !currentIds.has(st.id) && !intentionalDeletes.current.has(st.id)
-          );
-
-          // ── Mesma proteção para colaboradores, empresas e setores — evita que um cadastro
-          //     recém-criado "suma" se um realtime de outra aba chegar entre a edição e o save ──
-          const serverCollabs = serverPayload.collaborators || [];
-          const currentCollabIds = new Set((current.collaborators||[]).map(c=>c.id));
-          const rescuedCollabs = serverCollabs.filter(sc =>
-            !currentCollabIds.has(sc.id) && !intentionalDeletes.current.has(sc.id)
-          );
-          const serverCompanies = serverPayload.companies || [];
-          const currentCompanyIds = new Set((current.companies||[]).map(c=>c.id));
-          const rescuedCompanies = serverCompanies.filter(sc =>
-            !currentCompanyIds.has(sc.id) && !intentionalDeletes.current.has(sc.id)
-          );
-          const serverSectors = serverPayload.sectors || [];
-          const currentSectorIds = new Set((current.sectors||[]).map(c=>c.id));
-          const rescuedSectors = serverSectors.filter(sc =>
-            !currentSectorIds.has(sc.id) && !intentionalDeletes.current.has(sc.id)
-          );
-
-          let finalState = current;
-          if (rescuedCollabs.length>0||rescuedCompanies.length>0||rescuedSectors.length>0) {
-            finalState = {
-              ...finalState,
-              collaborators:[...(finalState.collaborators||[]),...rescuedCollabs],
-              companies:[...(finalState.companies||[]),...rescuedCompanies],
-              sectors:[...(finalState.sectors||[]),...rescuedSectors],
-            };
-            setRaw(finalState);
-            latestStateRef.current = finalState;
-            console.warn("[MergeGuard] 🛡️ Resgatados cadastros:",{colaboradores:rescuedCollabs.map(c=>c.name),empresas:rescuedCompanies.map(c=>c.name),setores:rescuedSectors.map(c=>c.name)});
-          }
-          if (rescued.length > 0) {
-            const auditEntry = {
-              id: "aug_"+Date.now(),
-              at: new Date().toISOString(),
-              type: "task_rescue",
-              user: localStorage.getItem(USER_KEY)||"sistema",
-              recovered: rescued.map(t=>({id:t.id,title:t.title||"(sem título)",status:t.status})),
-              count: rescued.length,
-              serverTs, savedBy: serverPayload._savedBy||""
-            };
-            finalState = {
-              ...current,
-              tasks: [...(current.tasks||[]), ...rescued],
-              auditRescues: [...(current.auditRescues||[]), auditEntry].slice(-500)
-            };
-            // Atualiza estado local imediatamente para evitar piscar
-            setRaw(finalState);
-            latestStateRef.current = finalState;
-            window.dispatchEvent(new CustomEvent("mdtec_tasks_rescued", {
-              detail: { count: rescued.length, tasks: rescued.map(t=>t.title||"(sem título)") }
-            }));
-            console.warn("[MergeGuard] 🛡️ Resgatadas:", rescued.map(t=>t.title));
-          }
-
-          const toSave = {
-            ...finalState,
-            _savedAt: Date.now(),
-            _savedBy: localStorage.getItem(USER_KEY)||""
-          };
-          myLastSave.current = toSave._savedAt;
-
-          const { error } = await sb.from("app_data").upsert({ id: 1, payload: toSave });
-          if (error) {
-            console.error("Supabase save error:", error);
-            window.dispatchEvent(new CustomEvent("mdtec_save_error", { detail: error.message }));
-          }
-        } catch(e) {
-          console.error("[MergeGuard] Erro:", e);
-          // Fallback: salva sem merge para não perder a ação do usuário
-          try {
-            const fallback = {...(latestStateRef.current||next), _savedAt:Date.now(), _savedBy:localStorage.getItem(USER_KEY)||""};
-            myLastSave.current = fallback._savedAt;
-            await sb.from("app_data").upsert({ id: 1, payload: fallback });
-          } catch(e2){ console.error("[MergeGuard] Fallback falhou:", e2); }
-        } finally {
-          isSavingRef.current = false;
-        }
-      }, 300); // 300ms debounce — mais tempo para o Realtime trazer dados antes de salvar
-
+      armSave(300);
       return next;
     });
   }, []);
@@ -2001,6 +2015,96 @@ function InativarEmpresaModal({emp,tipo="inativa",onClose,onConfirm}){
   );
 }
 
+// ── WhatsApp: monta a mensagem e abre o WhatsApp (wa.me) — você revisa e envia ──
+function linkWhatsApp(texto,telefone){
+  let n=(telefone||"").replace(/\D/g,"");
+  if(n&&n.length<=11)n="55"+n; // DDD + número → acrescenta o código do Brasil
+  return "https://wa.me/"+n+"?text="+encodeURIComponent(texto);
+}
+function montarMsgPendencias(titulo,itens){
+  const dt=new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"2-digit",month:"2-digit",year:"numeric"});
+  let t="📋 *"+titulo+"* — pendências\n_"+dt+"_\n";
+  [["vencido","🔴 *Vencidas*"],["vencendo","🟡 *Vencendo*"],["afazer","🔵 *A fazer*"]].forEach(([k,l])=>{
+    const it=itens.filter(i=>i.nivel===k);if(!it.length)return;
+    t+="\n"+l+" ("+it.length+")\n";
+    it.forEach(i=>{t+="• "+i.nome+(i.detalhe?" — "+i.detalhe:"")+(i.resp?" · resp. "+i.resp:"")+"\n";});
+  });
+  return t.trim();
+}
+function montarMsgTarefas(data,{pessoaId,periodo}){
+  const hoje=todayStr();
+  const d0=new Date(hoje+"T12:00:00");
+  const fimSem=new Date(d0);fimSem.setDate(d0.getDate()+((7-d0.getDay())%7));
+  const fimStr=fimSem.toISOString().slice(0,10);
+  const fm=(d)=>{const m=/^\d{4}-(\d{2})-(\d{2})/.exec(d||"");return m?m[2]+"/"+m[1]:"";};
+  const dias=(d)=>Math.round((new Date(d+"T12:00:00")-d0)/86400000);
+  const ordPri={critica:0,alta:1,media:2,baixa:3};
+  const colabs=data.collaborators||[];
+  const nomeEmp=(t)=>{try{return taskCompanies(t).map(id=>(data.companies||[]).find(c=>c.id===id)?.name||"").filter(Boolean).join(", ");}catch(e){return "";}};
+  const noPeriodo=(t)=>{
+    if(periodo==="todas")return true;
+    const d=t.dueDate;if(!d)return false;
+    if(d<hoje)return true;
+    if(periodo==="atraso")return false;
+    if(periodo==="hoje")return d===hoje;
+    return d<=fimStr; // semana
+  };
+  const pend=(data.tasks||[]).filter(t=>t.status!=="done"&&t.status!=="archived"&&!t.archivedAt&&noPeriodo(t))
+    .sort((a,b)=>(a.dueDate||"9999").localeCompare(b.dueDate||"9999")||(ordPri[a.priority]??2)-(ordPri[b.priority]??2));
+  const linha=(t)=>{
+    const emp=nomeEmp(t);const pr=(t.priority==="critica"||t.priority==="alta")?" ["+(t.priority==="critica"?"Crítica":"Alta")+"]":"";
+    let when="";
+    if(t.dueDate){const n=dias(t.dueDate);when=n<0?" — venceu "+fm(t.dueDate)+" ("+Math.abs(n)+" dia"+(Math.abs(n)>1?"s":"")+" de atraso)":n===0?" — vence hoje":" — vence "+fm(t.dueDate);}
+    return "• "+(t.title||"(sem título)")+(emp?" ("+emp+")":"")+pr+when+"\n";
+  };
+  const blocos=(lista)=>{
+    let out="";
+    const venc=lista.filter(t=>t.dueDate&&t.dueDate<hoje),hj=lista.filter(t=>t.dueDate===hoje),prox=lista.filter(t=>t.dueDate&&t.dueDate>hoje),sem=lista.filter(t=>!t.dueDate);
+    [["🔴 *Vencidas*",venc],["🟡 *Para hoje*",hj],["📅 *Próximos dias*",prox],["⚪ *Sem prazo*",sem]].forEach(([l,a])=>{if(a.length){out+="\n"+l+" ("+a.length+")\n"+a.map(linha).join("");}});
+    return out;
+  };
+  const dt=new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"2-digit",month:"2-digit",year:"numeric"});
+  const rotulo={atraso:"somente vencidas",hoje:"vencidas e de hoje",semana:"vencidas e desta semana",todas:"todas as pendentes"}[periodo]||"";
+  if(pessoaId){
+    const c=colabs.find(x=>x.id===pessoaId);
+    const mine=pend.filter(t=>toArr(t.assignees).includes(pessoaId));
+    if(!mine.length)return "✅ "+(c?c.name+", você":"Você")+" está em dia! Nenhuma tarefa pendente neste período.";
+    return "📋 *Tarefas pendentes* ("+rotulo+")\n_"+dt+"_\n\nOlá, *"+(c?c.name.split(" ")[0]:"")+"*! Estas são as suas pendências:\n"+blocos(mine)+"\n_Enviado pelo MDTec Gestão_";
+  }
+  let t="📋 *Tarefas pendentes da equipe* ("+rotulo+")\n_"+dt+"_\n";
+  let achou=false;
+  colabs.forEach(c=>{const mine=pend.filter(x=>toArr(x.assignees).includes(c.id));if(mine.length){achou=true;t+="\n👤 *"+c.name+"* — "+mine.length+" pendente"+(mine.length>1?"s":"")+blocos(mine).replace(/\n/g,"\n  ").replace(/^/,"")+"\n";}});
+  const sem=pend.filter(x=>toArr(x.assignees).length===0);
+  if(sem.length){achou=true;t+="\n👤 *Sem responsável* — "+sem.length+blocos(sem).replace(/\n/g,"\n  ")+"\n";}
+  if(!achou)return "✅ Nenhuma tarefa pendente neste período. Equipe em dia!";
+  return (t.trim()+"\n\n_Enviado pelo MDTec Gestão_").replace(/[ \t]+\n/g,"\n").replace(/\n{3,}/g,"\n\n");
+}
+function WhatsAppModal({open,onClose,titulo,texto,setTexto,tel,setTel,children}){
+  const [copiado,setCopiado]=useState(false);
+  useEffect(()=>{setCopiado(false);},[open,texto]);
+  const copiar=async()=>{
+    try{await navigator.clipboard.writeText(texto);}catch(e){const ta=document.createElement("textarea");ta.value=texto;document.body.appendChild(ta);ta.select();try{document.execCommand("copy");}catch(e2){}document.body.removeChild(ta);}
+    setCopiado(true);
+  };
+  return(
+    <Modal open={open} onClose={onClose} title={"📲 "+(titulo||"Enviar no WhatsApp")} width={560}>
+      {open&&<div style={{display:"flex",flexDirection:"column",gap:12}}>
+        {children}
+        <Fld label="Mensagem" hint="(você pode editar antes de enviar)">
+          <Txt value={texto} onChange={setTexto} rows={12}/>
+        </Fld>
+        <Inp label="WhatsApp de quem vai receber" value={tel} onChange={setTel} placeholder="(61) 99999-9999 — opcional"/>
+        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá.</div>
+        <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
+          <Btn v="ghost" onClick={onClose}>Fechar</Btn>
+          <Btn v="ghost" onClick={copiar}>{copiado?"✓ Copiado":"📋 Copiar texto"}</Btn>
+          <Btn onClick={()=>window.open(linkWhatsApp(texto,tel),"_blank","noopener")} col="#16a34a">📲 Abrir no WhatsApp</Btn>
+        </div>
+      </div>}
+    </Modal>
+  );
+}
+
 function PH({title,icon,badge,action}){
   return(
     <div className="page-hdr" style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:22}}>
@@ -2849,6 +2953,18 @@ function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusC
   const [kanbanFilter,setKanbanFilter]=useState("week");
   const [ownerFilter,setOwnerFilter]=useState("all");
   const [collabFilter,setCollabFilter]=useState(""); // NEW: filter by specific collaborator
+  // Lembrete por WhatsApp
+  const [waOpen,setWaOpen]=useState(false);
+  const [waPessoa,setWaPessoa]=useState("");      // "" = equipe toda
+  const [waPeriodo,setWaPeriodo]=useState("semana");
+  const [waTexto,setWaTexto]=useState("");
+  const [waTel,setWaTel]=useState("");
+  useEffect(()=>{
+    if(!waOpen)return;
+    setWaTexto(montarMsgTarefas(data,{pessoaId:waPessoa,periodo:waPeriodo}));
+    const c=(data.collaborators||[]).find(x=>x.id===waPessoa);
+    setWaTel(c?.whatsapp||"");
+  },[waOpen,waPessoa,waPeriodo]); // eslint-disable-line react-hooks/exhaustive-deps
   const [dragging,setDragging]=useState(null);   // {task, x, y, offX, offY}
   const [dragOver,setDragOver]=useState(null);   // colId
   const ghostRef=useRef(null);
@@ -2909,6 +3025,16 @@ function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusC
 
   return(
     <div style={{position:"relative"}}>
+      <WhatsAppModal open={waOpen} onClose={()=>setWaOpen(false)} titulo="Lembrete de tarefas pendentes" texto={waTexto} setTexto={setWaTexto} tel={waTel} setTel={setWaTel}>
+        <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+          <div style={{flex:"1 1 200px"}}>
+            <Sel label="Para quem" value={waPessoa} onChange={setWaPessoa} options={[{value:"",label:"👥 Equipe toda (resumo por pessoa)"},...(data.collaborators||[]).map(c=>({value:c.id,label:c.name}))]}/>
+          </div>
+          <div style={{flex:"1 1 200px"}}>
+            <Sel label="Quais tarefas" value={waPeriodo} onChange={setWaPeriodo} options={[{value:"atraso",label:"🔴 Somente vencidas"},{value:"hoje",label:"🟡 Vencidas + hoje"},{value:"semana",label:"📅 Vencidas + esta semana"},{value:"todas",label:"☰ Todas as pendentes"}]}/>
+          </div>
+        </div>
+      </WhatsAppModal>
       {/* ── Cabeçalho fixo do Kanban ─────────────────────────── */}
       <div className="kanban-sticky-header" style={{
         position:"sticky",top:"var(--topbar-h,86px)",zIndex:50,
@@ -2932,6 +3058,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusC
           {mySectors.length>0&&<button style={btnStyle(ownerFilter==="sector","#14b8a6")} onClick={()=>{setOwnerFilter("sector");setCollabFilter("");}}>🏢 Meu setor</button>}
           <button style={btnStyle(ownerFilter==="unassigned","#94a3b8")} onClick={()=>{setOwnerFilter("unassigned");setCollabFilter("");}}>👤 Sem responsável</button>
           <span style={{fontSize:11,color:"#94a3b8",marginLeft:"auto"}}>⠿ Segure e arraste o card para mover</span>
+          <button onClick={()=>setWaOpen(true)} title="Enviar a lista de tarefas pendentes pelo WhatsApp" style={{background:"#f0fdf4",border:"1.5px solid #86efac",borderRadius:7,padding:"3px 10px",fontSize:11,fontWeight:800,color:"#15803d",cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:5,flexShrink:0}}>📲 WhatsApp</button>
           <button onClick={()=>{
             const allVisible=data.tasks.filter(t=>t.status!=="archived");
             exportTasksCSV(allVisible,data);
@@ -4346,8 +4473,8 @@ function CollaboratorsPage({ data, setData, toast=()=>{} }) {
   const [open,setOpen]=useState(false);
   const [editing,setEditing]=useState(null);
   const PERM_DEFAULTS={canAdvanceStatus:true,canComplete:true,canDelete:false,canArchive:false,canEdit:true};
-  const [form,setForm]=useState({name:"",role:"",companies:[],sectors:[],gruposContabeis:[],modulosOcultos:[],color:"#8b5cf6",initials:"",email:"",password:"",userId:"",accessLevel:"user",permissions:{...PERM_DEFAULTS},photo:""});
-  const openNew=()=>{setEditing(null);setForm({name:"",role:"",companies:[],sectors:[],gruposContabeis:[],modulosOcultos:[],color:"#8b5cf6",initials:"",email:"",password:"",userId:"",accessLevel:"user",permissions:{...PERM_DEFAULTS},photo:""});setOpen(true);};
+  const [form,setForm]=useState({name:"",role:"",companies:[],sectors:[],gruposContabeis:[],modulosOcultos:[],color:"#8b5cf6",initials:"",email:"",password:"",userId:"",accessLevel:"user",permissions:{...PERM_DEFAULTS},photo:"",whatsapp:""});
+  const openNew=()=>{setEditing(null);setForm({name:"",role:"",companies:[],sectors:[],gruposContabeis:[],modulosOcultos:[],color:"#8b5cf6",initials:"",email:"",password:"",userId:"",accessLevel:"user",permissions:{...PERM_DEFAULTS},photo:"",whatsapp:""});setOpen(true);};
   const openEdit=(u)=>{
     setEditing(u);
     setForm({name:u.name,role:u.role,
@@ -4357,7 +4484,7 @@ function CollaboratorsPage({ data, setData, toast=()=>{} }) {
       modulosOcultos:toArr(u.modulosOcultos),
       color:u.color,initials:u.initials,email:u.email||"",
       password:"",userId:u.userId||"",accessLevel:u.accessLevel||"user",
-      permissions:{...PERM_DEFAULTS,...(u.permissions||{})},photo:u.photo||""});
+      permissions:{...PERM_DEFAULTS,...(u.permissions||{})},photo:u.photo||"",whatsapp:u.whatsapp||""});
     setOpen(true);
   };
   const togUCo=(id)=>setForm(f=>({...f,companies:toArr(f.companies).includes(id)?toArr(f.companies).filter(x=>x!==id):[...toArr(f.companies),id]}));
@@ -4488,6 +4615,7 @@ function CollaboratorsPage({ data, setData, toast=()=>{} }) {
             <Inp label="Cargo" value={form.role} onChange={v=>setForm(f=>({...f,role:v}))} placeholder="Ex: Dev Frontend"/>
           </div>
           <Inp label="E-mail (usado no login)" value={form.email} onChange={v=>setForm(f=>({...f,email:v}))} placeholder="email@empresa.com"/>
+          <Inp label="WhatsApp (para lembretes de tarefas)" value={form.whatsapp||""} onChange={v=>setForm(f=>({...f,whatsapp:v}))} placeholder="(61) 99999-9999"/>
               <div style={{position:"relative"}}>
                 <Inp label={editing?"Nova senha (deixe vazio para manter)":"Senha *"} value={form.password||""} onChange={v=>setForm(f=>({...f,password:v}))} placeholder="Mínimo 6 caracteres" type="password"/>
               </div>
@@ -5673,292 +5801,187 @@ function Dashboard({ data, isAdmin }) {
 /* ===========================================
    MENTION INPUT — @autocomplete */
 /* ===========================================
-   POMODORO TIMER */
-function PomodoroTimer({taskTitle,taskId,onRecord,onClose}){
-  const MODES=[
-    {id:"focus",   label:"🍅 Foco 25",   mins:25,  color:"#ef4444"},
-    {id:"focus30", label:"🍅 Foco 30",   mins:30,  color:"#f97316"},
-    {id:"focus60", label:"🍅 1 hora",    mins:60,  color:"#dc2626"},
-    {id:"short",   label:"☕ Pausa 5",   mins:5,   color:"#22c55e"},
-    {id:"long",    label:"🛋 Pausa 15",  mins:15,  color:"#6366f1"},
-    {id:"long30",  label:"🛋 Pausa 30",  mins:30,  color:"#8b5cf6"},
-  ];
-  const [mode,setMode]=useState(0);
-  const [secs,setSecs]=useState(MODES[0].mins*60);
-  const [running,setRunning]=useState(false);
-  const [rounds,setRounds]=useState(0);
-  const [finished,setFinished]=useState(false);
-  const endTimeRef=useRef(null);   // timestamp quando o timer deve terminar
-  const rafRef=useRef(null);       // requestAnimationFrame id
-  const cur=MODES[mode];
-  const total=cur.mins*60;
-  const pct=total>0?Math.round(((total-secs)/total)*100):0;
-  const mm=String(Math.floor(secs/60)).padStart(2,"0");
-  const ss=String(secs%60).padStart(2,"0");
-  const circ=2*Math.PI*45;
+   POMODORO — widget flutuante global (todas as telas) */
+function PomodoroWidget({tasks=[],request,onRecord}){
+  const LS="mdtec_pomo_v2";
+  const ini=(()=>{try{return JSON.parse(localStorage.getItem(LS)||"{}");}catch(e){return {};}})();
+  const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+  const [focoMin,setFocoMin]=useState(ini.focoMin||25);
+  const [pausaMin,setPausaMin]=useState(ini.pausaMin||5);
+  const [focoTxt,setFocoTxt]=useState(String(ini.focoMin||25));
+  const [pausaTxt,setPausaTxt]=useState(String(ini.pausaMin||5));
+  const [auto,setAuto]=useState(ini.auto!==false);          // inicia a próxima fase sozinho
+  const [fase,setFase]=useState(ini.fase||"foco");           // "foco" | "pausa"
+  const [taskId,setTaskId]=useState(ini.taskId||"");         // "" = sem atividade relacionada
+  const [fim,setFim]=useState(ini.fim&&ini.fim>Date.now()-3600000?ini.fim:null); // timestamp em que a fase termina (rodando)
+  const [restante,setRestante]=useState(ini.restante||(ini.focoMin||25)*60);       // segundos (parado/pausado)
+  const [ciclos,setCiclos]=useState(ini.ciclos||0);
+  const [aberto,setAberto]=useState(false);
+  const [pos,setPos]=useState(ini.pos||null);                // {right,bottom}
+  const [agora,setAgora]=useState(Date.now());
+  const rodando=!!fim;
+  const seg=rodando?Math.max(0,Math.round((fim-agora)/1000)):restante;
+  const durFase=(f)=>(f==="foco"?focoMin:pausaMin)*60;
+  const cor=fase==="foco"?"#ef4444":"#22c55e";
+  const mm=String(Math.floor(seg/60)).padStart(2,"0"),ss=String(seg%60).padStart(2,"0");
+  const tituloOrig=useRef(document.title);
+  const boxRef=useRef(null);
 
-  // Bipe sonoro ao terminar — funciona mesmo sem o navegador permitir notificação/áudio externo
-  const tocarBipe=useCallback(()=>{
+  // guarda tudo para o cronômetro sobreviver a trocar de tela / recarregar a página
+  useEffect(()=>{try{localStorage.setItem(LS,JSON.stringify({focoMin,pausaMin,auto,fase,taskId,fim,restante,ciclos,pos}));}catch(e){}},[focoMin,pausaMin,auto,fase,taskId,fim,restante,ciclos,pos]);
+  // relógio leve (a cada 0,5 s) — só enquanto está rodando
+  useEffect(()=>{if(!rodando)return;const iv=setInterval(()=>setAgora(Date.now()),500);return()=>clearInterval(iv);},[rodando]);
+  // mostra o tempo na aba do navegador (dá para acompanhar de outras abas/janelas)
+  useEffect(()=>{
+    if(rodando)document.title=(fase==="foco"?"🍅 ":"☕ ")+mm+":"+ss+" · "+tituloOrig.current;
+    else document.title=tituloOrig.current;
+    return()=>{document.title=tituloOrig.current;};
+  },[rodando,mm,ss,fase]);
+  // pedido vindo do cartão da tarefa (🍅): vincula a atividade e abre o painel
+  useEffect(()=>{if(request&&request.task){setTaskId(request.task.id);setAberto(true);}},[request&&request.n]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const bipe=()=>{
     try{
-      const Ctx=window.AudioContext||window.webkitAudioContext;
-      if(!Ctx)return;
+      const Ctx=window.AudioContext||window.webkitAudioContext;if(!Ctx)return;
       const ctx=new Ctx();
-      [0,0.22,0.44].forEach(delay=>{
-        const osc=ctx.createOscillator();
-        const gain=ctx.createGain();
-        osc.type="sine";osc.frequency.value=880;
-        gain.gain.setValueAtTime(0.001,ctx.currentTime+delay);
-        gain.gain.exponentialRampToValueAtTime(0.35,ctx.currentTime+delay+0.02);
-        gain.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+delay+0.18);
-        osc.connect(gain);gain.connect(ctx.destination);
-        osc.start(ctx.currentTime+delay);osc.stop(ctx.currentTime+delay+0.2);
-      });
+      [0,0.22,0.44].forEach(d=>{const o=ctx.createOscillator(),g=ctx.createGain();o.type="sine";o.frequency.value=880;
+        g.gain.setValueAtTime(0.001,ctx.currentTime+d);g.gain.exponentialRampToValueAtTime(0.35,ctx.currentTime+d+0.02);g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+d+0.18);
+        o.connect(g);g.connect(ctx.destination);o.start(ctx.currentTime+d);o.stop(ctx.currentTime+d+0.2);});
+      setTimeout(()=>{try{ctx.close();}catch(e){}},1500);
     }catch(e){}
-  },[]);
-
-  // Tick via requestAnimationFrame + timestamp — imune a throttle e re-renders
-  const tick=useCallback(()=>{
-    if(!endTimeRef.current) return;
-    const remaining=Math.max(0,Math.round((endTimeRef.current-Date.now())/1000));
-    setSecs(remaining);
-    if(remaining<=0){
-      endTimeRef.current=null;
-      setRunning(false);
-      setFinished(true);
-      const isFoco=mode===0||mode===1||mode===2;
-      if(isFoco) setRounds(r=>r+1);
-      // Alerta mais efetivo: som + notificação do navegador + vibração (celular)
-      tocarBipe();
-      if(Notification?.permission==="granted"){
-        new Notification(isFoco?"🍅 Pomodoro concluído!":"☕ Pausa terminada!",{body:taskTitle?`${taskTitle} — hora de ${isFoco?"descansar":"voltar ao foco"}`:"Hora de "+(isFoco?"descansar":"voltar ao foco"),icon:"🍅",requireInteraction:true});
-      }
-      if(navigator.vibrate)navigator.vibrate([200,100,200]);
-      // Registra a sessão de foco concluída no histórico da própria tarefa
-      if(isFoco&&taskId&&onRecord)onRecord(taskId,cur.mins,"foco");
-      return;
-    }
-    rafRef.current=requestAnimationFrame(tick);
-  },[mode,taskTitle]);
-
+  };
+  const tarefa=tasks.find(t=>t.id===taskId);
+  // fase terminou
   useEffect(()=>{
-    if(running){
-      // Só define endTime se não estava rodando antes (evita reset ao re-render)
-      if(!endTimeRef.current){
-        endTimeRef.current=Date.now()+secs*1000;
-      }
-      rafRef.current=requestAnimationFrame(tick);
-    } else {
-      if(rafRef.current) cancelAnimationFrame(rafRef.current);
-      endTimeRef.current=null;
-    }
-    return()=>{if(rafRef.current) cancelAnimationFrame(rafRef.current);};
-  },[running,tick]);
+    if(!rodando||seg>0)return;
+    bipe();
+    const eraFoco=fase==="foco";
+    try{if(window.Notification&&Notification.permission==="granted")new Notification(eraFoco?"🍅 Foco concluído!":"☕ Pausa terminada!",{body:(tarefa?tarefa.title+" — ":"")+(eraFoco?"hora de descansar":"hora de voltar ao foco")});}catch(e){}
+    try{if(navigator.vibrate)navigator.vibrate([200,100,200]);}catch(e){}
+    if(eraFoco){setCiclos(c=>c+1);if(taskId&&onRecord)onRecord(taskId,focoMin,"foco");}
+    const prox=eraFoco?"pausa":"foco";
+    setFase(prox);
+    if(auto){setFim(Date.now()+durFase(prox)*1000);setAgora(Date.now());}
+    else{setFim(null);setRestante(durFase(prox));}
+  },[rodando,seg]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Pedir permissão de notificação ao montar
-  useEffect(()=>{
-    if(Notification?.permission==="default") Notification.requestPermission();
-  },[]);
+  const iniciar=()=>{
+    try{if(window.Notification&&Notification.permission==="default")Notification.requestPermission();}catch(e){}
+    setAgora(Date.now());setFim(Date.now()+restante*1000);
+  };
+  const pausar=()=>{setRestante(seg);setFim(null);};
+  const reiniciar=()=>{setFim(null);setRestante(durFase(fase));};
+  const trocarFase=(f)=>{if(rodando)return;setFase(f);setRestante(durFase(f));};
+  const pular=()=>{const f=fase==="foco"?"pausa":"foco";setFase(f);setFim(null);setRestante(durFase(f));};
+  const aplicarFoco=(txt)=>{const n=clamp(parseInt(txt)||focoMin,1,240);setFocoMin(n);setFocoTxt(String(n));if(fase==="foco"&&!rodando)setRestante(n*60);};
+  const aplicarPausa=(txt)=>{const n=clamp(parseInt(txt)||pausaMin,1,120);setPausaMin(n);setPausaTxt(String(n));if(fase==="pausa"&&!rodando)setRestante(n*60);};
+  const preset=(f,p)=>{if(rodando)return;setFocoMin(f);setPausaMin(p);setFocoTxt(String(f));setPausaTxt(String(p));setRestante((fase==="foco"?f:p)*60);};
 
-  const switchMode=(idx)=>{
-    if(rafRef.current) cancelAnimationFrame(rafRef.current);
-    endTimeRef.current=null;
-    setMode(idx);
-    setSecs(MODES[idx].mins*60);
-    setRunning(false);
-    setFinished(false);
-  };
-  const reset=()=>{
-    if(rafRef.current) cancelAnimationFrame(rafRef.current);
-    endTimeRef.current=null;
-    setSecs(cur.mins*60);
-    setRunning(false);
-    setFinished(false);
-  };
-  const toggleRun=()=>{
-    if(finished) return;
-    if(running){
-      // Pausar: salva segundos restantes, limpa endTime
-      if(rafRef.current) cancelAnimationFrame(rafRef.current);
-      endTimeRef.current=null;
-      setRunning(false);
-    } else {
-      // Retomar/Iniciar: calcula novo endTime a partir dos segundos restantes
-      endTimeRef.current=Date.now()+secs*1000;
-      setRunning(true);
-      setFinished(false);
-    }
+  // arrastar (pílula e cabeçalho) — clique sem arrastar abre/fecha o painel
+  const drag=useRef(null);const H=useRef(null);
+  if(!H.current){
+    const h={};
+    h.move=(e)=>{const d=drag.current;if(!d)return;const dx=e.clientX-d.sx,dy=e.clientY-d.sy;
+      if(!d.moved&&Math.abs(dx)+Math.abs(dy)>5)d.moved=true;
+      if(d.moved)setPos({right:clamp(d.right-dx,4,window.innerWidth-70),bottom:clamp(d.bottom-dy,4,window.innerHeight-50)});};
+    h.up=()=>{window.removeEventListener("pointermove",h.move);window.removeEventListener("pointerup",h.up);const d=drag.current;drag.current=null;if(d&&!d.moved&&d.toggle)setAberto(a=>!a);};
+    H.current=h;
+  }
+  const iniciarArraste=(toggle)=>(e)=>{
+    if(e.button!==undefined&&e.button!==0)return;
+    const r=boxRef.current.getBoundingClientRect();
+    drag.current={sx:e.clientX,sy:e.clientY,right:window.innerWidth-r.right,bottom:window.innerHeight-r.bottom,moved:false,toggle};
+    window.addEventListener("pointermove",H.current.move);window.addEventListener("pointerup",H.current.up);
   };
 
-  // Split dos modos em 2 linhas
-  const row1=MODES.slice(0,3);
-  const row2=MODES.slice(3,6);
+  const pct=durFase(fase)>0?Math.round(((durFase(fase)-seg)/durFase(fase))*100):0;
+  const circ=2*Math.PI*42;
+  const wrap={position:"fixed",right:(pos?pos.right:96),bottom:(pos?pos.bottom:24),zIndex:1100,fontFamily:"inherit",touchAction:"none"};
+  const nIn={width:56,padding:"5px 6px",borderRadius:8,border:"1.5px solid var(--border)",background:"var(--bg2)",color:"var(--text)",fontSize:13,fontWeight:800,textAlign:"center",fontFamily:"inherit",outline:"none"};
+  const lista=[...tasks].slice(0,200);
 
+  // ── Pílula compacta (não atrapalha a tela) ──
+  if(!aberto){
+    const ativo=rodando||seg!==durFase(fase);
+    return(
+      <div ref={boxRef} style={wrap}>
+        <div onPointerDown={iniciarArraste(true)} title={tarefa?("Pomodoro — "+tarefa.title):"Pomodoro (clique para abrir · arraste para mover)"}
+          style={{display:"flex",alignItems:"center",gap:6,height:ativo?36:40,minWidth:ativo?0:40,justifyContent:"center",padding:ativo?"0 12px 0 10px":"0 10px",borderRadius:30,cursor:"pointer",userSelect:"none",
+            background:ativo?cor:"var(--bg2)",color:ativo?"#fff":"var(--text)",border:ativo?"none":"1px solid var(--border)",boxShadow:"0 4px 16px rgba(0,0,0,.18)",opacity:ativo?.96:.85}}>
+          <span style={{fontSize:16,lineHeight:1}}>{fase==="foco"?"🍅":"☕"}</span>
+          {ativo&&<span style={{fontSize:13,fontWeight:900,fontVariantNumeric:"tabular-nums",letterSpacing:.3}}>{mm}:{ss}{!rodando&&<span style={{marginLeft:4,fontSize:10}}>⏸</span>}</span>}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Painel completo ──
   return(
-    <div style={{position:"fixed",bottom:90,right:90,zIndex:5000,background:"var(--bg2)",borderRadius:20,boxShadow:"0 20px 60px rgba(0,0,0,.25)",border:"1px solid var(--border)",width:280,overflow:"hidden",animation:"popIn .2s ease"}}>
-      <div style={{background:`linear-gradient(135deg,${cur.color}22,${cur.color}08)`,padding:"14px 16px 14px",borderBottom:"1px solid var(--border)"}}>
-        {/* Header */}
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-          <span style={{fontSize:12,fontWeight:800,color:cur.color}}>⏱ Pomodoro</span>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <span style={{fontSize:10,color:"#94a3b8"}}>🍅×{rounds}</span>
-            <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:16,lineHeight:1}}>×</button>
+    <div ref={boxRef} style={{...wrap,width:"min(310px,calc(100vw - 16px))"}}>
+      <div style={{background:"var(--bg2)",borderRadius:18,border:"1px solid var(--border)",boxShadow:"0 18px 50px rgba(0,0,0,.28)",overflow:"hidden"}}>
+        <div onPointerDown={iniciarArraste(false)} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",cursor:"grab",userSelect:"none",background:`linear-gradient(135deg,${cor}22,${cor}08)`,borderBottom:"1px solid var(--border)"}}>
+          <span style={{fontSize:12,fontWeight:900,color:cor}}>⏱ Pomodoro</span>
+          <span style={{fontSize:10,color:"#94a3b8",fontWeight:700}}>🍅 × {ciclos}</span>
+          <div style={{marginLeft:"auto",display:"flex",gap:4}} onPointerDown={e=>e.stopPropagation()}>
+            {ciclos>0&&<button onClick={()=>setCiclos(0)} title="Zerar contador" style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:11}}>↺0</button>}
+            <button onClick={()=>setAberto(false)} title="Minimizar (o cronômetro continua)" style={{background:"none",border:"none",cursor:"pointer",color:"#64748b",fontSize:18,lineHeight:1,padding:"0 4px"}}>–</button>
           </div>
         </div>
-        {/* Título da tarefa */}
-        <div style={{fontSize:10,color:"#64748b",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:10}}>{taskTitle}</div>
-        {/* Seletor de modo — 2 linhas */}
-        <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:12}}>
-          {[row1,row2].map((row,ri)=>(
-            <div key={ri} style={{display:"flex",gap:4}}>
-              {row.map((m,i)=>{
-                const idx=ri*3+i;
-                return(
-                  <button key={m.id} onClick={()=>switchMode(idx)}
-                    style={{flex:1,padding:"4px 0",borderRadius:7,border:`1.5px solid ${mode===idx?m.color:"#e2e8f0"}`,background:mode===idx?m.color:"transparent",color:mode===idx?"#fff":"#64748b",fontSize:9,fontWeight:800,cursor:"pointer",fontFamily:"inherit",transition:"all .12s"}}>
-                    {m.label}
-                  </button>
-                );
-              })}
-            </div>
-          ))}
-        </div>
-        {/* Círculo de progresso */}
-        <div style={{display:"flex",justifyContent:"center",marginBottom:12,position:"relative"}}>
-          <svg width={110} height={110} style={{transform:"rotate(-90deg)"}}>
-            <circle cx={55} cy={55} r={45} fill="none" stroke={cur.color+"22"} strokeWidth={8}/>
-            <circle cx={55} cy={55} r={45} fill="none" stroke={cur.color} strokeWidth={8}
-              strokeDasharray={circ}
-              strokeDashoffset={circ*(1-pct/100)}
-              style={{transition:"stroke-dashoffset .8s linear"}} strokeLinecap="round"/>
-          </svg>
-          <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",textAlign:"center"}}>
-            <div style={{fontSize:28,fontWeight:900,color:finished?"#22c55e":cur.color,fontVariantNumeric:"tabular-nums",letterSpacing:"-.02em"}}>
-              {finished?"✅":mm+":"+ss}
-            </div>
-            <div style={{fontSize:9,color:"#94a3b8",fontWeight:700}}>{finished?"Concluído!":pct+"%"}</div>
+        <div style={{padding:"12px 14px 14px",display:"flex",flexDirection:"column",gap:11}}>
+          {/* fase */}
+          <div style={{display:"flex",gap:6}}>
+            {[["foco","🍅 Foco","#ef4444"],["pausa","☕ Pausa","#22c55e"]].map(([f,l,c])=>(
+              <button key={f} onClick={()=>trocarFase(f)} disabled={rodando&&fase!==f} style={{flex:1,padding:"5px 0",borderRadius:9,border:`1.5px solid ${fase===f?c:"var(--border)"}`,background:fase===f?c:"transparent",color:fase===f?"#fff":"#64748b",fontSize:12,fontWeight:800,cursor:rodando?"default":"pointer",fontFamily:"inherit",opacity:rodando&&fase!==f?.5:1}}>{l}</button>
+            ))}
           </div>
-        </div>
-        {/* Controles */}
-        <div style={{display:"flex",gap:8,justifyContent:"center"}}>
-          <button onClick={toggleRun} disabled={finished}
-            style={{padding:"8px 28px",borderRadius:10,border:"none",background:finished?"#e5e7eb":cur.color,color:finished?"#9ca3af":"#fff",fontSize:13,fontWeight:800,cursor:finished?"not-allowed":"pointer",fontFamily:"inherit",boxShadow:finished?"none":`0 4px 12px ${cur.color}55`,transition:"all .15s"}}>
-            {running?"⏸ Pausar":"▶ Iniciar"}
-          </button>
-          <button onClick={reset}
-            style={{padding:"8px 14px",borderRadius:10,border:`1.5px solid ${cur.color}44`,background:"transparent",color:cur.color,fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>↺</button>
+          {/* relógio */}
+          <div style={{display:"flex",justifyContent:"center",position:"relative"}}>
+            <svg width={118} height={118} style={{transform:"rotate(-90deg)"}}>
+              <circle cx={59} cy={59} r={42} fill="none" stroke={cor+"22"} strokeWidth={8}/>
+              <circle cx={59} cy={59} r={42} fill="none" stroke={cor} strokeWidth={8} strokeDasharray={circ} strokeDashoffset={circ*(1-pct/100)} strokeLinecap="round" style={{transition:"stroke-dashoffset .5s linear"}}/>
+            </svg>
+            <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
+              <div style={{fontSize:26,fontWeight:900,color:"var(--text)",fontVariantNumeric:"tabular-nums",letterSpacing:1}}>{mm}:{ss}</div>
+              <div style={{fontSize:10,color:"#94a3b8",fontWeight:700}}>{rodando?(fase==="foco"?"focando…":"descansando…"):"parado"}</div>
+            </div>
+          </div>
+          {/* controles */}
+          <div style={{display:"flex",gap:6,justifyContent:"center"}}>
+            <button onClick={rodando?pausar:iniciar} style={{flex:1,padding:"8px 0",borderRadius:11,border:"none",background:cor,color:"#fff",fontSize:13,fontWeight:900,cursor:"pointer",fontFamily:"inherit"}}>{rodando?"⏸ Pausar":(seg<durFase(fase)?"▶ Continuar":"▶ Iniciar")}</button>
+            <button onClick={reiniciar} title="Reiniciar esta fase" style={{padding:"8px 12px",borderRadius:11,border:"1.5px solid var(--border)",background:"transparent",color:"#64748b",fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>↺</button>
+            <button onClick={pular} title="Pular para a próxima fase" style={{padding:"8px 12px",borderRadius:11,border:"1.5px solid var(--border)",background:"transparent",color:"#64748b",fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>⏭</button>
+          </div>
+          {/* tempos na hora */}
+          <div style={{padding:"9px 10px",borderRadius:12,background:"var(--bg3)",border:"1px solid var(--border)",display:"flex",flexDirection:"column",gap:8,opacity:rodando?.6:1}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <label style={{fontSize:11,fontWeight:800,color:"#ef4444",flex:1}}>🍅 Foco (min)</label>
+              <input type="number" min={1} max={240} disabled={rodando} value={focoTxt} onChange={e=>setFocoTxt(e.target.value)} onBlur={e=>aplicarFoco(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")e.target.blur();}} style={nIn}/>
+              <label style={{fontSize:11,fontWeight:800,color:"#22c55e",flex:1,textAlign:"right"}}>☕ Pausa (min)</label>
+              <input type="number" min={1} max={120} disabled={rodando} value={pausaTxt} onChange={e=>setPausaTxt(e.target.value)} onBlur={e=>aplicarPausa(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")e.target.blur();}} style={nIn}/>
+            </div>
+            <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+              {[[25,5],[50,10],[15,3],[90,15]].map(([f,p])=>{const on=focoMin===f&&pausaMin===p;return(
+                <button key={f} disabled={rodando} onClick={()=>preset(f,p)} style={{padding:"2px 9px",borderRadius:20,border:`1.5px solid ${on?"#6366f1":"var(--border)"}`,background:on?"#6366f1":"transparent",color:on?"#fff":"#64748b",fontSize:10.5,fontWeight:800,cursor:rodando?"default":"pointer",fontFamily:"inherit"}}>{f}/{p}</button>
+              );})}
+            </div>
+            <label style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:"#64748b",fontWeight:700,cursor:"pointer"}}>
+              <input type="checkbox" checked={auto} onChange={e=>setAuto(e.target.checked)}/> Começar a próxima fase automaticamente
+            </label>
+            {rodando&&<div style={{fontSize:10,color:"#94a3b8",fontWeight:600}}>Pause para alterar os tempos.</div>}
+          </div>
+          {/* atividade relacionada */}
+          <div>
+            <div style={{fontSize:11,fontWeight:800,color:"#475569",marginBottom:4}}>📌 Atividade relacionada</div>
+            <select value={taskId} onChange={e=>setTaskId(e.target.value)} style={{width:"100%",padding:"7px 9px",borderRadius:9,border:"1.5px solid var(--border)",background:"var(--bg2)",color:"var(--text)",fontSize:12,fontFamily:"inherit",outline:"none"}}>
+              <option value="">— Sem atividade (foco livre) —</option>
+              {taskId&&!tarefa&&<option value={taskId}>(tarefa não está mais pendente)</option>}
+              {lista.map(t=><option key={t.id} value={t.id}>{(t.title||"(sem título)").slice(0,60)}</option>)}
+            </select>
+            <div style={{fontSize:10,color:"#94a3b8",fontWeight:600,marginTop:3}}>{tarefa?"Cada foco concluído é registrado no histórico da tarefa.":"Sem vínculo, o tempo não é registrado em nenhuma tarefa."}</div>
+          </div>
         </div>
       </div>
     </div>
-  );
-}
-
-function MentionInput({value,onChange,onSubmit,collaborators,placeholder}){
-  const [show,setShow]=useState(false);
-  const [query,setQuery]=useState("");
-  const [sel,setSel]=useState(0);
-  const inputRef=useRef(null);
-  const atPosRef=useRef(-1);
-
-  const matches=useMemo(()=>{
-    if(!query&&!show) return [];
-    return collaborators.filter(u=>u.name.toLowerCase().includes(query.toLowerCase())).slice(0,6);
-  },[query,collaborators,show]);
-
-  useEffect(()=>setSel(0),[matches]);
-
-  const handleChange=(e)=>{
-    const v=e.target.value;
-    onChange(v);
-    const caret=e.target.selectionStart;
-    // Find the last @ before caret
-    const before=v.slice(0,caret);
-    const atIdx=before.lastIndexOf("@");
-    if(atIdx>=0){
-      const afterAt=before.slice(atIdx+1);
-      if(!/\s/.test(afterAt)){
-        atPosRef.current=atIdx;
-        setQuery(afterAt);
-        setShow(true);
-        return;
-      }
-    }
-    setShow(false);
-    setQuery("");
-  };
-
-  const pick=(collab)=>{
-    const v=value;
-    const before=v.slice(0,atPosRef.current);
-    const caret=inputRef.current?.selectionStart||v.length;
-    const after=v.slice(caret);
-    const newVal=before+"@"+collab.name+" "+after;
-    onChange(newVal);
-    setShow(false);setQuery("");
-    setTimeout(()=>inputRef.current?.focus(),0);
-  };
-
-  const handleKey=(e)=>{
-    if(show&&matches.length>0){
-      if(e.key==="ArrowDown"){e.preventDefault();setSel(s=>Math.min(s+1,matches.length-1));return;}
-      if(e.key==="ArrowUp"){e.preventDefault();setSel(s=>Math.max(s-1,0));return;}
-      if(e.key==="Tab"||e.key==="Enter"&&show){e.preventDefault();if(matches[sel])pick(matches[sel]);return;}
-      if(e.key==="Escape"){setShow(false);return;}
-    }
-    if(e.key==="Enter"&&!e.shiftKey&&!show){e.preventDefault();onSubmit();}
-  };
-
-  return(
-    <div style={{position:"relative",flex:1}}>
-      <input
-        ref={inputRef}
-        value={value}
-        onChange={handleChange}
-        onKeyDown={handleKey}
-        onBlur={()=>setTimeout(()=>setShow(false),150)}
-        placeholder={placeholder||"Mensagem... @nome para mencionar"}
-        style={{width:"100%",padding:"7px 12px",borderRadius:9,fontSize:12,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}
-        onFocus={e=>e.target.style.borderColor="#6366f1"}
-      />
-      {show&&matches.length>0&&(
-        <div style={{position:"absolute",bottom:"100%",left:0,marginBottom:4,background:"#fff",borderRadius:10,boxShadow:"0 8px 24px rgba(0,0,0,.15)",border:"1px solid #e2e8f0",zIndex:500,minWidth:200,overflow:"hidden"}}>
-          {matches.map((u,i)=>(
-            <div key={u.id} onMouseDown={()=>pick(u)}
-              style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",cursor:"pointer",background:i===sel?"#eef2ff":"transparent",transition:"background .1s"}}
-              onMouseEnter={()=>setSel(i)}
-            >
-              <Av initials={u.initials} color={u.color} size={24}/>
-              <div>
-                <div style={{fontSize:12,fontWeight:700,color:"#0f172a"}}>{u.name}</div>
-                <div style={{fontSize:10,color:"#94a3b8"}}>{u.role}</div>
-              </div>
-            </div>
-          ))}
-          <div style={{padding:"4px 12px 6px",fontSize:10,color:"#94a3b8",borderTop:"1px solid #f1f5f9"}}>Tab ou Enter para selecionar</div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* Helper: render text with @mentions highlighted */
-function RichText({text,collaborators,isMe=false}){
-  if(!text) return null;
-  const parts=text.split(/(@[\w\s]+?)(?=\s|$|@)/g);
-  return(
-    <span>
-      {parts.map((p,i)=>{
-        if(p.startsWith("@")){
-          const name=p.slice(1).trim();
-          const u=collaborators.find(c=>c.name.toLowerCase()===name.toLowerCase());
-          if(isMe){
-            // Fundo branco semi-transparente para contrastar com o gradiente roxo
-            return <span key={i} style={{color:"#fff",fontWeight:800,background:"rgba(255,255,255,0.25)",borderRadius:5,padding:"1px 5px",border:"1px solid rgba(255,255,255,0.4)"}}>{p}</span>;
-          }
-          return <span key={i} style={{color:u?u.color:"#6366f1",fontWeight:800,background:u?u.color+"20":"#eef2ff",borderRadius:5,padding:"1px 5px",border:`1px solid ${u?u.color+"40":"#c7d2fe"}`}}>{p}</span>;
-        }
-        return <span key={i}>{p}</span>;
-      })}
-    </span>
   );
 }
 
@@ -8694,7 +8717,7 @@ function App(){
               </div>
             </div>
           )}
-          <KanbanView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onAdd={openNew} onDuplicate={duplicateTask} onComplete={quickComplete} onStatusChange={dragStatusChange} myCollabId={myCollabId} myCollab={myCollab} isAdmin={isAdmin} onArchive={archiveTask} onPomodoro={t=>setPomodoroTask(t)}
+          <KanbanView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onAdd={openNew} onDuplicate={duplicateTask} onComplete={quickComplete} onStatusChange={dragStatusChange} myCollabId={myCollabId} myCollab={myCollab} isAdmin={isAdmin} onArchive={archiveTask} onPomodoro={t=>setPomodoroTask({task:t,n:Date.now()})}
             onPin={(id,val)=>{setData(d=>({...d,tasks:d.tasks.map(t=>t.id===id?{...t,pinned:val}:t)}));toast(val?"📌 Tarefa fixada no topo!":"📍 Tarefa desafixada.","ok");}}
             onMoveTop={(id,colId)=>{
               setData(d=>{
@@ -8828,7 +8851,7 @@ function App(){
         );
       })()}
       <Toasts list={toasts}/>
-      {pomodoroTask&&<PomodoroTimer taskTitle={pomodoroTask.title} taskId={pomodoroTask.id} onRecord={recordPomodoro} onClose={()=>setPomodoroTask(null)}/>}
+      <PomodoroWidget request={pomodoroTask} onRecord={recordPomodoro} tasks={(dataForUser.tasks||[]).filter(t=>t.status!=="done"&&t.status!=="archived"&&!t.archivedAt).sort((a,b)=>(toArr(b.assignees).includes(myCollabId)?1:0)-(toArr(a.assignees).includes(myCollabId)?1:0))}/>
       <ChatWidget data={data} setData={setData} currentUser={userName} currentUserId={myCollabId} myCollab={myCollab}/>
       <MentionAlertBanner
         notifications={data.notifications||[]}
@@ -8867,6 +8890,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
   // ── Empresas inativas (compartilhado entre os módulos contábeis) ──
   const {isInativa,isBaixada,getInfoInativa,setInativa}=useInativas();
   const [inativarAlvoC,setInativarAlvoC]=useState(null);
+  const [waMod,setWaMod]=useState({open:false,texto:"",tel:""});
   const alternarInativaC=async(emp)=>{
     if(isInativa(emp)){ // reativar: direto (vale para inativa e baixada)
       const ok=await setInativa(emp,false,myCollab?.name||"","");
@@ -8988,6 +9012,9 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
   // "Assinatura" do último estado salvo/recebido. Só salvamos quando o estado MUDOU de verdade.
   // Antes, todo dado recebido do servidor (ou só expandir/recolher uma empresa) disparava um novo save,
   // que chegava nos outros usuários, que salvavam de volta... um ping-pong infinito entre os computadores.
+  const baseC=useRef(null);          // último payload do servidor já incorporado (base da mescla)
+  const loadTimerC=useRef(null);
+  const falhasC=useRef(0);
   const lastSigC=useRef("");
   const stateRefC=useRef({});
   stateRefC.current={empresas:cEmpresas,grupos:cGrupos,dados:cDados,obs:cObs,ecdEcf:cEcdEcf,nextEmpId,nextGrpId};
@@ -8995,27 +9022,51 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
   const adotarSigC=(p)=>{const c=stateRefC.current;lastSigC.current=sigC(Array.isArray(p.empresas)?p.empresas:c.empresas,Array.isArray(p.grupos)?p.grupos:c.grupos,Array.isArray(p.dados)?p.dados:c.dados,Array.isArray(p.obs)?p.obs:c.obs,(p.ecdEcf&&typeof p.ecdEcf==="object")?p.ecdEcf:c.ecdEcf,p.nextEmpId||c.nextEmpId,p.nextGrpId||c.nextGrpId);};
 
   // Save to Supabase + localStorage whenever state changes (debounced)
+  const KFS_C={obs:o=>o.empresaId+"|"+o.competencia};
+  const executarSalvarC=useCallback(async()=>{
+    if(isSavingContabilRef.current){pendingContabilSave.current=setTimeout(()=>{pendingContabilSave.current=null;executarSalvarC();},500);return;}
+    isSavingContabilRef.current=true;
+    try{
+      await new Promise(r=>setTimeout(r,0)); // deixa o React renderizar o último estado antes de ler
+      const c=stateRefC.current;
+      const snap={empresas:c.empresas,grupos:c.grupos,dados:c.dados,obs:c.obs,ecdEcf:c.ecdEcf,nextEmpId:c.nextEmpId,nextGrpId:c.nextGrpId};
+      lastSigC.current=sigC(snap.empresas,snap.grupos,snap.dados,snap.obs,snap.ecdEcf,snap.nextEmpId,snap.nextGrpId);
+      const final=await gravarMesclado(CONTABIL_ROW_ID,(remoto)=>{
+        if(!remoto)return{...snap};
+        const rem={...remoto,empresas:(remoto.empresas||[]).map(e=>({...e,expandido:false}))};
+        const m=mergePayload(baseC.current||{},snap,rem,KFS_C);
+        return{...m,nextEmpId:Math.max(snap.nextEmpId||0,rem.nextEmpId||0),nextGrpId:Math.max(snap.nextGrpId||0,rem.nextGrpId||0)};
+      });
+      myLastContabilSaveTs.current=final._savedAt;
+      baseC.current=final;falhasC.current=0;
+      try{localStorage.setItem(STORAGE_KEY,JSON.stringify(final));}catch(e){}
+      broadcastSync(CONTABIL_ROW_ID);
+      // traz para a tela o que veio de outras pessoas, mantendo o que editei durante o save
+      const cur=stateRefC.current;
+      const semEdicao=deq(cur.empresas,snap.empresas)&&deq(cur.grupos,snap.grupos)&&deq(cur.dados,snap.dados)&&deq(cur.obs,snap.obs)&&deq(cur.ecdEcf,snap.ecdEcf)&&cur.nextEmpId===snap.nextEmpId&&cur.nextGrpId===snap.nextGrpId;
+      if(semEdicao)lastSigC.current=sigC(final.empresas,final.grupos,final.dados,final.obs,final.ecdEcf,final.nextEmpId,final.nextGrpId);
+      setCEmpresas(prev=>merge3(snap.empresas,prev,final.empresas));
+      setCGrupos(prev=>merge3(snap.grupos,prev,final.grupos));
+      setCDados(prev=>merge3(snap.dados,prev,final.dados));
+      setCObs(prev=>merge3(snap.obs,prev,final.obs,KFS_C.obs));
+      setCEcdEcf(prev=>merge3(snap.ecdEcf,prev,final.ecdEcf));
+      setNextEmpId(final.nextEmpId);setNextGrpId(final.nextGrpId);
+    }catch(e){
+      console.warn("Contabil save failed:",e);
+      falhasC.current++;
+      lastSigC.current=""; // garante nova tentativa
+      toast("⚠️ Não consegui salvar agora — tentando de novo sozinho…","err");
+      if(pendingContabilSave.current)clearTimeout(pendingContabilSave.current);
+      pendingContabilSave.current=setTimeout(()=>{pendingContabilSave.current=null;executarSalvarC();},Math.min(30000,4000*falhasC.current));
+    }
+    isSavingContabilRef.current=false;
+  },[]);
   const saveContabilToDb=useCallback((empresas,grupos,dados,obs,ecdEcf,nextEmpId,nextGrpId,immediate=false)=>{
-    const payload={empresas,grupos,dados,obs,ecdEcf,nextEmpId,nextGrpId,_savedAt:Date.now()};
-    lastSigC.current=sigC(empresas,grupos,dados,obs,ecdEcf,nextEmpId,nextGrpId);
-    // Marca o timestamp IMEDIATAMENTE (mesmo em save debounced) — bloqueia Realtime/poll de
-    // aplicar dados mais antigos que essa edição enquanto ela ainda não foi persistida.
-    myLastContabilSaveTs.current=payload._savedAt;
-    // localStorage always
-    try{localStorage.setItem(STORAGE_KEY,JSON.stringify(payload));}catch(e){}
-    if(pendingContabilSave.current) clearTimeout(pendingContabilSave.current);
-    const doSave=async()=>{
-      isSavingContabilRef.current=true;
-      pendingContabilSave.current=null;
-      try{const {error}=await sb.from("app_data").upsert({id:CONTABIL_ROW_ID,payload});
-        if(error)console.warn("Contabil save error:",error);else broadcastSync(CONTABIL_ROW_ID);
-      }catch(e){console.warn("Contabil save failed:",e);}
-      isSavingContabilRef.current=false;
-    };
-    if(immediate){
-      isSavingContabilRef.current=true;
-      doSave();
-    }else{pendingContabilSave.current=setTimeout(doSave,800);}
+    // cache local (só para abrir mais rápido; NUNCA é fonte de verdade)
+    try{localStorage.setItem(STORAGE_KEY,JSON.stringify({empresas,grupos,dados,obs,ecdEcf,nextEmpId,nextGrpId,_savedAt:Date.now()}));}catch(e){}
+    if(pendingContabilSave.current)clearTimeout(pendingContabilSave.current);
+    if(immediate){pendingContabilSave.current=null;executarSalvarC();}
+    else pendingContabilSave.current=setTimeout(()=>{pendingContabilSave.current=null;executarSalvarC();},800);
   },[]);
 
   // ─── Register global revert helper for EmpresaRow ────────────
@@ -9036,30 +9087,46 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
     return()=>{delete window.__contabilRevert;};
   },[cEmpresas,cGrupos,cObs,cEcdEcf,nextEmpId,nextGrpId,saveContabilToDb]);
 
-  // Load from Supabase on mount
+  // Aplica um payload vindo do banco SEM perder o que estou editando (mescla) e sem regravar
+  const aplicarC=(p,inicial)=>{
+    if(!p)return;
+    const pn={...p,empresas:(Array.isArray(p.empresas)?p.empresas:stateRefC.current.empresas).map(e=>({...e,expandido:false}))};
+    if(!inicial&&p._savedAt&&baseC.current&&p._savedAt===baseC.current._savedAt)return; // já incorporado
+    const base=inicial?null:baseC.current;
+    const c=stateRefC.current;
+    const semEdicao=!base||(deq(c.empresas,base.empresas)&&deq(c.grupos,base.grupos)&&deq(c.dados,base.dados)&&deq(c.obs,base.obs)&&deq(c.ecdEcf,base.ecdEcf));
+    baseC.current=pn;
+    const mg=(campo,remoto,prev,kf)=>(base&&remoto!==undefined)?merge3(base[campo],prev,remoto,kf):remoto;
+    if(Array.isArray(p.empresas))setCEmpresas(prev=>mg("empresas",pn.empresas,prev));
+    if(Array.isArray(p.grupos))setCGrupos(prev=>mg("grupos",p.grupos,prev));
+    if(Array.isArray(p.dados))setCDados(prev=>mg("dados",p.dados,prev));
+    if(Array.isArray(p.obs))setCObs(prev=>mg("obs",p.obs,prev,KFS_C.obs));
+    if(p.ecdEcf&&typeof p.ecdEcf==="object")setCEcdEcf(prev=>mg("ecdEcf",p.ecdEcf,prev));
+    if(p.nextEmpId)setNextEmpId(n=>Math.max(n||0,p.nextEmpId));
+    if(p.nextGrpId)setNextGrpId(n=>Math.max(n||0,p.nextGrpId));
+    // sem edições minhas pendentes: o estado fica igual ao do banco → não precisa regravar
+    if(semEdicao)lastSigC.current=sigC(pn.empresas,Array.isArray(p.grupos)?p.grupos:c.grupos,Array.isArray(p.dados)?p.dados:c.dados,Array.isArray(p.obs)?p.obs:c.obs,(p.ecdEcf&&typeof p.ecdEcf==="object")?p.ecdEcf:c.ecdEcf,Math.max(c.nextEmpId||0,p.nextEmpId||0),Math.max(c.nextGrpId||0,p.nextGrpId||0));
+  };
+
+  // Load from Supabase on mount — se falhar, NÃO libera o salvamento com dados do cache (podem estar velhos)
   useEffect(()=>{
-    (async()=>{
+    let vivo=true;
+    const carregar=async()=>{
       try{
         const {data:row,error}=await sb.from("app_data").select("payload").eq("id",CONTABIL_ROW_ID).maybeSingle();
-        if(error){console.warn("Contabil load error:",error);setDbSynced(true);return;}
-        if(row?.payload){
-          const p=row.payload;
-          adotarSigC(p); // dado que acabou de vir do banco não precisa ser regravado
-          if(p.empresas&&Array.isArray(p.empresas)) setCEmpresas(p.empresas.map(e=>({...e,expandido:false})));
-          if(p.grupos&&Array.isArray(p.grupos)) setCGrupos(p.grupos);
-          if(p.dados&&Array.isArray(p.dados)) setCDados(p.dados);
-          if(p.obs&&Array.isArray(p.obs)) setCObs(p.obs);
-          if(p.ecdEcf&&typeof p.ecdEcf==="object") setCEcdEcf(p.ecdEcf);
-          if(p.nextEmpId) setNextEmpId(p.nextEmpId);
-          if(p.nextGrpId) setNextGrpId(p.nextGrpId);
-          toast("☁️ Dados contábeis carregados!","ok");
-        } else {
-          // First time — banco vazio, inicia com estado limpo
-          setDbSynced(true);
-        }
-      }catch(e){console.warn("Contabil DB load failed:",e);}
-      setDbSynced(true);
-    })();
+        if(error)throw error;
+        if(!vivo)return;
+        if(row?.payload){aplicarC(row.payload,true);toast("☁️ Dados contábeis carregados!","ok");}
+        setDbSynced(true);
+      }catch(e){
+        console.warn("Contabil DB load failed:",e);
+        if(!vivo)return;
+        toast("⚠️ Sem conexão com o banco — tentando de novo. Aguarde antes de editar.","err");
+        loadTimerC.current=setTimeout(carregar,4000);
+      }
+    };
+    carregar();
+    return()=>{vivo=false;if(loadTimerC.current)clearTimeout(loadTimerC.current);};
   },[]);
 
   // Trigger save on any state change (after initial db load)
@@ -9070,18 +9137,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
   },[cEmpresas,cGrupos,cDados,cObs,cEcdEcf,nextEmpId,nextGrpId,dbSynced]);
 
   // ── Realtime sync ──────────────────────────────────────────────
-  const _applyCP=(p)=>{
-    if(isSavingContabilRef.current||pendingContabilSave.current)return;
-    const pTs=p._savedAt||p._t||0;
-    if(myLastContabilSaveTs.current&&pTs<=myLastContabilSaveTs.current)return;
-    adotarSigC(p); // veio de outro usuário: aplica, mas NÃO regrava (quebra o ping-pong)
-    if(p.empresas&&Array.isArray(p.empresas))setCEmpresas(p.empresas.map(e=>({...e,expandido:false})));
-    if(p.grupos&&Array.isArray(p.grupos))setCGrupos(p.grupos);
-    if(p.dados&&Array.isArray(p.dados))setCDados(p.dados);
-    if(p.obs&&Array.isArray(p.obs))setCObs(p.obs);
-    if(p.ecdEcf&&typeof p.ecdEcf==="object")setCEcdEcf(p.ecdEcf);
-    if(p.nextEmpId)setNextEmpId(p.nextEmpId);if(p.nextGrpId)setNextGrpId(p.nextGrpId);
-  };
+  const _applyCP=(p)=>aplicarC(p,false);
   useEffect(()=>{
     const ch=sb.channel("cp_rt").on("postgres_changes",{event:"*",schema:"public",table:"app_data",filter:`id=eq.${CONTABIL_ROW_ID}`},pl=>{if(pl.new?.payload)_applyCP(pl.new.payload);}).subscribe();
     const h=(e)=>{if(e.data?.rowId===CONTABIL_ROW_ID&&e.data?.tabId!==_tabId)sb.from("app_data").select("payload").eq("id",CONTABIL_ROW_ID).maybeSingle().then(({data:r})=>{if(r?.payload)_applyCP(r.payload);});};
@@ -9708,6 +9764,10 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
               <span style={{fontSize:18}}>⚡</span><span style={{fontSize:13,fontWeight:900,color:"#92400e"}}>Visão Rápida</span><span style={{fontSize:11,color:"#b45309",fontWeight:600}}>· pendências de {mesAtualC}</span>
               <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8}}>
                 <button onClick={()=>{
+                  const itens=pendentesC.map(({emp,okCount})=>({nome:emp.nome,detalhe:mesAtualC+" · "+okCount+"/5 etapas concluídas",resp:getRespSync(emp)||"",nivel:"afazer"}));
+                  setWaMod({open:true,texto:montarMsgPendencias("Contábil",itens),tel:""});
+                }} title="Montar a lista de pendências para enviar pelo WhatsApp" style={{background:"#f0fdf4",color:"#15803d",border:"1.5px solid #86efac",borderRadius:8,padding:"3px 10px",fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📲 WhatsApp</button>
+                <button onClick={()=>{
                   const linhas=[["Empresa","CNPJ","Grupo","Regime","Responsável","Sócio","Competência","Itens concluídos (de 5)"]];
                   pendentesC.forEach(({emp,okCount,grpNome})=>{linhas.push([emp.nome,emp.cnpj||"",grpNome,getRegimeLbl(emp.regime).replace(/^\S+\s/,""),getRespSync(emp)||"",getSocioInfo(emp)?.nome||"",mesAtualC,okCount]);});
                   baixarCSV("visao-rapida-contabil-"+mesAtualC.replace("/","-")+".csv",linhas);
@@ -9824,6 +9884,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
         );
       })()}
 
+      <WhatsAppModal open={waMod.open} onClose={()=>setWaMod(m=>({...m,open:false}))} titulo="Pendências do Contábil" texto={waMod.texto} setTexto={v=>setWaMod(m=>({...m,texto:v}))} tel={waMod.tel} setTel={v=>setWaMod(m=>({...m,tel:v}))}/>
       <InativarEmpresaModal emp={inativarAlvoC?.emp} tipo={inativarAlvoC?.tipo} onClose={()=>setInativarAlvoC(null)} onConfirm={confirmarInativarC}/>
       {/* ── Modal Nova Empresa ── */}
       <Modal open={showNovaEmpModal} onClose={()=>{setShowNovaEmpModal(false);setNovaEmpForm({nome:"",cnpj:"",grupoId:"",subgrupoId:"",regime:"simples",periodoInicial:"01/"+new Date().getFullYear(),importarDe:""});}} title="➕ Nova Empresa" width={500}>
@@ -11911,59 +11972,81 @@ function makePageComponent(PAGE_CFG){
     // "Assinatura" do último estado salvo/recebido: só salvamos quando o estado MUDOU de verdade.
     // Antes, o aviso "veio do servidor, não re-salva" era desligado numa microtask ANTES do React
     // renderizar, então todo dado recebido era regravado e reenviado aos demais usuários (ping-pong infinito).
+    const baseP=useRef(null);        // último payload do servidor já incorporado (base da mescla)
+    const falhasP=useRef(0);
     const lastSigP=useRef("");
     const stateRefP=useRef({});
     stateRefP.current={empresas,grupos,dados,obs,prazos,nextEmpId,nextGrpId,empObservacoes,empCliente,empColsOverride};
     const sigP=(e,g,d,o,pr,ne,ng,eo,ec,eco)=>{try{return JSON.stringify([(e||[]).map(({expandido,...r})=>r),g,d,o,pr,ne,ng,eo,ec,eco]);}catch(err){return String(Math.random());}};
     const saveInFlight=useRef(false);
     const latestPendingPayload=useRef(null);
+    const KFS_P={cols:c=>c.key,obs:o=>o.eid+"|"+o.mes};
+    const executarSalvarP=useCallback(async()=>{
+      if(saveInFlight.current){latestPendingPayload.current=true;return;}
+      saveInFlight.current=true;
+      try{
+        do{
+          latestPendingPayload.current=null;
+          await new Promise(r=>setTimeout(r,0)); // deixa o React renderizar o último estado antes de ler
+          const c=stateRefP.current;
+          const snap={empresas:c.empresas,grupos:c.grupos,dados:c.dados,obs:c.obs,prazos:c.prazos,nextEmpId:c.nextEmpId,nextGrpId:c.nextGrpId,cols:colsRef.current,empObservacoes:c.empObservacoes,empCliente:c.empCliente,empColsOverride:c.empColsOverride};
+          lastSigP.current=sigP(snap.empresas,snap.grupos,snap.dados,snap.obs,snap.prazos,snap.nextEmpId,snap.nextGrpId,snap.empObservacoes,snap.empCliente,snap.empColsOverride);
+          // Grava só as MINHAS edições por cima do que está no banco agora (nunca desfaz o trabalho dos outros)
+          const final=await gravarMesclado(ROW_ID,(remoto)=>{
+            if(!remoto)return{...snap};
+            const m=mergePayload(baseP.current||{},snap,remoto,KFS_P);
+            return{...m,nextEmpId:Math.max(snap.nextEmpId||0,remoto.nextEmpId||0),nextGrpId:Math.max(snap.nextGrpId||0,remoto.nextGrpId||0)};
+          });
+          myLastSaveTs.current=final._savedAt;
+          baseP.current=final;falhasP.current=0;
+          try{localStorage.setItem(STORAGE_KEY,JSON.stringify(final));}catch(ex){}
+          broadcastSync(ROW_ID);
+          // traz para a tela o que veio de outras pessoas, mantendo o que editei durante o save
+          const cur=stateRefP.current;
+          const semEdicao=deq(cur.empresas,snap.empresas)&&deq(cur.grupos,snap.grupos)&&deq(cur.dados,snap.dados)&&deq(cur.obs,snap.obs)&&deq(cur.prazos,snap.prazos)&&deq(cur.empObservacoes,snap.empObservacoes)&&deq(cur.empCliente,snap.empCliente)&&deq(cur.empColsOverride,snap.empColsOverride)&&cur.nextEmpId===snap.nextEmpId&&cur.nextGrpId===snap.nextGrpId;
+          if(semEdicao)lastSigP.current=sigP(final.empresas,final.grupos,final.dados,final.obs,final.prazos,final.nextEmpId,final.nextGrpId,final.empObservacoes,final.empCliente,final.empColsOverride);
+          if(final.cols&&!deq(final.cols,colsRef.current)){colsRef.current=final.cols;setCols(final.cols);}
+          setEmpresas(prev=>merge3(snap.empresas,prev,final.empresas));
+          setGrupos(prev=>merge3(snap.grupos,prev,final.grupos));
+          setDados(prev=>merge3(snap.dados,prev,final.dados));
+          setObs(prev=>merge3(snap.obs,prev,final.obs,KFS_P.obs));
+          setPrazos(prev=>merge3(snap.prazos,prev,final.prazos));
+          if(!isEditingAviso.current)setEmpObservacoes(prev=>merge3(snap.empObservacoes,prev,final.empObservacoes));
+          setEmpCliente(prev=>merge3(snap.empCliente,prev,final.empCliente));
+          setEmpColsOverride(prev=>merge3(snap.empColsOverride,prev,final.empColsOverride));
+          setNextEmpId(final.nextEmpId);setNextGrpId(final.nextGrpId);
+        }while(latestPendingPayload.current);
+      }catch(ex){
+        console.warn("Falha ao salvar:",ex);
+        falhasP.current++;
+        lastSigP.current=""; // garante nova tentativa
+        toast("⚠️ Não consegui salvar agora — tentando de novo sozinho…","err");
+        if(pendingSave.current)clearTimeout(pendingSave.current);
+        pendingSave.current=setTimeout(()=>{pendingSave.current=null;executarSalvarP();},Math.min(30000,4000*falhasP.current));
+      }finally{
+        saveInFlight.current=false;
+      }
+    },[]);
     const saveToDB=useCallback((e,g,d,o,pr,ne,ng,cl,eo,ec,eco,immediate=false)=>{
-      const ts=Date.now();
-      const payload={empresas:e,grupos:g,dados:d,obs:o,prazos:pr,nextEmpId:ne,nextGrpId:ng,cols:cl,empObservacoes:eo,empCliente:ec,empColsOverride:eco,_t:ts,_savedAt:ts};
-      lastSigP.current=sigP(e,g,d,o,pr,ne,ng,eo,ec,eco);
-      // Marca o timestamp IMEDIATAMENTE — bloqueia Realtime/poll de sobrescrever
-      // com dados antigos enquanto este save está em voo (debounce ou rede).
-      myLastSaveTs.current=ts;
-      // localStorage: só cache local, não é fonte de verdade
-      try{localStorage.setItem(STORAGE_KEY,JSON.stringify(payload));}catch(ex){}
-      latestPendingPayload.current=payload;
+      // cache local (só para abrir mais rápido; NUNCA é fonte de verdade)
+      try{localStorage.setItem(STORAGE_KEY,JSON.stringify({empresas:e,grupos:g,dados:d,obs:o,prazos:pr,nextEmpId:ne,nextGrpId:ng,cols:cl,empObservacoes:eo,empCliente:ec,empColsOverride:eco,_savedAt:Date.now()}));}catch(ex){}
       if(pendingSave.current)clearTimeout(pendingSave.current);
-
-      // Processa a fila: garante que só exista 1 upsert em voo por vez.
-      // Se um save já está rodando, este payload fica como "o mais recente"
-      // e será enviado assim que o atual terminar (nunca dispara 2 upserts em paralelo).
-      const runQueue=async()=>{
-        if(saveInFlight.current)return; // já tem um save rodando — ele vai pegar o payload mais novo ao terminar
-        saveInFlight.current=true;
-        try{
-          while(latestPendingPayload.current){
-            const toSend=latestPendingPayload.current;
-            latestPendingPayload.current=null;
-            try{
-              const{error}=await sb.from("app_data").upsert({id:ROW_ID,payload:toSend});
-              if(!error)broadcastSync(ROW_ID);
-            }catch(ex){}
-          }
-        }finally{
-          saveInFlight.current=false;
-        }
-      };
-      if(immediate)runQueue();
-      else pendingSave.current=setTimeout(runQueue,600);
+      if(immediate){pendingSave.current=null;executarSalvarP();}
+      else pendingSave.current=setTimeout(()=>{pendingSave.current=null;executarSalvarP();},600);
     },[]);
 
     // ── Aplica payload do Supabase (sem disparar re-save) ─────────
     const applyPayload=useCallback((p,isInitialLoad=false)=>{
       if(!p)return;
       const pTs=p._savedAt||p._t||0;
-      // Ignora payloads remotos quando:
-      // 1. O timestamp é <= ao nosso último save (dado mais antigo que o local)
-      // 2. Um save está em voo (saveInFlight) — o servidor ainda não tem nossa versão mais recente
-      if(!isInitialLoad){
-        if(saveInFlight.current)return; // save em andamento — ignorar qualquer dado remoto
-        if(pTs>0&&pTs<=myLastSaveTs.current)return; // dado mais antigo que o local
-      }
-      {const c=stateRefP.current;lastSigP.current=sigP(p.empresas?p.empresas:c.empresas,p.grupos||c.grupos,p.dados||c.dados,p.obs||c.obs,p.prazos||c.prazos,p.nextEmpId||c.nextEmpId,p.nextGrpId||c.nextGrpId,(p.empObservacoes&&!isEditingAviso.current)?p.empObservacoes:c.empObservacoes,p.empCliente||c.empCliente,p.empColsOverride||c.empColsOverride);}
+      if(!isInitialLoad&&pTs&&baseP.current&&pTs===baseP.current._savedAt)return; // já incorporado (inclui o eco do meu save)
+      const base=isInitialLoad?null:baseP.current;
+      const c=stateRefP.current;
+      const pn={...p,empresas:Array.isArray(p.empresas)?p.empresas.map(({expandido,...r})=>r):c.empresas};
+      const semEdicao=!base||(deq(c.empresas,base.empresas)&&deq(c.grupos,base.grupos)&&deq(c.dados,base.dados)&&deq(c.obs,base.obs)&&deq(c.prazos,base.prazos)&&deq(c.empObservacoes,base.empObservacoes)&&deq(c.empCliente,base.empCliente)&&deq(c.empColsOverride,base.empColsOverride));
+      baseP.current=pn;
+      // mescla: o que veio do banco entra, e as minhas edições ainda não gravadas continuam por cima
+      const mg=(campo,remoto,prev)=>(base&&remoto!==undefined)?merge3(base[campo],prev,remoto,KFS_P[campo]):remoto;
       isApplyingRemote.current=true;
       // Colunas: fonte de verdade é o Supabase — sempre aplica
       if(p.cols&&Array.isArray(p.cols)&&p.cols.length>0){
@@ -11971,64 +12054,82 @@ function makePageComponent(PAGE_CFG){
         setCols(p.cols);
         try{localStorage.setItem(COLS_KEY,JSON.stringify(p.cols));}catch(e){}
       }
-      if(p.empresas)setEmpresas(p.empresas.map(({expandido,...r})=>r));
-      if(p.grupos)setGrupos(p.grupos);
-      if(p.dados)setDados(p.dados);
-      if(p.obs)setObs(p.obs);
-      if(p.prazos)setPrazos(p.prazos);
-      if(p.nextEmpId)setNextEmpId(p.nextEmpId);
-      if(p.nextGrpId)setNextGrpId(p.nextGrpId);
+      if(p.empresas)setEmpresas(prev=>mg("empresas",pn.empresas,prev));
+      if(p.grupos)setGrupos(prev=>mg("grupos",p.grupos,prev));
+      if(p.dados)setDados(prev=>mg("dados",p.dados,prev));
+      if(p.obs)setObs(prev=>mg("obs",p.obs,prev));
+      if(p.prazos)setPrazos(prev=>mg("prazos",p.prazos,prev));
+      if(p.nextEmpId)setNextEmpId(n=>Math.max(n||0,p.nextEmpId));
+      if(p.nextGrpId)setNextGrpId(n=>Math.max(n||0,p.nextGrpId));
       if(p.empObservacoes&&!isEditingAviso.current){
-        setEmpObservacoes(p.empObservacoes);
+        setEmpObservacoes(prev=>mg("empObservacoes",p.empObservacoes,prev));
         try{localStorage.setItem(EMP_OBS_KEY,JSON.stringify(p.empObservacoes));}catch(e){}
       }
       if(p.empCliente){
-        setEmpCliente(p.empCliente);
+        setEmpCliente(prev=>mg("empCliente",p.empCliente,prev));
         try{localStorage.setItem(EMP_CLIENTE_KEY,JSON.stringify(p.empCliente));}catch(e){}
       }
       if(p.empColsOverride){
-        setEmpColsOverride(p.empColsOverride);
+        setEmpColsOverride(prev=>mg("empColsOverride",p.empColsOverride,prev));
         try{localStorage.setItem(EMP_COLS_KEY_REF.current,JSON.stringify(p.empColsOverride));}catch(e){}
       }
+      // sem edições minhas pendentes: a tela fica igual ao banco → não precisa regravar
+      if(semEdicao)lastSigP.current=sigP(pn.empresas,p.grupos||c.grupos,p.dados||c.dados,p.obs||c.obs,p.prazos||c.prazos,Math.max(c.nextEmpId||0,p.nextEmpId||0),Math.max(c.nextGrpId||0,p.nextGrpId||0),(p.empObservacoes&&!isEditingAviso.current)?p.empObservacoes:c.empObservacoes,p.empCliente||c.empCliente,p.empColsOverride||c.empColsOverride);
       // Libera flag após microtask
       Promise.resolve().then(()=>{isApplyingRemote.current=false;});
     },[]);
 
     // ── Carrega do Supabase + assina real-time ────────────────────
+    // Se a carga FALHAR, não libera o salvamento: o cache do navegador pode estar velho e, se fosse
+    // gravado, desfaria o trabalho já feito (etapas "voltando" para analisar/não iniciado).
     useEffect(()=>{
-      let mounted=true;
-      (async()=>{
+      let mounted=true;let loadTimer=null;
+      const carregar=async()=>{
         try{
-          const{data:row}=await sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle();
-          if(mounted&&row?.payload){
+          const{data:row,error}=await sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle();
+          if(error)throw error;
+          if(!mounted)return;
+          if(row?.payload){
             applyPayload(row.payload,true); // load inicial: sempre aplica
-          } else if(mounted){
-            // Sem dados no Supabase: tenta localStorage como fallback
-            try{const s=localStorage.getItem(STORAGE_KEY);if(s){const p=JSON.parse(s);applyPayload(p,true);}}catch(e){}
+          } else {
+            // Banco vazio: usa o cache local (se houver) e grava para "semear" o banco
+            try{const sv=localStorage.getItem(STORAGE_KEY);if(sv){applyPayload(JSON.parse(sv),true);lastSigP.current="";}}catch(e){}
           }
+          setDbLoaded(true);setDbSynced(true);
         }catch(e){
-          // Fallback para localStorage se Supabase falhar
-          try{const s=localStorage.getItem(STORAGE_KEY);if(s){const p=JSON.parse(s);if(mounted)applyPayload(p,true);}}catch(ex){}
+          console.warn("Falha ao carregar:",e);
+          if(!mounted)return;
+          toast("⚠️ Sem conexão com o banco — tentando de novo. Aguarde antes de editar.","err");
+          loadTimer=setTimeout(carregar,4000);
         }
-        if(mounted){setDbLoaded(true);setDbSynced(true);}
-      })();
+      };
+      carregar();
       // Real-time: Supabase Postgres changes
       const ch=sb.channel("sp_"+ROW_ID)
         .on("postgres_changes",{event:"*",schema:"public",table:"app_data",filter:`id=eq.${ROW_ID}`},
-          pl=>{if(pl.new?.payload&&mounted&&!saveInFlight.current)applyPayload(pl.new.payload);})
+          pl=>{if(pl.new?.payload&&mounted)applyPayload(pl.new.payload);})
         .subscribe();
       // BroadcastChannel: mudanças na mesma aba/browser
-      const h=(e)=>{if(e.data?.rowId===ROW_ID&&e.data?.tabId!==_tabId&&!saveInFlight.current){
+      const h=(e)=>{if(e.data?.rowId===ROW_ID&&e.data?.tabId!==_tabId){
         sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle()
-          .then(({data:r})=>{if(r?.payload&&mounted&&!saveInFlight.current)applyPayload(r.payload);});
+          .then(({data:r})=>{if(r?.payload&&mounted)applyPayload(r.payload);});
       }};
       if(_bc)_bc.addEventListener("message",h);
-      // Poll a cada 30s como fallback extra (aumentado para reduzir interferência)
-      const poll=setInterval(async()=>{
-        if(saveInFlight.current)return; // não sobrescreve durante save em andamento
-        try{const{data:r}=await sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle();if(r?.payload&&mounted)applyPayload(r.payload);}catch(e){}
-      },30000);
-      return()=>{mounted=false;sb.removeChannel(ch);if(_bc)_bc.removeEventListener("message",h);clearInterval(poll);};
+      // Rede de segurança: confere a cada 30s e ao voltar para a aba (computador dormiu / realtime caiu)
+      const checar=async()=>{
+        try{
+          const{data:r}=await sb.from("app_data").select("ts:payload->>_savedAt").eq("id",ROW_ID).maybeSingle();
+          const ts=Number(r?.ts||0);
+          if(ts&&mounted&&(!baseP.current||ts!==baseP.current._savedAt)){
+            const{data:full}=await sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle();
+            if(full?.payload&&mounted)applyPayload(full.payload);
+          }
+        }catch(e){}
+      };
+      const poll=setInterval(checar,30000);
+      const onVis=()=>{if(document.visibilityState==="visible")checar();};
+      document.addEventListener("visibilitychange",onVis);window.addEventListener("focus",checar);
+      return()=>{mounted=false;if(loadTimer)clearTimeout(loadTimer);sb.removeChannel(ch);if(_bc)_bc.removeEventListener("message",h);clearInterval(poll);document.removeEventListener("visibilitychange",onVis);window.removeEventListener("focus",checar);};
     },[]);
 
     // ── Auto-save: apenas quando estado muda por ação do usuário ──
@@ -12242,6 +12343,7 @@ function makePageComponent(PAGE_CFG){
     // ── Empresas inativas (compartilhado entre os módulos contábeis) ──
     const {isInativa,isBaixada,getInfoInativa,setInativa}=useInativas();
     const [inativarAlvo,setInativarAlvo]=useState(null);
+    const [waMod,setWaMod]=useState({open:false,texto:"",tel:""});
     const [mostrarInativas,setMostrarInativas]=useState(false);
     const [rapidaFiltro,setRapidaFiltro]=useState("");      // "" | "vencido" | "vencendo" | "afazer"
     const [rapidaOrdem,setRapidaOrdem]=useState("urgencia"); // urgencia | nome | grupo | progresso
@@ -12738,6 +12840,13 @@ function makePageComponent(PAGE_CFG){
                     <option value="progresso">↕ Menor progresso</option>
                   </select>
                   <button onClick={()=>{
+                    const itens=listaVR.map(({emp,vencidoAtual,vencendoAtual,mesPendente,mesRef,diasRestantes})=>{
+                      const sit=vencidoAtual?(diasRestantes!=null?(diasRestantes===0?"vence hoje":"venceu há "+Math.abs(diasRestantes)+" dia(s)"):"pendente"):vencendoAtual?"vence em "+(diasRestantes??"")+" dia(s)":"a fazer";
+                      return{nome:emp.nome,detalhe:(mesPendente||mesRef||"")+" · "+sit,resp:getRespSync(emp)||"",nivel:vencidoAtual?"vencido":vencendoAtual?"vencendo":"afazer"};
+                    });
+                    setWaMod({open:true,texto:montarMsgPendencias(PAGE_TITLE,itens),tel:""});
+                  }} title="Montar a lista de pendências para enviar pelo WhatsApp" style={{background:"#f0fdf4",color:"#15803d",border:"1.5px solid #86efac",borderRadius:8,padding:"3px 10px",fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📲 WhatsApp</button>
+                  <button onClick={()=>{
                     const linhas=[["Empresa","CNPJ","Grupo","Regime","Responsável","Sócio","Situação","Competência pendente","Prazo","Progresso (%)"]];
                     listaVR.forEach(({emp,vencidoAtual,vencendoAtual,mesPendente,mesRef,prazoAtual,diasRestantes,progAtual,grupoNome})=>{
                       const sit=vencidoAtual?(diasRestantes!=null?(diasRestantes===0?"Vence hoje":"Venceu há "+Math.abs(diasRestantes)+" dia(s)"):"Pendente"):vencendoAtual?"Vence em "+(diasRestantes??"")+" dia(s)":"A fazer";
@@ -12868,6 +12977,7 @@ function makePageComponent(PAGE_CFG){
             </div>
           );
         })()}
+        <WhatsAppModal open={waMod.open} onClose={()=>setWaMod(m=>({...m,open:false}))} titulo={"Pendências — "+PAGE_TITLE} texto={waMod.texto} setTexto={v=>setWaMod(m=>({...m,texto:v}))} tel={waMod.tel} setTel={v=>setWaMod(m=>({...m,tel:v}))}/>
         <InativarEmpresaModal emp={inativarAlvo?.emp} tipo={inativarAlvo?.tipo} onClose={()=>setInativarAlvo(null)} onConfirm={confirmarInativar}/>
         {/* MODALS */}
         <Modal open={editColsModal} onClose={()=>setEditColsModal(false)} title="✏️ Editar Colunas" width={540}>

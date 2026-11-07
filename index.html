@@ -550,8 +550,9 @@ const textoVigencia=(col)=>{if(!col)return"";if(col.inativaDesde)return"Inativa 
 const opcoesMesesMA=()=>{const d=new Date();const fim=d.getFullYear()*12+d.getMonth()+12;const ini=(d.getFullYear()-6)*12;const out=[];for(let i=fim;i>=ini;i--)out.push(mesDeIdxMA(i));return out;};
 
 // Editor de colunas compartilhado (padrão global e por empresa)
-function ColunasEditor({cols,setCols,mesAtual,usoDe,iconOptions,aviso}){
+function ColunasEditor({cols,setCols,mesAtual,usoDe,iconOptions,aviso,historicoDe,fmtStatus}){
   const [verInativas,setVerInativas]=React.useState(true);
+  const [histAberto,setHistAberto]=React.useState(null); // key da coluna
   const meses=React.useMemo(()=>opcoesMesesMA(),[]);
   const icones=React.useMemo(()=>[...new Set(iconOptions||[])],[iconOptions]);
   const ativas=cols.map((c,i)=>({c,i})).filter(({c})=>!c.inativaDesde);
@@ -602,8 +603,25 @@ function ColunasEditor({cols,setCols,mesAtual,usoDe,iconOptions,aviso}){
           <select value={c.inativaDesde} onChange={e=>upd(i,{inativaDesde:e.target.value})} style={sel}>
             {meses.map(m=><option key={m} value={m}>{fmtMesMA(m)}</option>)}
           </select></>}
-        {uso>0&&<span title="Registros gravados nesta coluna" style={{marginLeft:"auto",fontSize:10,color:"#94a3b8"}}>📚 {uso} registro(s)</span>}
+        {uso>0&&(historicoDe
+          ?<button onClick={()=>setHistAberto(h=>h===c.key?null:c.key)} title="Ver o que já foi feito nesta coluna" style={{marginLeft:"auto",background:histAberto===c.key?"#e0e7ff":"transparent",border:"1px solid #c7d2fe",color:"#4338ca",padding:"2px 8px",borderRadius:7,cursor:"pointer",fontSize:10.5,fontWeight:800,fontFamily:"inherit"}}>📚 Ver histórico ({uso}) {histAberto===c.key?"▴":"▾"}</button>
+          :<span title="Registros gravados nesta coluna" style={{marginLeft:"auto",fontSize:10,color:"#94a3b8"}}>📚 {uso} registro(s)</span>)}
       </div>
+      {histAberto===c.key&&historicoDe&&(()=>{
+        const lista=historicoDe(c.key)||[];
+        const porQuem={};lista.forEach(r=>{(porQuem[r.quem]=porQuem[r.quem]||[]).push(r);});
+        const cor={"ok":["#dcfce7","#15803d"],"pendente":["#fff7ed","#c2410c"],"nao-aplica":["#f1f5f9","#64748b"]};
+        return(<div style={{marginTop:2,padding:"8px 10px",borderRadius:8,background:"var(--bg2)",border:"1px solid var(--border)",maxHeight:200,overflowY:"auto",display:"flex",flexDirection:"column",gap:6}}>
+          {Object.keys(porQuem).length===0&&<span style={{fontSize:11,color:"#94a3b8"}}>Nenhum registro.</span>}
+          {Object.entries(porQuem).map(([quem,rs])=>(<div key={quem}>
+            <div style={{fontSize:10.5,fontWeight:800,color:"var(--text)",marginBottom:3}}>{quem}</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+              {rs.sort((a,b)=>(mesIdxMA(b.mes)||0)-(mesIdxMA(a.mes)||0)).map(r=>{const [bg,fg]=cor[r.status]||["#f8fafc","#94a3b8"];const fora=!colVigente(c,r.mes);return(
+                <span key={r.mes} title={fora?"Mês fora da vigência atual — registro preservado":""} style={{fontSize:10,fontWeight:700,padding:"1px 7px",borderRadius:20,background:bg,color:fg,border:fora?"1px dashed "+fg:"1px solid transparent"}}>{fmtMesMA(r.mes)} · {fmtStatus?fmtStatus(r.status):r.status}</span>);})}
+            </div>
+          </div>))}
+        </div>);
+      })()}
     </div>);
   };
   const addCol=()=>setCols(d=>[...d,{key:"col_"+Date.now(),icon:"📋",label:"Nova Coluna",color:"#6366f1",inicio:mesAtual}]);
@@ -12905,6 +12923,19 @@ function makePageComponent(PAGE_CFG){
       });
       return{g,pe};
     },[dados,editColsModal,empColsModal,empColsOverride]);
+    // Lista o que já foi feito numa coluna: [{quem,mes,status}] — eidFiltro=null → todas as empresas no padrão global
+    const historicoCol=(colKey,eidFiltro)=>{
+      const out=[];const suf="_"+colKey;
+      Object.keys(dados).forEach(k=>{
+        if(!k.endsWith(suf))return;const v=dados[k];if(!v||v==="nao-iniciado")return;
+        const a=k.indexOf("_"),b=k.indexOf("_",a+1);if(b<0||k.slice(b+1)!==colKey)return;
+        const eid=k.slice(0,a);
+        if(eidFiltro!=null){if(String(eidFiltro)!==eid)return;}else if(empColsOverride[eid])return;
+        const emp=empresas.find(e=>String(e.id)===eid);
+        out.push({quem:emp?emp.nome:"Empresa #"+eid,mes:k.slice(a+1,b),status:v});
+      });
+      return out;
+    };
     const [filterAnalise,setFilterAnalise]=useState(""); // "" | "sim" | "nao" — competência atual
     const mesCompAtualF=(()=>{const d=new Date();d.setMonth(d.getMonth()-1);return String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear();})();
     // "sim" = competência atual analisada · "nao" = ainda não · "na" = empresa ainda não tinha essa competência
@@ -13097,7 +13128,7 @@ function makePageComponent(PAGE_CFG){
                 const mesesAno=mesesEmp.filter(m=>m.endsWith("/"+abaAtiva)&&(mostrarFuturos||!ehFuturo(m))).slice().reverse(); // mais recente primeiro
                 const th={padding:"8px 8px",color:"#fff",fontSize:10.5,textAlign:"center",fontWeight:700,whiteSpace:"nowrap"};
                 // Mostra só as colunas que valem em algum mês do ano exibido (inativas antigas somem, mas o histórico fica no ano em que valiam)
-                const colsT=empCols.filter(c=>mesesAno.some(m=>colVigente(c,m)));
+                const colsT=empCols.filter(c=>mesesAno.some(m=>colVigente(c,m)||getCellRaw(emp.id,m,c.key)!=="nao-iniciado"));
                 return(<div style={{padding:"12px 16px 16px"}}>
                   {!isGuestMode&&<div style={{fontSize:10.5,color:"#94a3b8",marginBottom:8}}>💡 Clique numa etapa para avançar · <b>clique direito</b> (ou ▾) para escolher o status direto · <b>✓ Tudo</b> marca o mês inteiro como OK.</div>}
                   <div style={{overflowX:"auto",borderRadius:10,border:"1px solid var(--border)"}}>
@@ -13136,7 +13167,11 @@ function makePageComponent(PAGE_CFG){
                               const colIdx=empCols.indexOf(col);
                               if(!colVigente(col,mes)){
                                 const raw=getCellRaw(emp.id,mes,col.key);
-                                return(<td key={col.key} style={{padding:"7px 5px",textAlign:"center"}} title={"⏸ Fora da vigência — "+textoVigencia(col).toLowerCase()+(raw!=="nao-iniciado"?" · registro guardado: "+(SL[raw]||raw):"")}><span style={{color:"#cbd5e1",fontSize:13,fontWeight:900,letterSpacing:2}}>· ·</span></td>);
+                                return(<td key={col.key} style={{padding:"7px 5px",textAlign:"center"}} title={"⏸ Fora da vigência — "+textoVigencia(col).toLowerCase()+(raw!=="nao-iniciado"?" · histórico guardado (somente leitura): "+(SL[raw]||raw):" · sem registro")}>
+                                  {raw!=="nao-iniciado"
+                                    ?<span style={{...gst(raw),cursor:"default",display:"inline-block",minWidth:64,opacity:.55,borderStyle:"dashed"}}>⏸ {SL[raw]||raw}</span>
+                                    :<span style={{color:"#cbd5e1",fontSize:13,fontWeight:900,letterSpacing:2}}>· ·</span>}
+                                </td>);
                               }
                               const st=getCell(emp.id,mes,col.key);
                               const liberada=analisado||colLiberada(emp.id,mes,colIdx);
@@ -13555,7 +13590,7 @@ function makePageComponent(PAGE_CFG){
         {/* MODALS */}
         <Modal open={editColsModal} onClose={()=>setEditColsModal(false)} title="✏️ Colunas padrão" width={640}>
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
-            <ColunasEditor cols={colsDraft} setCols={setColsDraft} mesAtual={mesCompetenciaAtual} iconOptions={ICON_OPTIONS} usoDe={k=>usoCols.g[k]||0} aviso={<>
+            <ColunasEditor cols={colsDraft} setCols={setColsDraft} mesAtual={mesCompetenciaAtual} iconOptions={ICON_OPTIONS} usoDe={k=>usoCols.g[k]||0} fmtStatus={v=>SL[v]||v} historicoDe={k=>historicoCol(k,null)} aviso={<>
 {Object.keys(empColsOverride).length>0&&(
               <div style={{padding:"10px 14px",borderRadius:10,background:"#fef3c7",border:"1px solid #fde68a",fontSize:12,color:"#92400e",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
                 <span>⚠️ <strong>{Object.keys(empColsOverride).length} empresa(s)</strong> têm colunas personalizadas e <strong>não serão afetadas</strong> ao salvar o padrão.</span>
@@ -13968,7 +14003,7 @@ function makePageComponent(PAGE_CFG){
         <Modal open={!!empColsModal} onClose={()=>setEmpColsModal(null)} title={`⚙️ Colunas — ${empresas.find(e=>e.id===empColsModal)?.nome||""}`} width={640}>
           {empColsModal&&(
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
-              <ColunasEditor cols={empColsDraft} setCols={setEmpColsDraft} mesAtual={mesCompetenciaAtual} iconOptions={ICON_OPTIONS} usoDe={k=>usoCols.pe[empColsModal+"|"+k]||0} aviso={<div style={{padding:"10px 14px",borderRadius:10,background:"#fef3c7",border:"1px solid #fde68a",fontSize:12,color:"#92400e"}}>🎯 Estas colunas são <strong>específicas desta empresa</strong> e sobrescrevem o padrão global. Demais empresas não são afetadas.</div>}/>
+              <ColunasEditor cols={empColsDraft} setCols={setEmpColsDraft} mesAtual={mesCompetenciaAtual} iconOptions={ICON_OPTIONS} usoDe={k=>usoCols.pe[empColsModal+"|"+k]||0} fmtStatus={v=>SL[v]||v} historicoDe={k=>historicoCol(k,empColsModal)} aviso={<div style={{padding:"10px 14px",borderRadius:10,background:"#fef3c7",border:"1px solid #fde68a",fontSize:12,color:"#92400e"}}>🎯 Estas colunas são <strong>específicas desta empresa</strong> e sobrescrevem o padrão global. Demais empresas não são afetadas.</div>}/>
               <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
                 <Btn onClick={()=>{const no={...empColsOverride};delete no[empColsModal];saveEmpColsOverride(no);setEmpColsModal(null);toast("↩ Restaurado ao padrão","ok");}} v="ghost" sz="sm">↩ Restaurar padrão</Btn>
                 <Btn onClick={()=>setEmpColsModal(null)} v="ghost">Cancelar</Btn>

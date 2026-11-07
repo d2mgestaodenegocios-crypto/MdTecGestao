@@ -12866,6 +12866,13 @@ function makePageComponent(PAGE_CFG){
       return s0?{nome:s0.nome,cpf:s0.cpf||""}:null;
     };
     const [abaAnoMap,setAbaAnoMap]=useState({});
+    // Modo de visualização preferido do usuário (lembrado a cada abertura)
+    const VIEW_KEY="mdtec_view_"+PAGE_ID+"_"+(myCollab?.id||"eu");
+    const [viewMode,setViewModeSt]=useState(()=>{try{const v=localStorage.getItem(VIEW_KEY);return ["lista","cartoes","mapa","kanban"].includes(v)?v:"lista";}catch(e){return"lista";}});
+    const setViewMode=(v)=>{setViewModeSt(v);try{localStorage.setItem(VIEW_KEY,v);}catch(e){}};
+    const [empDetalhe,setEmpDetalhe]=useState(null); // {eid,color} — empresa aberta a partir de Cartões/Mapa/Kanban
+    const [mapaAno,setMapaAno]=useState(String(new Date().getFullYear()));
+    const [kanbanMes,setKanbanMes]=useState(null);
     const getAbaAno=(eid)=>{const e=empresas.find(x=>x.id===eid);const anos=ANOS.filter(a=>getMeses(e?.periodoInicial||"01/2025").some(m=>m.endsWith("/"+a)));const cy=String(new Date().getFullYear());return abaAnoMap[eid]||(anos.includes(cy)?cy:anos[anos.length-1])||ANOS[0];};
     const toggleEmpExp=(eid)=>setExpandedEmps(prev=>{const n=new Set(prev);n.has(eid)?n.delete(eid):n.add(eid);return n;});
     // ── Abas: "Visão Rápida" + uma aba por grupo (em vez de tudo empilhado numa rolagem só) ──
@@ -13021,6 +13028,167 @@ function makePageComponent(PAGE_CFG){
     const salvarEditEmp=()=>{if(!editEmpModal)return;if(!editEmpForm.grupoId){toast("⚠️ Selecione um grupo — não é permitido deixar a empresa sem grupo.","err");return;}const ne=empresas.map(e=>e.id===editEmpModal.emp.id?{...e,nome:editEmpForm.nome,cnpj:editEmpForm.cnpj,regime:editEmpForm.regime,grupoId:editEmpForm.grupoId?parseInt(editEmpForm.grupoId):null}:e);setEmpresas(ne);saveToDB(ne,grupos,dados,obs,prazos,nextEmpId,nextGrpId,colsRef.current,empObservacoes,empCliente,empColsOverride,true);setEditEmpModal(null);toast("✅ Empresa atualizada!","ok");};
     const executarDelete=()=>{if(!deleteEmpModal||deleteTyped.toUpperCase()!=="EXCLUIR")return;const eid=deleteEmpModal.id;setEmpresas(prev=>prev.filter(e=>e.id!==eid));setDados(prev=>{const nd={...prev};Object.keys(nd).filter(k=>k.startsWith(eid+"_")).forEach(k=>delete nd[k]);return nd;});setObs(prev=>prev.filter(o=>o.eid!==eid));setDeleteEmpModal(null);setDeleteTyped("");toast("🗑 Excluída!","ok");};
     const confirmarDeleteBatch=()=>{selectedEmps.forEach(eid=>{setEmpresas(prev=>prev.filter(e=>e.id!==eid));setDados(prev=>{const nd={...prev};Object.keys(nd).filter(k=>k.startsWith(eid+"_")).forEach(k=>delete nd[k]);return nd;});setObs(prev=>prev.filter(o=>o.eid!==eid));});setSelectedEmps(new Set());setBatchMode(false);toast("🗑 Excluídas!","ok");};
+
+    // ── Visualizações alternativas (Cartões · Mapa · Kanban) ─────────────
+    // Situação de uma competência para a empresa: an=analisado · pronto=tudo OK, falta analisar · and=em andamento · fazer=nada feito
+    const situacaoMes=(eid,mes)=>{
+      const atv=safeCols(eid).filter(c=>getCell(eid,mes,c.key)!=="nao-aplica");
+      const ok=atv.filter(c=>getCell(eid,mes,c.key)==="ok").length;
+      const tot=atv.length;
+      const prox=atv.find(c=>getCell(eid,mes,c.key)!=="ok")||null;
+      if(estaAnalisado(eid,mes))return{st:"an",ok,tot,prox:null};
+      if(ok===tot)return{st:"pronto",ok,tot,prox:null};
+      if(ok>0||atv.some(c=>getCell(eid,mes,c.key)==="pendente"))return{st:"and",ok,tot,prox};
+      return{st:"fazer",ok,tot,prox};
+    };
+    const abrirDetalhe=(emp,color,ano)=>{
+      setExpandedEmps(prev=>{const n=new Set(prev);n.add(emp.id);return n;});
+      if(ano)setAbaAnoMap(m=>({...m,[emp.id]:ano}));
+      setEmpDetalhe({eid:emp.id,color:color||getGrpColor(emp.grupoId)});
+    };
+    const chipV={display:"inline-flex",alignItems:"center",gap:3,padding:"1px 7px",borderRadius:20,fontSize:10,fontWeight:700,whiteSpace:"nowrap"};
+    const corSt={sim:"#22c55e",nao:"#f59e0b",na:"#cbd5e1"};
+    const respChip=(emp)=>{const r=getRespSync(emp);return r?<span style={{...chipV,background:"#eef2ff",color:"#4338ca",border:"1px solid #c7d2fe"}}>👤 {r}</span>:<span style={{...chipV,color:"#94a3b8",border:"1px dashed #e2e8f0"}}>👤 sem resp.</span>;};
+    const avatarV=(emp,size=30)=>(<div style={{width:size,height:size,borderRadius:8,background:getGrpColor(emp.grupoId),display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:size>26?11:9,color:"#fff",flexShrink:0}}>{emp.nome.slice(0,2).toUpperCase()}</div>);
+    const proxTxt=(emp)=>{
+      const p=proximaPendencia(emp);
+      if(!p)return<span style={{...chipV,background:"#f0fdf4",color:"#15803d",border:"1px solid #86efac"}}>✅ Em dia</span>;
+      if(p.pronto)return<button onClick={e=>{e.stopPropagation();analisarMes(emp.id,p.mes);}} style={{...chipV,background:"#f59e0b",color:"#fff",border:"none",padding:"4px 10px",cursor:"pointer",fontFamily:"inherit",fontWeight:800,fontSize:11}}>🔍 Analisar {getMesNome(p.mes)}</button>;
+      return<span title={"Próxima etapa: "+p.col.label} style={{fontSize:11.5,fontWeight:700,color:p.vencido?"#dc2626":"#c2410c",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block"}}>{p.vencido?"🔴":"⏳"} {getMesNome(p.mes)} · {p.col.icon} {p.col.label}</span>;
+    };
+
+    const renderCartoes=(emps)=>(
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(250px,1fr))",gap:12}}>
+        {emps.map(emp=>{
+          const ina=isInativa(emp);const bx=isBaixada(emp);const st=ina?"na":statusAnaliseAtual(emp);
+          const meses=getMeses(emp.periodoInicial).filter(m=>!ehFuturo(m));const an=meses.filter(m=>estaAnalisado(emp.id,m)).length;
+          const pct=meses.length?Math.round(an/meses.length*100):0;
+          return(<div key={emp.id} onClick={()=>abrirDetalhe(emp)} title="Clique para abrir os meses desta empresa"
+            style={{border:"1px solid var(--border)",borderTop:"4px solid "+corSt[st],borderRadius:12,padding:12,display:"flex",flexDirection:"column",gap:7,background:"var(--bg2)",cursor:"pointer",opacity:ina?.55:1,transition:"box-shadow .15s"}}
+            onMouseEnter={e=>e.currentTarget.style.boxShadow="0 6px 18px rgba(15,23,42,.08)"} onMouseLeave={e=>e.currentTarget.style.boxShadow="none"}>
+            <div style={{display:"flex",gap:8,alignItems:"center",minWidth:0}}>
+              {avatarV(emp)}
+              <div style={{minWidth:0}}>
+                <div title={emp.nome} style={{fontWeight:900,fontSize:13,lineHeight:1.2,color:"var(--text)",overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{emp.nome}</div>
+                {emp.cnpj&&<div style={{fontFamily:"monospace",fontSize:10.5,color:"#94a3b8"}}>{emp.cnpj}</div>}
+              </div>
+            </div>
+            <div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}} onClick={e=>e.stopPropagation()}>
+              <span style={{...getRegStyle(emp.regime),padding:"1px 7px"}}>{REGIME_CURTO[emp.regime]||emp.regime}</span>
+              {respChip(emp)}
+              <TagBadges tags={getTagsEmp(emp)} colorMap={tagCoresSync}/>
+            </div>
+            <div>
+              {ina?<span style={{...chipV,background:bx?"#ffe4e6":"#e2e8f0",color:bx?"#9f1239":"#475569"}}>{bx?"🔒 BAIXADA":"⏸ INATIVA"}</span>
+                :st==="sim"?<span style={{...chipV,background:"#dcfce7",color:"#15803d",border:"1px solid #86efac"}}>✅ {fmtMesMA(mesCompetenciaAtual)} analisada</span>
+                :st==="nao"?<span style={{...chipV,background:"#fef3c7",color:"#b45309",border:"1px solid #fcd34d"}}>⏳ {fmtMesMA(mesCompetenciaAtual)} não analisada</span>:null}
+            </div>
+            {!ina&&<div style={{minHeight:22}}>{proxTxt(emp)}</div>}
+            <div style={{display:"flex",alignItems:"center",gap:8,marginTop:"auto"}}>
+              <div style={{flex:1,height:5,borderRadius:3,background:"#e2e8f0",overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:getProgClr(pct)}}/></div>
+              <span style={{fontSize:10.5,fontWeight:800,color:"#64748b",whiteSpace:"nowrap"}}>{an}/{meses.length} meses</span>
+            </div>
+          </div>);
+        })}
+      </div>
+    );
+
+    const renderMapa=(emps)=>{
+      const anosDisp=ANOS.filter(a=>emps.some(e=>getMeses(e.periodoInicial).some(m=>m.endsWith("/"+a)&&!ehFuturo(m))));
+      const ano=anosDisp.includes(mapaAno)?mapaAno:(anosDisp[anosDisp.length-1]||mapaAno);
+      const mesesAno=Array.from({length:12},(_,i)=>String(i+1).padStart(2,"0")+"/"+ano);
+      const estilo={an:{bg:"#22c55e",fg:"#fff",bd:"none",tx:"✓"},pronto:{bg:"#dcfce7",fg:"#15803d",bd:"1.5px solid #86efac",tx:"🔍"},and:{bg:"#fef3c7",fg:"#b45309",bd:"1.5px solid #fcd34d"},fazer:{bg:"var(--bg2)",fg:"#c2410c",bd:"1.5px dashed #fdba74"}};
+      const thS={fontSize:10,textTransform:"uppercase",letterSpacing:".06em",color:"#64748b",padding:"8px 4px",background:"var(--bg3)",borderBottom:"1px solid var(--border)",fontWeight:800,textAlign:"center",whiteSpace:"nowrap"};
+      return(<div>
+        <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10,flexWrap:"wrap"}}>
+          <span style={{fontSize:11,fontWeight:800,color:"#64748b"}}>Ano:</span>
+          {anosDisp.map(a=><button key={a} onClick={()=>setMapaAno(a)} style={{padding:"4px 12px",borderRadius:8,border:"1.5px solid "+(a===ano?"#6366f1":"var(--border)"),background:a===ano?"#6366f1":"var(--bg2)",color:a===ano?"#fff":"#64748b",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{a}</button>)}
+          <span style={{marginLeft:"auto",display:"flex",gap:12,fontSize:10.5,color:"#64748b",flexWrap:"wrap"}}>
+            <span><b style={{color:"#22c55e"}}>■</b> analisado</span><span><b style={{color:"#15803d"}}>🔍</b> pronto p/ analisar</span><span><b style={{color:"#f59e0b"}}>■</b> em andamento (etapas ok/total)</span><span><b style={{color:"#fdba74"}}>□</b> a fazer</span><span>· clique para abrir</span>
+          </span>
+        </div>
+        <div style={{overflowX:"auto",border:"1px solid var(--border)",borderRadius:10}}>
+          <table style={{borderCollapse:"collapse",width:"100%",minWidth:900,background:"var(--bg2)"}}>
+            <thead><tr>
+              <th style={{...thS,textAlign:"left",paddingLeft:12,position:"sticky",left:0,zIndex:2}}>Empresa</th>
+              {mesesAno.map(m=>{const atual=m===mesCompetenciaAtual;return<th key={m} style={{...thS,background:atual?"#eef2ff":thS.background,color:atual?"#4338ca":thS.color}}>{MES_ABREV_MA[parseInt(m)-1]}{atual?" ◀":""}</th>;})}
+              <th style={{...thS,textAlign:"left"}}>Próxima etapa</th>
+            </tr></thead>
+            <tbody>
+              {emps.map(emp=>{
+                const ina=isInativa(emp);const st=ina?"na":statusAnaliseAtual(emp);const doEmp=new Set(getMeses(emp.periodoInicial));
+                return(<tr key={emp.id} style={{borderTop:"1px solid var(--border)",opacity:ina?.5:1}}>
+                  <td style={{padding:"6px 10px",borderLeft:"4px solid "+corSt[st],position:"sticky",left:0,background:"var(--bg2)",zIndex:1,minWidth:260,maxWidth:340}}>
+                    <div style={{display:"flex",gap:8,alignItems:"center",cursor:"pointer"}} onClick={()=>abrirDetalhe(emp,null,ano)}>
+                      {avatarV(emp,26)}
+                      <div style={{minWidth:0}}>
+                        <div title={emp.nome} style={{fontSize:12,fontWeight:800,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{emp.nome} <span style={{fontSize:10,fontWeight:600,color:"#94a3b8"}}>· {REGIME_CURTO[emp.regime]||emp.regime}</span></div>
+                        <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap"}} onClick={e=>e.stopPropagation()}>
+                          {emp.cnpj&&<span style={{fontFamily:"monospace",fontSize:9.5,color:"#94a3b8"}}>{emp.cnpj}</span>}
+                          {getRespSync(emp)&&<span style={{fontSize:9.5,color:"#4338ca",fontWeight:700}}>👤 {getRespSync(emp)}</span>}
+                          <TagBadges tags={getTagsEmp(emp)} colorMap={tagCoresSync}/>
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                  {mesesAno.map(m=>{
+                    const atual=m===mesCompetenciaAtual;const tdS={padding:"5px 3px",background:atual?"rgba(99,102,241,.05)":undefined};
+                    if(!doEmp.has(m))return<td key={m} style={tdS}/>;
+                    if(ehFuturo(m))return<td key={m} style={tdS}><div title="Mês futuro" style={{width:34,height:24,borderRadius:6,margin:"auto",background:"var(--bg3)",opacity:.5}}/></td>;
+                    const s=situacaoMes(emp.id,m);const e=estilo[s.st];
+                    const tip=getMesNome(m)+": "+(s.st==="an"?"analisado":s.st==="pronto"?"todas as etapas OK — falta analisar":s.st==="and"?`${s.ok}/${s.tot} etapas OK · próxima: ${s.prox?.label||""}`:`nada feito · próxima: ${s.prox?.label||""}`);
+                    return<td key={m} style={tdS}><div title={tip+" — clique para abrir"} onClick={()=>abrirDetalhe(emp,null,ano)} style={{width:34,height:24,borderRadius:6,margin:"auto",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:900,cursor:"pointer",background:e.bg,color:e.fg,border:e.bd}}>{e.tx||(s.st==="and"?s.ok+"/"+s.tot:"")}</div></td>;
+                  })}
+                  <td style={{padding:"5px 10px",maxWidth:220}}>{!ina&&proxTxt(emp)}</td>
+                </tr>);
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>);
+    };
+
+    const renderKanban=(emps)=>{
+      const mes=kanbanMes||mesCompetenciaAtual;
+      const opcoes=[];{const d=new Date();for(let i=0;i<14;i++){const x=new Date(d.getFullYear(),d.getMonth()-i,1);opcoes.push(String(x.getMonth()+1).padStart(2,"0")+"/"+x.getFullYear());}}
+      const ativos=emps.filter(e=>!isInativa(e)&&getMeses(e.periodoInicial).includes(mes));
+      const foraN=emps.length-ativos.length;
+      const COLS_K=[["fazer","A fazer","#64748b"],["and","Em andamento","#c2410c"],["pronto","Falta analisar","#b45309"],["an","Analisadas","#15803d"]];
+      const porSt={fazer:[],and:[],pronto:[],an:[]};
+      ativos.forEach(e=>{const s=situacaoMes(e.id,mes);porSt[s.st].push({e,s});});
+      return(<div>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+          <span style={{fontSize:11,fontWeight:800,color:"#64748b"}}>Competência:</span>
+          <select value={mes} onChange={e=>setKanbanMes(e.target.value)} style={{padding:"5px 10px",borderRadius:8,border:"1.5px solid #c7d2fe",background:"#eef2ff",color:"#4338ca",fontWeight:800,fontSize:12,fontFamily:"inherit",outline:"none"}}>
+            {opcoes.map(m=><option key={m} value={m}>{getMesNome(m)}{m===mesCompetenciaAtual?" (atual)":""}</option>)}
+          </select>
+          {foraN>0&&<span style={{fontSize:10.5,color:"#94a3b8"}}>{foraN} empresa(s) fora (inativas ou sem essa competência)</span>}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(220px,1fr))",gap:10,overflowX:"auto"}}>
+          {COLS_K.map(([k,t,c])=>(<div key={k} style={{background:"var(--bg3)",borderRadius:12,padding:10,display:"flex",flexDirection:"column",gap:8,minHeight:120}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:11,fontWeight:900,textTransform:"uppercase",letterSpacing:".06em",color:c}}>{t}<span style={{...chipV,background:"var(--bg2)",color:c,border:"1px solid "+c+"44"}}>{porSt[k].length}</span></div>
+            {porSt[k].length===0&&<div style={{textAlign:"center",color:"#cbd5e1",fontSize:11,padding:12}}>— vazio —</div>}
+            {porSt[k].map(({e:emp,s})=>(<div key={emp.id} onClick={()=>abrirDetalhe(emp,null,mes.split("/")[1])} title="Clique para abrir os meses desta empresa"
+              style={{background:"var(--bg2)",borderRadius:10,padding:"9px 10px",border:"1px solid var(--border)",borderLeft:"4px solid "+c,display:"flex",flexDirection:"column",gap:5,cursor:"pointer",boxShadow:"0 1px 2px rgba(0,0,0,.04)"}}>
+              <div style={{display:"flex",gap:7,alignItems:"center",minWidth:0}}>{avatarV(emp,24)}<b title={emp.nome} style={{fontSize:11.5,lineHeight:1.2,color:"var(--text)",overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{emp.nome}</b></div>
+              {emp.cnpj&&<span style={{fontFamily:"monospace",fontSize:10,color:"#94a3b8"}}>{emp.cnpj}</span>}
+              <div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}} onClick={e=>e.stopPropagation()}>
+                <span style={{...getRegStyle(emp.regime),padding:"1px 7px"}}>{REGIME_CURTO[emp.regime]||emp.regime}</span>
+                {respChip(emp)}
+                <TagBadges tags={getTagsEmp(emp)} colorMap={tagCoresSync}/>
+              </div>
+              {(k==="fazer"||k==="and")&&<>
+                <div style={{fontSize:10.5,fontWeight:700,color:"#c2410c"}}>{s.ok}/{s.tot} etapas{s.prox?<> · próxima: {s.prox.icon} {s.prox.label}</>:null}</div>
+                <div style={{height:4,borderRadius:3,background:"#e2e8f0",overflow:"hidden"}}><div style={{height:"100%",width:(s.tot?Math.round(s.ok/s.tot*100):0)+"%",background:"#f59e0b"}}/></div>
+              </>}
+              {!isGuestMode&&(k==="fazer"||k==="and")&&<button onClick={ev=>{ev.stopPropagation();marcarMesTodo(emp.id,mes);}} style={{alignSelf:"flex-start",background:"#f0fdf4",color:"#15803d",border:"1px solid #86efac",padding:"2px 9px",borderRadius:7,cursor:"pointer",fontSize:10.5,fontWeight:800,fontFamily:"inherit"}}>✓ Tudo OK</button>}
+              {!isGuestMode&&k==="pronto"&&<button onClick={ev=>{ev.stopPropagation();analisarMes(emp.id,mes);}} style={{alignSelf:"flex-start",background:"#f59e0b",color:"#fff",border:"none",padding:"3px 10px",borderRadius:7,cursor:"pointer",fontSize:10.5,fontWeight:800,fontFamily:"inherit"}}>🔍 Analisar</button>}
+            </div>))}
+          </div>))}
+        </div>
+      </div>);
+    };
+    const renderVisao=(emps)=>viewMode==="cartoes"?renderCartoes(emps):viewMode==="mapa"?renderMapa(emps):viewMode==="kanban"?renderKanban(emps):null;
 
     // ── Render empresa row ────────────────────────────────────────
     // Próxima pendência da empresa: mês mais antigo (até hoje) ainda não analisado e a primeira etapa em aberto nele
@@ -13312,6 +13480,13 @@ function makePageComponent(PAGE_CFG){
               )}
             </div>
             {abaAtiva!=="rapida"&&(
+              <div title="Escolha como ver as empresas — fica salvo para as próximas vezes" style={{display:"flex",flexShrink:0,border:"1px solid var(--border)",borderRadius:10,overflow:"hidden",background:"var(--bg2)"}}>
+                {[["lista","☰ Lista"],["cartoes","▦ Cartões"],["mapa","▤ Mapa do ano"],["kanban","▥ Kanban"]].map(([k,l])=>(
+                  <button key={k} onClick={()=>setViewMode(k)} style={{padding:"7px 11px",border:"none",borderRight:k!=="kanban"?"1px solid var(--border)":"none",background:viewMode===k?"#6366f1":"transparent",color:viewMode===k?"#fff":"#64748b",fontWeight:800,fontSize:11.5,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{l}</button>
+                ))}
+              </div>
+            )}
+            {abaAtiva!=="rapida"&&viewMode==="lista"&&(
               <div style={{display:"flex",gap:6,flexShrink:0}}>
                 <button onClick={expandirTudo} title="Abrir todas as empresas" style={{padding:"7px 10px",borderRadius:9,border:"1px solid var(--border)",background:"var(--bg2)",color:"#64748b",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>▥ Expandir</button>
                 <button onClick={recolherTudo} title="Fechar todas as empresas" style={{padding:"7px 10px",borderRadius:9,border:"1px solid var(--border)",background:"var(--bg2)",color:"#64748b",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>▤ Recolher</button>
@@ -13531,13 +13706,14 @@ function makePageComponent(PAGE_CFG){
                 <span style={{fontSize:14,color:"#94a3b8",transition:"transform .25s",transform:isGrpOpen(grp.id)?"rotate(180deg)":"none"}}>▼</span>
               </div>
             </div>
-            {isGrpOpen(grp.id)&&(<div style={{border:`1.5px solid ${color}44`,borderTop:"none",borderRadius:"0 0 12px 12px",overflow:"hidden",background:"var(--bg2)"}}>
+            {isGrpOpen(grp.id)&&viewMode!=="lista"&&(<div style={{border:`1.5px solid ${color}44`,borderTop:"none",borderRadius:"0 0 12px 12px",background:"var(--bg2)",padding:12}}>{renderVisao(allEmps)}</div>)}
+            {isGrpOpen(grp.id)&&viewMode==="lista"&&(<div style={{border:`1.5px solid ${color}44`,borderTop:"none",borderRadius:"0 0 12px 12px",overflow:"hidden",background:"var(--bg2)"}}>
               {empsGrp.map((emp,idx)=>renderEmpRow(emp,idx===empsGrp.length-1&&!subGrps.length,false,color))}
               {subGrps.map(sg=>{const sgC=getGrpColor(sg.id);const empsSg=empsFiltradas.filter(e=>e.grupoId===sg.id);if(!empsSg.length)return null;return(<div key={sg.id} style={{borderTop:`1.5px solid ${color}33`}}><div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 16px 8px 28px",background:sgC+"0d",borderBottom:`1px solid ${sgC}33`}}><span style={{fontSize:11,color:"#94a3b8"}}>↳</span><div style={{width:7,height:7,borderRadius:"50%",background:sgC}}/><span style={{fontSize:12,fontWeight:800,color:sgC}}>{sg.nome}</span><span style={{fontSize:10,color:"#94a3b8"}}>{empsSg.length}</span>{!isGuestMode&&<button onClick={()=>deleteGrupo(sg.id)} style={{background:"none",border:"none",cursor:"pointer",color:"#f87171",fontSize:11,padding:"2px 6px",borderRadius:6,marginLeft:"auto"}}>🗑</button>}</div>{empsSg.map((emp,idx)=>renderEmpRow(emp,idx===empsSg.length-1,true,sgC))}</div>);})}
             </div>)}
           </div>);
         })}
-        {abaAtiva==="semgrupo"&&(()=>{const sg=empsFiltradas.filter(e=>!e.grupoId);if(!sg.length)return null;return(<div style={{marginBottom:20}}><div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 14px",background:"var(--bg3)",borderRadius:"10px 10px 0 0",border:"1px solid var(--border)",borderBottom:"none"}}><span style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".08em"}}>Sem Grupo</span><span style={{fontSize:11,color:"#94a3b8"}}>{sg.length}</span></div><div style={{border:"1px solid var(--border)",borderTop:"none",borderRadius:"0 0 10px 10px",overflow:"hidden",background:"var(--bg2)"}}>{sg.map((emp,idx)=>renderEmpRow(emp,idx===sg.length-1,false,"#94a3b8"))}</div></div>);})()}
+        {abaAtiva==="semgrupo"&&(()=>{const sg=empsFiltradas.filter(e=>!e.grupoId);if(!sg.length)return null;return(<div style={{marginBottom:20}}><div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 14px",background:"var(--bg3)",borderRadius:"10px 10px 0 0",border:"1px solid var(--border)",borderBottom:"none"}}><span style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".08em"}}>Sem Grupo</span><span style={{fontSize:11,color:"#94a3b8"}}>{sg.length}</span></div><div style={{border:"1px solid var(--border)",borderTop:"none",borderRadius:"0 0 10px 10px",overflow:"hidden",background:"var(--bg2)"}}>{viewMode==="lista"?sg.map((emp,idx)=>renderEmpRow(emp,idx===sg.length-1,false,"#94a3b8")):<div style={{padding:12}}>{renderVisao(sg)}</div>}</div></div>);})()}
         {/* Empresas inativas — reativar rápido */}
         {abaAtiva==="rapida"&&(()=>{
           const lista=empresas.filter(e=>isInativa(e)&&(!guestEmpIds||guestEmpIds.has(e.id))&&(!meusGruposPermitidos||(()=>{const rn=nomeGrupoRaizDeMP(e);return !!rn&&meusGruposPermitidos.includes(rn);})()));
@@ -13565,6 +13741,9 @@ function makePageComponent(PAGE_CFG){
         <WhatsAppModal open={waMod.open} onClose={()=>setWaMod(m=>({...m,open:false}))} titulo={"Pendências — "+PAGE_TITLE} texto={waMod.texto} setTexto={v=>setWaMod(m=>({...m,texto:v}))} tel={waMod.tel} setTel={v=>setWaMod(m=>({...m,tel:v}))}/>
         <InativarEmpresaModal emp={inativarAlvo?.emp} tipo={inativarAlvo?.tipo} onClose={()=>setInativarAlvo(null)} onConfirm={confirmarInativar}/>
         {/* Menu rápido de status + ações em lote */}
+        <Modal open={!!empDetalhe&&!!empresas.find(e=>e.id===empDetalhe?.eid)} onClose={()=>setEmpDetalhe(null)} title={"🏢 "+(empresas.find(e=>e.id===empDetalhe?.eid)?.nome||"")} width={1180}>
+          {empDetalhe&&(()=>{const emp=empresas.find(e=>e.id===empDetalhe.eid);if(!emp)return null;return(<div style={{border:"1px solid var(--border)",borderRadius:12,overflow:"hidden",margin:"-6px -6px 0"}}>{renderEmpRow(emp,true,false,empDetalhe.color)}</div>);})()}
+        </Modal>
         <StatusQuickMenu menu={statusMenu} onClose={()=>setStatusMenu(null)}/>
         {loteModal&&(()=>{
           const colMap=new Map();

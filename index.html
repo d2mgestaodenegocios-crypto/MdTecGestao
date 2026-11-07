@@ -537,6 +537,94 @@ function LoteMesModal({open,onClose,titulo,empresas,cols,meses,mesInicial,fmtMes
 const REGIME_CURTO={simples:"Simples",lucro:"L. Real",presumido:"L. Presumido",imune:"Imune",isenta:"Isenta",mei:"MEI"};
 
 
+// ── Vigência de colunas de atividades ─────────────────────────────
+// Cada coluna pode ter "inicio" (1º mês em que vale) e "inativaDesde" (1º mês em que deixa de valer).
+// Fora da vigência a etapa é tratada como "não se aplica" — os dados gravados NÃO são apagados (histórico preservado).
+const mesIdxMA=(m)=>{if(!m||typeof m!=="string")return null;const p=m.split("/");if(p.length!==2)return null;const mm=parseInt(p[0],10),yy=parseInt(p[1],10);if(!mm||!yy)return null;return yy*12+mm-1;};
+const colVigente=(col,mes)=>{if(!col)return false;const mi=mesIdxMA(mes);if(mi==null)return true;const i=mesIdxMA(col.inicio),f=mesIdxMA(col.inativaDesde);if(i!=null&&mi<i)return false;if(f!=null&&mi>=f)return false;return true;};
+const MES_ABREV_MA=["JAN","FEV","MAR","ABR","MAI","JUN","JUL","AGO","SET","OUT","NOV","DEZ"];
+const fmtMesMA=(m)=>{const i=mesIdxMA(m);if(i==null)return m||"";return MES_ABREV_MA[i%12]+"/"+Math.floor(i/12);};
+const mesDeIdxMA=(i)=>String(i%12+1).padStart(2,"0")+"/"+Math.floor(i/12);
+const textoVigencia=(col)=>{if(!col)return"";if(col.inativaDesde)return"Inativa desde "+fmtMesMA(col.inativaDesde);if(col.inicio)return"Vale desde "+fmtMesMA(col.inicio);return"";};
+// Lista de meses para os seletores (do mais recente para o mais antigo)
+const opcoesMesesMA=()=>{const d=new Date();const fim=d.getFullYear()*12+d.getMonth()+12;const ini=(d.getFullYear()-6)*12;const out=[];for(let i=fim;i>=ini;i--)out.push(mesDeIdxMA(i));return out;};
+
+// Editor de colunas compartilhado (padrão global e por empresa)
+function ColunasEditor({cols,setCols,mesAtual,usoDe,iconOptions,aviso}){
+  const [verInativas,setVerInativas]=React.useState(true);
+  const meses=React.useMemo(()=>opcoesMesesMA(),[]);
+  const icones=React.useMemo(()=>[...new Set(iconOptions||[])],[iconOptions]);
+  const ativas=cols.map((c,i)=>({c,i})).filter(({c})=>!c.inativaDesde);
+  const inativas=cols.map((c,i)=>({c,i})).filter(({c})=>!!c.inativaDesde);
+  const upd=(i,patch)=>setCols(d=>d.map((c,j)=>j===i?{...c,...patch}:c));
+  const mover=(i,dir)=>setCols(d=>{
+    // move dentro da lista de ativas, preservando a posição relativa das inativas
+    const idxAtivas=d.map((c,j)=>c.inativaDesde?null:j).filter(j=>j!=null);
+    const p=idxAtivas.indexOf(i),q=p+dir;if(p<0||q<0||q>=idxAtivas.length)return d;
+    const n=d.slice();const a=idxAtivas[p],b=idxAtivas[q];[n[a],n[b]]=[n[b],n[a]];return n;
+  });
+  const excluir=(i)=>{
+    const c=cols[i];const uso=usoDe?usoDe(c.key):0;
+    if(uso>0){
+      const r=window.prompt(`⚠️ "${c.label}" tem ${uso} registro(s) de histórico.\n\nExcluir apaga a coluna de TODOS os meses (o histórico some da tela).\nPrefira "⏸ Inativar", que mantém o histórico.\n\nPara excluir mesmo assim, digite EXCLUIR:`);
+      if((r||"").trim().toUpperCase()!=="EXCLUIR")return;
+    }else if(!window.confirm(`Excluir a coluna "${c.label}"?`))return;
+    setCols(d=>d.filter((_,j)=>j!==i));
+  };
+  const sel={padding:"4px 6px",borderRadius:7,border:"1.5px solid #e5e7eb",fontSize:11,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"};
+  const ib={background:"none",border:"none",cursor:"pointer",fontSize:12,padding:"1px 4px",borderRadius:5,color:"#64748b",lineHeight:1};
+  const linha=({c,i},pos,total)=>{
+    const ina=!!c.inativaDesde;const uso=usoDe?usoDe(c.key):0;
+    return(<div key={c.key||i} style={{display:"flex",flexDirection:"column",gap:6,padding:"8px 10px",borderRadius:10,background:ina?"#f8fafc":"var(--bg3)",border:ina?"1px dashed #cbd5e1":"1px solid var(--border)",opacity:ina?.85:1}}>
+      <div style={{display:"flex",gap:6,alignItems:"center"}}>
+        {!ina&&<div style={{display:"flex",flexDirection:"column"}}>
+          <button title="Subir" disabled={pos===0} onClick={()=>mover(i,-1)} style={{...ib,opacity:pos===0?.25:1}}>▲</button>
+          <button title="Descer" disabled={pos===total-1} onClick={()=>mover(i,1)} style={{...ib,opacity:pos===total-1?.25:1}}>▼</button>
+        </div>}
+        <select value={c.icon} onChange={e=>upd(i,{icon:e.target.value})} style={{...sel,width:50,fontSize:15,padding:"4px 2px"}}>
+          {icones.map(ic=><option key={ic} value={ic}>{ic}</option>)}
+          {!icones.includes(c.icon)&&<option value={c.icon}>{c.icon}</option>}
+        </select>
+        <input value={c.label} onChange={e=>upd(i,{label:e.target.value})} style={{...sel,flex:1,fontSize:13,padding:"6px 9px",textDecoration:ina?"line-through":"none",color:ina?"#94a3b8":"var(--text)"}} placeholder="Nome da coluna"/>
+        <input type="color" value={c.color||"#6366f1"} onChange={e=>upd(i,{color:e.target.value})} style={{width:30,height:30,borderRadius:7,border:"1.5px solid #e5e7eb",cursor:"pointer",padding:2}}/>
+        {ina
+          ?<button onClick={()=>upd(i,{inativaDesde:undefined})} title="Voltar a exigir esta etapa" style={{background:"#dcfce7",color:"#15803d",border:"1px solid #86efac",padding:"4px 9px",borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:800,fontFamily:"inherit",whiteSpace:"nowrap"}}>▶ Reativar</button>
+          :<button onClick={()=>upd(i,{inativaDesde:mesAtual})} title="Deixa de exigir a etapa a partir do mês escolhido, mantendo o histórico dos meses anteriores" style={{background:"#f1f5f9",color:"#475569",border:"1px solid #cbd5e1",padding:"4px 9px",borderRadius:7,cursor:"pointer",fontSize:11,fontWeight:800,fontFamily:"inherit",whiteSpace:"nowrap"}}>⏸ Inativar</button>}
+        <button onClick={()=>excluir(i)} title={uso?`Excluir (tem ${uso} registro(s) — prefira inativar)`:"Excluir coluna"} style={{...ib,color:"#f87171",fontSize:15}}>🗑</button>
+      </div>
+      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",fontSize:11,color:"#64748b",paddingLeft:ina?0:26}}>
+        <span>Vale desde</span>
+        <select value={c.inicio||""} onChange={e=>upd(i,{inicio:e.target.value||undefined})} style={sel}>
+          <option value="">sempre</option>
+          {meses.map(m=><option key={m} value={m}>{fmtMesMA(m)}</option>)}
+        </select>
+        {ina&&<><span>· inativa a partir de</span>
+          <select value={c.inativaDesde} onChange={e=>upd(i,{inativaDesde:e.target.value})} style={sel}>
+            {meses.map(m=><option key={m} value={m}>{fmtMesMA(m)}</option>)}
+          </select></>}
+        {uso>0&&<span title="Registros gravados nesta coluna" style={{marginLeft:"auto",fontSize:10,color:"#94a3b8"}}>📚 {uso} registro(s)</span>}
+      </div>
+    </div>);
+  };
+  const addCol=()=>setCols(d=>[...d,{key:"col_"+Date.now(),icon:"📋",label:"Nova Coluna",color:"#6366f1",inicio:mesAtual}]);
+  return(<div style={{display:"flex",flexDirection:"column",gap:10}}>
+    {aviso}
+    <div style={{padding:"9px 12px",borderRadius:10,background:"#e0f2fe",border:"1px solid #bae6fd",fontSize:11.5,color:"#0369a1",lineHeight:1.5}}>
+      💡 <b>⏸ Inativar</b> para de exigir a etapa a partir de um mês e <b>mantém o histórico</b> dos meses anteriores. Colunas novas valem a partir de <b>{fmtMesMA(mesAtual)}</b> (ajuste em “Vale desde”), assim os meses antigos não ficam incompletos.
+    </div>
+    <div style={{fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em"}}>Ativas ({ativas.length})</div>
+    <div style={{maxHeight:330,overflowY:"auto",display:"flex",flexDirection:"column",gap:7}}>
+      {ativas.length===0&&<div style={{fontSize:12,color:"#94a3b8",padding:8}}>Nenhuma coluna ativa.</div>}
+      {ativas.map((x,p)=>linha(x,p,ativas.length))}
+    </div>
+    <button onClick={addCol} style={{alignSelf:"flex-start",background:"transparent",border:"1.5px dashed #94a3b8",color:"#475569",padding:"6px 12px",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit"}}>+ Nova coluna</button>
+    {inativas.length>0&&(<>
+      <button onClick={()=>setVerInativas(v=>!v)} style={{alignSelf:"flex-start",background:"none",border:"none",padding:0,cursor:"pointer",fontSize:10,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".08em",fontFamily:"inherit"}}>{verInativas?"▾":"▸"} Inativas ({inativas.length}) — histórico preservado</button>
+      {verInativas&&<div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:220,overflowY:"auto"}}>{inativas.map((x,p)=>linha(x,p,inativas.length))}</div>}
+    </>)}
+  </div>);
+}
+
 // Normaliza uma tarefa do Supabase/storage, preservando TODOS os campos
 function normalizeTask(t){
   return {
@@ -9536,6 +9624,9 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
   const mesHojeIdxC=(()=>{const d=new Date();return d.getFullYear()*12+d.getMonth();})();
   const ehFuturoC=(mes)=>{const[mm,aa]=mes.split("/");return parseInt(aa)*12+parseInt(mm)-1>mesHojeIdxC;};
   const mesCompetenciaAtualC=(()=>{const d=new Date();d.setMonth(d.getMonth()-1);return String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear();})();
+  const [filterAnaliseC,setFilterAnaliseC]=useState(""); // "" | "sim" | "nao" — competência atual
+  // "sim" = competência atual analisada · "nao" = ainda não · "na" = empresa ainda não tinha essa competência
+  const statusAnaliseAtualC=(e)=>{if(!getMesesC(e.periodoInicial).includes(mesCompetenciaAtualC))return"na";return cDados.find(d=>d.empresaId===e.id&&d.competencia===mesCompetenciaAtualC)?.analisado?"sim":"nao";};
   const proximaPendenciaC=(emp)=>{
     const dados=getDadosEmp(emp.id).filter(d=>!ehFuturoC(d.competencia));
     const item=dados.find(d=>!d.analisado);
@@ -9758,8 +9849,9 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
     if(filterGrp&&filterGrp!=="__sem__"&&e.grupoId!==parseInt(filterGrp)) return false;
     if(filterReg&&e.regime!==filterReg) return false;
     if(filterResp){const r=getRespSync(e);if(filterResp==="__sem__"?!!r:r!==filterResp)return false;}
+    if(filterAnaliseC){const st=statusAnaliseAtualC(e);if(filterAnaliseC==="sim"?st!=="sim":st!=="nao")return false;}
     return true;
-  }),[cEmpresas,filterEmp,filterGrp,filterReg,filterSit,filterResp,guestEmpIds,meusGruposPermitidos,cGrupos,isInativa,isBaixada,respSync,marcadoresSync,data?.companies]);
+  }),[cEmpresas,filterEmp,filterGrp,filterReg,filterSit,filterResp,filterAnaliseC,cDados,guestEmpIds,meusGruposPermitidos,cGrupos,isInativa,isBaixada,respSync,marcadoresSync,data?.companies]);
   const responsaveisListaC=useMemo(()=>[...new Set(Object.values(respSync||{}).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"pt-BR")),[respSync]);
 
   const statsGlobais=useMemo(()=>{
@@ -9873,6 +9965,10 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
                 {kpi(nAnalisar,"prontas p/ analisar","#b45309","#fffbeb","Todas as etapas OK, falta só a análise")}
                 {kpi(statsGlobais.liberados,"períodos liberados","#7c3aed","#f5f3ff","Todos os meses analisados — liberado para ECD/ECF")}
                 {statsGlobais.inativas>0&&kpi(statsGlobais.inativas,"inativas","#94a3b8","var(--bg3)","Inativas/baixadas (fora dos totais)")}
+                {(()=>{const nS=ativas.filter(e=>statusAnaliseAtualC(e)==="sim").length;const nN=ativas.filter(e=>statusAnaliseAtualC(e)==="nao").length;const b=(v,l,c,bg,val,tip)=>(<button key={val} onClick={()=>setFilterAnaliseC(f=>f===val?"":val)} title={tip+" — clique para filtrar"} style={{display:"flex",alignItems:"baseline",gap:6,padding:"8px 14px",borderRadius:11,border:filterAnaliseC===val?"2px solid "+c:"1px solid "+c+"33",background:bg,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}><span style={{fontSize:20,fontWeight:900,color:c,lineHeight:1}}>{v}</span><span style={{fontSize:11,fontWeight:700,color:c,opacity:.85,whiteSpace:"nowrap"}}>{l}</span>{filterAnaliseC===val&&<span style={{fontSize:10,color:c,fontWeight:900}}>✕</span>}</button>);return(<>
+                  {b(nS,fmtMesMA(mesCompetenciaAtualC)+" analisadas","#15803d","#dcfce7","sim","Empresas com a competência atual já analisada")}
+                  {b(nN,fmtMesMA(mesCompetenciaAtualC)+" não analisadas","#b45309","#fef3c7","nao","Empresas com a competência atual ainda não analisada")}
+                </>);})()}
               </div>
               <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
                 <Btn onClick={()=>setObsResModal(true)} v="ghost" sz="sm">📝 Observações{cObs.filter(o=>!o.verificado).length>0&&<span style={{marginLeft:4,background:"#f59e0b",color:"#fff",borderRadius:10,padding:"0 6px",fontSize:10,fontWeight:900}}>{cObs.filter(o=>!o.verificado).length}</span>}</Btn>
@@ -10118,7 +10214,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
               <span style={{fontSize:13,fontWeight:900,color,letterSpacing:".02em"}}>{grp.nome}</span>
               <span style={{fontSize:11,color:"#94a3b8",marginLeft:4}}>{allEmps.length} empresa(s)</span>
               <div style={{marginLeft:"auto",display:"flex",gap:6,alignItems:"center"}}>
-                {(()=>{const at=allEmps.filter(e=>!isInativa(e));const dia=at.filter(e=>!proximaPendenciaC(e)).length;return(<span style={{fontSize:10.5,fontWeight:800,color:"#15803d",background:"#f0fdf4",border:"1px solid #86efac",padding:"2px 8px",borderRadius:20}}>✅ {dia}/{at.length} em dia</span>);})()}
+                {(()=>{const at=allEmps.filter(e=>!isInativa(e));const dia=at.filter(e=>!proximaPendenciaC(e)).length;const apl=at.filter(e=>statusAnaliseAtualC(e)!=="na");const anS=apl.filter(e=>statusAnaliseAtualC(e)==="sim").length;return(<>{apl.length>0&&<span title={"Competência "+getMesNomeC(mesCompetenciaAtualC)+": analisadas / total"} style={{fontSize:10.5,fontWeight:800,color:anS===apl.length?"#15803d":"#b45309",background:anS===apl.length?"#dcfce7":"#fef3c7",border:"1px solid "+(anS===apl.length?"#86efac":"#fcd34d"),padding:"2px 8px",borderRadius:20}}>🔍 {fmtMesMA(mesCompetenciaAtualC)}: {anS}/{apl.length}</span>}<span style={{fontSize:10.5,fontWeight:800,color:"#15803d",background:"#f0fdf4",border:"1px solid #86efac",padding:"2px 8px",borderRadius:20}}>✅ {dia}/{at.length} em dia</span></>);})()}
                 {!isGuestMode&&<button onClick={e=>{e.stopPropagation();setLoteModalC({titulo:"⚡ Lote por mês — "+grp.nome,empresas:allEmps.filter(x=>!isInativa(x))});}} title="Aplicar um status a várias empresas deste grupo" style={{background:"#0ea5e9",border:"none",cursor:"pointer",color:"#fff",fontSize:11,padding:"4px 10px",borderRadius:8,fontWeight:800,fontFamily:"inherit"}}>⚡ Lote</button>}
                 <button onClick={e=>{e.stopPropagation();setLinkModal({grp});}} title="Gerar link de acesso" style={{background:color+"22",border:`1px solid ${color}44`,cursor:"pointer",color,fontSize:11,padding:"3px 9px",borderRadius:8,fontWeight:700,display:"flex",alignItems:"center",gap:4}} onMouseEnter={e=>e.currentTarget.style.background=color+"44"} onMouseLeave={e=>e.currentTarget.style.background=color+"22"}>🔗 Link</button>
                 <button onClick={e=>{e.stopPropagation();confirmarDeleteGrupo(grp);}} title="Excluir grupo" style={{background:"none",border:"none",cursor:"pointer",color:"#f87171",fontSize:13,padding:"2px 6px",borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.background="#fef2f2"} onMouseLeave={e=>e.currentTarget.style.background="none"}>🗑</button>
@@ -10963,6 +11059,10 @@ function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgC
   const resp=getRespSync?getRespSync(emp):"";
   const prox=inativa?null:proximaPendenciaC(emp);
   const chip={display:"inline-flex",alignItems:"center",gap:3,padding:"1px 7px",borderRadius:20,fontSize:10,fontWeight:700,whiteSpace:"nowrap"};
+  // Destaque da competência atual: verde = já analisada · âmbar = ainda não
+  const stAtual=inativa||!mesesEmpTodos.includes(mesCompetenciaAtualC)?"na":(dadosEmp.find(d=>d.competencia===mesCompetenciaAtualC)?.analisado?"sim":"nao");
+  const corAtual=stAtual==="sim"?"#22c55e":stAtual==="nao"?"#f59e0b":"transparent";
+  const bgLinha=emp.expandido?"var(--bg2)":stAtual==="sim"?"rgba(34,197,94,.07)":stAtual==="nao"?"rgba(245,158,11,.05)":"transparent";
   const COLS=[
     {key:"fiscal",icon:"📋",label:(colLabels&&colLabels.fiscal)||"Fiscal"},
     {key:"extratos",icon:"💰",label:(colLabels&&colLabels.extratos)||"Extratos"},
@@ -10980,9 +11080,9 @@ function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgC
   return(
     <div id={"emp-row-"+emp.id} style={{borderBottom:isLast?"none":"1px solid var(--border)",background:isSelected?"#eff6ff":selectedEmpPanel===emp.id?"rgba(99,102,241,.06)":inativa?"rgba(148,163,184,.16)":undefined}}>
       {/* Linha da empresa */}
-      <div onClick={()=>toggleEmpC(emp.id)} style={{display:"flex",alignItems:"center",padding:indent?"9px 12px 9px 26px":"9px 12px",gap:10,cursor:"pointer",transition:"background .1s",background:emp.expandido?"var(--bg2)":undefined,borderLeft:selectedEmpPanel===emp.id?"3px solid #6366f1":emp.expandido?"3px solid "+grpColor:"3px solid transparent"}}
-        onMouseEnter={e=>!batchMode&&(e.currentTarget.style.background="rgba(99,102,241,.04)")}
-        onMouseLeave={e=>!batchMode&&(e.currentTarget.style.background=emp.expandido?"var(--bg2)":"transparent")}
+      <div onClick={()=>toggleEmpC(emp.id)} style={{display:"flex",alignItems:"center",padding:indent?"9px 12px 9px 26px":"9px 12px",gap:10,cursor:"pointer",transition:"background .1s",background:bgLinha,borderLeft:selectedEmpPanel===emp.id?"4px solid #6366f1":"4px solid "+corAtual}}
+        onMouseEnter={e=>!batchMode&&(e.currentTarget.style.background="rgba(99,102,241,.06)")}
+        onMouseLeave={e=>!batchMode&&(e.currentTarget.style.background=bgLinha)}
       >
         <span style={{fontSize:10,color:"#94a3b8",transition:"transform .2s",transform:emp.expandido?"rotate(90deg)":"none",flexShrink:0,userSelect:"none",width:10}}>▶</span>
         {batchMode&&<input type="checkbox" checked={isSelected} onChange={()=>toggleSel(emp.id)} onClick={e=>e.stopPropagation()} style={{width:16,height:16,cursor:"pointer",accentColor:"#6366f1",flexShrink:0}}/>}
@@ -10994,6 +11094,8 @@ function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgC
             <span title={emp.nome} style={{...gr,fontSize:13,fontWeight:800,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{emp.nome}</span>
             <span title={getRegimeLbl(emp.regime)} style={{...getRegStyle(emp.regime),...gr,padding:"1px 7px",whiteSpace:"nowrap",flexShrink:0}}>{REGIME_CURTO[emp.regime]||getRegimeLbl(emp.regime)}</span>
             {inativa&&<span title={textoInativa(infoInativa)} style={{...chip,background:baixada?"#ffe4e6":"#e2e8f0",color:baixada?"#9f1239":"#475569",border:"1px solid #cbd5e1",fontWeight:800,flexShrink:0}}>{baixada?"🔒 BAIXADA":"⏸ INATIVA"}</span>}
+            {stAtual==="sim"&&<span title={"Competência "+getMesNomeC(mesCompetenciaAtualC)+" já analisada"} style={{...chip,background:"#dcfce7",color:"#15803d",border:"1px solid #86efac",fontWeight:800,flexShrink:0}}>✅ {fmtMesMA(mesCompetenciaAtualC)} analisada</span>}
+            {stAtual==="nao"&&<span title={"Competência "+getMesNomeC(mesCompetenciaAtualC)+" ainda não analisada"} style={{...chip,background:"#fef3c7",color:"#b45309",border:"1px solid #fcd34d",fontWeight:800,flexShrink:0}}>⏳ {fmtMesMA(mesCompetenciaAtualC)} não analisada</span>}
           </div>
           <div style={{display:"flex",alignItems:"center",gap:5,marginTop:3,flexWrap:"wrap",minWidth:0}} onClick={e=>e.stopPropagation()}>
             {emp.cnpj&&<span style={{fontSize:10,color:"#94a3b8",fontFamily:"monospace",whiteSpace:"nowrap"}}>{emp.cnpj}</span>}
@@ -12444,8 +12546,13 @@ function makePageComponent(PAGE_CFG){
     const SS={"nao-iniciado":{bg:"#f8fafc",color:"#94a3b8",border:"1.5px solid #e2e8f0"},"pendente":{bg:"#fff7ed",color:"#c2410c",border:"1.5px solid #fed7aa"},"ok":{bg:"#f0fdf4",color:"#15803d",border:"1.5px solid #86efac"},"nao-aplica":{bg:"#f1f5f9",color:"#cbd5e1",border:"1.5px dashed #cbd5e1"}};
     const SL={"nao-iniciado":"✗ Não","pendente":"⏳ Pend.","ok":"✅ Ok","nao-aplica":"— N/A"};
     const gst=(s)=>{const st=SS[s]||SS["nao-iniciado"];return{...st,background:st.bg,padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"};};
-    const getCell=(eid,mes,col)=>dados[eid+"_"+mes+"_"+col]||"nao-iniciado";
+    const getCellRaw=(eid,mes,col)=>dados[eid+"_"+mes+"_"+col]||"nao-iniciado";
+    // Coluna fora da vigência (antes do "Vale desde" ou após "Inativa a partir de") conta como "não se aplica".
+    // O valor gravado continua guardado em `dados` — o histórico não é apagado.
+    const colVigenteEmp=(eid,mes,colKey)=>{const c=safeCols(eid).find(x=>x.key===colKey);return !c||colVigente(c,mes);};
+    const getCell=(eid,mes,col)=>colVigenteEmp(eid,mes,col)?getCellRaw(eid,mes,col):"nao-aplica";
     const cycleCell=(eid,mes,colKey)=>{
+      if(!colVigenteEmp(eid,mes,colKey)){toast("⏸ Esta etapa não vale para "+getMesNome(mes)+" (fora da vigência da coluna).","warn");return;}
       const empC=safeCols(eid);
       const colIdx=empC.findIndex(c=>c.key===colKey);
       if(!colLiberada(eid,mes,colIdx)){
@@ -12529,6 +12636,7 @@ function makePageComponent(PAGE_CFG){
     // Atalho: define o status direto (menu do clique direito), sem passar pelo ciclo
     const setCellDireto=(eid,mes,colKey,valor)=>{
       if(estaAnalisado(eid,mes)){toast("⚠️ Mês já analisado. Reverta a análise para alterar.","warn");return;}
+      if(!colVigenteEmp(eid,mes,colKey)){toast("⏸ Esta etapa não vale para "+getMesNome(mes)+" (fora da vigência da coluna).","warn");return;}
       const empC=safeCols(eid);
       const colIdx=empC.findIndex(c=>c.key===colKey);
       if((valor==="ok"||valor==="pendente")&&!colLiberada(eid,mes,colIdx)){
@@ -12561,18 +12669,19 @@ function makePageComponent(PAGE_CFG){
         const empC=safeCols(eid);
         if(col==="*"){
           empC.forEach(c=>{
+            if(!colVigente(c,mes))return;
             if(acao==="ok"&&getCell(eid,mes,c.key)==="nao-aplica")return;
             patch[eid+"_"+mes+"_"+c.key]=acao;
           });
           alteradas++;return;
         }
         const idx=empC.findIndex(c=>c.key===col);
-        if(idx===-1){semColuna++;return;}
+        if(idx===-1||!colVigente(empC[idx],mes)){semColuna++;return;}
         if((acao==="ok"||acao==="pendente")&&!colLiberada(eid,mes,idx)){bloqueadas++;return;}
         patch[eid+"_"+mes+"_"+col]=acao;alteradas++;
       });
       aplicarPatch(patch);
-      const avisos=[jaAnalisadas&&`${jaAnalisadas} já analisada(s)`,bloqueadas&&`${bloqueadas} com etapa anterior pendente`,semColuna&&`${semColuna} sem essa coluna`,incompletas&&`${incompletas} com etapas incompletas`].filter(Boolean);
+      const avisos=[jaAnalisadas&&`${jaAnalisadas} já analisada(s)`,bloqueadas&&`${bloqueadas} com etapa anterior pendente`,semColuna&&`${semColuna} sem essa coluna (ou fora da vigência)`,incompletas&&`${incompletas} com etapas incompletas`].filter(Boolean);
       toast(`⚡ ${alteradas} empresa(s) atualizada(s)`+(avisos.length?" · ignoradas: "+avisos.join(", "):""),alteradas?"ok":"warn",6000);
       setLoteModal(null);
     };
@@ -12784,6 +12893,22 @@ function makePageComponent(PAGE_CFG){
     const getColsForEmp=(eid)=>{const ov=empColsOverride[eid];if(ov&&Array.isArray(ov)&&ov.length)return ov;return Array.isArray(cols)&&cols.length?cols:DEFAULT_COLS;};
     const [empColsModal,setEmpColsModal]=useState(null); // empId
     const [empColsDraft,setEmpColsDraft]=useState([]);
+    // Contagem de registros gravados por coluna (só calcula com o editor aberto)
+    const usoCols=useMemo(()=>{
+      const g={},pe={};if(!editColsModal&&!empColsModal)return{g,pe};
+      Object.keys(dados).forEach(k=>{
+        const v=dados[k];if(!v||v==="nao-iniciado"||k.endsWith("__analisado"))return;
+        const a=k.indexOf("_"),b=a<0?-1:k.indexOf("_",a+1);if(b<0)return;
+        const eid=k.slice(0,a),ck=k.slice(b+1);
+        pe[eid+"|"+ck]=(pe[eid+"|"+ck]||0)+1;
+        if(!empColsOverride[eid])g[ck]=(g[ck]||0)+1;
+      });
+      return{g,pe};
+    },[dados,editColsModal,empColsModal,empColsOverride]);
+    const [filterAnalise,setFilterAnalise]=useState(""); // "" | "sim" | "nao" — competência atual
+    const mesCompAtualF=(()=>{const d=new Date();d.setMonth(d.getMonth()-1);return String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear();})();
+    // "sim" = competência atual analisada · "nao" = ainda não · "na" = empresa ainda não tinha essa competência
+    const statusAnaliseAtual=(e)=>{if(!getMeses(e.periodoInicial||"01/2025").includes(mesCompAtualF))return"na";return estaAnalisado(e.id,mesCompAtualF)?"sim":"nao";};
 
     const guestEmpIds=useMemo(()=>{if(!isGuestMode||!guestGrpId)return null;const sids=grupos.filter(g=>g.parentId===guestGrpId).map(g=>g.id);return new Set(empresas.filter(e=>e.grupoId===guestGrpId||sids.includes(e.grupoId)).map(e=>e.id));},[isGuestMode,guestGrpId,empresas,grupos]);
     // ── Trava de visibilidade: quais grupos este usuário pode ver (admin sempre vê tudo) ──
@@ -12809,7 +12934,7 @@ function makePageComponent(PAGE_CFG){
       if((getSocioInfo(e)?.nome||"").toLowerCase().includes(t))return true;
       return getTagsEmp(e).some(x=>(x||"").toLowerCase().includes(t));
     };
-    const empsFiltradas=useMemo(()=>empresas.filter(e=>{if(guestEmpIds&&!guestEmpIds.has(e.id))return false;if(meusGruposPermitidos){const rn=nomeGrupoRaizDeMP(e);if(!rn||!meusGruposPermitidos.includes(rn))return false;}if(filterEmp&&!bateBuscaMP(e,filterEmp))return false;if(filterSit==="ativas"&&isInativa(e))return false;if(filterSit==="inativas"&&!(isInativa(e)&&!isBaixada(e)))return false;if(filterSit==="baixadas"&&!isBaixada(e))return false;if(filterGrp==="__sem__"&&e.grupoId)return false;if(filterGrp&&filterGrp!=="__sem__"&&e.grupoId!==parseInt(filterGrp))return false;if(filterReg&&e.regime!==filterReg)return false;if(filterResp){const r=getRespSync(e);if(filterResp==="__sem__"?!!r:r!==filterResp)return false;}return true;}),[empresas,filterEmp,filterGrp,filterReg,filterSit,filterResp,guestEmpIds,meusGruposPermitidos,grupos,isInativa,isBaixada,respSync,marcadoresSync,sysData?.companies]);
+    const empsFiltradas=useMemo(()=>empresas.filter(e=>{if(guestEmpIds&&!guestEmpIds.has(e.id))return false;if(meusGruposPermitidos){const rn=nomeGrupoRaizDeMP(e);if(!rn||!meusGruposPermitidos.includes(rn))return false;}if(filterEmp&&!bateBuscaMP(e,filterEmp))return false;if(filterSit==="ativas"&&isInativa(e))return false;if(filterSit==="inativas"&&!(isInativa(e)&&!isBaixada(e)))return false;if(filterSit==="baixadas"&&!isBaixada(e))return false;if(filterGrp==="__sem__"&&e.grupoId)return false;if(filterGrp&&filterGrp!=="__sem__"&&e.grupoId!==parseInt(filterGrp))return false;if(filterReg&&e.regime!==filterReg)return false;if(filterResp){const r=getRespSync(e);if(filterResp==="__sem__"?!!r:r!==filterResp)return false;}if(filterAnalise){const st=statusAnaliseAtual(e);if(filterAnalise==="sim"?st!=="sim":st!=="nao")return false;}return true;}),[empresas,filterEmp,filterGrp,filterReg,filterSit,filterResp,filterAnalise,dados,guestEmpIds,meusGruposPermitidos,grupos,isInativa,isBaixada,respSync,marcadoresSync,sysData?.companies]);
     const responsaveisLista=useMemo(()=>[...new Set(Object.values(respSync||{}).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"pt-BR")),[respSync]);
     // Competência de trabalho: o mês anterior (é o que vence neste mês)
     const mesCompetenciaAtual=(()=>{const d=new Date();d.setMonth(d.getMonth()-1);return String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear();})();
@@ -12894,11 +13019,15 @@ function makePageComponent(PAGE_CFG){
       const resp=getRespSync(emp);
       const prox=inativa?null:proximaPendencia(emp);
       const chip={display:"inline-flex",alignItems:"center",gap:3,padding:"1px 7px",borderRadius:20,fontSize:10,fontWeight:700,whiteSpace:"nowrap"};
+      // Destaque da competência atual: verde = já analisada · âmbar = ainda não
+      const stAtual=inativa?"na":statusAnaliseAtual(emp);
+      const corAtual=stAtual==="sim"?"#22c55e":stAtual==="nao"?"#f59e0b":"transparent";
+      const bgLinha=isExpanded?"var(--bg2)":stAtual==="sim"?"rgba(34,197,94,.07)":stAtual==="nao"?"rgba(245,158,11,.05)":"transparent";
       return(
         <div id={"emp-row-"+emp.id} key={emp.id} style={{borderBottom:isLast?"none":"1px solid var(--border)",background:isSelected?"#eff6ff":selectedEmpPanel===emp.id?"rgba(99,102,241,.06)":inativa?"rgba(148,163,184,.16)":undefined}}>
-          <div onClick={()=>toggleEmpExp(emp.id)} style={{display:"flex",alignItems:"center",padding:indent?"9px 12px 9px 26px":"9px 12px",gap:10,cursor:"pointer",transition:"background .1s",background:isExpanded?"var(--bg2)":undefined,borderLeft:selectedEmpPanel===emp.id?"3px solid #6366f1":isExpanded?"3px solid "+grpColor:"3px solid transparent"}}
-            onMouseEnter={e=>!batchMode&&(e.currentTarget.style.background="rgba(99,102,241,.04)")}
-            onMouseLeave={e=>!batchMode&&(e.currentTarget.style.background=isExpanded?"var(--bg2)":"transparent")}
+          <div onClick={()=>toggleEmpExp(emp.id)} style={{display:"flex",alignItems:"center",padding:indent?"9px 12px 9px 26px":"9px 12px",gap:10,cursor:"pointer",transition:"background .1s",background:bgLinha,borderLeft:selectedEmpPanel===emp.id?"4px solid #6366f1":"4px solid "+corAtual}}
+            onMouseEnter={e=>!batchMode&&(e.currentTarget.style.background="rgba(99,102,241,.06)")}
+            onMouseLeave={e=>!batchMode&&(e.currentTarget.style.background=bgLinha)}
           >
             <span style={{fontSize:10,color:"#94a3b8",transition:"transform .2s",transform:isExpanded?"rotate(90deg)":"none",flexShrink:0,userSelect:"none",width:10}}>▶</span>
             {batchMode&&<input type="checkbox" checked={isSelected} onChange={()=>setSelectedEmps(prev=>{const n=new Set(prev);n.has(emp.id)?n.delete(emp.id):n.add(emp.id);return n;})} onClick={e=>e.stopPropagation()} style={{width:16,height:16,cursor:"pointer",accentColor:"#6366f1",flexShrink:0}}/>}
@@ -12911,6 +13040,8 @@ function makePageComponent(PAGE_CFG){
                 <span title={emp.nome} style={{...gr,fontSize:13,fontWeight:800,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{emp.nome}</span>
                 <span title={RegLabel[emp.regime]||emp.regime} style={{...getRegStyle(emp.regime),...gr,padding:"1px 7px",whiteSpace:"nowrap",flexShrink:0}}>{REGIME_CURTO[emp.regime]||emp.regime}</span>
                 {inativa&&<span title={textoInativa(infoInativa)} style={{...chip,background:baixada?"#ffe4e6":"#e2e8f0",color:baixada?"#9f1239":"#475569",border:"1px solid #cbd5e1",fontWeight:800,flexShrink:0}}>{baixada?"🔒 BAIXADA":"⏸ INATIVA"}</span>}
+                {stAtual==="sim"&&<span title={"Competência "+getMesNome(mesCompetenciaAtual)+" já analisada"} style={{...chip,background:"#dcfce7",color:"#15803d",border:"1px solid #86efac",fontWeight:800,flexShrink:0}}>✅ {fmtMesMA(mesCompetenciaAtual)} analisada</span>}
+                {stAtual==="nao"&&<span title={"Competência "+getMesNome(mesCompetenciaAtual)+" ainda não analisada"} style={{...chip,background:"#fef3c7",color:"#b45309",border:"1px solid #fcd34d",fontWeight:800,flexShrink:0}}>⏳ {fmtMesMA(mesCompetenciaAtual)} não analisada</span>}
               </div>
               <div style={{display:"flex",alignItems:"center",gap:5,marginTop:3,flexWrap:"wrap",minWidth:0}} onClick={e=>e.stopPropagation()}>
                 {emp.cnpj&&<span style={{fontSize:10,color:"#94a3b8",fontFamily:"monospace",whiteSpace:"nowrap"}}>{emp.cnpj}</span>}
@@ -12965,21 +13096,23 @@ function makePageComponent(PAGE_CFG){
               {(()=>{
                 const mesesAno=mesesEmp.filter(m=>m.endsWith("/"+abaAtiva)&&(mostrarFuturos||!ehFuturo(m))).slice().reverse(); // mais recente primeiro
                 const th={padding:"8px 8px",color:"#fff",fontSize:10.5,textAlign:"center",fontWeight:700,whiteSpace:"nowrap"};
+                // Mostra só as colunas que valem em algum mês do ano exibido (inativas antigas somem, mas o histórico fica no ano em que valiam)
+                const colsT=empCols.filter(c=>mesesAno.some(m=>colVigente(c,m)));
                 return(<div style={{padding:"12px 16px 16px"}}>
                   {!isGuestMode&&<div style={{fontSize:10.5,color:"#94a3b8",marginBottom:8}}>💡 Clique numa etapa para avançar · <b>clique direito</b> (ou ▾) para escolher o status direto · <b>✓ Tudo</b> marca o mês inteiro como OK.</div>}
                   <div style={{overflowX:"auto",borderRadius:10,border:"1px solid var(--border)"}}>
-                    <table style={{width:"100%",borderCollapse:"collapse",minWidth:560+(empCols.length*96),fontSize:12,background:"var(--bg2)"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",minWidth:560+(colsT.length*96),fontSize:12,background:"var(--bg2)"}}>
                       <thead>
                         <tr style={{background:"#1e3a5f"}}>
                           <th style={{...th,textAlign:"left",padding:"8px 12px",position:"sticky",left:0,background:"#1e3a5f",zIndex:2}}>Competência</th>
                           <th style={th}>⏰ Vence</th>
-                          {empCols.map(col=>{const cDia=getColDia(col.key);return(<th key={col.key} style={{...th,cursor:isGuestMode?"default":"pointer"}} onClick={()=>!isGuestMode&&setEditColPrazosModal(true)} title={cDia?"Prazo: dia "+cDia+" · clique para editar":"Clique para definir prazo por coluna"}>{col.icon} {col.label}{cDia&&<span style={{display:"block",fontSize:9,fontWeight:600,color:"#93c5fd",marginTop:1}}>até dia {cDia}</span>}</th>);})}
+                          {colsT.map(col=>{const cDia=getColDia(col.key);const vig=textoVigencia(col);return(<th key={col.key} style={{...th,cursor:isGuestMode?"default":"pointer",opacity:col.inativaDesde?.7:1}} onClick={()=>!isGuestMode&&setEditColPrazosModal(true)} title={(vig?vig+" · ":"")+(cDia?"Prazo: dia "+cDia+" · clique para editar":"Clique para definir prazo por coluna")}>{col.icon} {col.label}{cDia&&<span style={{display:"block",fontSize:9,fontWeight:600,color:"#93c5fd",marginTop:1}}>até dia {cDia}</span>}{vig&&<span style={{display:"block",fontSize:9,fontWeight:700,color:col.inativaDesde?"#fca5a5":"#a5b4fc",marginTop:1}}>{col.inativaDesde?"⏸ ":"▶ "}{vig.toLowerCase()}</span>}</th>);})}
                           <th style={th}>Progresso</th>
                           <th style={th}>Ações</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {mesesAno.length===0&&<tr><td colSpan={empCols.length+4} style={{padding:20,textAlign:"center",color:"#94a3b8",fontSize:12}}>Nenhum mês para mostrar neste ano.</td></tr>}
+                        {mesesAno.length===0&&<tr><td colSpan={colsT.length+4} style={{padding:20,textAlign:"center",color:"#94a3b8",fontSize:12}}>Nenhum mês para mostrar neste ano.</td></tr>}
                         {mesesAno.map(mes=>{
                           const prog=calcProg(emp.id,mes);const analisado=estaAnalisado(emp.id,mes);const hasObs=temObs(emp.id,mes);
                           const obsItem=obs.find(o=>o.eid===emp.id&&o.mes===mes);const obsVerif=obsItem?.verificado;
@@ -12999,7 +13132,12 @@ function makePageComponent(PAGE_CFG){
                                 {!analisado&&vencido?"🔴 ":!analisado&&vencendo?"🟡 ":""}{prazo||"—"}
                               </div>
                             </td>
-                            {empCols.map((col,colIdx)=>{
+                            {colsT.map(col=>{
+                              const colIdx=empCols.indexOf(col);
+                              if(!colVigente(col,mes)){
+                                const raw=getCellRaw(emp.id,mes,col.key);
+                                return(<td key={col.key} style={{padding:"7px 5px",textAlign:"center"}} title={"⏸ Fora da vigência — "+textoVigencia(col).toLowerCase()+(raw!=="nao-iniciado"?" · registro guardado: "+(SL[raw]||raw):"")}><span style={{color:"#cbd5e1",fontSize:13,fontWeight:900,letterSpacing:2}}>· ·</span></td>);
+                              }
                               const st=getCell(emp.id,mes,col.key);
                               const liberada=analisado||colLiberada(emp.id,mes,colIdx);
                               const bloqueada=!analisado&&!liberada;
@@ -13077,6 +13215,10 @@ function makePageComponent(PAGE_CFG){
                   {kpi(nPend,"a fazer","#c2410c","#fff7ed",()=>{setAbaAtiva("rapida");setRapidaFiltro("afazer");},"Ver na Visão Rápida")}
                   {kpi(nVenc,"vencidas","#dc2626","#fef2f2",()=>{setAbaAtiva("rapida");setRapidaFiltro("vencido");},"Ver na Visão Rápida")}
                   {statsGlobais.inativas>0&&kpi(statsGlobais.inativas,"inativas","#94a3b8","var(--bg3)",null,"Inativas/baixadas (fora dos totais)")}
+                  {(()=>{const base=ativas;const nS=base.filter(e=>statusAnaliseAtual(e)==="sim").length;const nN=base.filter(e=>statusAnaliseAtual(e)==="nao").length;const b=(v,l,c,bg,val,tip)=>(<button key={val} onClick={()=>setFilterAnalise(f=>f===val?"":val)} title={tip+" — clique para filtrar"} style={{display:"flex",alignItems:"baseline",gap:6,padding:"8px 14px",borderRadius:11,border:filterAnalise===val?"2px solid "+c:"1px solid "+c+"33",background:bg,cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}><span style={{fontSize:20,fontWeight:900,color:c,lineHeight:1}}>{v}</span><span style={{fontSize:11,fontWeight:700,color:c,opacity:.85,whiteSpace:"nowrap"}}>{l}</span>{filterAnalise===val&&<span style={{fontSize:10,color:c,fontWeight:900}}>✕</span>}</button>);return(<>
+                    {b(nS,fmtMesMA(mesCompetenciaAtual)+" analisadas","#15803d","#dcfce7","sim","Empresas com a competência atual já analisada")}
+                    {b(nN,fmtMesMA(mesCompetenciaAtual)+" não analisadas","#b45309","#fef3c7","nao","Empresas com a competência atual ainda não analisada")}
+                  </>);})()}
                 </div>
                 <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
                   <Btn onClick={()=>setObsResModal(true)} v="ghost" sz="sm">📝 Observações{obs.filter(o=>!o.verificado).length>0&&<span style={{marginLeft:4,background:"#f59e0b",color:"#fff",borderRadius:10,padding:"0 6px",fontSize:10,fontWeight:900}}>{obs.filter(o=>!o.verificado).length}</span>}</Btn>
@@ -13302,7 +13444,7 @@ function makePageComponent(PAGE_CFG){
                       </div>
                       {/* Etapas do mês: uma bolinha por etapa (clique avança, clique direito escolhe) */}
                       <div onClick={e=>e.stopPropagation()} style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap"}}>
-                        {empC.map((c,ci)=>{const s=getCell(emp.id,mesX,c.key);const lib=colLiberada(emp.id,mesX,ci);return(
+                        {empC.map((c,ci)=>{if(!colVigente(c,mesX))return null;const s=getCell(emp.id,mesX,c.key);const lib=colLiberada(emp.id,mesX,ci);return(
                           <span key={c.key}
                             onClick={()=>!isGuestMode&&cycleCell(emp.id,mesX,c.key)}
                             onContextMenu={e=>{if(!isGuestMode)abrirMenuStatus(e,emp,mesX,c);}}
@@ -13343,8 +13485,9 @@ function makePageComponent(PAGE_CFG){
             <div onClick={()=>toggleGrp(grp.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",background:color+"18",borderRadius:isGrpOpen(grp.id)?"12px 12px 0 0":"12px",border:`1.5px solid ${color}44`,borderBottom:isGrpOpen(grp.id)?"none":undefined,cursor:"pointer",transition:"all .15s",userSelect:"none"}}>
               <div style={{width:10,height:10,borderRadius:"50%",background:color,flexShrink:0}}/><span style={{fontSize:13,fontWeight:900,color}}>{grp.nome}</span><span style={{fontSize:11,color:"#94a3b8",marginLeft:4}}>{allEmps.length} empresa(s)</span>
               <div style={{marginLeft:"auto",display:"flex",gap:6,alignItems:"center"}}>
-                {(()=>{const at=allEmps.filter(e=>!isInativa(e));const venc=at.filter(e=>{const p=proximaPendencia(e);return p&&p.vencido;}).length;const dia=at.filter(e=>!proximaPendencia(e)).length;return(<>
+                {(()=>{const at=allEmps.filter(e=>!isInativa(e));const venc=at.filter(e=>{const p=proximaPendencia(e);return p&&p.vencido;}).length;const dia=at.filter(e=>!proximaPendencia(e)).length;const apl=at.filter(e=>statusAnaliseAtual(e)!=="na");const anS=apl.filter(e=>statusAnaliseAtual(e)==="sim").length;return(<>
                   {venc>0&&<span style={{fontSize:10.5,fontWeight:800,color:"#dc2626",background:"#fef2f2",border:"1px solid #fca5a5",padding:"2px 8px",borderRadius:20}}>🔴 {venc} vencida(s)</span>}
+                  {apl.length>0&&<span title={"Competência "+getMesNome(mesCompetenciaAtual)+": analisadas / total"} style={{fontSize:10.5,fontWeight:800,color:anS===apl.length?"#15803d":"#b45309",background:anS===apl.length?"#dcfce7":"#fef3c7",border:"1px solid "+(anS===apl.length?"#86efac":"#fcd34d"),padding:"2px 8px",borderRadius:20}}>🔍 {fmtMesMA(mesCompetenciaAtual)}: {anS}/{apl.length}</span>}
                   <span style={{fontSize:10.5,fontWeight:800,color:"#15803d",background:"#f0fdf4",border:"1px solid #86efac",padding:"2px 8px",borderRadius:20}}>✅ {dia}/{at.length} em dia</span>
                 </>);})()}
                 {!isGuestMode&&<button onClick={e=>{e.stopPropagation();setLoteModal({titulo:"⚡ Lote por mês — "+grp.nome,empresas:allEmps.filter(x=>!isInativa(x))});}} title="Aplicar um status a várias empresas deste grupo de uma vez" style={{background:"#0ea5e9",border:"none",cursor:"pointer",color:"#fff",fontSize:11,padding:"4px 10px",borderRadius:8,fontWeight:800,fontFamily:"inherit"}}>⚡ Lote</button>}
@@ -13410,26 +13553,16 @@ function makePageComponent(PAGE_CFG){
           </div>
         )}
         {/* MODALS */}
-        <Modal open={editColsModal} onClose={()=>setEditColsModal(false)} title="✏️ Editar Colunas" width={540}>
+        <Modal open={editColsModal} onClose={()=>setEditColsModal(false)} title="✏️ Colunas padrão" width={640}>
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
-            <div style={{padding:"10px 14px",borderRadius:10,background:"#e0f2fe",border:"1px solid #bae6fd",fontSize:12,color:"#0369a1"}}>💡 Adicione, remova ou renomeie colunas.</div>
-            {Object.keys(empColsOverride).length>0&&(
+            <ColunasEditor cols={colsDraft} setCols={setColsDraft} mesAtual={mesCompetenciaAtual} iconOptions={ICON_OPTIONS} usoDe={k=>usoCols.g[k]||0} aviso={<>
+{Object.keys(empColsOverride).length>0&&(
               <div style={{padding:"10px 14px",borderRadius:10,background:"#fef3c7",border:"1px solid #fde68a",fontSize:12,color:"#92400e",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
                 <span>⚠️ <strong>{Object.keys(empColsOverride).length} empresa(s)</strong> têm colunas personalizadas e <strong>não serão afetadas</strong> ao salvar o padrão.</span>
                 <button onClick={()=>{if(window.confirm("Remover a personalização de TODAS as "+Object.keys(empColsOverride).length+" empresas? Elas voltarão a usar as colunas padrão."))  {saveEmpColsOverride({});toast("↩ Todas as personalizações removidas","ok");}}} style={{background:"#f59e0b",color:"#fff",border:"none",padding:"5px 10px",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>Limpar todas</button>
               </div>
             )}
-            <div style={{maxHeight:340,overflowY:"auto",display:"flex",flexDirection:"column",gap:8}}>
-              {colsDraft.map((col,i)=>(<div key={i} style={{display:"flex",gap:8,alignItems:"center",padding:"8px 12px",borderRadius:10,background:"var(--bg3)",border:"1px solid var(--border)"}}>
-                <select value={col.icon} onChange={e=>setColsDraft(d=>d.map((c,j)=>j===i?{...c,icon:e.target.value}:c))} style={{width:54,padding:"5px 2px",borderRadius:8,border:"2px solid #e5e7eb",fontSize:16,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}}>
-                  {ICON_OPTIONS.map(ic=><option key={ic} value={ic}>{ic}</option>)}
-                </select>
-                <input value={col.label} onChange={e=>setColsDraft(d=>d.map((c,j)=>j===i?{...c,label:e.target.value}:c))} style={{flex:1,padding:"6px 10px",borderRadius:8,border:"2px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}} placeholder="Nome da coluna"/>
-                <input type="color" value={col.color||"#6366f1"} onChange={e=>setColsDraft(d=>d.map((c,j)=>j===i?{...c,color:e.target.value}:c))} style={{width:32,height:32,borderRadius:8,border:"2px solid #e5e7eb",cursor:"pointer",padding:2}}/>
-                <button onClick={()=>removeCol(i)} style={{background:"none",border:"none",cursor:"pointer",color:"#f87171",fontSize:16,padding:"2px 6px",borderRadius:6}}>🗑</button>
-              </div>))}
-            </div>
-            <Btn onClick={addCol} v="ghost" sz="sm" xs={{alignSelf:"flex-start",borderStyle:"dashed"}}>+ Adicionar Coluna</Btn>
+            </>}/>
             <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
               <Btn onClick={()=>setColsDraft(JSON.parse(JSON.stringify(DEFAULT_COLS)))} v="ghost" sz="sm">↩ Restaurar</Btn>
               <Btn onClick={()=>setEditColsModal(false)} v="ghost">Cancelar</Btn>
@@ -13743,9 +13876,9 @@ function makePageComponent(PAGE_CFG){
                       COLUNAS {hasOverride&&<span style={{color:"#f59e0b",fontSize:9}}>✎ personalizada</span>}
                     </div>
                     <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                      {getColsForEmp(emp.id).map(col=>(
-                        <span key={col.key} style={{background:"#1e293b",color:"#cbd5e1",padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:600,border:"1px solid #334155"}}>{col.icon} {col.label}</span>
-                      ))}
+                      {getColsForEmp(emp.id).map(col=>{const ina=!!col.inativaDesde;const vig=textoVigencia(col);return(
+                        <span key={col.key} title={vig||"Ativa"} style={{background:ina?"transparent":"#1e293b",color:ina?"#64748b":"#cbd5e1",padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:600,border:ina?"1px dashed #475569":"1px solid #334155",textDecoration:ina?"line-through":"none"}}>{col.icon} {col.label}{vig&&<span style={{fontSize:9,marginLeft:4,textDecoration:"none",opacity:.8}}>({fmtMesMA(col.inativaDesde||col.inicio)})</span>}</span>
+                      );})}
                     </div>
                     {hasOverride&&<button onClick={()=>{const no={...empColsOverride};delete no[emp.id];saveEmpColsOverride(no);toast("↩ Colunas restauradas ao padrão","ok");}} style={{marginTop:8,background:"none",border:"none",color:"#64748b",fontSize:11,cursor:"pointer",textDecoration:"underline",fontFamily:"inherit"}}>↩ Restaurar padrão</button>}
                   </div>
@@ -13832,21 +13965,10 @@ function makePageComponent(PAGE_CFG){
 
 
         {/* ── Modal colunas por empresa ── */}
-        <Modal open={!!empColsModal} onClose={()=>setEmpColsModal(null)} title={`⚙️ Colunas — ${empresas.find(e=>e.id===empColsModal)?.nome||""}`} width={540}>
+        <Modal open={!!empColsModal} onClose={()=>setEmpColsModal(null)} title={`⚙️ Colunas — ${empresas.find(e=>e.id===empColsModal)?.nome||""}`} width={640}>
           {empColsModal&&(
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
-              <div style={{padding:"10px 14px",borderRadius:10,background:"#fef3c7",border:"1px solid #fde68a",fontSize:12,color:"#92400e"}}>🎯 Estas colunas são <strong>específicas desta empresa</strong> e sobrescrevem o padrão global. Demais empresas não são afetadas.</div>
-              <div style={{maxHeight:340,overflowY:"auto",display:"flex",flexDirection:"column",gap:8}}>
-                {empColsDraft.map((col,i)=>(<div key={i} style={{display:"flex",gap:8,alignItems:"center",padding:"8px 12px",borderRadius:10,background:"var(--bg3)",border:"1px solid var(--border)"}}>
-                  <select value={col.icon} onChange={e=>setEmpColsDraft(d=>d.map((c,j)=>j===i?{...c,icon:e.target.value}:c))} style={{width:54,padding:"5px 2px",borderRadius:8,border:"2px solid #e5e7eb",fontSize:16,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}}>
-                    {ICON_OPTIONS.map(ic=><option key={ic} value={ic}>{ic}</option>)}
-                  </select>
-                  <input value={col.label} onChange={e=>setEmpColsDraft(d=>d.map((c,j)=>j===i?{...c,label:e.target.value}:c))} style={{flex:1,padding:"6px 10px",borderRadius:8,border:"2px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}} placeholder="Nome da coluna"/>
-                  <input type="color" value={col.color||"#6366f1"} onChange={e=>setEmpColsDraft(d=>d.map((c,j)=>j===i?{...c,color:e.target.value}:c))} style={{width:32,height:32,borderRadius:8,border:"2px solid #e5e7eb",cursor:"pointer",padding:2}}/>
-                  <button onClick={()=>setEmpColsDraft(d=>d.filter((_,j)=>j!==i))} style={{background:"none",border:"none",cursor:"pointer",color:"#f87171",fontSize:16,padding:"2px 6px",borderRadius:6}}>🗑</button>
-                </div>))}
-              </div>
-              <Btn onClick={()=>setEmpColsDraft(d=>[...d,{key:"col_"+Date.now(),icon:"📋",label:"Nova Coluna",color:"#6366f1"}])} v="ghost" sz="sm" xs={{alignSelf:"flex-start",borderStyle:"dashed"}}>+ Adicionar Coluna</Btn>
+              <ColunasEditor cols={empColsDraft} setCols={setEmpColsDraft} mesAtual={mesCompetenciaAtual} iconOptions={ICON_OPTIONS} usoDe={k=>usoCols.pe[empColsModal+"|"+k]||0} aviso={<div style={{padding:"10px 14px",borderRadius:10,background:"#fef3c7",border:"1px solid #fde68a",fontSize:12,color:"#92400e"}}>🎯 Estas colunas são <strong>específicas desta empresa</strong> e sobrescrevem o padrão global. Demais empresas não são afetadas.</div>}/>
               <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
                 <Btn onClick={()=>{const no={...empColsOverride};delete no[empColsModal];saveEmpColsOverride(no);setEmpColsModal(null);toast("↩ Restaurado ao padrão","ok");}} v="ghost" sz="sm">↩ Restaurar padrão</Btn>
                 <Btn onClick={()=>setEmpColsModal(null)} v="ghost">Cancelar</Btn>
@@ -14130,6 +14252,7 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
       const empCols=(acc.empCO[emp.id]&&acc.empCO[emp.id].length)?acc.empCO[emp.id]:acc.colsGlobal;
       const prazos=prazosDe(mod,payloads[mod.id]);
       empCols.forEach(c=>{
+        if(!colVigente(c,mes))return; // coluna fora da vigência (inativada ou ainda não criada) não gera obrigação
         const valorBruto=acc.getCell(emp.id,mes,c.key);
         const analisado=acc.getAnalisado(emp.id,mes);
         const prazoStr=prazos[emp.id+"_"+mes]||prazos["_"+mes]||"";
@@ -14565,7 +14688,7 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
 
   const obrColsDe=(empU)=>empU.membros.flatMap(({mod,emp,acc})=>{
     const empCols=(acc.empCO[emp.id]&&acc.empCO[emp.id].length)?acc.empCO[emp.id]:acc.colsGlobal;
-    return empCols.map(c=>({mod,key:c.key,label:c.label}));
+    return empCols.filter(c=>colVigente(c,competencia)||(modoVisao==="acumulado"&&MESES_MM.some(mm=>colVigente(c,mm+"/"+compAno)))).map(c=>({mod,key:c.key,label:c.label}));
   });
 
   const StatusBadge=({status,small})=>{

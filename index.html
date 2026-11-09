@@ -12753,11 +12753,19 @@ function makePageComponent(PAGE_CFG){
     };
     const marcarSemMov=(eid,mes,silencioso)=>{
       if(estaAnalisado(eid,mes)){if(!silencioso)toast("⚠️ Mês já analisado. Reverta a análise para alterar.","warn");return;}
+      // Trava contra clique sem querer: exige confirmação
+      if(!silencioso){
+        const emp=empresas.find(e=>e.id===eid);
+        const feitas=safeCols(eid).filter(c=>colVigente(c,mes)&&["ok","pendente"].includes(getCellRaw(eid,mes,c.key))).length;
+        const msg=`∅ Marcar ${getMesNome(mes)} de ${emp?emp.nome:"esta empresa"} como SEM MOVIMENTO?\n\nTodas as etapas do mês passam a "Sem mov.".`+(feitas?`\n\n⚠️ Atenção: ${feitas} etapa(s) já preenchida(s) neste mês serão substituídas.`:"");
+        if(!window.confirm(msg))return;
+      }
       const patch={};patchSemMov(eid,mes,patch);aplicarPatch(patch);
       if(!silencioso)toast("∅ "+getMesNome(mes)+": marcado como SEM MOVIMENTO","ok");
     };
     const desfazerSemMov=(eid,mes)=>{
       if(estaAnalisado(eid,mes)){toast("⚠️ Mês já analisado. Reverta a análise para alterar.","warn");return;}
+      if(!window.confirm(`↺ Desfazer SEM MOVIMENTO de ${getMesNome(mes)}?\n\nAs etapas voltam para "Não".`))return;
       const patch={[eid+"_"+mes+"__semmov"]:false};
       safeCols(eid).forEach(c=>{if(colVigente(c,mes)&&getCellRaw(eid,mes,c.key)==="nao-aplica")patch[eid+"_"+mes+"_"+c.key]="nao-iniciado";});
       aplicarPatch(patch);toast("↺ "+getMesNome(mes)+": sem movimento desfeito","ok");
@@ -12772,6 +12780,7 @@ function makePageComponent(PAGE_CFG){
     };
     // Ações em lote por competência (várias empresas de uma vez)
     const aplicarLote=({mes,col,acao,empIds})=>{
+      if(acao==="semmov"&&!window.confirm(`∅ Marcar ${getMesNome(mes)} como SEM MOVIMENTO em ${empIds.length} empresa(s)?\n\nTodas as etapas desse mês serão substituídas por "Sem mov." (meses já analisados são ignorados).`))return;
       const patch={};let alteradas=0,jaAnalisadas=0,bloqueadas=0,semColuna=0,incompletas=0;
       empIds.forEach(eid=>{
         if(acao==="analisar"){

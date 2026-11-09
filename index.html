@@ -643,6 +643,77 @@ function ColunasEditor({cols,setCols,mesAtual,usoDe,iconOptions,aviso,historicoD
   </div>);
 }
 
+// ── Campo de texto com @menção (comentários de tarefa e chat) ─────
+// value: string · onChange(string) · onSubmit() · collaborators:[{id,name}]
+function MentionInput({value,onChange,onSubmit,collaborators,placeholder,disabled,autoFocus}){
+  const [sug,setSug]=React.useState(null); // {query,start}
+  const [idx,setIdx]=React.useState(0);
+  const ref=React.useRef(null);
+  const lista=React.useMemo(()=>{
+    if(!sug)return[];
+    const q=sug.query.toLowerCase();
+    return (collaborators||[]).filter(c=>c&&c.name&&c.name.toLowerCase().includes(q)).slice(0,6);
+  },[sug,collaborators]);
+  const detectar=(txt,pos)=>{
+    const antes=txt.slice(0,pos);
+    const m=antes.match(/(^|\s)@([^\s@]*)$/);
+    if(m){setSug({query:m[2],start:pos-m[2].length-1});setIdx(0);}else setSug(null);
+  };
+  const escolher=(c)=>{
+    if(!sug)return;
+    const txt=value||"";const pos=ref.current?ref.current.selectionStart:txt.length;
+    const novo=txt.slice(0,sug.start)+"@"+c.name+" "+txt.slice(pos);
+    onChange(novo);setSug(null);
+    setTimeout(()=>{if(ref.current){const p=sug.start+c.name.length+2;ref.current.focus();try{ref.current.setSelectionRange(p,p);}catch(e){}}},0);
+  };
+  const onKey=(e)=>{
+    if(sug&&lista.length){
+      if(e.key==="ArrowDown"){e.preventDefault();setIdx(i=>(i+1)%lista.length);return;}
+      if(e.key==="ArrowUp"){e.preventDefault();setIdx(i=>(i-1+lista.length)%lista.length);return;}
+      if(e.key==="Enter"||e.key==="Tab"){e.preventDefault();escolher(lista[idx]);return;}
+      if(e.key==="Escape"){setSug(null);return;}
+    }
+    if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if((value||"").trim()&&onSubmit)onSubmit();}
+  };
+  return(
+    <div style={{position:"relative",flex:1,minWidth:0}}>
+      <textarea ref={ref} value={value||""} disabled={disabled} autoFocus={autoFocus} rows={1} placeholder={placeholder}
+        onChange={e=>{onChange(e.target.value);detectar(e.target.value,e.target.selectionStart);}}
+        onKeyDown={onKey} onBlur={()=>setTimeout(()=>setSug(null),150)}
+        style={{width:"100%",resize:"none",minHeight:36,maxHeight:120,padding:"8px 11px",borderRadius:9,border:"1.5px solid var(--border,#e5e7eb)",fontSize:13,fontFamily:"inherit",background:"var(--bg2,#fff)",color:"var(--text,#0f172a)",outline:"none",lineHeight:1.4,boxSizing:"border-box"}}/>
+      {sug&&lista.length>0&&(
+        <div style={{position:"absolute",left:0,bottom:"calc(100% + 4px)",minWidth:220,background:"var(--bg2,#fff)",border:"1px solid var(--border,#e5e7eb)",borderRadius:10,boxShadow:"0 10px 30px rgba(15,23,42,.18)",zIndex:3600,overflow:"hidden"}}>
+          {lista.map((c,i)=>(
+            <div key={c.id||c.name} onMouseDown={e=>{e.preventDefault();escolher(c);}} onMouseEnter={()=>setIdx(i)}
+              style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",cursor:"pointer",fontSize:12.5,background:i===idx?"rgba(99,102,241,.1)":"transparent",color:"var(--text,#0f172a)"}}>
+              <span style={{width:22,height:22,borderRadius:"50%",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",fontSize:9,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{c.name.slice(0,2).toUpperCase()}</span>
+              {c.name}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Texto de mensagem com @menções destacadas, links e quebras de linha ──
+function RichText({text,collaborators,isMe}){
+  const nomes=(collaborators||[]).map(c=>c&&c.name).filter(Boolean).sort((a,b)=>b.length-a.length);
+  const esc=s=>s.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+  const partes=[];
+  const src=String(text||"");
+  const re=new RegExp("(https?:\\/\\/[^\\s]+)"+(nomes.length?"|@("+nomes.map(esc).join("|")+")":""),"gi");
+  let last=0,m,k=0;
+  while((m=re.exec(src))!==null){
+    if(m.index>last)partes.push(src.slice(last,m.index));
+    if(m[1])partes.push(<a key={k++} href={m[1]} target="_blank" rel="noopener noreferrer" style={{color:isMe?"#fff":"#4f46e5",textDecoration:"underline",wordBreak:"break-all"}}>{m[1]}</a>);
+    else partes.push(<span key={k++} style={{fontWeight:800,padding:"0 3px",borderRadius:4,background:isMe?"rgba(255,255,255,.22)":"rgba(99,102,241,.12)",color:isMe?"#fff":"#4338ca"}}>@{m[2]}</span>);
+    last=re.lastIndex;
+  }
+  if(last<src.length)partes.push(src.slice(last));
+  return <span style={{whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{partes}</span>;
+}
+
 // Normaliza uma tarefa do Supabase/storage, preservando TODOS os campos
 function normalizeTask(t){
   return {

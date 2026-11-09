@@ -12676,6 +12676,7 @@ function makePageComponent(PAGE_CFG){
         const nd={...prevDados};
         empC.forEach(c=>{nd[eid+"_"+mes+"_"+c.key]="nao-iniciado";});
         delete nd[eid+"_"+mes+"__analisado"];
+        delete nd[eid+"_"+mes+"__semmov"];
         saveToDB(empresas,grupos,nd,obs,prazos,nextEmpId,nextGrpId,colsRef.current,empObservacoes,empCliente,empColsOverride,true);
         return nd;
       });
@@ -12741,6 +12742,34 @@ function makePageComponent(PAGE_CFG){
       aplicarPatch(patch);
       toast("✅ "+getMesNome(mes)+": todas as etapas marcadas como OK","ok");
     };
+    // ── Sem movimento ─────────────────────────────────────────────
+    // Marca todas as etapas vigentes do mês como "não se aplica" e grava a marca "__semmov",
+    // que faz as células aparecerem escritas como "Sem mov.". O mês fica pronto para análise.
+    const ehSemMov=(eid,mes)=>dados[eid+"_"+mes+"__semmov"]===true;
+    const empTemTagSemMov=(emp)=>getTagsEmp(emp).some(t=>/sem\s*mov/i.test(String(t)));
+    const patchSemMov=(eid,mes,patch)=>{
+      safeCols(eid).forEach(c=>{if(colVigente(c,mes))patch[eid+"_"+mes+"_"+c.key]="nao-aplica";});
+      patch[eid+"_"+mes+"__semmov"]=true;
+    };
+    const marcarSemMov=(eid,mes,silencioso)=>{
+      if(estaAnalisado(eid,mes)){if(!silencioso)toast("⚠️ Mês já analisado. Reverta a análise para alterar.","warn");return;}
+      const patch={};patchSemMov(eid,mes,patch);aplicarPatch(patch);
+      if(!silencioso)toast("∅ "+getMesNome(mes)+": marcado como SEM MOVIMENTO","ok");
+    };
+    const desfazerSemMov=(eid,mes)=>{
+      if(estaAnalisado(eid,mes)){toast("⚠️ Mês já analisado. Reverta a análise para alterar.","warn");return;}
+      const patch={[eid+"_"+mes+"__semmov"]:false};
+      safeCols(eid).forEach(c=>{if(colVigente(c,mes)&&getCellRaw(eid,mes,c.key)==="nao-aplica")patch[eid+"_"+mes+"_"+c.key]="nao-iniciado";});
+      aplicarPatch(patch);toast("↺ "+getMesNome(mes)+": sem movimento desfeito","ok");
+    };
+    // Todos os meses em aberto (até a competência atual) de uma vez
+    const semMovMesesAbertos=(emp)=>{
+      const abertos=getMeses(emp.periodoInicial).filter(m=>!ehFuturo(m)&&!estaAnalisado(emp.id,m)&&!ehSemMov(emp.id,m));
+      if(!abertos.length){toast("Nenhum mês em aberto.","warn");return;}
+      if(!window.confirm(`Marcar ${abertos.length} mês(es) em aberto de ${emp.nome} como SEM MOVIMENTO?\n\n${abertos.map(getMesNome).join(", ")}`))return;
+      const patch={};abertos.forEach(m=>patchSemMov(emp.id,m,patch));aplicarPatch(patch);
+      toast(`∅ ${abertos.length} mês(es) marcados como SEM MOVIMENTO`,"ok");
+    };
     // Ações em lote por competência (várias empresas de uma vez)
     const aplicarLote=({mes,col,acao,empIds})=>{
       const patch={};let alteradas=0,jaAnalisadas=0,bloqueadas=0,semColuna=0,incompletas=0;
@@ -12755,6 +12784,7 @@ function makePageComponent(PAGE_CFG){
           patch[eid+"_"+mes+"__analisado"]=false;alteradas++;return;
         }
         if(estaAnalisado(eid,mes)){jaAnalisadas++;return;}
+        if(acao==="semmov"){patchSemMov(eid,mes,patch);alteradas++;return;}
         const empC=safeCols(eid);
         if(col==="*"){
           empC.forEach(c=>{
@@ -12782,7 +12812,7 @@ function makePageComponent(PAGE_CFG){
       setStatusMenu({x:e.clientX,y:e.clientY,title:getMesNome(mes)+" · "+col.label,subtitle:emp.nome,current:getCell(emp.id,mes,col.key),
         options:SEQ.map(v=>({value:v,label:SL[v],bg:SS[v].bg,color:SS[v].color,border:SS[v].border})),
         onPick:(v)=>setCellDireto(emp.id,mes,col.key,v),
-        extra:[{label:"✅ Marcar o mês inteiro como OK",onClick:()=>marcarMesTodo(emp.id,mes),color:"#15803d"}]});
+        extra:[{label:"✅ Marcar o mês inteiro como OK",onClick:()=>marcarMesTodo(emp.id,mes),color:"#15803d"},{label:"∅ Mês inteiro SEM MOVIMENTO",onClick:()=>marcarSemMov(emp.id,mes),color:"#6d28d9"}]});
     };
     const calcProg=(eid,mes)=>{const empC=safeCols(eid);const atv=empC.filter(c=>getCell(eid,mes,c.key)!=="nao-aplica");if(!atv.length)return 100;return Math.round(atv.filter(c=>getCell(eid,mes,c.key)==="ok").length/atv.length*100);};
     const getProgClr=(p)=>p===100?"#22c55e":p>=50?"#f59e0b":p>0?"#ef4444":"#cbd5e1";
@@ -12993,7 +13023,7 @@ function makePageComponent(PAGE_CFG){
     const usoCols=useMemo(()=>{
       const g={},pe={};if(!editColsModal&&!empColsModal)return{g,pe};
       Object.keys(dados).forEach(k=>{
-        const v=dados[k];if(!v||v==="nao-iniciado"||k.endsWith("__analisado"))return;
+        const v=dados[k];if(!v||v==="nao-iniciado"||k.endsWith("__analisado")||k.endsWith("__semmov"))return;
         const a=k.indexOf("_"),b=a<0?-1:k.indexOf("_",a+1);if(b<0)return;
         const eid=k.slice(0,a),ck=k.slice(b+1);
         pe[eid+"|"+ck]=(pe[eid+"|"+ck]||0)+1;
@@ -13252,7 +13282,8 @@ function makePageComponent(PAGE_CFG){
                 <div style={{fontSize:10.5,fontWeight:700,color:"#c2410c"}}>{s.ok}/{s.tot} etapas{s.prox?<> · próxima: {s.prox.icon} {s.prox.label}</>:null}</div>
                 <div style={{height:4,borderRadius:3,background:"#e2e8f0",overflow:"hidden"}}><div style={{height:"100%",width:(s.tot?Math.round(s.ok/s.tot*100):0)+"%",background:"#f59e0b"}}/></div>
               </>}
-              {!isGuestMode&&(k==="fazer"||k==="and")&&<button onClick={ev=>{ev.stopPropagation();marcarMesTodo(emp.id,mes);}} style={{alignSelf:"flex-start",background:"#f0fdf4",color:"#15803d",border:"1px solid #86efac",padding:"2px 9px",borderRadius:7,cursor:"pointer",fontSize:10.5,fontWeight:800,fontFamily:"inherit"}}>✓ Tudo OK</button>}
+              {!isGuestMode&&(k==="fazer"||k==="and")&&<div style={{display:"flex",gap:5,flexWrap:"wrap"}}><button onClick={ev=>{ev.stopPropagation();marcarMesTodo(emp.id,mes);}} style={{background:"#f0fdf4",color:"#15803d",border:"1px solid #86efac",padding:"2px 9px",borderRadius:7,cursor:"pointer",fontSize:10.5,fontWeight:800,fontFamily:"inherit"}}>✓ Tudo OK</button><button onClick={ev=>{ev.stopPropagation();marcarSemMov(emp.id,mes);}} style={{background:empTemTagSemMov(emp)?"#6d28d9":"#f5f3ff",color:empTemTagSemMov(emp)?"#fff":"#6d28d9",border:"1px solid #c4b5fd",padding:"2px 9px",borderRadius:7,cursor:"pointer",fontSize:10.5,fontWeight:800,fontFamily:"inherit"}}>∅ Sem mov.</button></div>}
+              {ehSemMov(emp.id,mes)&&<span style={{alignSelf:"flex-start",background:"#f5f3ff",color:"#6d28d9",padding:"1px 7px",borderRadius:20,fontSize:10,fontWeight:800,border:"1px solid #ddd6fe"}}>∅ Sem movimento</span>}
               {!isGuestMode&&k==="pronto"&&<button onClick={ev=>{ev.stopPropagation();analisarMes(emp.id,mes);}} style={{alignSelf:"flex-start",background:"#f59e0b",color:"#fff",border:"none",padding:"3px 10px",borderRadius:7,cursor:"pointer",fontSize:10.5,fontWeight:800,fontFamily:"inherit"}}>🔍 Analisar</button>}
             </div>))}
           </div>))}
@@ -13343,6 +13374,7 @@ function makePageComponent(PAGE_CFG){
             {inativa&&!isGuestMode&&<button onClick={e=>{e.stopPropagation();alternarInativa(emp);}} style={{background:"#dcfce7",border:"1px solid #86efac",cursor:"pointer",color:"#15803d",fontSize:11,fontWeight:800,padding:"4px 10px",borderRadius:20,whiteSpace:"nowrap",fontFamily:"inherit",flexShrink:0}}>▶ Reativar</button>}
             {!isGuestMode&&<RowActionsMenu items={[
               {icon:"📊",label:"Resumo da empresa",onClick:()=>openSidePanel(emp.id)},
+              {icon:"∅",label:"Sem movimento em todos os meses em aberto",hidden:inativa,onClick:()=>semMovMesesAbertos(emp)},
               {icon:"✏️",label:"Editar empresa",onClick:()=>{setEditEmpForm({nome:emp.nome,cnpj:emp.cnpj||"",regime:emp.regime||"simples",grupoId:emp.grupoId||""});setEditEmpModal({emp});}},
               {icon:"⚙️",label:"Colunas desta empresa",onClick:()=>{setEmpColsDraft(JSON.parse(JSON.stringify(getColsForEmp(emp.id))));setEmpColsModal(emp.id);}},
               {icon:"↩",label:"Voltar às colunas padrão",hidden:!empHasOverride,onClick:()=>{if(window.confirm("Restaurar as colunas padrão para "+emp.nome+"?")){const no={...empColsOverride};delete no[emp.id];saveEmpColsOverride(no);toast("↩ Colunas restauradas ao padrão","ok");}}},
@@ -13369,7 +13401,7 @@ function makePageComponent(PAGE_CFG){
                 // Mostra só as colunas que valem em algum mês do ano exibido (inativas antigas somem, mas o histórico fica no ano em que valiam)
                 const colsT=empCols.filter(c=>mesesAno.some(m=>colVigente(c,m)||getCellRaw(emp.id,m,c.key)!=="nao-iniciado"));
                 return(<div style={{padding:"12px 16px 16px"}}>
-                  {!isGuestMode&&<div style={{fontSize:10.5,color:"#94a3b8",marginBottom:8}}>💡 Clique numa etapa para avançar · <b>clique direito</b> (ou ▾) para escolher o status direto · <b>✓ Tudo</b> marca o mês inteiro como OK.</div>}
+                  {!isGuestMode&&<div style={{fontSize:10.5,color:"#94a3b8",marginBottom:8}}>💡 Clique numa etapa para avançar · <b>clique direito</b> (ou ▾) para escolher o status direto · <b>✓ Tudo</b> marca o mês inteiro como OK · <b>∅ Sem mov.</b> marca o mês inteiro como sem movimento.</div>}
                   <div style={{overflowX:"auto",borderRadius:10,border:"1px solid var(--border)"}}>
                     <table style={{width:"100%",borderCollapse:"collapse",minWidth:560+(colsT.length*96),fontSize:12,background:"var(--bg2)"}}>
                       <thead>
@@ -13413,6 +13445,7 @@ function makePageComponent(PAGE_CFG){
                                 </td>);
                               }
                               const st=getCell(emp.id,mes,col.key);
+                              const semMovCel=st==="nao-aplica"&&ehSemMov(emp.id,mes);
                               const liberada=analisado||colLiberada(emp.id,mes,colIdx);
                               const bloqueada=!analisado&&!liberada;
                               const colVencido=!analisado&&st!=="ok"&&st!=="nao-aplica"&&isColVencido(col.key,mes);
@@ -13423,6 +13456,7 @@ function makePageComponent(PAGE_CFG){
                                 :colVencido?{...gst(st),outline:"2px solid #ef4444",outlineOffset:"-2px",display:"inline-block",minWidth:64}
                                 :colVencendo?{...gst(st),outline:"2px solid #f59e0b",outlineOffset:"-2px",display:"inline-block",minWidth:64}
                                 :{...gst(st),cursor:analisado?"default":"pointer",display:"inline-block",minWidth:64,opacity:analisado?.8:1};
+                              if(semMovCel)Object.assign(cellStyle,{background:"#f5f3ff",color:"#6d28d9",border:"1.5px solid #ddd6fe",fontWeight:800});
                               return(<td key={col.key} style={{padding:"7px 5px",textAlign:"center"}}>
                                 <div className="cell-wrap" style={{position:"relative",display:"inline-flex",alignItems:"center",gap:2}}>
                                   <div
@@ -13431,7 +13465,7 @@ function makePageComponent(PAGE_CFG){
                                     title={bloqueada?"🔒 Preencha a coluna anterior primeiro":colVencido&&colPrazoLabel?"🔴 Prazo vencido: "+colPrazoLabel:colVencendo&&colPrazoLabel?"🟡 Vence: "+colPrazoLabel:colPrazoLabel?"⏰ Prazo: "+colPrazoLabel:"Clique para avançar · clique direito para escolher"}
                                     style={cellStyle}
                                   >
-                                    {bloqueada?"🔒":SL[st]||st}
+                                    {bloqueada?"🔒":semMovCel?"∅ Sem mov.":SL[st]||st}
                                   </div>
                                   {!analisado&&!bloqueada&&(
                                     <button onClick={e=>abrirMenuStatus(e,emp,mes,col)} title="Escolher status" style={{border:"none",background:"transparent",color:"#cbd5e1",cursor:"pointer",fontSize:10,padding:"0 2px",lineHeight:1}}>▾</button>
@@ -13448,6 +13482,10 @@ function makePageComponent(PAGE_CFG){
                                   :tudoOk
                                     ?<button onClick={()=>analisarMes(emp.id,mes)} style={{background:"#f59e0b",color:"#fff",border:"none",padding:"4px 10px",borderRadius:7,cursor:"pointer",fontSize:10.5,fontWeight:800,fontFamily:"inherit"}}>🔍 Analisar</button>
                                     :<button onClick={()=>marcarMesTodo(emp.id,mes)} title="Marcar todas as etapas deste mês como OK" style={{background:"#f0fdf4",color:"#15803d",border:"1px solid #86efac",padding:"3px 9px",borderRadius:7,cursor:"pointer",fontSize:10.5,fontWeight:800,fontFamily:"inherit"}}>✓ Tudo</button>}
+                                {!analisado&&!isGuestMode&&(ehSemMov(emp.id,mes)
+                                  ?<button onClick={()=>desfazerSemMov(emp.id,mes)} title="Desfazer sem movimento (volta as etapas para 'Não')" style={{background:"#f5f3ff",color:"#6d28d9",border:"1px solid #ddd6fe",padding:"3px 8px",borderRadius:7,cursor:"pointer",fontSize:10.5,fontWeight:800,fontFamily:"inherit"}}>↺ Sem mov.</button>
+                                  :<button onClick={()=>marcarSemMov(emp.id,mes)} title="Marcar todas as etapas deste mês como SEM MOVIMENTO" style={{background:empTemTagSemMov(emp)?"#6d28d9":"#f5f3ff",color:empTemTagSemMov(emp)?"#fff":"#6d28d9",border:"1px solid #c4b5fd",padding:"3px 9px",borderRadius:7,cursor:"pointer",fontSize:10.5,fontWeight:800,fontFamily:"inherit"}}>∅ Sem mov.</button>)}
+                                {analisado&&ehSemMov(emp.id,mes)&&<span title="Mês sem movimento" style={{background:"#f5f3ff",color:"#6d28d9",padding:"2px 7px",borderRadius:20,fontSize:9.5,fontWeight:800,border:"1px solid #ddd6fe"}}>∅ Sem mov.</span>}
                                 {!analisado&&!isGuestMode&&<button onClick={()=>{if(window.confirm("Resetar todas as etapas de "+getMesNome(mes)+" para 'Não'?"))resetarMes(emp.id,mes);}} title="Resetar mês (volta tudo para 'Não')" style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#cbd5e1",padding:"2px 4px",borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#cbd5e1"}>↺</button>}
                               </div>
                             </td>
@@ -13825,7 +13863,7 @@ function makePageComponent(PAGE_CFG){
             empresas={(loteModal.empresas||[]).map(e=>({id:e.id,nome:e.nome,sub:getRespSync(e)?"👤 "+getRespSync(e):""}))}
             cols={[...colMap.values()]} meses={mesesLote} mesInicial={mesesLote.includes(mesCompetenciaAtual)?mesCompetenciaAtual:mesesLote[0]} fmtMes={getMesNome}
             statusOptions={["ok","pendente","nao-iniciado","nao-aplica"].map(v=>({value:v,label:SL[v]}))}
-            extraActions={[{value:"analisar",label:"🔍 Analisar o mês (só quem está 100%)"},{value:"reabrir",label:"↩ Reabrir análise"}]}
+            extraActions={[{value:"semmov",label:"∅ Sem movimento (todas as etapas)"},{value:"analisar",label:"🔍 Analisar o mês (só quem está 100%)"},{value:"reabrir",label:"↩ Reabrir análise"}]}
             onApply={aplicarLote}/>);
         })()}
         {batchMode&&!isGuestMode&&(

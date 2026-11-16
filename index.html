@@ -8738,7 +8738,7 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
     toast("✅ Marcado como publicado!","ok");setPostar(null);setEditor(null);
   };
   // salva o cadastro sem perder a conexão gravada pelo robô
-  const salvarContas=async(lista)=>{const ok=await atualizar(d=>({...d,contas:lista.map(c=>{const{conexao,...resto}=c;const r=d.contas.find(x=>x.id===c.id);return r&&r.conexao?{...resto,conexao:r.conexao}:resto;})}));if(ok){toast("💾 Contas salvas","ok");setContasOpen(false);}};
+  const salvarContas=async(lista)=>{const ok=await atualizar(d=>({...d,contas:lista.map(c=>{const resto={...c};delete resto.conexao;const r=d.contas.find(x=>x.id===c.id);return r&&r.conexao?{...resto,conexao:r.conexao}:resto;})}));if(ok){toast("💾 Contas salvas","ok");setContasOpen(false);}};
   const publicarSistema=async(p)=>{
     if(editor&&editor.id===p.id)await salvarPost(p,false);
     const r=await igApi("publicar",{postId:p.id});

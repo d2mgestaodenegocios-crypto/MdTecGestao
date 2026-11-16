@@ -8145,8 +8145,8 @@ async function igApi(acao,dados={}){
   if(!jwt&&!colab)return{ok:false,erro:"Sessão expirada — saia e entre de novo no sistema."};
   try{
     const h={"Content-Type":"application/json",Authorization:"Bearer "+(jwt||SUPABASE_KEY),apikey:SUPABASE_KEY};
-    if(colab)h["x-mdtec-colab"]=String(colab);
-    const r=await fetch(IG_FUNC_URL+"/api",{method:"POST",headers:h,body:JSON.stringify({acao,...dados})});
+    const r=await fetch(IG_FUNC_URL+"/api",{method:"POST",headers:h,body:JSON.stringify({acao,...dados,...(colab?{_colab:String(colab)}:{})})});
+    if(r.status===401){const j=await r.json().catch(()=>null);return{ok:false,erro:(j&&j.erro)||"O robô recusou o acesso. Instale a versão mais nova do index.ts no Supabase."};}
     if(r.status===404){const t=await r.text().catch(()=>"");if(!/rota não encontrada/.test(t))return{ok:false,naoInstalado:true,erro:"O robô ainda não foi instalado no Supabase."};}
     const j=await r.json().catch(()=>null);
     if(!j||typeof j!=="object")return{ok:false,naoInstalado:true,erro:"O robô não respondeu corretamente (status "+r.status+")."};

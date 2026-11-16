@@ -8027,13 +8027,12 @@ function CargaPage({data}){
 // ════════════════════════════════════════════════════════════════════
 const IG_ROW_ID=24;
 const IG_STATUS=[
-  {k:"ideia",l:"Ideia",ic:"💡",c:"#64748b",bg:"#f1f5f9"},
   {k:"producao",l:"Produção",ic:"🎨",c:"#0284c7",bg:"#e0f2fe"},
   {k:"aprovacao",l:"Aprovação",ic:"⏳",c:"#b45309",bg:"#fef3c7"},
   {k:"agendado",l:"Agendado",ic:"📅",c:"#4f46e5",bg:"#eef2ff"},
   {k:"publicado",l:"Publicado",ic:"✅",c:"#15803d",bg:"#dcfce7"},
 ];
-const IG_ST=Object.fromEntries(IG_STATUS.map(s=>[s.k,s]));
+const IG_ST=Object.fromEntries(IG_STATUS.map(s=>[s.k,s]));IG_ST.ideia=IG_ST.producao;
 const IG_TIPOS=[{k:"feed",l:"Feed (foto)",ic:"🖼"},{k:"carrossel",l:"Carrossel",ic:"🎠"},{k:"reels",l:"Reels",ic:"🎬"},{k:"story",l:"Story",ic:"⭕"}];
 const IG_TIPO=Object.fromEntries(IG_TIPOS.map(t=>[t.k,t]));
 const IG_CORES=["#e1306c","#6366f1","#0ea5e9","#10b981","#f59e0b","#8b5cf6","#ef4444","#14b8a6","#64748b","#d946ef"];
@@ -8391,19 +8390,111 @@ function IgPreview({post,conta}){
 }
 
 // ── Editor de post ─────────────────────────────────────────────────
-function IgPostEditor({open,post,novo,contas,collaborators,companies,userName,myCollabId,onClose,onSalvar,onExcluir,onPostar,onTentar,toast}){
+// ── Caminho do post: Produção → Aprovação → Agendado → Publicado (só pelo robô) ──
+const igEtapa=(p)=>!p||p.status==="ideia"?"producao":p.status;
+// "Impressão digital" do conteúdo aprovado: se mudar, precisa aprovar de novo (data/hora podem mudar)
+const igAssinatura=(p)=>JSON.stringify([p.contaId||"",p.tipo||"",(p.legenda||"").trim(),(p.hashtags||"").trim(),(p.primeiroComentario||"").trim(),(p.midias||[]).map(m=>m.id)]);
+const igAprovadoValido=(p)=>!!p.aprovadoPor&&p.aprovadoAssinatura===igAssinatura(p);
+
+// ── Verificação de conta errada ─────────────────────────────────────
+const igNorm=(t)=>String(t||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9#@]+/g," ").replace(/\s+/g," ").trim();
+const IG_SUFIXOS=/\b(ltda|me|eireli|epp|s a|sa|ss|mei|cia|comercio|servicos|solucoes|e|de|da|do|das|dos)\b/g;
+const igHashCache=new Map();
+// dHash 9x8 da miniatura → 64 bits (imagens iguais ou muito parecidas ficam com distância pequena)
+function igHashImg(src){
+  if(!src)return Promise.resolve("");
+  if(igHashCache.has(src))return Promise.resolve(igHashCache.get(src));
+  return new Promise(res=>{const img=new Image();img.onload=()=>{try{const cv=document.createElement("canvas");cv.width=9;cv.height=8;const cx=cv.getContext("2d");cx.drawImage(img,0,0,9,8);const d=cx.getImageData(0,0,9,8).data;let bits="";
+    for(let y=0;y<8;y++)for(let x=0;x<8;x++){const i=(y*9+x)*4,j=(y*9+x+1)*4;const a=d[i]*.299+d[i+1]*.587+d[i+2]*.114,b=d[j]*.299+d[j+1]*.587+d[j+2]*.114;bits+=a>b?"1":"0";}
+    // + cor média em 4 quadrantes (evita confundir artes do mesmo modelo com cores diferentes)
+    const q=[[0,0],[4,0],[0,4],[4,4]].map(([qx,qy])=>{let r=0,g=0,bb=0,n=0;for(let y=qy;y<qy+4;y++)for(let x=qx;x<qx+4;x++){const i=(y*9+x)*4;r+=d[i];g+=d[i+1];bb+=d[i+2];n++;}return[r/n,g/n,bb/n].map(v=>Math.round(v)).join(",");}).join(";");
+    const h=bits+"|"+q;igHashCache.set(src,h);res(h);}catch(e){res("");}};img.onerror=()=>res("");img.src=src;});
+}
+const igDistHash=(a,b)=>{
+  if(!a||!b)return 99;const[ba,ca]=a.split("|"),[bb,cb]=b.split("|");if(!ba||!bb||ba.length!==bb.length)return 99;
+  if(ca&&cb){const A=ca.split(";").map(x=>x.split(",").map(Number)),B=cb.split(";").map(x=>x.split(",").map(Number));
+    for(let k=0;k<A.length;k++){const dif=Math.abs(A[k][0]-B[k][0])+Math.abs(A[k][1]-B[k][1])+Math.abs(A[k][2]-B[k][2]);if(dif>60)return 99;}}
+  let n=0;for(let i=0;i<ba.length;i++)if(ba[i]!==bb[i])n++;return n;};
+// Devolve a lista de alertas: texto citando outra conta, hashtags exclusivas de outra conta, nome de arquivo, imagem repetida
+async function igVerificarConta(p,contas,companies,posts){
+  const al=[];const conta=contas.find(c=>c.id===p.contaId);if(!conta)return al;
+  const nomeDe=(c)=>{const co=(companies||[]).find(x=>x.id===c.clienteId);return[c.nome,co?.name].filter(Boolean);};
+  const termosDe=(c)=>{const t=new Set();nomeDe(c).forEach(n=>{const a=igNorm(n),b=a.replace(IG_SUFIXOS," ").replace(/\s+/g," ").trim();[a,b].forEach(x=>{if(x&&x.replace(/\s/g,"").length>=4)t.add(x);});});
+    const u=igNorm((c.usuario||"").replace(/^@/,"")).replace(/\s/g,"");if(u.length>=3){t.add(u);t.add("@"+u);}return t;};
+  const meus=termosDe(conta);const minhasTags=new Set((conta.hashtagsPadrao||"").toLowerCase().match(/#[\p{L}\p{N}_]+/gu)||[]);
+  const texto=" "+igNorm([p.legenda,p.hashtags,p.primeiroComentario].join(" "))+" ";
+  const arquivos=" "+igNorm((p.midias||[]).map(m=>(m.nome||"").replace(/\.[a-z0-9]+$/i,"").replace(/[_\-.]+/g," ")).join(" "))+" ";
+  const tagsPost=new Set(((p.legenda||"")+" "+(p.hashtags||"")).toLowerCase().match(/#[\p{L}\p{N}_]+/gu)||[]);
+  for(const c of contas){
+    if(c.id===conta.id)continue;
+    const quem="@"+(c.usuario||c.nome||"").replace(/^@/,"");
+    for(const t of termosDe(c)){
+      if([...meus].some(m=>m===t||(" "+m+" ").includes(" "+t+" ")))continue; // termo também é da conta certa
+      if(texto.includes(" "+t+" ")||texto.includes(" #"+t.replace(/[\s@]/g,"")+" ")){al.push({tipo:"texto",outra:c.id,msg:`O texto cita “${t}”, que é da conta ${quem} (${c.nome}).`});break;}
+      if(arquivos.includes(" "+t+" ")){al.push({tipo:"arquivo",outra:c.id,msg:`O nome do arquivo de imagem cita “${t}”, da conta ${quem}.`});break;}
+    }
+    const tagsOutra=((c.hashtagsPadrao||"").toLowerCase().match(/#[\p{L}\p{N}_]+/gu)||[]).filter(h=>!minhasTags.has(h)&&tagsPost.has(h));
+    if(tagsOutra.length)al.push({tipo:"hashtag",outra:c.id,msg:`Hashtags padrão de ${quem}: ${tagsOutra.slice(0,3).join(" ")}.`});
+  }
+  // imagens iguais/parecidas às de posts de outras contas
+  const meusHashes=await Promise.all((p.midias||[]).map(m=>m.hash?Promise.resolve(m.hash):igHashImg(m.thumb)));
+  if(meusHashes.some(Boolean)){
+    const outros=(posts||[]).filter(x=>x.id!==p.id&&x.contaId&&x.contaId!==p.contaId);
+    const vistos=new Set();
+    for(const o of outros){
+      for(const om of (o.midias||[])){
+        const h=om.hash||await igHashImg(om.thumb);if(!h)continue;
+        meusHashes.forEach((mh,i)=>{if(mh&&igDistHash(mh,h)<=6&&!vistos.has(i+"|"+o.contaId)){vistos.add(i+"|"+o.contaId);const c=contas.find(x=>x.id===o.contaId);
+          al.push({tipo:"imagem",outra:o.contaId,msg:`A imagem ${i+1} é igual ou muito parecida com a de um post de @${(c?.usuario||c?.nome||"outra conta").replace(/^@/,"")}${o.data?" ("+igFmtData(o.data)+")":""}.`});}});
+      }
+    }
+  }
+  return al;
+}
+const igAssinaturaAlertas=(al)=>al.map(a=>a.tipo+":"+a.outra+":"+a.msg).sort().join("|");
+
+// Barra de etapas
+function IgEtapas({post}){
+  const et=igEtapa(post);const ordem=["producao","aprovacao","agendado","publicado"];const idx=ordem.indexOf(et);
+  return(<div style={{display:"flex",alignItems:"center",gap:0,padding:"4px 2px"}}>
+    {ordem.map((k,i)=>{const s=IG_ST[k];const feito=i<idx,atual=i===idx;return(<React.Fragment key={k}>
+      <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+        <span style={{width:24,height:24,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11.5,fontWeight:900,background:atual?s.c:feito?"#22c55e":"var(--bg3)",color:atual||feito?"#fff":"var(--text4)",border:atual||feito?"none":"1.5px solid var(--border2)"}}>{feito?"✓":i+1}</span>
+        <span style={{fontSize:12,fontWeight:atual?900:700,color:atual?s.c:feito?"#15803d":"var(--text4)",whiteSpace:"nowrap"}}>{s.l}{k==="publicado"?" 🤖":""}</span>
+      </div>
+      {i<3&&<div style={{flex:1,minWidth:14,height:2,margin:"0 8px",background:i<idx?"#22c55e":"var(--border2)"}}/>}
+    </React.Fragment>);})}
+  </div>);
+}
+
+function IgPostEditor({open,post,novo,contas,collaborators,companies,posts,userName,myCollabId,onClose,onSalvar,onExcluir,onPostar,onTentar,toast}){
   const [f,setF]=React.useState(null);
   const [enviando,setEnviando]=React.useState(0);
   const [aba,setAba]=React.useState("conteudo");
+  const [alertas,setAlertas]=React.useState([]);
+  const [verificando,setVerificando]=React.useState(false);
   const inputRef=React.useRef(null);
-  React.useEffect(()=>{if(open){const cp=JSON.parse(JSON.stringify(post));const c0=contas.find(c=>c.id===cp.contaId);if(cp.autoPublicar===undefined&&c0?.conexao&&(novo||!cp.criadoEm))cp.autoPublicar=true;setF(cp);}setAba("conteudo");},[open,post?.id]);
+  React.useEffect(()=>{if(open){const cp=JSON.parse(JSON.stringify(post));if(cp.status==="ideia")cp.status="producao";setF(cp);}setAba("conteudo");},[open,post?.id]);
   // mantém o estado do robô atualizado enquanto o editor está aberto
   React.useEffect(()=>{if(open&&f&&post&&post.id===f.id&&JSON.stringify(post.robo||{})!==JSON.stringify(f.robo||{}))setF(p=>({...p,robo:post.robo,status:post.status==="publicado"?"publicado":p.status,link:post.link||p.link,publicadoEm:post.publicadoEm||p.publicadoEm,publicadoPor:post.publicadoPor||p.publicadoPor}));},[post?.robo,post?.status]);
+  // verificação de conta errada (texto, hashtags, nome do arquivo e imagens repetidas)
+  const chaveVerif=f?[f.contaId,f.legenda,f.hashtags,f.primeiroComentario,(f.midias||[]).map(m=>m.id).join(",")].join("¦"):"";
+  React.useEffect(()=>{
+    if(!open||!f)return;let ok=true;setVerificando(true);
+    const t=setTimeout(async()=>{const al=await igVerificarConta(f,contas,companies,posts);if(ok){setAlertas(al);setVerificando(false);}},350);
+    return()=>{ok=false;clearTimeout(t);};
+  },[open,chaveVerif,contas,posts]);
   if(!open||!f)return null;
   const up=(k,v)=>setF(p=>({...p,[k]:v}));
   const conta=contas.find(c=>c.id===f.contaId);
+  const conectada=!!conta?.conexao;
+  const etapa=igEtapa(f);
+  const publicado=etapa==="publicado";
   const totalTxt=igTextoCompleto(f).length;const nTags=igContaHashtags(f);
-  const lim=f.tipo==="carrossel"?10:f.tipo==="feed"?1:1;
+  const sigAlertas=igAssinaturaAlertas(alertas);
+  const alertasPendentes=alertas.length>0&&f.alertasOk!==sigAlertas;
+  const aprovadoValido=igAprovadoValido(f);
+  const mudouDepoisDeAprovar=!!f.aprovadoPor&&!aprovadoValido&&!publicado;
   const addArquivos=async(files)=>{
     const arr=[...files];if(!arr.length)return;
     if(f.tipo!=="carrossel"&&((f.midias||[]).length+arr.length)>1){
@@ -8413,7 +8504,7 @@ function IgPostEditor({open,post,novo,contas,collaborators,companies,userName,my
     if((f.midias||[]).length+arr.length>10){toast("⚠️ O carrossel aceita no máximo 10 itens.","warn");return;}
     setEnviando(arr.length);
     for(const file of arr){
-      try{const m=await igEnviarMidia(file);setF(p=>({...p,midias:[...(p.midias||[]),m],...(m.tipo==="video"&&p.tipo==="feed"&&(p.midias||[]).length===0?{tipo:"reels"}:{})}));}
+      try{const m=await igEnviarMidia(file);m.hash=await igHashImg(m.thumb);setF(p=>({...p,midias:[...(p.midias||[]),m],...(m.tipo==="video"&&p.tipo==="feed"&&(p.midias||[]).length===0?{tipo:"reels"}:{})}));}
       catch(e){toast("⚠️ "+(e.message||"Não foi possível enviar o arquivo."),"err",7000);}
       setEnviando(n=>n-1);
     }
@@ -8421,12 +8512,49 @@ function IgPostEditor({open,post,novo,contas,collaborators,companies,userName,my
   const moverMidia=(i,d)=>setF(p=>{const a=[...(p.midias||[])];const j=i+d;if(j<0||j>=a.length)return p;[a[i],a[j]]=[a[j],a[i]];return{...p,midias:a};});
   const removerMidia=(i)=>{if(!window.confirm("Remover esta mídia do post?"))return;setF(p=>({...p,midias:(p.midias||[]).filter((_,j)=>j!==i)}));};
   const ehNovo=novo!==undefined?novo:!post.criadoEm;
+  // monta o registro final aplicando as regras do caminho
+  const finalizar=(extra={})=>{
+    let next={...f,...extra};
+    if(next.status==="ideia")next.status="producao";
+    // conteúdo mudou depois de aprovado → volta para Produção (precisa aprovar de novo)
+    if(next.status!=="publicado"&&next.aprovadoPor&&next.aprovadoAssinatura!==igAssinatura(next)&&!extra.aprovadoAssinatura){
+      next={...next,status:"producao",aprovadoPor:"",aprovadoEm:"",aprovadoAssinatura:"",aprovadoRegistradoPor:""};
+      toast("✏️ O conteúdo mudou depois da aprovação — o post voltou para Produção e precisa ser aprovado de novo.","warn",8000);
+    }
+    next.alertas=alertas.map(a=>a.msg);
+    next.alertasPendentes=alertas.length>0&&next.alertasOk!==sigAlertas;
+    if(next.status==="agendado")next.autoPublicar=true;
+    return next;
+  };
   const salvar=(extra={},fechar=true)=>{
     if(!f.contaId){toast("⚠️ Escolha a conta do Instagram.","warn");setAba("conteudo");return;}
-    const next={...f,...extra};
-    if(next.status==="agendado"&&!next.data){toast("⚠️ Para agendar, defina a data.","warn");return;}
-    onSalvar(next,fechar);
+    onSalvar(finalizar(extra),fechar);
   };
+  const exigirSemAlertas=()=>{if(alertasPendentes){toast("🛡 Revise os alertas de conta errada (quadro vermelho) antes de seguir.","err",7000);setAba("conteudo");return false;}return true;};
+  const enviarAprovacao=()=>{
+    if(!f.contaId){toast("⚠️ Escolha a conta.","warn");return;}
+    if(!(f.midias||[]).length){toast("⚠️ Adicione a imagem ou o vídeo antes de enviar para aprovação.","warn");return;}
+    if(!exigirSemAlertas())return;
+    salvar({status:"aprovacao"},false);setF(p=>({...p,status:"aprovacao"}));toast("📤 Enviado para aprovação.","ok");setAba("aprovacao");
+  };
+  const aprovar=(quemPadrao)=>{
+    if(!exigirSemAlertas())return;
+    const quem=window.prompt("Quem aprovou? (nome do cliente ou de quem aprovou)",quemPadrao||"");if(quem===null)return;
+    const base={aprovadoPor:quem.trim()||"Aprovado",aprovadoEm:new Date().toISOString(),aprovadoRegistradoPor:userName||"",aprovadoAssinatura:igAssinatura(f)};
+    const podeAgendar=!!f.data&&conectada;
+    const extra={...base,status:podeAgendar?"agendado":"aprovacao",...(podeAgendar?{autoPublicar:true}:{})};
+    salvar(extra,false);setF(p=>({...p,...extra}));
+    toast(podeAgendar?"✅ Aprovado e 📅 agendado — o robô publica em "+igFmtData(f.data)+" às "+(f.hora||"09:00")+".":!conectada?"✅ Aprovado. Para agendar, conecte a conta ao Instagram (👤 Contas).":"✅ Aprovado. Defina a data e a hora e clique em 📅 Agendar.","ok",8000);
+  };
+  const agendar=()=>{
+    if(!aprovadoValido){toast("⚠️ Só posts aprovados podem ser agendados.","warn");setAba("aprovacao");return;}
+    if(!conectada){toast("🔌 A conta não está conectada ao Instagram — conecte em 👤 Contas para o robô publicar.","warn",7000);return;}
+    if(!f.data){toast("📅 Defina a data e a hora.","warn");return;}
+    if(!exigirSemAlertas())return;
+    const ex={status:"agendado",autoPublicar:true};salvar(ex,false);setF(p=>({...p,...ex}));toast("📅 Agendado — o robô publica em "+igFmtData(f.data)+" às "+(f.hora||"09:00")+".","ok",7000);
+  };
+  const desagendar=()=>{if(!window.confirm("Tirar da agenda e voltar para Produção? Vai precisar aprovar de novo."))return;
+    const ex={status:"producao",aprovadoPor:"",aprovadoEm:"",aprovadoAssinatura:"",aprovadoRegistradoPor:""};salvar(ex,false);setF(p=>({...p,...ex}));};
   const lbl={fontSize:11,fontWeight:800,color:"var(--text3)",marginBottom:4,display:"block",textTransform:"uppercase",letterSpacing:".04em"};
   const inp={width:"100%",padding:"8px 10px",borderRadius:9,border:"1.5px solid var(--border3)",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",boxSizing:"border-box"};
   const msgCliente=()=>{
@@ -8434,51 +8562,69 @@ function IgPostEditor({open,post,novo,contas,collaborators,companies,userName,my
     return linhas.join("\n");
   };
   const tabBtn=(k,l)=>(<button onClick={()=>setAba(k)} style={{padding:"7px 12px",border:"none",borderBottom:aba===k?"2.5px solid #e1306c":"2.5px solid transparent",background:"none",color:aba===k?"#e1306c":"var(--text3)",fontWeight:800,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>);
+  const user=conta?(conta.usuario||conta.nome).replace(/^@/,""):"";
+  // próximo passo (botão principal)
+  const proximo=publicado?null
+    :etapa==="producao"?<Btn onClick={enviarAprovacao} sz="sm" col="#b45309">📤 Enviar para aprovação</Btn>
+    :etapa==="aprovacao"?(aprovadoValido?<Btn onClick={agendar} sz="sm" col="#4f46e5">📅 Agendar</Btn>:<Btn onClick={()=>aprovar(conta?.tipo==="propria"?userName:(conta?.contatoAprovacao||""))} sz="sm" col="#16a34a">✅ Aprovar</Btn>)
+    :etapa==="agendado"?<>{conectada&&(f.midias||[]).length>0&&<Btn onClick={()=>{if(!exigirSemAlertas())return;onSalvar(finalizar(),false);onPostar(finalizar());}} sz="sm" col="#e1306c">🚀 Publicar agora</Btn>}</>:null;
   return(
-    <Modal open={open} onClose={onClose} title={(ehNovo?"✨ Novo post":"✏️ Editar post")+(conta?" · @"+(conta.usuario||conta.nome).replace(/^@/,""):"")} width={1020}>
+    <Modal open={open} onClose={onClose} title={(ehNovo?"✨ Novo post":"✏️ Editar post")+(conta?" · @"+user:"")} width={1020}>
+      <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:12}}>
+        <IgEtapas post={f}/>
+        {conta&&<div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:12,background:(conta.cor||"#6366f1")+"14",border:"1.5px solid "+(conta.cor||"#6366f1")+"55"}}>
+          <IgAvatar conta={conta} size={32}/>
+          <div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:900,color:"var(--text)"}}>Este post é da conta <span style={{color:conta.cor||"#4f46e5"}}>@{user}</span> — {conta.nome}</div>
+            <div style={{fontSize:11.5,color:"var(--text3)"}}>{conectada?"🤖 Publicação automática pelo sistema na data e hora agendadas.":"🔌 Conta não conectada — conecte em 👤 Contas para poder agendar e publicar."}</div></div>
+          {!publicado&&verificando&&<span style={{fontSize:11,color:"var(--text4)"}}>🛡 verificando…</span>}
+          {!publicado&&!verificando&&alertas.length===0&&<span style={{fontSize:11.5,fontWeight:800,color:"#15803d"}}>🛡 nenhum sinal de outra conta</span>}
+        </div>}
+        {!publicado&&alertas.length>0&&<div style={{padding:"10px 12px",borderRadius:12,background:alertasPendentes?"#fef2f2":"#f0fdf4",border:"1.5px solid "+(alertasPendentes?"#fca5a5":"#86efac")}}>
+          <div style={{fontSize:13,fontWeight:900,color:alertasPendentes?"#991b1b":"#15803d"}}>{alertasPendentes?"🛡 Atenção: este post pode ser de OUTRA conta":"🛡 Alertas revisados"}</div>
+          <ul style={{margin:"6px 0 0",paddingLeft:18,fontSize:12.5,color:alertasPendentes?"#991b1b":"#166534",lineHeight:1.5}}>{alertas.map((a,i)=><li key={i}>{a.msg}</li>)}</ul>
+          {alertasPendentes?<label style={{display:"flex",gap:8,alignItems:"center",marginTop:8,fontSize:12.5,fontWeight:800,color:"#991b1b",cursor:"pointer"}}>
+            <input type="checkbox" checked={false} onChange={()=>{if(window.confirm(`Confirma que revisou e que este post é mesmo da conta @${user}?`))up("alertasOk",sigAlertas);}} style={{width:17,height:17,accentColor:"#dc2626"}}/>
+            Revisei: está certo, este post é mesmo de @{user}</label>
+            :<div style={{fontSize:11.5,color:"#166534",marginTop:4}}>Confirmado que o post é de @{user}. Se o conteúdo mudar, a verificação é refeita.</div>}
+        </div>}
+        {mudouDepoisDeAprovar&&<div style={{padding:"8px 12px",borderRadius:10,background:"#fffbeb",border:"1px solid #fcd34d",fontSize:12.5,color:"#92400e"}}>✏️ O conteúdo foi alterado depois da aprovação. Ao salvar, o post <b>volta para Produção</b> e precisa ser aprovado de novo. (Mudar só a data/hora não exige nova aprovação.)</div>}
+        {publicado&&<div style={{padding:"8px 12px",borderRadius:10,background:"#f0fdf4",border:"1px solid #86efac",fontSize:12.5,color:"#166534"}}>✅ Publicado {f.publicadoEm?"em "+new Date(f.publicadoEm).toLocaleString("pt-BR"):""}{f.publicadoPor?" por "+f.publicadoPor:""}. {f.link&&<a href={f.link} target="_blank" rel="noopener noreferrer" style={{color:"#be185d",fontWeight:800}}>ver post ↗</a>} — post publicado não pode ser alterado.</div>}
+        {!publicado&&igRobo(f).estado==="erro"&&<div style={{padding:"10px 12px",borderRadius:11,background:"#fef2f2",border:"1px solid #fca5a5",fontSize:12.5,color:"#991b1b",display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+          <span style={{flex:"1 1 260px"}}><b>⚠️ O robô não conseguiu publicar.</b><br/>{igRobo(f).erro}{f.robo?.em?<span style={{color:"#b91c1c",fontSize:11}}> · {new Date(f.robo.em).toLocaleString("pt-BR")}</span>:null}</span>
+          {onTentar&&conectada&&etapa==="agendado"&&<Btn onClick={()=>onTentar(finalizar())} sz="sm" col="#dc2626">🔁 Tentar de novo</Btn>}
+        </div>}
+        {!publicado&&(igRobo(f).estado==="processando"||igRobo(f).estado==="publicando")&&<div style={{padding:"9px 12px",borderRadius:11,background:"#fffbeb",border:"1px solid #fcd34d",fontSize:12.5,color:"#92400e"}}>⏳ <b>Publicando…</b> O Instagram está processando a mídia. O robô termina sozinho em alguns minutos.</div>}
+      </div>
       <div style={{display:"flex",gap:18,flexWrap:"wrap",alignItems:"flex-start"}}>
         <div style={{flex:"1 1 420px",minWidth:300,display:"flex",flexDirection:"column",gap:12}}>
           <div style={{display:"flex",gap:2,borderBottom:"1px solid var(--border2)"}}>{tabBtn("conteudo","📝 Conteúdo")}{tabBtn("aprovacao","✅ Aprovação"+((f.ajustes||[]).length?" ("+f.ajustes.length+")":""))}{tabBtn("notas","🗒 Notas")}</div>
-          {aba==="conteudo"&&<>
+          {aba==="conteudo"&&<fieldset disabled={publicado} style={{border:0,padding:0,margin:0,minWidth:0,display:"flex",flexDirection:"column",gap:12}}>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
               <div><span style={lbl}>Conta</span>
-                <select value={f.contaId||""} onChange={e=>{const c=contas.find(x=>x.id===e.target.value);setF(p=>({...p,contaId:e.target.value,responsavelId:p.responsavelId||c?.respPadrao||"",hashtags:p.hashtags||c?.hashtagsPadrao||"",autoPublicar:c?.conexao?(p.autoPublicar===false?false:true):p.autoPublicar}));}} style={inp}>
+                <select value={f.contaId||""} onChange={e=>{const c=contas.find(x=>x.id===e.target.value);setF(p=>({...p,contaId:e.target.value,responsavelId:p.responsavelId||c?.respPadrao||"",hashtags:p.hashtags||c?.hashtagsPadrao||""}));}} style={inp}>
                   <option value="">Escolha…</option>
-                  {contas.filter(c=>c.ativa!==false||c.id===f.contaId).map(c=><option key={c.id} value={c.id}>@{(c.usuario||c.nome).replace(/^@/,"")} — {c.nome}</option>)}
+                  {contas.filter(c=>c.ativa!==false||c.id===f.contaId).map(c=><option key={c.id} value={c.id}>@{(c.usuario||c.nome).replace(/^@/,"")} — {c.nome}{c.conexao?"":" (não conectada)"}</option>)}
                 </select></div>
               <div><span style={lbl}>Tipo</span>
                 <select value={f.tipo} onChange={e=>up("tipo",e.target.value)} style={inp}>{IG_TIPOS.map(t=><option key={t.k} value={t.k}>{t.ic} {t.l}</option>)}</select></div>
               <div><span style={lbl}>Data</span><input type="date" value={f.data||""} onChange={e=>up("data",e.target.value)} style={inp}/></div>
               <div><span style={lbl}>Hora</span><input type="time" value={f.hora||"09:00"} onChange={e=>up("hora",e.target.value)} style={inp}/></div>
-              <div><span style={lbl}>Responsável por postar</span>
+              <div style={{gridColumn:"1 / -1"}}><span style={lbl}>Responsável</span>
                 <select value={f.responsavelId||""} onChange={e=>up("responsavelId",e.target.value)} style={inp}><option value="">— ninguém —</option>{(collaborators||[]).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-              <div><span style={lbl}>Etapa</span>
-                <select value={f.status} onChange={e=>up("status",e.target.value)} style={inp}>{IG_STATUS.map(s=><option key={s.k} value={s.k}>{s.ic} {s.l}</option>)}</select></div>
             </div>
-            {conta&&(conta.conexao
-              ?<label style={{display:"flex",gap:10,alignItems:"center",padding:"10px 12px",borderRadius:11,border:"1.5px solid "+(f.autoPublicar?"#a5b4fc":"var(--border2)"),background:f.autoPublicar?"#eef2ff":"var(--bg3)",cursor:"pointer"}}>
-                <input type="checkbox" checked={f.autoPublicar===true} onChange={e=>up("autoPublicar",e.target.checked)} style={{width:18,height:18,accentColor:"#4f46e5"}}/>
-                <span style={{fontSize:12.5,color:"var(--text)"}}><b>🤖 Publicar automaticamente no horário</b><br/><span style={{color:"var(--text3)",fontSize:11.5}}>{f.autoPublicar?"Quando estiver “Agendado”, o robô publica sozinho em @"+conta.conexao.username+" na data e hora marcadas.":"Desligado — na hora marcada o responsável recebe o aviso para postar."}</span></span>
-              </label>
-              :<div style={{fontSize:11.5,color:"var(--text3)",padding:"7px 10px",borderRadius:9,background:"var(--bg3)",border:"1px dashed var(--border2)"}}>🔌 Esta conta não está conectada ao Instagram — a postagem será manual. Para publicar sozinho, conecte em <b>👤 Contas</b>.</div>)}
-            {f.status!=="publicado"&&igRobo(f).estado==="erro"&&<div style={{padding:"10px 12px",borderRadius:11,background:"#fef2f2",border:"1px solid #fca5a5",fontSize:12.5,color:"#991b1b",display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
-              <span style={{flex:"1 1 260px"}}><b>⚠️ O robô não conseguiu publicar.</b><br/>{igRobo(f).erro}{f.robo?.em?<span style={{color:"#b91c1c",fontSize:11}}> · {new Date(f.robo.em).toLocaleString("pt-BR")}</span>:null}</span>
-              {onTentar&&conta?.conexao&&<Btn onClick={()=>onTentar(f)} sz="sm" col="#dc2626">🔁 Tentar de novo</Btn>}
-            </div>}
-            {f.status!=="publicado"&&(igRobo(f).estado==="processando"||igRobo(f).estado==="publicando")&&<div style={{padding:"9px 12px",borderRadius:11,background:"#fffbeb",border:"1px solid #fcd34d",fontSize:12.5,color:"#92400e"}}>⏳ <b>Publicando…</b> O Instagram está processando a mídia. O robô termina sozinho em alguns minutos.</div>}
             <div>
               <span style={lbl}>Mídias {f.tipo==="carrossel"?"(até 10)":"(1 arquivo)"}</span>
-              <div onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();addArquivos(e.dataTransfer.files);}} style={{border:"2px dashed var(--border2)",borderRadius:12,padding:10,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",background:"var(--bg3)"}}>
+              <div onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();if(!publicado)addArquivos(e.dataTransfer.files);}} style={{border:"2px dashed var(--border2)",borderRadius:12,padding:10,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",background:"var(--bg3)"}}>
                 {(f.midias||[]).map((m,i)=>(<div key={m.id} style={{position:"relative",width:84}}>
                   <div style={{width:84,height:84,borderRadius:9,background:m.thumb?`center/cover url(${m.thumb})`:"#e2e8f0",border:"1px solid var(--border2)",display:"flex",alignItems:"center",justifyContent:"center"}}>{m.tipo==="video"&&<span style={{background:"rgba(0,0,0,.55)",color:"#fff",borderRadius:"50%",width:24,height:24,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11}}>▶</span>}</div>
-                  <div style={{display:"flex",justifyContent:"space-between",marginTop:3}}>
+                  {!publicado&&<div style={{display:"flex",justifyContent:"space-between",marginTop:3}}>
                     <button title="Mover para a esquerda" disabled={i===0} onClick={()=>moverMidia(i,-1)} style={{border:"none",background:"none",cursor:"pointer",color:"#64748b",opacity:i===0?.3:1}}>◀</button>
                     <button title="Remover" onClick={()=>removerMidia(i)} style={{border:"none",background:"none",cursor:"pointer",color:"#ef4444"}}>🗑</button>
                     <button title="Mover para a direita" disabled={i===(f.midias||[]).length-1} onClick={()=>moverMidia(i,1)} style={{border:"none",background:"none",cursor:"pointer",color:"#64748b",opacity:i===(f.midias||[]).length-1?.3:1}}>▶</button>
-                  </div>
+                  </div>}
                 </div>))}
                 {enviando>0&&<div style={{width:84,height:84,borderRadius:9,background:"var(--bg2)",border:"1px solid var(--border2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,color:"#64748b",textAlign:"center"}}>⏳ enviando {enviando}…</div>}
-                {((f.midias||[]).length<(f.tipo==="carrossel"?10:1))&&<button onClick={()=>inputRef.current&&inputRef.current.click()} style={{width:84,height:84,borderRadius:9,border:"1.5px dashed #e1306c",background:"#fdf2f8",color:"#be185d",cursor:"pointer",fontWeight:800,fontSize:11,fontFamily:"inherit"}}>＋<br/>Adicionar</button>}
+                {!publicado&&((f.midias||[]).length<(f.tipo==="carrossel"?10:1))&&<button onClick={()=>inputRef.current&&inputRef.current.click()} style={{width:84,height:84,borderRadius:9,border:"1.5px dashed #e1306c",background:"#fdf2f8",color:"#be185d",cursor:"pointer",fontWeight:800,fontSize:11,fontFamily:"inherit"}}>＋<br/>Adicionar</button>}
                 <input ref={inputRef} type="file" accept="image/*,video/*" multiple={f.tipo==="carrossel"||(f.midias||[]).length===0} style={{display:"none"}} onChange={e=>{addArquivos(e.target.files);e.target.value="";}}/>
                 {(f.midias||[]).length===0&&enviando===0&&<span style={{fontSize:11,color:"#94a3b8"}}>Arraste aqui ou clique em Adicionar. Imagens são convertidas para JPEG automaticamente.</span>}
               </div>
@@ -8488,7 +8634,7 @@ function IgPostEditor({open,post,novo,contas,collaborators,companies,userName,my
               <textarea value={f.legenda||""} onChange={e=>up("legenda",e.target.value)} rows={6} placeholder="Escreva a legenda…" style={{...inp,resize:"vertical",lineHeight:1.45}}/>
             </div>
             <div>
-              <span style={{...lbl,display:"flex",justifyContent:"space-between"}}><span>Hashtags</span>{conta?.hashtagsPadrao&&<button onClick={()=>up("hashtags",[f.hashtags,conta.hashtagsPadrao].filter(Boolean).join(" "))} style={{border:"none",background:"none",color:"#e1306c",fontWeight:800,fontSize:10.5,cursor:"pointer",textTransform:"none"}}>＋ inserir hashtags padrão da conta</button>}</span>
+              <span style={{...lbl,display:"flex",justifyContent:"space-between"}}><span>Hashtags</span>{!publicado&&conta?.hashtagsPadrao&&<button onClick={()=>up("hashtags",[f.hashtags,conta.hashtagsPadrao].filter(Boolean).join(" "))} style={{border:"none",background:"none",color:"#e1306c",fontWeight:800,fontSize:10.5,cursor:"pointer",textTransform:"none"}}>＋ inserir hashtags padrão da conta</button>}</span>
               <textarea value={f.hashtags||""} onChange={e=>up("hashtags",e.target.value)} rows={2} placeholder="#contabilidade #empreendedorismo" style={{...inp,resize:"vertical"}}/>
               <div style={{display:"flex",gap:12,fontSize:10.5,marginTop:4,color:"#94a3b8"}}>
                 <span style={{color:totalTxt>2200?"#dc2626":"#94a3b8",fontWeight:totalTxt>2200?800:500}}>{totalTxt}/2200 caracteres</span>
@@ -8496,17 +8642,22 @@ function IgPostEditor({open,post,novo,contas,collaborators,companies,userName,my
               </div>
             </div>
             <div><span style={lbl}>Primeiro comentário (opcional)</span><input value={f.primeiroComentario||""} onChange={e=>up("primeiroComentario",e.target.value)} placeholder="Ex.: link, hashtags extras…" style={inp}/></div>
-          </>}
+          </fieldset>}
           {aba==="aprovacao"&&<div style={{display:"flex",flexDirection:"column",gap:10}}>
-            <div style={{padding:"10px 12px",borderRadius:10,background:"#fdf2f8",border:"1px solid #fbcfe8",fontSize:12,color:"#9d174d",lineHeight:1.5}}>
-              1. Clique em <b>📋 Copiar mensagem para o cliente</b> e envie pelo WhatsApp junto com as imagens.<br/>2. Quando o cliente responder, registre aqui: <b>aprovado</b> ou <b>pediu ajuste</b>.
-            </div>
-            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-              <Btn onClick={async()=>{const ok=await igCopiar(msgCliente());toast(ok?"📋 Mensagem copiada — cole no WhatsApp do cliente.":"⚠️ Não foi possível copiar.","ok");if(f.status==="producao"||f.status==="ideia")up("status","aprovacao");}} v="ghost" sz="sm">📋 Copiar mensagem para o cliente</Btn>
-              <Btn onClick={()=>{const quem=window.prompt("Quem aprovou? (nome do cliente ou de quem aprovou)",conta?.contatoAprovacao||"");if(quem===null)return;setF(p=>({...p,status:p.data?"agendado":p.status,aprovadoPor:quem.trim()||"Cliente",aprovadoEm:new Date().toISOString(),aprovadoRegistradoPor:userName||""}));toast(f.data?"✅ Aprovado e agendado. Clique em Salvar.":"✅ Aprovado. Defina a data para agendar.","ok");}} sz="sm" col="#16a34a">✅ Cliente aprovou</Btn>
-              <Btn onClick={()=>{const t=window.prompt("O que o cliente pediu para ajustar?");if(!t||!t.trim())return;setF(p=>({...p,status:"producao",aprovadoPor:"",aprovadoEm:"",ajustes:[...(p.ajustes||[]),{id:uid(),texto:t.trim(),por:userName||"",em:new Date().toISOString()}]}));toast("✏️ Ajuste registrado — post voltou para Produção.","ok");}} sz="sm" col="#f59e0b">✏️ Pediu ajuste</Btn>
-            </div>
-            {f.aprovadoPor&&<div style={{fontSize:12,color:"#15803d",fontWeight:700}}>✅ Aprovado por {f.aprovadoPor}{f.aprovadoEm?" em "+new Date(f.aprovadoEm).toLocaleString("pt-BR"):""}{f.aprovadoRegistradoPor?" (registrado por "+f.aprovadoRegistradoPor+")":""}</div>}
+            {etapa==="producao"&&<div style={{padding:"10px 12px",borderRadius:10,background:"var(--bg3)",border:"1px solid var(--border2)",fontSize:12.5,color:"var(--text2)"}}>Este post está em <b>Produção</b>. Quando terminar, clique em <b>📤 Enviar para aprovação</b>.</div>}
+            {etapa==="aprovacao"&&!aprovadoValido&&<>
+              <div style={{padding:"10px 12px",borderRadius:10,background:"#fdf2f8",border:"1px solid #fbcfe8",fontSize:12,color:"#9d174d",lineHeight:1.5}}>
+                {conta?.tipo==="propria"?<>Conta da MD: quem for responsável aprova aqui mesmo.</>:<>1. Clique em <b>📋 Copiar mensagem para o cliente</b> e envie pelo WhatsApp com as imagens.<br/>2. Quando o cliente responder, registre: <b>aprovado</b> ou <b>pediu ajuste</b>.</>}
+              </div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                {conta?.tipo!=="propria"&&<Btn onClick={async()=>{const ok=await igCopiar(msgCliente());toast(ok?"📋 Mensagem copiada — cole no WhatsApp do cliente.":"⚠️ Não foi possível copiar.","ok");}} v="ghost" sz="sm">📋 Copiar mensagem para o cliente</Btn>}
+                <Btn onClick={()=>aprovar(conta?.tipo==="propria"?userName:(conta?.contatoAprovacao||""))} sz="sm" col="#16a34a">✅ {conta?.tipo==="propria"?"Aprovar":"Cliente aprovou"}</Btn>
+                <Btn onClick={()=>{const t=window.prompt("O que precisa ajustar?");if(!t||!t.trim())return;const ex={status:"producao",aprovadoPor:"",aprovadoEm:"",aprovadoAssinatura:"",ajustes:[...(f.ajustes||[]),{id:uid(),texto:t.trim(),por:userName||"",em:new Date().toISOString()}]};salvar(ex,false);setF(p=>({...p,...ex}));toast("✏️ Ajuste registrado — post voltou para Produção.","ok");}} sz="sm" col="#f59e0b">✏️ Pedir ajuste</Btn>
+              </div>
+            </>}
+            {f.aprovadoPor&&<div style={{fontSize:12,color:aprovadoValido?"#15803d":"#b45309",fontWeight:700}}>{aprovadoValido?"✅":"⚠️"} Aprovado por {f.aprovadoPor}{f.aprovadoEm?" em "+new Date(f.aprovadoEm).toLocaleString("pt-BR"):""}{f.aprovadoRegistradoPor?" (registrado por "+f.aprovadoRegistradoPor+")":""}{!aprovadoValido?" — o conteúdo mudou depois disso":""}</div>}
+            {etapa==="aprovacao"&&aprovadoValido&&<div style={{fontSize:12.5,color:"var(--text2)"}}>{!conectada?"🔌 Conecte a conta em 👤 Contas para poder agendar.":!f.data?"📅 Defina a data e a hora (aba Conteúdo) e clique em Agendar.":"Pronto para agendar."}</div>}
+            {etapa==="agendado"&&<div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}><span style={{fontSize:12.5,color:"#4338ca",fontWeight:700}}>📅 Agendado para {f.data?igFmtData(f.data)+" às "+(f.hora||"09:00"):"—"} — o robô publica sozinho.</span><Btn onClick={desagendar} v="ghost" sz="sm">↩ Desagendar</Btn></div>}
             <div style={{fontSize:11,fontWeight:800,color:"var(--text3)",textTransform:"uppercase"}}>Histórico de ajustes</div>
             {(f.ajustes||[]).length===0&&<div style={{fontSize:12,color:"#94a3b8"}}>Nenhum ajuste pedido.</div>}
             {(f.ajustes||[]).slice().reverse().map(a=>(<div key={a.id} style={{padding:"8px 10px",borderRadius:9,background:"var(--bg3)",border:"1px solid var(--border2)",fontSize:12}}>
@@ -8517,7 +8668,6 @@ function IgPostEditor({open,post,novo,contas,collaborators,companies,userName,my
           {aba==="notas"&&<div>
             <span style={lbl}>Notas internas (não vão para o Instagram)</span>
             <textarea value={f.notas||""} onChange={e=>up("notas",e.target.value)} rows={8} placeholder="Briefing, referências, links do Canva/Drive…" style={{...inp,resize:"vertical"}}/>
-            {f.status==="publicado"&&<div style={{marginTop:10}}><span style={lbl}>Link do post publicado</span><input value={f.link||""} onChange={e=>up("link",e.target.value)} placeholder="https://www.instagram.com/p/…" style={inp}/></div>}
             <div style={{fontSize:10.5,color:"#94a3b8",marginTop:10}}>{f.criadoPor?"Criado por "+f.criadoPor+(f.criadoEm?" em "+new Date(f.criadoEm).toLocaleString("pt-BR"):""):""}{f.publicadoPor?" · Publicado por "+f.publicadoPor+(f.publicadoEm?" em "+new Date(f.publicadoEm).toLocaleString("pt-BR"):""):""}</div>
           </div>}
         </div>
@@ -8527,12 +8677,12 @@ function IgPostEditor({open,post,novo,contas,collaborators,companies,userName,my
         </div>
       </div>
       <div style={{display:"flex",gap:8,justifyContent:"space-between",flexWrap:"wrap",marginTop:16,paddingTop:12,borderTop:"1px solid var(--border2)"}}>
-        <div>{!ehNovo&&<Btn onClick={()=>{if(window.confirm("Excluir este post e as mídias dele? Isso não pode ser desfeito."))onExcluir(f);}} v="danger" sz="sm">🗑 Excluir</Btn>}</div>
+        <div>{!ehNovo&&!publicado&&<Btn onClick={()=>{if(window.confirm("Excluir este post e as mídias dele? Isso não pode ser desfeito."))onExcluir(f);}} v="danger" sz="sm">🗑 Excluir</Btn>}</div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          <Btn onClick={onClose} v="ghost" sz="sm">Cancelar</Btn>
-          <Btn onClick={()=>salvar()} sz="sm">💾 Salvar</Btn>
-          {f.status!=="publicado"&&f.status!=="agendado"&&<Btn onClick={()=>salvar({status:"agendado"})} sz="sm" col="#4f46e5">📅 Salvar e agendar</Btn>}
-          {f.status!=="publicado"&&(f.midias||[]).length>0&&<Btn onClick={()=>{if(!f.contaId){toast("⚠️ Escolha a conta.","warn");return;}onSalvar(f,false);onPostar(f);}} sz="sm" col="#e1306c">{conta?.conexao?"🚀 Publicar agora":"📲 Postar agora"}</Btn>}
+          <Btn onClick={onClose} v="ghost" sz="sm">{publicado?"Fechar":"Cancelar"}</Btn>
+          {!publicado&&<Btn onClick={()=>salvar()} v="ghost" sz="sm">💾 Salvar</Btn>}
+          {publicado&&<Btn onClick={()=>salvar()} v="ghost" sz="sm">💾 Salvar notas</Btn>}
+          {proximo}
         </div>
       </div>
     </Modal>
@@ -8596,8 +8746,8 @@ function IgPostarAgora({open,post,postVivo,conta,onClose,onPublicado,onPublicarS
             {sis?.estado==="erro"&&<span style={{fontSize:12,fontWeight:700,color:"#b91c1c"}}>⚠️ {sis.msg}</span>}
           </div>
         </div>}
-        {conta?.conexao&&onPublicarSistema&&!manual&&<button onClick={()=>setManual(true)} style={{alignSelf:"center",border:"none",background:"none",color:"var(--text3)",fontSize:12,fontWeight:700,cursor:"pointer",textDecoration:"underline"}}>ou postar manualmente pelo celular/computador</button>}
-        {(!conta?.conexao||!onPublicarSistema||manual)&&<>
+        {!conta?.conexao&&<div style={{padding:"12px 14px",borderRadius:12,background:"#fff7ed",border:"1px solid #fed7aa",fontSize:12.5,color:"#9a3412"}}>🔌 A conta não está conectada ao Instagram. A publicação é feita só pelo sistema — conecte a conta em <b>👤 Contas</b>.</div>}
+        {false&&<>
         {post.tipo!=="story"&&passo(1,copiado,"Copiar a legenda","A legenda (com hashtags) vai para a área de transferência. No Instagram é só colar.",
           <><Btn onClick={copiar} sz="sm" col="#e1306c">📋 Copiar legenda</Btn><details style={{fontSize:11.5,color:"var(--text3)"}}><summary style={{cursor:"pointer"}}>ver texto</summary><div style={{whiteSpace:"pre-wrap",marginTop:6,padding:8,background:"var(--bg3)",borderRadius:8,maxHeight:140,overflowY:"auto",userSelect:"text"}}>{texto||"(sem legenda)"}</div></details></>)}
         {passo(post.tipo==="story"?1:2,midiasOk,mobile?"Enviar as mídias para o Instagram":"Baixar as mídias",
@@ -9009,6 +9159,23 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
   const [contasOpen,setContasOpen]=React.useState(false);
   const [arrastando,setArrastando]=React.useState(null);
   const [estreito,setEstreito]=React.useState(()=>typeof window!=="undefined"&&window.innerWidth<720);
+  // Verificação de conta errada em todos os posts não publicados (mostra o selo nos cards)
+  const [alertasMap,setAlertasMap]=React.useState({});
+  React.useEffect(()=>{
+    let ok=true;
+    const t=setTimeout(async()=>{
+      const m={};
+      for(const p of ig.posts){
+        if(p.status==="publicado")continue;
+        const al=await igVerificarConta(p,ig.contas,data?.companies||[],ig.posts);
+        if(al.length&&p.alertasOk!==igAssinaturaAlertas(al))m[p.id]=al.map(a=>a.msg);
+        if(!ok)return;
+      }
+      if(ok)setAlertasMap(m);
+    },600);
+    return()=>{ok=false;clearTimeout(t);};
+  },[ig.posts,ig.contas]);
+  const temAlerta=(p)=>p.status!=="publicado"&&(!!alertasMap[p.id]||!!p.alertasPendentes);
   React.useEffect(()=>{const f=()=>setEstreito(window.innerWidth<720);window.addEventListener("resize",f);return()=>window.removeEventListener("resize",f);},[]);
   const contas=ig.contas;const contaDe=(id)=>contas.find(c=>c.id===id);
   const nomeColab=(id)=>collaborators.find(c=>c.id===id)?.name||"";
@@ -9021,9 +9188,10 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
     if(fEspecial==="atrasados"&&!igAtrasado(p))return false;
     if(fEspecial==="aprovacao"&&p.status!=="aprovacao")return false;
     if(fEspecial==="meus"&&p.responsavelId!==myId)return false;
+    if(fEspecial==="alertas"&&!alertasMap[p.id])return false;
     if(fBusca){const q=fBusca.toLowerCase();const c=contaDe(p.contaId);if(!((p.legenda||"")+" "+(p.hashtags||"")+" "+(p.notas||"")+" "+(c?.nome||"")+" "+(c?.usuario||"")).toLowerCase().includes(q))return false;}
     return true;
-  }),[ig.posts,fConta,fResp,fBusca,fEspecial,contas,hoje,myId]);
+  }),[ig.posts,fConta,fResp,fBusca,fEspecial,contas,hoje,myId,alertasMap]);
   const kpi={
     hoje:ig.posts.filter(p=>p.data===hoje&&p.status!=="publicado").length,
     atrasados:ig.posts.filter(igAtrasado).length,
@@ -9055,11 +9223,31 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
     await atualizar(d=>({...d,posts:d.posts.filter(x=>x.id!==p.id)}));
     toast("🗑 Post excluído","ok");setEditor(null);
   };
+  // Regras do caminho: Produção → Aprovação → Agendado → Publicado (só o robô publica)
   const mudarStatus=(p,status)=>{
-    if(status===p.status)return;
-    if(status==="agendado"&&!p.data){toast("📅 Defina a data para agendar.","warn");setEditor({...p,status:"agendado"});return;}
-    if(status==="publicado"){setPostar(p);return;}
-    atualizar(d=>({...d,posts:d.posts.map(x=>x.id===p.id?{...x,status,avisado:false,editadoEm:new Date().toISOString(),editadoPor:userName||""}:x)}));
+    const atual=igEtapa(p);
+    if(status===atual)return;
+    if(status==="publicado"){toast("🤖 “Publicado” é só pelo robô. Agende o post (ou use 🚀 Publicar agora num post agendado).","warn",7000);return;}
+    if(atual==="publicado"){toast("✅ Post publicado não volta de etapa.","warn");return;}
+    const c=contaDe(p.contaId);
+    const grava=(extra)=>atualizar(d=>({...d,posts:d.posts.map(x=>x.id===p.id?igComQuando({...x,...extra,avisado:false,editadoEm:new Date().toISOString(),editadoPor:userName||""}):x)}));
+    if(status==="producao"){
+      if((atual==="agendado"||igAprovadoValido(p))&&!window.confirm("Voltar para Produção? A aprovação é desfeita e o post precisa ser aprovado de novo."))return;
+      grava({status:"producao",aprovadoPor:"",aprovadoEm:"",aprovadoAssinatura:""});return;
+    }
+    if(status==="aprovacao"){
+      if(!(p.midias||[]).length){toast("⚠️ Adicione a imagem ou o vídeo antes de enviar para aprovação.","warn");setEditor(p);return;}
+      if(temAlerta(p)){toast("🛡 Este post tem alerta de conta errada — revise no editor.","err",7000);setEditor(p);return;}
+      if(atual==="agendado"){grava({status:"aprovacao"});return;}
+      grava({status:"aprovacao"});toast("📤 Enviado para aprovação.","ok");return;
+    }
+    if(status==="agendado"){
+      if(!igAprovadoValido(p)){toast("✅ Só posts aprovados podem ser agendados. Aprove no editor.","warn",7000);setEditor(p);return;}
+      if(!c?.conexao){toast("🔌 Conecte a conta ao Instagram (👤 Contas) para o robô poder publicar.","warn",7000);return;}
+      if(!p.data){toast("📅 Defina a data e a hora.","warn");setEditor(p);return;}
+      if(temAlerta(p)){toast("🛡 Este post tem alerta de conta errada — revise no editor.","err",7000);setEditor(p);return;}
+      grava({status:"agendado",autoPublicar:true});toast("📅 Agendado — o robô publica em "+igFmtData(p.data)+" às "+(p.hora||"09:00")+".","ok",6000);
+    }
   };
   const reagendar=(p,dataISO)=>{
     if(p.data===dataISO)return;
@@ -9110,7 +9298,9 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
             {p.responsavelId&&<span style={{fontSize:10.5,color:"#4338ca",fontWeight:700}}>👤 {nomeColab(p.responsavelId).split(" ")[0]}</span>}
             {(at||["erro","processando","publicando"].includes(igRobo(p).estado))&&p.status!=="publicado"&&<IgStatusChip post={p} small/>}
             {p.status!=="publicado"&&igAuto(p,c)&&!at&&!["erro","processando","publicando"].includes(igRobo(p).estado)&&<span title={"Publica sozinho em @"+c.conexao.username} style={{fontSize:10,fontWeight:800,color:"#4338ca",background:"#eef2ff",borderRadius:20,padding:"1px 7px"}}>🤖 automático</span>}
-            {(p.status==="agendado"||at)&&(p.midias||[]).length>0&&<button onClick={e=>{e.stopPropagation();setPostar(p);}} style={{marginLeft:"auto",border:"none",background:c?.conexao?"#4f46e5":"#e1306c",color:"#fff",borderRadius:7,padding:"3px 9px",fontSize:10.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>{c?.conexao?"🚀 Publicar":"📲 Postar"}</button>}
+            {temAlerta(p)&&<span title={(alertasMap[p.id]||p.alertas||[]).join(" · ")} style={{fontSize:10,fontWeight:800,color:"#b91c1c",background:"#fee2e2",border:"1px solid #fca5a5",borderRadius:20,padding:"1px 7px"}}>🛡 conta errada?</span>}
+            {p.status==="agendado"&&!c?.conexao&&<span style={{fontSize:10,fontWeight:800,color:"#9a3412",background:"#fff7ed",borderRadius:20,padding:"1px 7px"}}>🔌 conta desconectada</span>}
+            {p.status==="agendado"&&c?.conexao&&(p.midias||[]).length>0&&<button onClick={e=>{e.stopPropagation();setPostar(p);}} style={{marginLeft:"auto",border:"none",background:"#4f46e5",color:"#fff",borderRadius:7,padding:"3px 9px",fontSize:10.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>🚀 Publicar</button>}
             {p.status==="publicado"&&p.link&&<a href={p.link} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} style={{marginLeft:"auto",fontSize:10.5,fontWeight:800,color:"#be185d"}}>ver post ↗</a>}
           </div>
         </>}
@@ -9170,24 +9360,25 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
         <div style={{fontSize:11,fontWeight:800,color:"var(--text3)",textTransform:"uppercase",letterSpacing:".05em"}}>💡 Sem data ({semData.length})</div>
         <div style={{fontSize:10.5,color:"var(--text4)"}}>Ideias e posts sem dia definido. Arraste para o calendário.</div>
         {semData.map(p=>cardPost(p,false))}
-        <button onClick={()=>novoPost({status:"ideia"})} style={{border:"1.5px dashed var(--border2)",background:"transparent",borderRadius:10,padding:"8px",color:"var(--text3)",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>＋ Nova ideia</button>
+        <button onClick={()=>novoPost({status:"producao"})} style={{border:"1.5px dashed var(--border2)",background:"transparent",borderRadius:10,padding:"8px",color:"var(--text3)",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>＋ Novo rascunho</button>
       </div>
     </div>);
   };
   const navBtn={width:30,height:30,borderRadius:8,border:"1px solid var(--border2)",background:"var(--bg2)",color:"var(--text)",cursor:"pointer",fontWeight:900,fontSize:15,fontFamily:"inherit"};
 
   const renderKanban=()=>(
-    <div style={{display:"grid",gridTemplateColumns:"repeat(5,minmax(220px,1fr))",gap:10,overflowX:"auto",paddingBottom:6}}>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(230px,1fr))",gap:10,overflowX:"auto",paddingBottom:6}}>
       {IG_STATUS.map(s=>{
-        let lst=postsFiltrados.filter(p=>p.status===s.k);
+        let lst=postsFiltrados.filter(p=>igEtapa(p)===s.k);
         if(s.k==="publicado")lst=lst.sort((a,b)=>(b.publicadoEm||"").localeCompare(a.publicadoEm||"")).slice(0,30);
         else lst=lst.sort((a,b)=>((a.data||"9999")+(a.hora||"")).localeCompare((b.data||"9999")+(b.hora||"")));
         return(<div key={s.k} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();const id=e.dataTransfer.getData("text/plain");const p=ig.posts.find(x=>x.id===id);if(p)mudarStatus(p,s.k);setArrastando(null);}}
           style={{background:"var(--bg3)",borderRadius:12,padding:10,display:"flex",flexDirection:"column",gap:8,minHeight:200,border:"1px solid var(--border2)"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:11.5,fontWeight:900,textTransform:"uppercase",letterSpacing:".05em",color:s.c}}>{s.ic} {s.l}<span style={{background:s.bg,color:s.c,borderRadius:20,padding:"1px 8px",fontSize:11}}>{postsFiltrados.filter(p=>p.status===s.k).length}</span></div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:11.5,fontWeight:900,textTransform:"uppercase",letterSpacing:".05em",color:s.c}}>{s.ic} {s.l}<span style={{background:s.bg,color:s.c,borderRadius:20,padding:"1px 8px",fontSize:11}}>{postsFiltrados.filter(p=>igEtapa(p)===s.k).length}</span></div>
           {lst.length===0&&<div style={{textAlign:"center",color:"var(--text4)",fontSize:11,padding:14}}>— vazio —</div>}
           {lst.map(p=>cardPost(p,false))}
-          {s.k==="ideia"&&<button onClick={()=>novoPost({status:"ideia"})} style={{border:"1.5px dashed var(--border2)",background:"transparent",borderRadius:10,padding:8,color:"var(--text3)",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>＋ Nova ideia</button>}
+          {s.k==="publicado"&&<div style={{fontSize:10.5,color:"var(--text4)",textAlign:"center"}}>🤖 só o robô coloca posts aqui</div>}
+          {s.k==="producao"&&<button onClick={()=>novoPost({status:"producao"})} style={{border:"1.5px dashed var(--border2)",background:"transparent",borderRadius:10,padding:8,color:"var(--text3)",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>＋ Novo post</button>}
           {s.k==="publicado"&&postsFiltrados.filter(p=>p.status==="publicado").length>30&&<div style={{fontSize:10.5,color:"var(--text4)",textAlign:"center"}}>mostrando os 30 mais recentes — use a Lista para ver todos</div>}
         </div>);
       })}
@@ -9209,7 +9400,8 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
             <td style={{padding:"8px 10px",whiteSpace:"nowrap",color:p.responsavelId?"#4338ca":"var(--text4)",fontWeight:700,fontSize:12}}>{p.responsavelId?"👤 "+nomeColab(p.responsavelId):"—"}</td>
             <td style={{padding:"8px 10px"}}><IgStatusChip post={p}/>{p.status==="publicado"&&p.publicadoPor&&<div style={{fontSize:10,color:"var(--text4)",marginTop:2}}>por {p.publicadoPor}</div>}</td>
             <td style={{padding:"8px 10px",textAlign:"right",whiteSpace:"nowrap"}} onClick={e=>e.stopPropagation()}>
-              {p.status!=="publicado"&&(p.midias||[]).length>0&&<button onClick={()=>setPostar(p)} style={{border:"none",background:"#e1306c",color:"#fff",borderRadius:7,padding:"4px 10px",fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📲 Postar</button>}
+              {temAlerta(p)&&<span title={(alertasMap[p.id]||p.alertas||[]).join(" · ")} style={{fontSize:10.5,fontWeight:800,color:"#b91c1c",marginRight:6}}>🛡 conta errada?</span>}
+              {p.status==="agendado"&&contaDe(p.contaId)?.conexao&&(p.midias||[]).length>0&&<button onClick={()=>setPostar(p)} style={{border:"none",background:"#4f46e5",color:"#fff",borderRadius:7,padding:"4px 10px",fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>🚀 Publicar</button>}
               {p.status==="publicado"&&p.link&&<a href={p.link} target="_blank" rel="noopener noreferrer" style={{fontSize:11.5,fontWeight:800,color:"#be185d"}}>ver post ↗</a>}
             </td>
           </tr>);})}
@@ -9245,6 +9437,7 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
         {kpiBtn("atrasados",kpi.atrasados,"atrasados","#b91c1c","#fee2e2")}
         {kpiBtn("aprovacao",kpi.aprovacao,"aguardando aprovação","#b45309","#fef3c7")}
         {myId&&kpiBtn("meus",kpi.meus,"comigo","#4338ca","#eef2ff")}
+        {Object.keys(alertasMap).length>0&&kpiBtn("alertas",Object.keys(alertasMap).length,"🛡 com alerta de conta errada","#b91c1c","#fef2f2")}
         <div style={{display:"flex",alignItems:"baseline",gap:6,padding:"8px 14px",borderRadius:11,border:"1px solid #86efac55",background:"#f0fdf4"}}><span style={{fontSize:20,fontWeight:900,color:"#15803d",lineHeight:1}}>{kpi.publicadosMes}</span><span style={{fontSize:11,fontWeight:700,color:"#15803d"}}>publicados no mês</span></div>
       </div>
 
@@ -9268,7 +9461,7 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
         :view==="relatorios"?<IgRelatorios contas={contas} posts={ig.posts} metricas={metricas} contaSel={fConta} setContaSel={setFConta} toast={toast}/>
         :view==="calendario"?renderCalendario():view==="kanban"?renderKanban():renderLista()}
 
-      <IgPostEditor open={!!editor} post={(editor&&ig.posts.find(x=>x.id===editor.id))||editor||{}} novo={!!editor&&!ig.posts.some(x=>x.id===editor.id)} contas={contas} collaborators={collaborators} companies={companies} userName={userName} myCollabId={myId}
+      <IgPostEditor open={!!editor} post={(editor&&ig.posts.find(x=>x.id===editor.id))||editor||{}} novo={!!editor&&!ig.posts.some(x=>x.id===editor.id)} posts={ig.posts} contas={contas} collaborators={collaborators} companies={companies} userName={userName} myCollabId={myId}
         onClose={()=>setEditor(null)} onSalvar={salvarPost} onExcluir={excluirPost} onPostar={(p)=>setPostar(p)} onTentar={tentarDeNovo} toast={toast}/>
       <IgPostarAgora open={!!postar} post={postar} postVivo={postar?ig.posts.find(x=>x.id===postar.id):null} conta={postar?contaDe(postar.contaId):null} onClose={()=>setPostar(null)} onPublicado={marcarPublicado} onPublicarSistema={publicarSistema} toast={toast}/>
       <IgContasModal open={contasOpen} onClose={()=>setContasOpen(false)} contas={contas} companies={companies} collaborators={collaborators} posts={ig.posts} onSalvar={salvarContas} toast={toast} metricas={metricas} onRelatorio={(id)=>{setContasOpen(false);setFConta(id);setView("relatorios");}}/>
@@ -9323,7 +9516,7 @@ function InstagramAvisos({addNotification,myCollabId,toast,onNavigate}){
           const atrasoMin=Math.round((agora-igDataHora(p))/60000);
           const txt=(p.autoPublicar===true&&conectada(p))
             ?`⚠️ O robô não publicou ${conta} · ${(IG_TIPO[p.tipo]||IG_TIPO.feed).l} (${igFmtData(p.data)} ${p.hora||"09:00"}) — confira o robô ou publique manualmente`
-            :`📸 Hora de postar: ${conta} · ${(IG_TIPO[p.tipo]||IG_TIPO.feed).l} (${igFmtData(p.data)} ${p.hora||"09:00"})${atrasoMin>30?" — já passou do horário":""}`;
+            :`🔌 Post agendado não saiu: ${conta} não está conectada ao Instagram (${igFmtData(p.data)} ${p.hora||"09:00"}) — conecte a conta em Instagram → Contas`;
           if(quem)addNotification({toId:quem,icon:"📸",page:"instagram",text:txt});
           if(quem&&quem===myCollabId)toast&&toast(txt,"ok",9000);
         }

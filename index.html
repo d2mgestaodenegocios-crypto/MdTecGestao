@@ -2307,6 +2307,205 @@ function Modal({open,onClose,title,children,width=630}){
   );
 }
 
+// ── Rascunho automático ──────────────────────────────────────────────
+// Tudo que é digitado em qualquer janela de cadastro (modal) fica guardado neste navegador
+// até a pessoa salvar. Se o sistema cair ou a janela fechar, ao abrir o mesmo cadastro
+// aparece a opção de restaurar.
+const RASC_KEY="mdtec_rascunhos_v1";
+const RASC_SALVAR=/(salvar|criar|cadastrar|confirmar|adicionar|aplicar|enviar|aprovar|agendar|publicar|concluir|registrar|gravar|importar|inativar|baixar|reativar|excluir|apagar|lançar)/i;
+const rascLer=()=>{try{return JSON.parse(localStorage.getItem(RASC_KEY)||"{}")||{};}catch(e){return{};}};
+const rascGravar=(o)=>{try{localStorage.setItem(RASC_KEY,JSON.stringify(o));}catch(e){}};
+function rascContainer(el){
+  let n=el;
+  while(n&&n!==document.body){if(n.style&&n.style.position==="fixed"&&n.querySelector&&n.querySelector("input,textarea,select"))return n;n=n.parentElement;}
+  return null;
+}
+function rascTitulo(box){
+  const h=box.querySelector("h1,h2,h3,h4");
+  let t=(h&&h.textContent)||"";
+  if(!t){const b=box.querySelector("b,strong");t=(b&&b.textContent)||"";}
+  if(!t){t=((box.innerText||"").split(/\r?\n/).find(x=>x.trim())||"");}
+  return t.replace(/\s+/g," ").trim().slice(0,80);
+}
+function rascCampoValido(el){
+  if(el.closest("[data-norascunho]"))return false;
+  if(el.disabled||el.readOnly)return false;
+  const tag=el.tagName.toLowerCase();
+  if(tag==="input"){
+    const t=(el.type||"text").toLowerCase();
+    if(["file","password","hidden","button","submit","reset","image","range","color","radio"].includes(t))return false;
+    if(t==="search")return false;
+    if(/buscar|pesquisar|filtrar|🔍/i.test(el.placeholder||""))return false;
+  }
+  return true;
+}
+function rascRotulo(el){
+  let lab=el.getAttribute("aria-label")||el.name||"";
+  if(!lab){const l=el.closest("label");if(l)lab=l.textContent;}
+  if(!lab&&el.parentElement){const p=el.parentElement;for(const c of p.children){if(c===el)break;if(c.textContent&&!c.querySelector("input,textarea,select")){lab=c.textContent;}}}
+  return(lab||"").replace(/\s+/g," ").trim().slice(0,40);
+}
+function rascCampos(box){
+  const cont={};const out=[];
+  box.querySelectorAll("input,textarea,select").forEach(el=>{
+    if(!rascCampoValido(el))return;
+    const tag=el.tagName.toLowerCase();const tipo=tag==="input"?(el.type||"text").toLowerCase():tag;
+    const base=tag+"|"+tipo+"|"+(el.placeholder||"").slice(0,40)+"|"+rascRotulo(el);
+    cont[base]=(cont[base]||0)+1;
+    out.push({k:base+"#"+cont[base],el,tipo,v:tipo==="checkbox"?(el.checked?"1":""):String(el.value??"")});
+  });
+  return out;
+}
+const rascValores=(campos)=>{const o={};campos.forEach(c=>{o[c.k]=c.v;});return o;};
+// valores iniciais sem data/hora (que mudam de um dia para o outro)
+const rascInicial=(campos)=>JSON.stringify(campos.filter(c=>!["date","time","datetime-local","month"].includes(c.tipo)).map(c=>[c.k,c.v]));
+function rascAplicar(el,v){
+  try{
+    if(el.type==="checkbox"){if(!!el.checked!==(v==="1"))el.click();return;}
+    const proto=el.tagName==="TEXTAREA"?HTMLTextAreaElement.prototype:el.tagName==="SELECT"?HTMLSelectElement.prototype:HTMLInputElement.prototype;
+    const set=Object.getOwnPropertyDescriptor(proto,"value").set;
+    if(String(el.value)===v)return;
+    set.call(el,v);
+    el.dispatchEvent(new Event("input",{bubbles:true}));
+    el.dispatchEvent(new Event("change",{bubbles:true}));
+  }catch(e){}
+}
+
+function RascunhoAuto({pagina,usuario}){
+  const [oferta,setOferta]=React.useState(null); // {chave, d, box}
+  const [aviso,setAviso]=React.useState(null);   // {em} — "rascunho salvo" enquanto digita
+  const [pendentes,setPendentes]=React.useState(()=>Object.values(rascLer()).filter(d=>d&&d.usuario===usuario).length);
+  const estado=React.useRef(new Map()); // box -> {chave, inicial, titulo, salvando}
+  const ofertaRef=React.useRef(null);ofertaRef.current=oferta;
+  const paginaRef=React.useRef(pagina);paginaRef.current=pagina;
+
+  React.useEffect(()=>{
+    // limpa rascunhos com mais de 30 dias
+    const todos=rascLer();let mudou=false;
+    Object.keys(todos).forEach(k=>{if(!todos[k]||Date.now()-(todos[k].em||0)>30*864e5){delete todos[k];mudou=true;}});
+    if(mudou)rascGravar(todos);
+  },[]);
+
+  React.useEffect(()=>{
+    const chaveDe=(box)=>{const t=rascTitulo(box);return{titulo:t,chave:(usuario||"")+"|"+(paginaRef.current||"")+"|"+t};};
+    const registrar=(box)=>{
+      if(estado.current.has(box))return;
+      const {titulo,chave}=chaveDe(box);
+      if(!titulo)return;
+      const st={chave,titulo,inicial:null,salvando:0};estado.current.set(box,st);
+      // espera o formulário preencher os valores iniciais
+      setTimeout(()=>{
+        if(!document.body.contains(box))return;
+        const campos=rascCampos(box);if(!campos.length){estado.current.delete(box);return;}
+        st.inicial=rascInicial(campos);
+        const todos=rascLer();const d=todos[chave];
+        if(!d)return;
+        const atuais=rascValores(campos);
+        const igual=Object.keys(d.valores||{}).every(k=>atuais[k]===undefined||atuais[k]===d.valores[k]);
+        if(igual){delete todos[chave];rascGravar(todos);return;}
+        if(d.inicial!==st.inicial)return; // outro registro (ex.: editar outra empresa)
+        setOferta({chave,d,box});
+      },350);
+    };
+    const obs=new MutationObserver(muts=>{
+      for(const m of muts){
+        m.addedNodes.forEach(n=>{if(n.nodeType!==1)return;
+          const cand=[];if(n.style&&n.style.position==="fixed")cand.push(n);
+          n.querySelectorAll&&n.querySelectorAll('[style*="position: fixed"]').forEach(x=>cand.push(x));
+          cand.forEach(b=>{if(b.querySelector("input,textarea,select"))registrar(b);});
+        });
+        m.removedNodes.forEach(n=>{if(n.nodeType!==1)return;
+          estado.current.forEach((st,box)=>{
+            if(box===n||(n.contains&&n.contains(box))){
+              if(st.salvando&&Date.now()-st.salvando<6000){const todos=rascLer();if(todos[st.chave]){delete todos[st.chave];rascGravar(todos);}}
+              estado.current.delete(box);
+              if(ofertaRef.current&&ofertaRef.current.box===box)setOferta(null);
+              setAviso(null);
+              setPendentes(Object.values(rascLer()).filter(d=>d&&d.usuario===usuario).length);
+            }
+          });
+        });
+      }
+    });
+    setPendentes(Object.values(rascLer()).filter(d=>d&&d.usuario===usuario).length);
+    obs.observe(document.body,{childList:true,subtree:true});
+    let timer=null;
+    const aoDigitar=(e)=>{
+      const el=e.target;if(!el||!el.tagName||!/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))return;
+      if(!rascCampoValido(el))return;
+      const box=rascContainer(el);if(!box)return;
+      if(!estado.current.has(box))registrar(box);
+      const st=estado.current.get(box);if(!st||st.inicial==null)return;
+      clearTimeout(timer);
+      timer=setTimeout(()=>{
+        if(!document.body.contains(box))return;
+        const campos=rascCampos(box);const valores=rascValores(campos);
+        const todos=rascLer();
+        if(rascInicial(campos)===st.inicial){
+          // voltou ao que era: não há rascunho
+          if(todos[st.chave]){delete todos[st.chave];rascGravar(todos);}
+          setAviso(null);return;
+        }
+        todos[st.chave]={titulo:st.titulo,pagina:paginaRef.current||"",usuario:usuario||"",inicial:st.inicial,valores,em:Date.now()};
+        rascGravar(todos);
+        if(ofertaRef.current&&ofertaRef.current.box===box)setOferta(null);
+        setAviso({em:Date.now()});
+      },400);
+    };
+    const aoClicar=(e)=>{
+      const b=e.target&&e.target.closest&&e.target.closest("button");if(!b)return;
+      const box=rascContainer(b)||(b.closest('[style*="position: fixed"]'));if(!box)return;
+      const st=estado.current.get(box);if(!st)return;
+      const txt=(b.textContent||"")+" "+(b.title||"");
+      if(RASC_SALVAR.test(txt)&&!/cancelar|fechar|voltar|rascunho|descartar|desagendar/i.test(txt))st.salvando=Date.now();
+    };
+    document.addEventListener("input",aoDigitar,true);
+    document.addEventListener("change",aoDigitar,true);
+    document.addEventListener("click",aoClicar,true);
+    // modais que já estão abertos
+    document.querySelectorAll('[style*="position: fixed"]').forEach(b=>{if(b.querySelector("input,textarea,select"))registrar(b);});
+    return()=>{obs.disconnect();document.removeEventListener("input",aoDigitar,true);document.removeEventListener("change",aoDigitar,true);document.removeEventListener("click",aoClicar,true);clearTimeout(timer);};
+  },[usuario]);
+
+  const restaurar=async()=>{
+    const o=oferta;if(!o)return;setOferta(null);
+    // duas passagens: um campo pode fazer aparecer outros (ex.: escolher o tipo)
+    for(let passo=0;passo<3;passo++){
+      if(!document.body.contains(o.box))return;
+      rascCampos(o.box).forEach(c=>{if(o.d.valores[c.k]!==undefined)rascAplicar(c.el,o.d.valores[c.k]);});
+      await new Promise(r=>setTimeout(r,180));
+    }
+    setAviso({em:Date.now(),restaurado:true});
+  };
+  const descartar=()=>{const o=oferta;if(!o)return;const todos=rascLer();delete todos[o.chave];rascGravar(todos);setOferta(null);setPendentes(Object.values(todos).filter(d=>d&&d.usuario===usuario).length);};
+  const hora=(t)=>{const d=new Date(t);const hoje=new Date().toDateString()===d.toDateString();return(hoje?"hoje":d.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"}))+" às "+d.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});};
+  const [verLista,setVerLista]=React.useState(false);
+  const lista=Object.entries(rascLer()).filter(([k,d])=>d&&d.usuario===usuario).sort((a,b)=>b[1].em-a[1].em);
+
+  return(<>
+    {oferta&&<div data-norascunho style={{position:"fixed",top:14,left:"50%",transform:"translateX(-50%)",zIndex:10050,background:"#fffbeb",border:"1.5px solid #f59e0b",borderRadius:14,boxShadow:"0 12px 36px rgba(0,0,0,.22)",padding:"12px 16px",display:"flex",alignItems:"center",gap:12,maxWidth:"calc(100vw - 32px)",flexWrap:"wrap",fontFamily:"inherit"}}>
+      <span style={{fontSize:22}}>📝</span>
+      <div style={{fontSize:13,color:"#78350f",lineHeight:1.4}}><b>Rascunho não salvo</b> em “{oferta.d.titulo}”<br/><span style={{fontSize:12}}>digitado {hora(oferta.d.em)} — quer continuar de onde parou?</span></div>
+      <button onClick={restaurar} style={{border:"none",background:"#d97706",color:"#fff",fontWeight:800,borderRadius:9,padding:"8px 14px",cursor:"pointer",fontFamily:"inherit",fontSize:13}}>↩ Restaurar rascunho</button>
+      <button onClick={descartar} style={{border:"1px solid #fcd34d",background:"#fff",color:"#92400e",fontWeight:700,borderRadius:9,padding:"8px 12px",cursor:"pointer",fontFamily:"inherit",fontSize:12.5}}>Descartar</button>
+    </div>}
+    {aviso&&!oferta&&<div data-norascunho style={{position:"fixed",bottom:14,left:"50%",transform:"translateX(-50%)",zIndex:10040,background:"var(--bg2)",border:"1px solid var(--border2)",borderRadius:20,padding:"5px 12px",fontSize:11.5,color:"var(--text3)",boxShadow:"0 4px 14px rgba(0,0,0,.12)",pointerEvents:"none"}}>
+      {aviso.restaurado?"↩ Rascunho restaurado — confira e salve":"📝 Rascunho guardado "+new Date(aviso.em).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})+" · só some quando você salvar"}
+    </div>}
+    {!aviso&&!oferta&&pendentes>0&&<div data-norascunho style={{position:"fixed",bottom:14,left:14,zIndex:10040}}>
+      <button onClick={()=>setVerLista(v=>!v)} style={{background:"#fffbeb",border:"1px solid #fcd34d",color:"#92400e",borderRadius:20,padding:"6px 12px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 4px 14px rgba(0,0,0,.12)"}}>📝 {pendentes} rascunho{pendentes>1?"s":""} não salvo{pendentes>1?"s":""}</button>
+      {verLista&&<div style={{position:"absolute",bottom:40,left:0,width:320,background:"var(--bg2)",border:"1px solid var(--border2)",borderRadius:12,boxShadow:"0 12px 36px rgba(0,0,0,.2)",padding:10,fontSize:12.5,color:"var(--text)"}}>
+        <div style={{fontWeight:900,marginBottom:6}}>Rascunhos guardados neste computador</div>
+        {lista.map(([k,d])=>(<div key={k} style={{display:"flex",gap:8,alignItems:"center",padding:"6px 0",borderTop:"1px solid var(--border2)"}}>
+          <div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.titulo}</div><div style={{fontSize:11,color:"var(--text3)"}}>{d.pagina||"—"} · {hora(d.em)}</div></div>
+          <button title="Apagar rascunho" onClick={()=>{const t=rascLer();delete t[k];rascGravar(t);setPendentes(Object.values(t).filter(x=>x&&x.usuario===usuario).length);}} style={{border:"none",background:"var(--bg3)",borderRadius:7,padding:"4px 8px",cursor:"pointer",color:"var(--text3)"}}>🗑</button>
+        </div>))}
+        <div style={{fontSize:11,color:"var(--text4)",marginTop:6,lineHeight:1.4}}>Para continuar, abra o mesmo cadastro de novo: aparece o botão “Restaurar rascunho”.</div>
+      </div>}
+    </div>}
+  </>);
+}
+
 function InativarEmpresaModal({emp,tipo="inativa",onClose,onConfirm}){
   const baixar=tipo==="baixada";
   const [motivo,setMotivo]=useState("");
@@ -8041,8 +8240,8 @@ const igPad=n=>String(n).padStart(2,"0");
 const igHojeISO=()=>{const d=new Date();return d.getFullYear()+"-"+igPad(d.getMonth()+1)+"-"+igPad(d.getDate());};
 const igDataHora=(p)=>p&&p.data?new Date(p.data+"T"+(p.hora||"09:00")+":00"):null;
 const igAtrasado=(p)=>p.status==="agendado"&&!!p.data&&igDataHora(p)<new Date(Date.now()-(p.autoPublicar===true?20*60000:0));
-const igFmtData=(iso)=>{if(!iso)return"sem data";const [y,m,d]=iso.split("-");return d+"/"+m+"/"+y;};
-const igFmtDataCurta=(iso)=>{if(!iso)return"—";const dt=new Date(iso+"T12:00:00");return ["dom","seg","ter","qua","qui","sex","sáb"][dt.getDay()]+", "+iso.slice(8,10)+"/"+iso.slice(5,7);};
+const igFmtData=(iso)=>{if(!iso)return"sem data";if(!/^\d{4}-\d{2}-\d{2}$/.test(iso))return"data inválida";const [y,m,d]=iso.split("-");return d+"/"+m+"/"+y;};
+const igFmtDataCurta=(iso)=>{if(!iso)return"—";if(!/^\d{4}-\d{2}-\d{2}$/.test(iso))return"⚠️ data inválida";const dt=new Date(iso+"T12:00:00");return ["dom","seg","ter","qua","qui","sex","sáb"][dt.getDay()]+", "+iso.slice(8,10)+"/"+iso.slice(5,7);};
 const igTextoCompleto=(p)=>[(p.legenda||"").trim(),(p.hashtags||"").trim()].filter(Boolean).join("\n\n");
 const igContaHashtags=(p)=>((p.legenda||"")+" "+(p.hashtags||"")).match(/#[\p{L}\p{N}_]+/gu)?.length||0;
 const igNovoMidiaId=()=>1000000000+Math.floor(Math.random()*1000000000);
@@ -8528,9 +8727,10 @@ function IgPostEditor({open,post,novo,contas,collaborators,companies,posts,userN
   };
   const salvar=(extra={},fechar=true)=>{
     if(!f.contaId){toast("⚠️ Escolha a conta do Instagram.","warn");setAba("conteudo");return;}
+    if(f.data&&!/^\d{4}-\d{2}-\d{2}$/.test(f.data)){toast("⚠️ A data do post está inválida (confira o ano). Corrija antes de salvar.","err",8000);setAba("conteudo");return;}
     onSalvar(finalizar(extra),fechar);
   };
-  const exigirSemAlertas=()=>{if(alertasPendentes){toast("🛡 Revise os alertas de conta errada (quadro vermelho) antes de seguir.","err",7000);setAba("conteudo");return false;}return true;};
+  const exigirSemAlertas=()=>{if(f.data&&!/^\d{4}-\d{2}-\d{2}$/.test(f.data)){toast("⚠️ A data do post está inválida (confira o ano).","err",8000);setAba("conteudo");return false;}if(alertasPendentes){toast("🛡 Revise os alertas de conta errada (quadro vermelho) antes de seguir.","err",7000);setAba("conteudo");return false;}return true;};
   const enviarAprovacao=()=>{
     if(!f.contaId){toast("⚠️ Escolha a conta.","warn");return;}
     if(!(f.midias||[]).length){toast("⚠️ Adicione a imagem ou o vídeo antes de enviar para aprovação.","warn");return;}
@@ -8607,7 +8807,7 @@ function IgPostEditor({open,post,novo,contas,collaborators,companies,posts,userN
                 </select></div>
               <div><span style={lbl}>Tipo</span>
                 <select value={f.tipo} onChange={e=>up("tipo",e.target.value)} style={inp}>{IG_TIPOS.map(t=><option key={t.k} value={t.k}>{t.ic} {t.l}</option>)}</select></div>
-              <div><span style={lbl}>Data</span><input type="date" value={f.data||""} onChange={e=>up("data",e.target.value)} style={inp}/></div>
+              <div><span style={lbl}>Data</span><input type="date" min="2020-01-01" max="2099-12-31" value={f.data||""} onChange={e=>up("data",e.target.value)} style={{...inp,...(f.data&&!/^\d{4}-\d{2}-\d{2}$/.test(f.data)?{borderColor:"#ef4444"}:{})}}/></div>
               <div><span style={lbl}>Hora</span><input type="time" value={f.hora||"09:00"} onChange={e=>up("hora",e.target.value)} style={inp}/></div>
               <div style={{gridColumn:"1 / -1"}}><span style={lbl}>Responsável</span>
                 <select value={f.responsavelId||""} onChange={e=>up("responsavelId",e.target.value)} style={inp}><option value="">— ninguém —</option>{(collaborators||[]).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
@@ -10723,6 +10923,8 @@ function App(){
         </>)}
       </main>
       {/* Avisos do Instagram ("hora de postar") — roda em qualquer tela */}
+      {/* Rascunho automático em qualquer cadastro */}
+      <RascunhoAuto pagina={page} usuario={String(myCollabId||userName||"")}/>
       {(isAdmin||featureFlags.modules?.instagram!==false)&&<InstagramAvisos addNotification={addNotification} myCollabId={myCollabId} toast={toast}/>}
 
       {/* Modal de tarefa */}

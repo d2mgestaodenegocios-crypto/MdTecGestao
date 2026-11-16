@@ -799,6 +799,7 @@ const NAV_GROUPS=[
   {label:"Cadastros",items:[{id:"modelos",icon:"◧",label:"Modelos"},{id:"empresas",icon:"⬡",label:"Empresas"},{id:"setores",icon:"◫",label:"Setores"},{id:"colaboradores",icon:"◉",label:"Colaboradores"},{id:"marcadores",icon:"◈",label:"Marcadores"},{id:"recorrencias",icon:"↻",label:"Recorrências"},{id:"painel-rec",icon:"⊹",label:"Painel Recorrências"},{id:"servicos",icon:"S",label:"Serviços"},{id:"links-uteis",icon:"🔗",label:"Links Úteis"}]},
   {label:"Relatórios",items:[{id:"relatorio",icon:"📧",label:"Relatório por Empresa"},{id:"carga",icon:"⚖",label:"Carga de Trabalho"}]},
   {label:"Contabilidade",items:[{id:"contabil",icon:"📊",label:"Contábil"},{id:"fiscal",icon:"📋",label:"Tributário"},{id:"folha-pagamento",icon:"👥",label:"Folha Pgto"},{id:"relatorio-contabil",icon:"📊",label:"Relatório"}]},
+  {label:"Marketing",items:[{id:"instagram",icon:"📸",label:"Instagram"}]},
   {label:"Sistema",items:[{id:"auditoria",icon:"🛡",label:"Auditoria"},{id:"configuracoes",icon:"⚙",label:"Configurações"}]},
 ];
 
@@ -8016,6 +8017,748 @@ function CargaPage({data}){
 /* ===========================================
    APP ROOT */
 
+
+// ════════════════════════════════════════════════════════════════════
+//  MÓDULO INSTAGRAM — planejamento e postagem MANUAL (sem app da Meta)
+//  Linha 24 do app_data: { contas:[], posts:[] }
+//  Mídias: cada imagem fica numa linha própria do app_data (id aleatório ≥ 1.000.000.000),
+//  para a linha principal continuar leve. Vídeos: Supabase Storage (bucket "instagram") se existir;
+//  senão, linha própria (até 12 MB).
+// ════════════════════════════════════════════════════════════════════
+const IG_ROW_ID=24;
+const IG_STATUS=[
+  {k:"ideia",l:"Ideia",ic:"💡",c:"#64748b",bg:"#f1f5f9"},
+  {k:"producao",l:"Produção",ic:"🎨",c:"#0284c7",bg:"#e0f2fe"},
+  {k:"aprovacao",l:"Aprovação",ic:"⏳",c:"#b45309",bg:"#fef3c7"},
+  {k:"agendado",l:"Agendado",ic:"📅",c:"#4f46e5",bg:"#eef2ff"},
+  {k:"publicado",l:"Publicado",ic:"✅",c:"#15803d",bg:"#dcfce7"},
+];
+const IG_ST=Object.fromEntries(IG_STATUS.map(s=>[s.k,s]));
+const IG_TIPOS=[{k:"feed",l:"Feed (foto)",ic:"🖼"},{k:"carrossel",l:"Carrossel",ic:"🎠"},{k:"reels",l:"Reels",ic:"🎬"},{k:"story",l:"Story",ic:"⭕"}];
+const IG_TIPO=Object.fromEntries(IG_TIPOS.map(t=>[t.k,t]));
+const IG_CORES=["#e1306c","#6366f1","#0ea5e9","#10b981","#f59e0b","#8b5cf6","#ef4444","#14b8a6","#64748b","#d946ef"];
+const igMidiaCache=new Map();
+const igPad=n=>String(n).padStart(2,"0");
+const igHojeISO=()=>{const d=new Date();return d.getFullYear()+"-"+igPad(d.getMonth()+1)+"-"+igPad(d.getDate());};
+const igDataHora=(p)=>p&&p.data?new Date(p.data+"T"+(p.hora||"09:00")+":00"):null;
+const igAtrasado=(p)=>p.status==="agendado"&&!!p.data&&igDataHora(p)<new Date();
+const igFmtData=(iso)=>{if(!iso)return"sem data";const [y,m,d]=iso.split("-");return d+"/"+m+"/"+y;};
+const igFmtDataCurta=(iso)=>{if(!iso)return"—";const dt=new Date(iso+"T12:00:00");return ["dom","seg","ter","qua","qui","sex","sáb"][dt.getDay()]+", "+iso.slice(8,10)+"/"+iso.slice(5,7);};
+const igTextoCompleto=(p)=>[(p.legenda||"").trim(),(p.hashtags||"").trim()].filter(Boolean).join("\n\n");
+const igContaHashtags=(p)=>((p.legenda||"")+" "+(p.hashtags||"")).match(/#[\p{L}\p{N}_]+/gu)?.length||0;
+const igNovoMidiaId=()=>1000000000+Math.floor(Math.random()*1000000000);
+async function igCopiar(txt){
+  try{await navigator.clipboard.writeText(txt);return true;}catch(e){
+    try{const ta=document.createElement("textarea");ta.value=txt;ta.style.position="fixed";ta.style.opacity="0";document.body.appendChild(ta);ta.select();const ok=document.execCommand("copy");document.body.removeChild(ta);return ok;}catch(e2){return false;}
+  }
+}
+// Reduz a imagem (lado maior = max) e converte para JPEG — formato que o Instagram aceita melhor
+function igComprimirImagem(file,max=1440,q=0.86){
+  return new Promise((res,rej)=>{
+    const url=URL.createObjectURL(file);const img=new Image();
+    img.onload=()=>{
+      const esc=Math.min(1,max/Math.max(img.width,img.height));
+      const w=Math.round(img.width*esc),h=Math.round(img.height*esc);
+      const cv=document.createElement("canvas");cv.width=w;cv.height=h;
+      const cx=cv.getContext("2d");cx.fillStyle="#fff";cx.fillRect(0,0,w,h);cx.drawImage(img,0,0,w,h);
+      URL.revokeObjectURL(url);res({dataUrl:cv.toDataURL("image/jpeg",q),w,h});
+    };
+    img.onerror=()=>{URL.revokeObjectURL(url);rej(new Error("Imagem inválida"));};
+    img.src=url;
+  });
+}
+function igThumbDeDataUrl(src,max=180){
+  return new Promise(res=>{const img=new Image();img.onload=()=>{const esc=Math.min(1,max/Math.max(img.width,img.height));const cv=document.createElement("canvas");cv.width=Math.round(img.width*esc);cv.height=Math.round(img.height*esc);cv.getContext("2d").drawImage(img,0,0,cv.width,cv.height);res(cv.toDataURL("image/jpeg",0.6));};img.onerror=()=>res("");img.src=src;});
+}
+function igThumbDeVideo(file){
+  return new Promise(res=>{
+    const url=URL.createObjectURL(file);const v=document.createElement("video");v.muted=true;v.playsInline=true;v.preload="metadata";
+    let feito=false;const fim=(r)=>{if(feito)return;feito=true;URL.revokeObjectURL(url);res(r);};
+    v.onloadeddata=()=>{try{v.currentTime=Math.min(0.5,(v.duration||1)/2);}catch(e){fim("");}};
+    v.onseeked=()=>{try{const esc=Math.min(1,180/Math.max(v.videoWidth,v.videoHeight));const cv=document.createElement("canvas");cv.width=Math.round(v.videoWidth*esc)||100;cv.height=Math.round(v.videoHeight*esc)||178;cv.getContext("2d").drawImage(v,0,0,cv.width,cv.height);fim(cv.toDataURL("image/jpeg",0.6));}catch(e){fim("");}};
+    v.onerror=()=>fim("");setTimeout(()=>fim(""),6000);v.src=url;
+  });
+}
+const igLerDataUrl=(file)=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(file);});
+// Envia uma mídia e devolve {id,tipo,thumb,nome,url?,w,h}
+async function igEnviarMidia(file){
+  const ehVideo=(file.type||"").startsWith("video/");
+  const id=igNovoMidiaId();
+  if(!ehVideo){
+    const {dataUrl,w,h}=await igComprimirImagem(file);
+    const thumb=await igThumbDeDataUrl(dataUrl);
+    const{error}=await sb.from("app_data").upsert({id,payload:{tipo:"ig-midia",mime:"image/jpeg",nome:(file.name||"imagem").replace(/\.[^.]+$/,"")+".jpg",data:dataUrl,em:Date.now()}});
+    if(error)throw error;
+    igMidiaCache.set(id,dataUrl);
+    return{id,tipo:"img",thumb,nome:(file.name||"imagem").replace(/\.[^.]+$/,"")+".jpg",w,h};
+  }
+  const thumb=await igThumbDeVideo(file);
+  // 1º: tenta o Storage (bucket público "instagram")
+  try{
+    if(sb.storage){
+      const ext=(file.name||"video.mp4").split(".").pop().toLowerCase()||"mp4";
+      const path="videos/"+id+"."+ext;
+      const up=await sb.storage.from("instagram").upload(path,file,{contentType:file.type||"video/mp4",upsert:true});
+      if(!up.error){
+        const pub=sb.storage.from("instagram").getPublicUrl(path);
+        const url=pub?.data?.publicUrl;
+        if(url)return{id,tipo:"video",thumb,nome:file.name||"video.mp4",url,storage:path};
+      }
+    }
+  }catch(e){}
+  // 2º: guarda no banco (limite 12 MB)
+  if(file.size>12*1024*1024)throw new Error("Vídeo com "+(file.size/1048576).toFixed(1)+" MB. Sem o armazenamento de arquivos ativado, o limite é 12 MB — comprima o vídeo ou peça para ativar o bucket \"instagram\" no Supabase.");
+  const dataUrl=await igLerDataUrl(file);
+  const{error}=await sb.from("app_data").upsert({id,payload:{tipo:"ig-midia",mime:file.type||"video/mp4",nome:file.name||"video.mp4",data:dataUrl,em:Date.now()}});
+  if(error)throw error;
+  igMidiaCache.set(id,dataUrl);
+  return{id,tipo:"video",thumb,nome:file.name||"video.mp4"};
+}
+// Devolve uma URL utilizável (dataURL ou pública) para a mídia
+async function igCarregarMidia(m){
+  if(!m)return"";
+  if(m.url)return m.url;
+  if(igMidiaCache.has(m.id))return igMidiaCache.get(m.id);
+  try{const{data:row}=await sb.from("app_data").select("payload").eq("id",m.id).maybeSingle();const d=row?.payload?.data||"";if(d)igMidiaCache.set(m.id,d);return d;}catch(e){return"";}
+}
+async function igApagarMidia(m){
+  try{if(m.storage&&sb.storage)await sb.storage.from("instagram").remove([m.storage]);}catch(e){}
+  try{if(!m.url)await sb.from("app_data").delete().eq("id",m.id);}catch(e){}
+  igMidiaCache.delete(m.id);
+}
+async function igMidiaParaArquivo(m,idx){
+  const src=await igCarregarMidia(m);if(!src)return null;
+  const blob=await (await fetch(src)).blob();
+  const ext=m.tipo==="video"?((m.nome||"").split(".").pop()||"mp4"):"jpg";
+  const nome=(m.nome&&m.nome.includes("."))?m.nome:("post-"+(idx+1)+"."+ext);
+  return new File([blob],nome,{type:blob.type||(m.tipo==="video"?"video/mp4":"image/jpeg")});
+}
+
+// ── Dados compartilhados do módulo (linha 24) ──────────────────────
+function useInstagramData(toast){
+  const [ig,setIg]=React.useState({contas:[],posts:[]});
+  const [carregado,setCarregado]=React.useState(false);
+  const aplicar=(p)=>{if(!p)return;setIg({contas:Array.isArray(p.contas)?p.contas:[],posts:Array.isArray(p.posts)?p.posts:[]});};
+  React.useEffect(()=>{
+    let ok=true;
+    (async()=>{try{const{data:row}=await sb.from("app_data").select("payload").eq("id",IG_ROW_ID).maybeSingle();if(ok){aplicar(row?.payload||{contas:[],posts:[]});setCarregado(true);}}catch(e){if(ok)setCarregado(true);}})();
+    const ch=sb.channel("instagram_mod").on("postgres_changes",{event:"*",schema:"public",table:"app_data",filter:`id=eq.${IG_ROW_ID}`},pl=>{if(pl.new?.payload)aplicar(pl.new.payload);}).subscribe();
+    return()=>{ok=false;try{sb.removeChannel(ch);}catch(e){}};
+  },[]);
+  // Aplica a alteração sobre a versão mais nova do banco (não perde o que outra pessoa salvou)
+  const atualizar=async(fn,msgErro)=>{
+    setIg(prev=>{const n=fn({contas:[...prev.contas],posts:[...prev.posts]});return n;});
+    try{
+      const final=await gravarMesclado(IG_ROW_ID,(rem)=>{const base={contas:Array.isArray(rem?.contas)?[...rem.contas]:[],posts:Array.isArray(rem?.posts)?[...rem.posts]:[]};const n=fn(base);return{...(rem||{}),contas:n.contas,posts:n.posts};});
+      aplicar(final);return true;
+    }catch(e){toast&&toast(msgErro||"⚠️ Não foi possível salvar no Instagram. Tente de novo.","err");return false;}
+  };
+  return{ig,carregado,atualizar};
+}
+
+// ── Avatar da conta ─────────────────────────────────────────────────
+function IgAvatar({conta,size=28}){
+  const nome=(conta?.nome||"?").trim();
+  return(<div title={conta?("@"+(conta.usuario||nome)):""} style={{width:size,height:size,borderRadius:"50%",padding:2,background:"linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7)",flexShrink:0}}>
+    <div style={{width:"100%",height:"100%",borderRadius:"50%",background:conta?.cor||"#6366f1",border:"2px solid var(--bg2)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:900,fontSize:Math.max(8,size*0.34),boxSizing:"border-box"}}>{nome.slice(0,2).toUpperCase()}</div>
+  </div>);
+}
+function IgThumb({post,size=40,radius=8}){
+  const m=(post.midias||[])[0];const t=IG_TIPO[post.tipo]||IG_TIPO.feed;
+  return(<div style={{width:size,height:size,borderRadius:radius,background:m?.thumb?`center/cover no-repeat url(${m.thumb})`:"linear-gradient(135deg,#fdf2f8,#eef2ff)",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:size*0.42,position:"relative",border:"1px solid var(--border2)"}}>
+    {!m?.thumb&&t.ic}
+    {m&&(post.midias||[]).length>1&&<span style={{position:"absolute",top:2,right:2,fontSize:8,background:"rgba(0,0,0,.55)",color:"#fff",borderRadius:4,padding:"0 3px",fontWeight:800}}>{post.midias.length}</span>}
+    {m?.tipo==="video"&&<span style={{position:"absolute",bottom:2,left:2,fontSize:8,background:"rgba(0,0,0,.55)",color:"#fff",borderRadius:4,padding:"0 3px"}}>▶</span>}
+  </div>);
+}
+function IgStatusChip({post,small}){
+  const at=igAtrasado(post);const s=IG_ST[post.status]||IG_ST.ideia;
+  if(at)return<span style={{display:"inline-flex",alignItems:"center",gap:3,padding:small?"1px 6px":"2px 8px",borderRadius:20,fontSize:small?9.5:10.5,fontWeight:800,background:"#fee2e2",color:"#b91c1c",border:"1px solid #fca5a5",whiteSpace:"nowrap"}}>🔴 Atrasado</span>;
+  return<span style={{display:"inline-flex",alignItems:"center",gap:3,padding:small?"1px 6px":"2px 8px",borderRadius:20,fontSize:small?9.5:10.5,fontWeight:800,background:s.bg,color:s.c,whiteSpace:"nowrap"}}>{s.ic} {s.l}</span>;
+}
+
+// ── Prévia estilo Instagram ────────────────────────────────────────
+function IgPreview({post,conta}){
+  const [idx,setIdx]=React.useState(0);
+  const [src,setSrc]=React.useState("");
+  const [mais,setMais]=React.useState(false);
+  const midias=post.midias||[];const m=midias[Math.min(idx,midias.length-1)];
+  React.useEffect(()=>{let ok=true;setSrc(m?.thumb||"");if(m)igCarregarMidia(m).then(s=>{if(ok&&s)setSrc(s);});return()=>{ok=false;};},[m?.id]);
+  React.useEffect(()=>{if(idx>=midias.length)setIdx(0);},[midias.length]);
+  const vertical=post.tipo==="reels"||post.tipo==="story";
+  const user=(conta?.usuario||conta?.nome||"suaconta").replace(/^@/,"");
+  const texto=igTextoCompleto(post);
+  const curto=texto.length>110&&!mais?texto.slice(0,110):texto;
+  const pintar=(t)=>t.split(/(#[\p{L}\p{N}_]+|@[\w.]+)/u).map((p,i)=>/^[#@]/.test(p)?<span key={i} style={{color:"#00376b"}}>{p}</span>:p);
+  return(<div style={{width:300,background:"#fff",color:"#0f172a",borderRadius:14,border:"1px solid #e2e8f0",overflow:"hidden",boxShadow:"0 8px 30px rgba(15,23,42,.10)",fontFamily:"-apple-system,Segoe UI,Roboto,sans-serif"}}>
+    {post.tipo!=="story"&&<div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 10px"}}><IgAvatar conta={conta} size={30}/><b style={{fontSize:12.5}}>{user}</b><span style={{marginLeft:"auto",fontSize:16,color:"#64748b"}}>⋯</span></div>}
+    <div style={{position:"relative",width:"100%",aspectRatio:vertical?"9/16":(m&&m.w&&m.h?Math.max(0.8,Math.min(1.91,m.w/m.h)):1)+"",background:"#f1f5f9",display:"flex",alignItems:"center",justifyContent:"center",maxHeight:vertical?420:380}}>
+      {!m&&<div style={{textAlign:"center",color:"#94a3b8",fontSize:12}}><div style={{fontSize:34}}>{(IG_TIPO[post.tipo]||IG_TIPO.feed).ic}</div>Adicione imagens ou vídeo</div>}
+      {m&&m.tipo==="video"&&src&&!src.startsWith("data:image")?<video src={src} controls muted playsInline style={{width:"100%",height:"100%",objectFit:"cover"}}/>:m&&src?<img src={src} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:null}
+      {post.tipo==="story"&&<div style={{position:"absolute",top:8,left:8,right:8,display:"flex",alignItems:"center",gap:6,color:"#fff",textShadow:"0 1px 3px rgba(0,0,0,.5)"}}><IgAvatar conta={conta} size={24}/><b style={{fontSize:11.5}}>{user}</b></div>}
+      {post.tipo==="reels"&&<div style={{position:"absolute",bottom:10,left:10,right:40,color:"#fff",fontSize:11,textShadow:"0 1px 3px rgba(0,0,0,.6)",lineHeight:1.35}}><b>{user}</b> · {(post.legenda||"").slice(0,70)}{(post.legenda||"").length>70?"…":""}</div>}
+      {midias.length>1&&<>
+        {idx>0&&<button onClick={()=>setIdx(i=>i-1)} style={{position:"absolute",left:6,top:"50%",transform:"translateY(-50%)",width:24,height:24,borderRadius:"50%",border:"none",background:"rgba(255,255,255,.85)",cursor:"pointer",fontWeight:900}}>‹</button>}
+        {idx<midias.length-1&&<button onClick={()=>setIdx(i=>i+1)} style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",width:24,height:24,borderRadius:"50%",border:"none",background:"rgba(255,255,255,.85)",cursor:"pointer",fontWeight:900}}>›</button>}
+        <span style={{position:"absolute",top:8,right:8,background:"rgba(0,0,0,.6)",color:"#fff",fontSize:10,fontWeight:700,borderRadius:10,padding:"1px 7px"}}>{idx+1}/{midias.length}</span>
+      </>}
+    </div>
+    {post.tipo!=="story"&&<div style={{padding:"8px 10px 10px"}}>
+      {midias.length>1&&<div style={{display:"flex",justifyContent:"center",gap:3,marginBottom:4}}>{midias.map((_,i)=><span key={i} style={{width:5,height:5,borderRadius:"50%",background:i===idx?"#3b82f6":"#cbd5e1"}}/>)}</div>}
+      <div style={{display:"flex",gap:12,fontSize:18,marginBottom:6}}><span>♡</span><span>💬</span><span>➤</span><span style={{marginLeft:"auto"}}>🔖</span></div>
+      {post.tipo!=="reels"&&<div style={{fontSize:12,lineHeight:1.45,whiteSpace:"pre-wrap",wordBreak:"break-word"}}><b>{user}</b> {texto?pintar(curto):<span style={{color:"#94a3b8"}}>Sua legenda aparece aqui…</span>}{texto.length>110&&!mais&&<span onClick={()=>setMais(true)} style={{color:"#94a3b8",cursor:"pointer"}}>… mais</span>}</div>}
+      {post.primeiroComentario&&<div style={{fontSize:11.5,color:"#475569",marginTop:5}}><b>{user}</b> {pintar(post.primeiroComentario)}</div>}
+      <div style={{fontSize:9.5,color:"#94a3b8",marginTop:6,textTransform:"uppercase"}}>{post.data?igFmtData(post.data)+" · "+(post.hora||"09:00"):"sem data"}</div>
+    </div>}
+  </div>);
+}
+
+// ── Editor de post ─────────────────────────────────────────────────
+function IgPostEditor({open,post,novo,contas,collaborators,companies,userName,myCollabId,onClose,onSalvar,onExcluir,onPostar,toast}){
+  const [f,setF]=React.useState(null);
+  const [enviando,setEnviando]=React.useState(0);
+  const [aba,setAba]=React.useState("conteudo");
+  const inputRef=React.useRef(null);
+  React.useEffect(()=>{if(open)setF(JSON.parse(JSON.stringify(post)));setAba("conteudo");},[open,post?.id]);
+  if(!open||!f)return null;
+  const up=(k,v)=>setF(p=>({...p,[k]:v}));
+  const conta=contas.find(c=>c.id===f.contaId);
+  const totalTxt=igTextoCompleto(f).length;const nTags=igContaHashtags(f);
+  const lim=f.tipo==="carrossel"?10:f.tipo==="feed"?1:1;
+  const addArquivos=async(files)=>{
+    const arr=[...files];if(!arr.length)return;
+    if(f.tipo!=="carrossel"&&((f.midias||[]).length+arr.length)>1){
+      if((f.midias||[]).length===0&&arr.length>1&&window.confirm(`Você escolheu ${arr.length} arquivos. Transformar em Carrossel?`))up("tipo","carrossel");
+      else if((f.midias||[]).length+arr.length>1){toast("⚠️ "+(IG_TIPO[f.tipo]?.l||"Este tipo")+" aceita só 1 arquivo. Use Carrossel para várias imagens.","warn");return;}
+    }
+    if((f.midias||[]).length+arr.length>10){toast("⚠️ O carrossel aceita no máximo 10 itens.","warn");return;}
+    setEnviando(arr.length);
+    for(const file of arr){
+      try{const m=await igEnviarMidia(file);setF(p=>({...p,midias:[...(p.midias||[]),m],...(m.tipo==="video"&&p.tipo==="feed"&&(p.midias||[]).length===0?{tipo:"reels"}:{})}));}
+      catch(e){toast("⚠️ "+(e.message||"Não foi possível enviar o arquivo."),"err",7000);}
+      setEnviando(n=>n-1);
+    }
+  };
+  const moverMidia=(i,d)=>setF(p=>{const a=[...(p.midias||[])];const j=i+d;if(j<0||j>=a.length)return p;[a[i],a[j]]=[a[j],a[i]];return{...p,midias:a};});
+  const removerMidia=(i)=>{if(!window.confirm("Remover esta mídia do post?"))return;setF(p=>({...p,midias:(p.midias||[]).filter((_,j)=>j!==i)}));};
+  const ehNovo=novo!==undefined?novo:!post.criadoEm;
+  const salvar=(extra={},fechar=true)=>{
+    if(!f.contaId){toast("⚠️ Escolha a conta do Instagram.","warn");setAba("conteudo");return;}
+    const next={...f,...extra};
+    if(next.status==="agendado"&&!next.data){toast("⚠️ Para agendar, defina a data.","warn");return;}
+    onSalvar(next,fechar);
+  };
+  const lbl={fontSize:11,fontWeight:800,color:"var(--text3)",marginBottom:4,display:"block",textTransform:"uppercase",letterSpacing:".04em"};
+  const inp={width:"100%",padding:"8px 10px",borderRadius:9,border:"1.5px solid var(--border3)",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",boxSizing:"border-box"};
+  const msgCliente=()=>{
+    const linhas=[`Olá! Segue a prévia do post para ${conta?("@"+(conta.usuario||conta.nome).replace(/^@/,"")):"o Instagram"}:`,"",`📅 Data: ${f.data?igFmtData(f.data)+" às "+(f.hora||"09:00"):"a definir"}`,`📌 Tipo: ${IG_TIPO[f.tipo]?.l||f.tipo}`,"","📝 Legenda:",igTextoCompleto(f)||"(sem legenda)","","Pode aprovar ou me dizer o que ajustar? 🙂"];
+    return linhas.join("\n");
+  };
+  const tabBtn=(k,l)=>(<button onClick={()=>setAba(k)} style={{padding:"7px 12px",border:"none",borderBottom:aba===k?"2.5px solid #e1306c":"2.5px solid transparent",background:"none",color:aba===k?"#e1306c":"var(--text3)",fontWeight:800,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>);
+  return(
+    <Modal open={open} onClose={onClose} title={(ehNovo?"✨ Novo post":"✏️ Editar post")+(conta?" · @"+(conta.usuario||conta.nome).replace(/^@/,""):"")} width={1020}>
+      <div style={{display:"flex",gap:18,flexWrap:"wrap",alignItems:"flex-start"}}>
+        <div style={{flex:"1 1 420px",minWidth:300,display:"flex",flexDirection:"column",gap:12}}>
+          <div style={{display:"flex",gap:2,borderBottom:"1px solid var(--border2)"}}>{tabBtn("conteudo","📝 Conteúdo")}{tabBtn("aprovacao","✅ Aprovação"+((f.ajustes||[]).length?" ("+f.ajustes.length+")":""))}{tabBtn("notas","🗒 Notas")}</div>
+          {aba==="conteudo"&&<>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <div><span style={lbl}>Conta</span>
+                <select value={f.contaId||""} onChange={e=>{const c=contas.find(x=>x.id===e.target.value);setF(p=>({...p,contaId:e.target.value,responsavelId:p.responsavelId||c?.respPadrao||"",hashtags:p.hashtags||c?.hashtagsPadrao||""}));}} style={inp}>
+                  <option value="">Escolha…</option>
+                  {contas.filter(c=>c.ativa!==false||c.id===f.contaId).map(c=><option key={c.id} value={c.id}>@{(c.usuario||c.nome).replace(/^@/,"")} — {c.nome}</option>)}
+                </select></div>
+              <div><span style={lbl}>Tipo</span>
+                <select value={f.tipo} onChange={e=>up("tipo",e.target.value)} style={inp}>{IG_TIPOS.map(t=><option key={t.k} value={t.k}>{t.ic} {t.l}</option>)}</select></div>
+              <div><span style={lbl}>Data</span><input type="date" value={f.data||""} onChange={e=>up("data",e.target.value)} style={inp}/></div>
+              <div><span style={lbl}>Hora</span><input type="time" value={f.hora||"09:00"} onChange={e=>up("hora",e.target.value)} style={inp}/></div>
+              <div><span style={lbl}>Responsável por postar</span>
+                <select value={f.responsavelId||""} onChange={e=>up("responsavelId",e.target.value)} style={inp}><option value="">— ninguém —</option>{(collaborators||[]).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+              <div><span style={lbl}>Etapa</span>
+                <select value={f.status} onChange={e=>up("status",e.target.value)} style={inp}>{IG_STATUS.map(s=><option key={s.k} value={s.k}>{s.ic} {s.l}</option>)}</select></div>
+            </div>
+            <div>
+              <span style={lbl}>Mídias {f.tipo==="carrossel"?"(até 10)":"(1 arquivo)"}</span>
+              <div onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();addArquivos(e.dataTransfer.files);}} style={{border:"2px dashed var(--border2)",borderRadius:12,padding:10,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",background:"var(--bg3)"}}>
+                {(f.midias||[]).map((m,i)=>(<div key={m.id} style={{position:"relative",width:84}}>
+                  <div style={{width:84,height:84,borderRadius:9,background:m.thumb?`center/cover url(${m.thumb})`:"#e2e8f0",border:"1px solid var(--border2)",display:"flex",alignItems:"center",justifyContent:"center"}}>{m.tipo==="video"&&<span style={{background:"rgba(0,0,0,.55)",color:"#fff",borderRadius:"50%",width:24,height:24,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11}}>▶</span>}</div>
+                  <div style={{display:"flex",justifyContent:"space-between",marginTop:3}}>
+                    <button title="Mover para a esquerda" disabled={i===0} onClick={()=>moverMidia(i,-1)} style={{border:"none",background:"none",cursor:"pointer",color:"#64748b",opacity:i===0?.3:1}}>◀</button>
+                    <button title="Remover" onClick={()=>removerMidia(i)} style={{border:"none",background:"none",cursor:"pointer",color:"#ef4444"}}>🗑</button>
+                    <button title="Mover para a direita" disabled={i===(f.midias||[]).length-1} onClick={()=>moverMidia(i,1)} style={{border:"none",background:"none",cursor:"pointer",color:"#64748b",opacity:i===(f.midias||[]).length-1?.3:1}}>▶</button>
+                  </div>
+                </div>))}
+                {enviando>0&&<div style={{width:84,height:84,borderRadius:9,background:"var(--bg2)",border:"1px solid var(--border2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,color:"#64748b",textAlign:"center"}}>⏳ enviando {enviando}…</div>}
+                {((f.midias||[]).length<(f.tipo==="carrossel"?10:1))&&<button onClick={()=>inputRef.current&&inputRef.current.click()} style={{width:84,height:84,borderRadius:9,border:"1.5px dashed #e1306c",background:"#fdf2f8",color:"#be185d",cursor:"pointer",fontWeight:800,fontSize:11,fontFamily:"inherit"}}>＋<br/>Adicionar</button>}
+                <input ref={inputRef} type="file" accept="image/*,video/*" multiple={f.tipo==="carrossel"||(f.midias||[]).length===0} style={{display:"none"}} onChange={e=>{addArquivos(e.target.files);e.target.value="";}}/>
+                {(f.midias||[]).length===0&&enviando===0&&<span style={{fontSize:11,color:"#94a3b8"}}>Arraste aqui ou clique em Adicionar. Imagens são convertidas para JPEG automaticamente.</span>}
+              </div>
+            </div>
+            <div>
+              <span style={lbl}>Legenda {f.tipo==="story"&&<span style={{textTransform:"none",fontWeight:600}}>(Story não tem legenda — use como texto de apoio)</span>}</span>
+              <textarea value={f.legenda||""} onChange={e=>up("legenda",e.target.value)} rows={6} placeholder="Escreva a legenda…" style={{...inp,resize:"vertical",lineHeight:1.45}}/>
+            </div>
+            <div>
+              <span style={{...lbl,display:"flex",justifyContent:"space-between"}}><span>Hashtags</span>{conta?.hashtagsPadrao&&<button onClick={()=>up("hashtags",[f.hashtags,conta.hashtagsPadrao].filter(Boolean).join(" "))} style={{border:"none",background:"none",color:"#e1306c",fontWeight:800,fontSize:10.5,cursor:"pointer",textTransform:"none"}}>＋ inserir hashtags padrão da conta</button>}</span>
+              <textarea value={f.hashtags||""} onChange={e=>up("hashtags",e.target.value)} rows={2} placeholder="#contabilidade #empreendedorismo" style={{...inp,resize:"vertical"}}/>
+              <div style={{display:"flex",gap:12,fontSize:10.5,marginTop:4,color:"#94a3b8"}}>
+                <span style={{color:totalTxt>2200?"#dc2626":"#94a3b8",fontWeight:totalTxt>2200?800:500}}>{totalTxt}/2200 caracteres</span>
+                <span style={{color:nTags>30?"#dc2626":"#94a3b8",fontWeight:nTags>30?800:500}}>{nTags}/30 hashtags{nTags>30?" — o Instagram corta acima de 30":""}</span>
+              </div>
+            </div>
+            <div><span style={lbl}>Primeiro comentário (opcional)</span><input value={f.primeiroComentario||""} onChange={e=>up("primeiroComentario",e.target.value)} placeholder="Ex.: link, hashtags extras…" style={inp}/></div>
+          </>}
+          {aba==="aprovacao"&&<div style={{display:"flex",flexDirection:"column",gap:10}}>
+            <div style={{padding:"10px 12px",borderRadius:10,background:"#fdf2f8",border:"1px solid #fbcfe8",fontSize:12,color:"#9d174d",lineHeight:1.5}}>
+              1. Clique em <b>📋 Copiar mensagem para o cliente</b> e envie pelo WhatsApp junto com as imagens.<br/>2. Quando o cliente responder, registre aqui: <b>aprovado</b> ou <b>pediu ajuste</b>.
+            </div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <Btn onClick={async()=>{const ok=await igCopiar(msgCliente());toast(ok?"📋 Mensagem copiada — cole no WhatsApp do cliente.":"⚠️ Não foi possível copiar.","ok");if(f.status==="producao"||f.status==="ideia")up("status","aprovacao");}} v="ghost" sz="sm">📋 Copiar mensagem para o cliente</Btn>
+              <Btn onClick={()=>{const quem=window.prompt("Quem aprovou? (nome do cliente ou de quem aprovou)",conta?.contatoAprovacao||"");if(quem===null)return;setF(p=>({...p,status:p.data?"agendado":p.status,aprovadoPor:quem.trim()||"Cliente",aprovadoEm:new Date().toISOString(),aprovadoRegistradoPor:userName||""}));toast(f.data?"✅ Aprovado e agendado. Clique em Salvar.":"✅ Aprovado. Defina a data para agendar.","ok");}} sz="sm" col="#16a34a">✅ Cliente aprovou</Btn>
+              <Btn onClick={()=>{const t=window.prompt("O que o cliente pediu para ajustar?");if(!t||!t.trim())return;setF(p=>({...p,status:"producao",aprovadoPor:"",aprovadoEm:"",ajustes:[...(p.ajustes||[]),{id:uid(),texto:t.trim(),por:userName||"",em:new Date().toISOString()}]}));toast("✏️ Ajuste registrado — post voltou para Produção.","ok");}} sz="sm" col="#f59e0b">✏️ Pediu ajuste</Btn>
+            </div>
+            {f.aprovadoPor&&<div style={{fontSize:12,color:"#15803d",fontWeight:700}}>✅ Aprovado por {f.aprovadoPor}{f.aprovadoEm?" em "+new Date(f.aprovadoEm).toLocaleString("pt-BR"):""}{f.aprovadoRegistradoPor?" (registrado por "+f.aprovadoRegistradoPor+")":""}</div>}
+            <div style={{fontSize:11,fontWeight:800,color:"var(--text3)",textTransform:"uppercase"}}>Histórico de ajustes</div>
+            {(f.ajustes||[]).length===0&&<div style={{fontSize:12,color:"#94a3b8"}}>Nenhum ajuste pedido.</div>}
+            {(f.ajustes||[]).slice().reverse().map(a=>(<div key={a.id} style={{padding:"8px 10px",borderRadius:9,background:"var(--bg3)",border:"1px solid var(--border2)",fontSize:12}}>
+              <div style={{whiteSpace:"pre-wrap"}}>{a.texto}</div>
+              <div style={{fontSize:10.5,color:"#94a3b8",marginTop:3}}>{a.por?a.por+" · ":""}{new Date(a.em).toLocaleString("pt-BR")}</div>
+            </div>))}
+          </div>}
+          {aba==="notas"&&<div>
+            <span style={lbl}>Notas internas (não vão para o Instagram)</span>
+            <textarea value={f.notas||""} onChange={e=>up("notas",e.target.value)} rows={8} placeholder="Briefing, referências, links do Canva/Drive…" style={{...inp,resize:"vertical"}}/>
+            {f.status==="publicado"&&<div style={{marginTop:10}}><span style={lbl}>Link do post publicado</span><input value={f.link||""} onChange={e=>up("link",e.target.value)} placeholder="https://www.instagram.com/p/…" style={inp}/></div>}
+            <div style={{fontSize:10.5,color:"#94a3b8",marginTop:10}}>{f.criadoPor?"Criado por "+f.criadoPor+(f.criadoEm?" em "+new Date(f.criadoEm).toLocaleString("pt-BR"):""):""}{f.publicadoPor?" · Publicado por "+f.publicadoPor+(f.publicadoEm?" em "+new Date(f.publicadoEm).toLocaleString("pt-BR"):""):""}</div>
+          </div>}
+        </div>
+        <div style={{flex:"0 0 300px",display:"flex",flexDirection:"column",gap:8,alignItems:"center",margin:"0 auto"}}>
+          <div style={{fontSize:10.5,fontWeight:800,color:"var(--text3)",textTransform:"uppercase",letterSpacing:".06em"}}>Prévia</div>
+          <IgPreview post={f} conta={conta}/>
+        </div>
+      </div>
+      <div style={{display:"flex",gap:8,justifyContent:"space-between",flexWrap:"wrap",marginTop:16,paddingTop:12,borderTop:"1px solid var(--border2)"}}>
+        <div>{!ehNovo&&<Btn onClick={()=>{if(window.confirm("Excluir este post e as mídias dele? Isso não pode ser desfeito."))onExcluir(f);}} v="danger" sz="sm">🗑 Excluir</Btn>}</div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <Btn onClick={onClose} v="ghost" sz="sm">Cancelar</Btn>
+          <Btn onClick={()=>salvar()} sz="sm">💾 Salvar</Btn>
+          {f.status!=="publicado"&&f.status!=="agendado"&&<Btn onClick={()=>salvar({status:"agendado"})} sz="sm" col="#4f46e5">📅 Salvar e agendar</Btn>}
+          {f.status!=="publicado"&&(f.midias||[]).length>0&&<Btn onClick={()=>{if(!f.contaId){toast("⚠️ Escolha a conta.","warn");return;}onSalvar(f,false);onPostar(f);}} sz="sm" col="#e1306c">📲 Postar agora</Btn>}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ── Postar agora (manual, assistido) ───────────────────────────────
+function IgPostarAgora({open,post,conta,onClose,onPublicado,toast}){
+  const [copiado,setCopiado]=React.useState(false);
+  const [midiasOk,setMidiasOk]=React.useState(false);
+  const [link,setLink]=React.useState("");
+  const [ocupado,setOcupado]=React.useState(false);
+  React.useEffect(()=>{if(open){setCopiado(false);setMidiasOk(false);setLink("");}},[open,post?.id]);
+  if(!open||!post)return null;
+  const texto=igTextoCompleto(post);
+  const mobile=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent||"");
+  const copiar=async()=>{const ok=await igCopiar(texto);setCopiado(ok);toast(ok?"📋 Legenda copiada!":"⚠️ Não foi possível copiar — selecione o texto e copie manualmente.",ok?"ok":"warn");};
+  const compartilhar=async()=>{
+    setOcupado(true);
+    try{
+      if(texto&&!copiado){await copiar();}
+      const files=(await Promise.all((post.midias||[]).map((m,i)=>igMidiaParaArquivo(m,i)))).filter(Boolean);
+      if(!files.length){toast("⚠️ Não encontrei as mídias deste post.","err");setOcupado(false);return;}
+      if(navigator.canShare&&navigator.canShare({files})){
+        try{await navigator.share({files});setMidiasOk(true);}catch(e){if(e&&e.name!=="AbortError")toast("⚠️ O compartilhamento não abriu. Use Baixar mídias.","warn");}
+      }else{
+        files.forEach((fl,i)=>{setTimeout(()=>{const a=document.createElement("a");a.href=URL.createObjectURL(fl);a.download=fl.name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},2000);},i*350);});
+        setMidiasOk(true);toast("⬇️ "+files.length+" arquivo(s) baixado(s).","ok");
+      }
+    }catch(e){toast("⚠️ "+(e.message||"Erro ao preparar as mídias."),"err");}
+    setOcupado(false);
+  };
+  const user=(conta?.usuario||conta?.nome||"").replace(/^@/,"");
+  const passo=(n,feito,titulo,desc,acao)=>(<div style={{display:"flex",gap:12,padding:"12px 14px",borderRadius:12,border:"1.5px solid "+(feito?"#86efac":"var(--border2)"),background:feito?"#f0fdf4":"var(--bg2)"}}>
+    <div style={{width:28,height:28,borderRadius:"50%",background:feito?"#22c55e":"#e1306c",color:"#fff",fontWeight:900,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{feito?"✓":n}</div>
+    <div style={{flex:1,minWidth:0}}><div style={{fontWeight:800,fontSize:13.5,color:"var(--text)"}}>{titulo}</div><div style={{fontSize:12,color:"var(--text3)",marginTop:2,lineHeight:1.45}}>{desc}</div>{acao&&<div style={{marginTop:8,display:"flex",gap:8,flexWrap:"wrap"}}>{acao}</div>}</div>
+  </div>);
+  return(
+    <Modal open={open} onClose={onClose} title={"📲 Postar agora"+(user?" · @"+user:"")} width={620}>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <div style={{display:"flex",gap:10,alignItems:"center",padding:"8px 10px",borderRadius:10,background:"var(--bg3)"}}>
+          <IgThumb post={post} size={48}/>
+          <div style={{minWidth:0}}><div style={{fontWeight:800,fontSize:13}}>{(IG_TIPO[post.tipo]||IG_TIPO.feed).ic} {(IG_TIPO[post.tipo]||IG_TIPO.feed).l} · {(post.midias||[]).length} arquivo(s)</div><div style={{fontSize:11.5,color:"var(--text3)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{(post.legenda||"sem legenda").slice(0,90)}</div></div>
+        </div>
+        {post.tipo!=="story"&&passo(1,copiado,"Copiar a legenda","A legenda (com hashtags) vai para a área de transferência. No Instagram é só colar.",
+          <><Btn onClick={copiar} sz="sm" col="#e1306c">📋 Copiar legenda</Btn><details style={{fontSize:11.5,color:"var(--text3)"}}><summary style={{cursor:"pointer"}}>ver texto</summary><div style={{whiteSpace:"pre-wrap",marginTop:6,padding:8,background:"var(--bg3)",borderRadius:8,maxHeight:140,overflowY:"auto",userSelect:"text"}}>{texto||"(sem legenda)"}</div></details></>)}
+        {passo(post.tipo==="story"?1:2,midiasOk,mobile?"Enviar as mídias para o Instagram":"Baixar as mídias",
+          mobile?"Abre o menu de compartilhar do celular com "+((post.midias||[]).length>1?"as imagens":"a mídia")+". Escolha Instagram → "+(post.tipo==="story"?"Story":post.tipo==="reels"?"Reels":"Feed")+".":"Baixa "+((post.midias||[]).length>1?"os arquivos na ordem do carrossel":"o arquivo")+" para você postar pelo instagram.com ou Meta Business Suite.",
+          <><Btn onClick={compartilhar} sz="sm" col="#6228d7" disabled={ocupado}>{ocupado?"⏳ Preparando…":mobile?"📤 Compartilhar no Instagram":"⬇️ Baixar mídias"}</Btn>{!mobile&&<a href="https://business.facebook.com/latest/composer" target="_blank" rel="noopener noreferrer" style={{fontSize:12,fontWeight:700,color:"#4f46e5",alignSelf:"center"}}>Abrir Meta Business Suite ↗</a>}<a href={"https://www.instagram.com/"+(user||"")} target="_blank" rel="noopener noreferrer" style={{fontSize:12,fontWeight:700,color:"#be185d",alignSelf:"center"}}>Abrir Instagram ↗</a></>)}
+        {passo(post.tipo==="story"?2:3,false,"Confirmar que foi publicado","Depois de postar, marque aqui. Se quiser, cole o link do post (no Instagram: ⋯ → Copiar link).",
+          <><input value={link} onChange={e=>setLink(e.target.value)} placeholder="https://www.instagram.com/p/… (opcional)" style={{flex:"1 1 220px",padding:"7px 10px",borderRadius:8,border:"1.5px solid var(--border3)",fontSize:12.5,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"}}/><Btn onClick={()=>{if(!window.confirm("Confirmar que este post JÁ FOI publicado no Instagram?"))return;onPublicado(post,link.trim());}} sz="sm" col="#16a34a">✅ Foi publicado</Btn></>)}
+        {post.primeiroComentario&&<div style={{fontSize:11.5,color:"#9d174d",background:"#fdf2f8",border:"1px solid #fbcfe8",borderRadius:9,padding:"8px 10px"}}>💬 Lembre do primeiro comentário: <b>{post.primeiroComentario}</b> <button onClick={async()=>{const ok=await igCopiar(post.primeiroComentario);toast(ok?"📋 Comentário copiado":"⚠️ Não copiou","ok");}} style={{border:"none",background:"none",color:"#be185d",fontWeight:800,cursor:"pointer"}}>copiar</button></div>}
+      </div>
+    </Modal>
+  );
+}
+
+// ── Cadastro de contas ─────────────────────────────────────────────
+function IgContasModal({open,onClose,contas,companies,collaborators,posts,onSalvar,toast}){
+  const [lista,setLista]=React.useState([]);
+  const [verInativas,setVerInativas]=React.useState(false);
+  React.useEffect(()=>{if(open)setLista(JSON.parse(JSON.stringify(contas)));},[open]);
+  if(!open)return null;
+  const upd=(id,k,v)=>setLista(l=>l.map(c=>c.id===id?{...c,[k]:v}:c));
+  const nova=(tipo)=>setLista(l=>[...l,{id:uid(),nome:tipo==="propria"?"MD Tec":"",usuario:"",tipo,clienteId:"",cor:IG_CORES[l.length%IG_CORES.length],respPadrao:"",hashtagsPadrao:"",contatoAprovacao:"",ativa:true,criadaEm:new Date().toISOString()}]);
+  const remover=(c)=>{
+    const n=posts.filter(p=>p.contaId===c.id).length;
+    if(n>0){if(window.confirm(`Esta conta tem ${n} post(s). Excluir não é possível — deseja INATIVAR (some das listas, mas o histórico fica)?`))upd(c.id,"ativa",false);return;}
+    if(window.confirm("Excluir a conta "+(c.nome||"sem nome")+"?"))setLista(l=>l.filter(x=>x.id!==c.id));
+  };
+  const inp={padding:"7px 9px",borderRadius:8,border:"1.5px solid var(--border3)",fontSize:12.5,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",boxSizing:"border-box",width:"100%"};
+  const lbl={fontSize:10,fontWeight:800,color:"var(--text3)",textTransform:"uppercase",marginBottom:3,display:"block"};
+  const visiveis=lista.filter(c=>verInativas||c.ativa!==false);
+  return(
+    <Modal open={open} onClose={onClose} title="👤 Contas do Instagram" width={860}>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+          <Btn onClick={()=>nova("propria")} sz="sm" col="#e1306c">＋ Conta da MD</Btn>
+          <Btn onClick={()=>nova("cliente")} sz="sm" col="#6366f1">＋ Conta de cliente</Btn>
+          <label style={{marginLeft:"auto",fontSize:12,color:"var(--text3)",display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}><input type="checkbox" checked={verInativas} onChange={e=>setVerInativas(e.target.checked)}/> mostrar inativas</label>
+        </div>
+        {visiveis.length===0&&<div style={{padding:24,textAlign:"center",color:"#94a3b8",fontSize:13}}>Nenhuma conta ainda. Comece pela conta da MD e depois adicione as dos clientes.</div>}
+        <div style={{display:"flex",flexDirection:"column",gap:10,maxHeight:"58vh",overflowY:"auto"}}>
+          {visiveis.map(c=>(<div key={c.id} style={{border:"1px solid var(--border2)",borderLeft:"4px solid "+(c.cor||"#6366f1"),borderRadius:12,padding:12,background:c.ativa===false?"var(--bg3)":"var(--bg2)",opacity:c.ativa===false?.7:1}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+              <IgAvatar conta={c} size={34}/>
+              <span style={{fontSize:10.5,fontWeight:800,padding:"2px 8px",borderRadius:20,background:c.tipo==="propria"?"#fdf2f8":"#eef2ff",color:c.tipo==="propria"?"#be185d":"#4338ca"}}>{c.tipo==="propria"?"Conta própria (MD)":"Cliente"}</span>
+              {c.ativa===false&&<span style={{fontSize:10.5,fontWeight:800,color:"#64748b"}}>⏸ inativa</span>}
+              <div style={{marginLeft:"auto",display:"flex",gap:6,alignItems:"center"}}>
+                <div style={{display:"flex",gap:3}}>{IG_CORES.map(cor=><span key={cor} onClick={()=>upd(c.id,"cor",cor)} style={{width:14,height:14,borderRadius:"50%",background:cor,cursor:"pointer",outline:c.cor===cor?"2px solid var(--text)":"none",outlineOffset:1}}/>)}</div>
+                {c.ativa===false?<button onClick={()=>upd(c.id,"ativa",true)} style={{border:"1px solid #86efac",background:"#dcfce7",color:"#15803d",borderRadius:7,padding:"3px 8px",fontSize:11,fontWeight:800,cursor:"pointer"}}>▶ Reativar</button>
+                  :<button onClick={()=>upd(c.id,"ativa",false)} style={{border:"1px solid var(--border3)",background:"var(--bg3)",color:"#64748b",borderRadius:7,padding:"3px 8px",fontSize:11,fontWeight:800,cursor:"pointer"}}>⏸ Inativar</button>}
+                <button onClick={()=>remover(c)} title="Excluir" style={{border:"none",background:"none",color:"#ef4444",cursor:"pointer",fontSize:14}}>🗑</button>
+              </div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))",gap:8}}>
+              <div><span style={lbl}>Nome</span><input value={c.nome} onChange={e=>upd(c.id,"nome",e.target.value)} placeholder="Ex.: Padaria Pão Quente" style={inp}/></div>
+              <div><span style={lbl}>@ do Instagram</span><input value={c.usuario} onChange={e=>upd(c.id,"usuario",e.target.value.replace(/\s/g,""))} placeholder="@usuario" style={inp}/></div>
+              {c.tipo!=="propria"&&<div><span style={lbl}>Empresa cliente (cadastro)</span><select value={c.clienteId||""} onChange={e=>{const co=(companies||[]).find(x=>x.id===e.target.value);setLista(l=>l.map(x=>x.id===c.id?{...x,clienteId:e.target.value,nome:x.nome||co?.name||""}:x));}} style={inp}><option value="">— não vincular —</option>{(companies||[]).map(co=><option key={co.id} value={co.id}>{co.name}</option>)}</select></div>}
+              <div><span style={lbl}>Responsável padrão</span><select value={c.respPadrao||""} onChange={e=>upd(c.id,"respPadrao",e.target.value)} style={inp}><option value="">—</option>{(collaborators||[]).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+              {c.tipo!=="propria"&&<div><span style={lbl}>Quem aprova no cliente</span><input value={c.contatoAprovacao||""} onChange={e=>upd(c.id,"contatoAprovacao",e.target.value)} placeholder="Nome / WhatsApp" style={inp}/></div>}
+              <div style={{gridColumn:"1 / -1"}}><span style={lbl}>Hashtags padrão</span><input value={c.hashtagsPadrao||""} onChange={e=>upd(c.id,"hashtagsPadrao",e.target.value)} placeholder="#contabilidade #mdtec" style={inp}/></div>
+            </div>
+          </div>))}
+        </div>
+        <div style={{display:"flex",justifyContent:"flex-end",gap:8,borderTop:"1px solid var(--border2)",paddingTop:10}}>
+          <Btn onClick={onClose} v="ghost" sz="sm">Cancelar</Btn>
+          <Btn onClick={()=>{if(lista.some(c=>!c.nome.trim())){toast("⚠️ Dê um nome para todas as contas.","warn");return;}onSalvar(lista);}} sz="sm">💾 Salvar contas</Btn>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ── Página principal ───────────────────────────────────────────────
+function InstagramPage({toast,data,myCollab,isAdmin,userName}){
+  const {ig,carregado,atualizar}=useInstagramData(toast);
+  const collaborators=data?.collaborators||[];const companies=data?.companies||[];
+  const myId=myCollab?.id||"";
+  const VIEW_KEY="mdtec_ig_view_"+(myId||"eu");
+  const [view,setViewSt]=React.useState(()=>{try{const v=localStorage.getItem(VIEW_KEY);return["calendario","kanban","lista"].includes(v)?v:"calendario";}catch(e){return"calendario";}});
+  const setView=(v)=>{setViewSt(v);try{localStorage.setItem(VIEW_KEY,v);}catch(e){}};
+  const [fConta,setFConta]=React.useState("");
+  const [fResp,setFResp]=React.useState("");
+  const [fBusca,setFBusca]=React.useState("");
+  const [fEspecial,setFEspecial]=React.useState(""); // hoje | atrasados | aprovacao | meus
+  const [mesRef,setMesRef]=React.useState(()=>{const d=new Date();return{y:d.getFullYear(),m:d.getMonth()};});
+  const [editor,setEditor]=React.useState(null); // post
+  const [postar,setPostar]=React.useState(null); // post
+  const [contasOpen,setContasOpen]=React.useState(false);
+  const [arrastando,setArrastando]=React.useState(null);
+  const [estreito,setEstreito]=React.useState(()=>typeof window!=="undefined"&&window.innerWidth<720);
+  React.useEffect(()=>{const f=()=>setEstreito(window.innerWidth<720);window.addEventListener("resize",f);return()=>window.removeEventListener("resize",f);},[]);
+  const contas=ig.contas;const contaDe=(id)=>contas.find(c=>c.id===id);
+  const nomeColab=(id)=>collaborators.find(c=>c.id===id)?.name||"";
+  const hoje=igHojeISO();
+  const postsFiltrados=React.useMemo(()=>ig.posts.filter(p=>{
+    if(fConta&&p.contaId!==fConta)return false;
+    if(!fConta){const c=contaDe(p.contaId);if(c&&c.ativa===false)return false;}
+    if(fResp&&(fResp==="__sem__"?!!p.responsavelId:p.responsavelId!==fResp))return false;
+    if(fEspecial==="hoje"&&!(p.data===hoje&&p.status!=="publicado"))return false;
+    if(fEspecial==="atrasados"&&!igAtrasado(p))return false;
+    if(fEspecial==="aprovacao"&&p.status!=="aprovacao")return false;
+    if(fEspecial==="meus"&&p.responsavelId!==myId)return false;
+    if(fBusca){const q=fBusca.toLowerCase();const c=contaDe(p.contaId);if(!((p.legenda||"")+" "+(p.hashtags||"")+" "+(p.notas||"")+" "+(c?.nome||"")+" "+(c?.usuario||"")).toLowerCase().includes(q))return false;}
+    return true;
+  }),[ig.posts,fConta,fResp,fBusca,fEspecial,contas,hoje,myId]);
+  const kpi={
+    hoje:ig.posts.filter(p=>p.data===hoje&&p.status!=="publicado").length,
+    atrasados:ig.posts.filter(igAtrasado).length,
+    aprovacao:ig.posts.filter(p=>p.status==="aprovacao").length,
+    publicadosMes:ig.posts.filter(p=>p.status==="publicado"&&(p.publicadoEm||"").slice(0,7)===hoje.slice(0,7)).length,
+    meus:ig.posts.filter(p=>p.responsavelId===myId&&p.status!=="publicado").length,
+  };
+  const novoPost=(extra={})=>{
+    const c=contaDe(fConta)||contas.filter(x=>x.ativa!==false)[0];
+    setEditor({id:uid(),contaId:c?.id||"",tipo:"feed",status:"producao",data:"",hora:"09:00",legenda:"",hashtags:c?.hashtagsPadrao||"",primeiroComentario:"",responsavelId:c?.respPadrao||myId||"",midias:[],ajustes:[],notas:"",...extra});
+  };
+  const salvarPost=async(p,fechar=true)=>{
+    const agora=new Date().toISOString();
+    const antigo=ig.posts.find(x=>x.id===p.id);
+    const next={...p,criadoPor:p.criadoPor||userName||"",criadoEm:p.criadoEm||agora,editadoEm:agora,editadoPor:userName||""};
+    // se mudou data/hora/status, o aviso volta a valer
+    if(antigo&&(antigo.data!==next.data||antigo.hora!==next.hora||antigo.status!==next.status))next.avisado=false;
+    // mídias removidas no editor → apaga do banco
+    if(antigo){const ids=new Set((next.midias||[]).map(m=>m.id));(antigo.midias||[]).filter(m=>!ids.has(m.id)).forEach(igApagarMidia);}
+    const ok=await atualizar(d=>({...d,posts:d.posts.some(x=>x.id===next.id)?d.posts.map(x=>x.id===next.id?next:x):[...d.posts,next]}));
+    if(ok&&fechar){toast("💾 Post salvo","ok");setEditor(null);}
+  };
+  const excluirPost=async(p)=>{
+    const antigo=ig.posts.find(x=>x.id===p.id)||p;
+    (antigo.midias||[]).forEach(igApagarMidia);(p.midias||[]).forEach(igApagarMidia);
+    await atualizar(d=>({...d,posts:d.posts.filter(x=>x.id!==p.id)}));
+    toast("🗑 Post excluído","ok");setEditor(null);
+  };
+  const mudarStatus=(p,status)=>{
+    if(status===p.status)return;
+    if(status==="agendado"&&!p.data){toast("📅 Defina a data para agendar.","warn");setEditor({...p,status:"agendado"});return;}
+    if(status==="publicado"){setPostar(p);return;}
+    atualizar(d=>({...d,posts:d.posts.map(x=>x.id===p.id?{...x,status,avisado:false,editadoEm:new Date().toISOString(),editadoPor:userName||""}:x)}));
+  };
+  const reagendar=(p,dataISO)=>{
+    if(p.data===dataISO)return;
+    if(p.status==="publicado"){toast("⚠️ Post já publicado — não dá para mudar a data.","warn");return;}
+    atualizar(d=>({...d,posts:d.posts.map(x=>x.id===p.id?{...x,data:dataISO,avisado:false,editadoEm:new Date().toISOString(),editadoPor:userName||""}:x)}));
+    toast("📅 Movido para "+igFmtData(dataISO),"ok");
+  };
+  const marcarPublicado=async(p,link)=>{
+    const agora=new Date().toISOString();
+    await atualizar(d=>({...d,posts:d.posts.map(x=>x.id===p.id?{...x,status:"publicado",publicadoEm:agora,publicadoPor:userName||"",link:link||x.link||""}:x)}));
+    toast("✅ Marcado como publicado!","ok");setPostar(null);setEditor(null);
+  };
+  const salvarContas=async(lista)=>{const ok=await atualizar(d=>({...d,contas:lista}));if(ok){toast("💾 Contas salvas","ok");setContasOpen(false);}};
+
+  // ── componentes de visualização ──
+  const cardPost=(p,compacto)=>{
+    const c=contaDe(p.contaId);const at=igAtrasado(p);
+    return(<div key={p.id} draggable onDragStart={e=>{e.dataTransfer.setData("text/plain",p.id);setArrastando(p.id);}} onDragEnd={()=>setArrastando(null)}
+      onClick={()=>setEditor(p)} title={(c?"@"+(c.usuario||c.nome).replace(/^@/,"")+" · ":"")+(p.legenda||"").slice(0,120)}
+      style={{background:"var(--bg2)",border:"1px solid "+(at?"#fca5a5":"var(--border2)"),borderLeft:"4px solid "+(c?.cor||"#cbd5e1"),borderRadius:10,padding:compacto?"5px 6px":"9px 10px",display:"flex",gap:compacto?6:9,alignItems:compacto?"center":"flex-start",cursor:"pointer",boxShadow:"0 1px 2px rgba(0,0,0,.04)",opacity:arrastando===p.id?.4:1}}>
+      <IgThumb post={p} size={compacto?26:46}/>
+      <div style={{minWidth:0,flex:1}}>
+        {compacto?<div style={{fontSize:10.5,fontWeight:800,color:at?"#b91c1c":"var(--text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.status==="publicado"?"✅":at?"🔴":""}{p.hora||"09:00"} · {c?(c.usuario||c.nome).replace(/^@/,""):"sem conta"}</div>
+        :<>
+          <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}><b style={{fontSize:12}}>{c?"@"+(c.usuario||c.nome).replace(/^@/,""):"sem conta"}</b><span style={{fontSize:10.5,color:"var(--text3)"}}>{(IG_TIPO[p.tipo]||IG_TIPO.feed).ic} {(IG_TIPO[p.tipo]||IG_TIPO.feed).l}</span></div>
+          <div style={{fontSize:11.5,color:"var(--text2)",marginTop:2,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",lineHeight:1.35}}>{p.legenda||<i style={{color:"#94a3b8"}}>sem legenda</i>}</div>
+          <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",marginTop:5}}>
+            <span style={{fontSize:10.5,fontWeight:700,color:at?"#b91c1c":"var(--text3)"}}>📅 {p.data?igFmtDataCurta(p.data)+" "+(p.hora||"09:00"):"sem data"}</span>
+            {p.responsavelId&&<span style={{fontSize:10.5,color:"#4338ca",fontWeight:700}}>👤 {nomeColab(p.responsavelId).split(" ")[0]}</span>}
+            {at&&<IgStatusChip post={p} small/>}
+            {(p.status==="agendado"||at)&&(p.midias||[]).length>0&&<button onClick={e=>{e.stopPropagation();setPostar(p);}} style={{marginLeft:"auto",border:"none",background:"#e1306c",color:"#fff",borderRadius:7,padding:"3px 9px",fontSize:10.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📲 Postar</button>}
+            {p.status==="publicado"&&p.link&&<a href={p.link} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} style={{marginLeft:"auto",fontSize:10.5,fontWeight:800,color:"#be185d"}}>ver post ↗</a>}
+          </div>
+        </>}
+      </div>
+    </div>);
+  };
+
+  const renderCalendario=()=>{
+    const {y,m}=mesRef;const primeiro=new Date(y,m,1);const ini=new Date(y,m,1-primeiro.getDay());
+    const dias=Array.from({length:42},(_,i)=>{const d=new Date(ini);d.setDate(ini.getDate()+i);return d;});
+    const semanas=dias.slice(35).every(d=>d.getMonth()!==m)?dias.slice(0,35):dias;
+    const iso=(d)=>d.getFullYear()+"-"+igPad(d.getMonth()+1)+"-"+igPad(d.getDate());
+    const porDia={};postsFiltrados.forEach(p=>{if(p.data)(porDia[p.data]=porDia[p.data]||[]).push(p);});
+    Object.values(porDia).forEach(a=>a.sort((a,b)=>(a.hora||"").localeCompare(b.hora||"")));
+    const semData=postsFiltrados.filter(p=>!p.data&&p.status!=="publicado");
+    const nomeMesRaw=primeiro.toLocaleDateString("pt-BR",{month:"long"});const nomeMes=nomeMesRaw.charAt(0).toUpperCase()+nomeMesRaw.slice(1)+" "+y;
+    return(<div style={{display:"flex",gap:14,alignItems:"flex-start",flexWrap:"wrap"}}>
+      <div style={{flex:"1 1 640px",minWidth:0}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+          <button onClick={()=>setMesRef(({y,m})=>m===0?{y:y-1,m:11}:{y,m:m-1})} style={navBtn}>‹</button>
+          <b style={{fontSize:16,minWidth:150,textAlign:"center"}}>{nomeMes}</b>
+          <button onClick={()=>setMesRef(({y,m})=>m===11?{y:y+1,m:0}:{y,m:m+1})} style={navBtn}>›</button>
+          <button onClick={()=>{const d=new Date();setMesRef({y:d.getFullYear(),m:d.getMonth()});}} style={{...navBtn,width:"auto",padding:"0 10px",fontSize:12}}>Hoje</button>
+          {!estreito&&<span style={{marginLeft:"auto",fontSize:11,color:"var(--text4)"}}>Arraste um post para outro dia para reagendar</span>}
+        </div>
+        {estreito?(()=>{
+          // Celular: agenda em lista (dias do mês com posts)
+          const diasMes=Object.keys(porDia).filter(k=>k.slice(0,7)===y+"-"+igPad(m+1)).sort();
+          return(<div style={{display:"flex",flexDirection:"column",gap:12}}>
+            {diasMes.length===0&&<div style={{padding:24,textAlign:"center",color:"var(--text4)",fontSize:13,border:"1px dashed var(--border2)",borderRadius:12}}>Nenhum post neste mês.</div>}
+            {diasMes.map(k=>(<div key={k}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                <span style={{fontSize:12.5,fontWeight:900,color:k===hoje?"#fff":"var(--text)",background:k===hoje?"#e1306c":"transparent",borderRadius:20,padding:k===hoje?"2px 10px":0,textTransform:"capitalize"}}>{k===hoje?"Hoje · ":""}{igFmtDataCurta(k)}</span>
+                <button onClick={()=>novoPost({data:k})} style={{marginLeft:"auto",border:"none",background:"none",color:"#e1306c",fontWeight:900,cursor:"pointer"}}>＋</button>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>{porDia[k].map(p=>cardPost(p,false))}</div>
+            </div>))}
+          </div>);
+        })():
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,minmax(0,1fr))",border:"1px solid var(--border2)",borderRadius:12,overflow:"hidden",background:"var(--border2)",gap:1}}>
+          {["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"].map(d=><div key={d} style={{background:"var(--bg3)",padding:"6px 8px",fontSize:10.5,fontWeight:800,color:"var(--text3)",textTransform:"uppercase"}}>{d}</div>)}
+          {semanas.map(d=>{const k=iso(d);const lst=porDia[k]||[];const fora=d.getMonth()!==m;const ehHoje=k===hoje;
+            return(<div key={k} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();const id=e.dataTransfer.getData("text/plain");const p=ig.posts.find(x=>x.id===id);if(p)reagendar(p,k);setArrastando(null);}}
+              onDoubleClick={()=>novoPost({data:k})}
+              style={{background:fora?"var(--bg3)":"var(--bg2)",minHeight:104,padding:5,display:"flex",flexDirection:"column",gap:4,position:"relative"}} className="ig-dia">
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <span style={{fontSize:11.5,fontWeight:800,color:ehHoje?"#fff":fora?"var(--text4)":"var(--text2)",background:ehHoje?"#e1306c":"transparent",borderRadius:20,padding:ehHoje?"1px 7px":0}}>{d.getDate()}</span>
+                <button onClick={()=>novoPost({data:k})} title="Novo post neste dia" className="ig-add" style={{border:"none",background:"none",color:"#e1306c",cursor:"pointer",fontWeight:900,fontSize:14,lineHeight:1,padding:0}}>＋</button>
+              </div>
+              {lst.slice(0,4).map(p=>cardPost(p,true))}
+              {lst.length>4&&<button onClick={()=>{setView("lista");setFBusca("");}} style={{border:"none",background:"none",color:"#6366f1",fontSize:10.5,fontWeight:800,cursor:"pointer",textAlign:"left",padding:0}}>+{lst.length-4} mais</button>}
+            </div>);
+          })}
+        </div>}
+      </div>
+      <div style={{flex:"0 0 250px",display:"flex",flexDirection:"column",gap:8}} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();const id=e.dataTransfer.getData("text/plain");const p=ig.posts.find(x=>x.id===id);if(p&&p.status!=="publicado")atualizar(d=>({...d,posts:d.posts.map(x=>x.id===p.id?{...x,data:"",status:x.status==="agendado"?"producao":x.status}:x)}));setArrastando(null);}}>
+        <div style={{fontSize:11,fontWeight:800,color:"var(--text3)",textTransform:"uppercase",letterSpacing:".05em"}}>💡 Sem data ({semData.length})</div>
+        <div style={{fontSize:10.5,color:"var(--text4)"}}>Ideias e posts sem dia definido. Arraste para o calendário.</div>
+        {semData.map(p=>cardPost(p,false))}
+        <button onClick={()=>novoPost({status:"ideia"})} style={{border:"1.5px dashed var(--border2)",background:"transparent",borderRadius:10,padding:"8px",color:"var(--text3)",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>＋ Nova ideia</button>
+      </div>
+    </div>);
+  };
+  const navBtn={width:30,height:30,borderRadius:8,border:"1px solid var(--border2)",background:"var(--bg2)",color:"var(--text)",cursor:"pointer",fontWeight:900,fontSize:15,fontFamily:"inherit"};
+
+  const renderKanban=()=>(
+    <div style={{display:"grid",gridTemplateColumns:"repeat(5,minmax(220px,1fr))",gap:10,overflowX:"auto",paddingBottom:6}}>
+      {IG_STATUS.map(s=>{
+        let lst=postsFiltrados.filter(p=>p.status===s.k);
+        if(s.k==="publicado")lst=lst.sort((a,b)=>(b.publicadoEm||"").localeCompare(a.publicadoEm||"")).slice(0,30);
+        else lst=lst.sort((a,b)=>((a.data||"9999")+(a.hora||"")).localeCompare((b.data||"9999")+(b.hora||"")));
+        return(<div key={s.k} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();const id=e.dataTransfer.getData("text/plain");const p=ig.posts.find(x=>x.id===id);if(p)mudarStatus(p,s.k);setArrastando(null);}}
+          style={{background:"var(--bg3)",borderRadius:12,padding:10,display:"flex",flexDirection:"column",gap:8,minHeight:200,border:"1px solid var(--border2)"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:11.5,fontWeight:900,textTransform:"uppercase",letterSpacing:".05em",color:s.c}}>{s.ic} {s.l}<span style={{background:s.bg,color:s.c,borderRadius:20,padding:"1px 8px",fontSize:11}}>{postsFiltrados.filter(p=>p.status===s.k).length}</span></div>
+          {lst.length===0&&<div style={{textAlign:"center",color:"var(--text4)",fontSize:11,padding:14}}>— vazio —</div>}
+          {lst.map(p=>cardPost(p,false))}
+          {s.k==="ideia"&&<button onClick={()=>novoPost({status:"ideia"})} style={{border:"1.5px dashed var(--border2)",background:"transparent",borderRadius:10,padding:8,color:"var(--text3)",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>＋ Nova ideia</button>}
+          {s.k==="publicado"&&postsFiltrados.filter(p=>p.status==="publicado").length>30&&<div style={{fontSize:10.5,color:"var(--text4)",textAlign:"center"}}>mostrando os 30 mais recentes — use a Lista para ver todos</div>}
+        </div>);
+      })}
+    </div>
+  );
+
+  const renderLista=()=>{
+    const lst=[...postsFiltrados].sort((a,b)=>{const ka=(a.data||"0000")+(a.hora||""),kb=(b.data||"0000")+(b.hora||"");return kb.localeCompare(ka);});
+    const th={padding:"9px 10px",fontSize:10.5,fontWeight:800,color:"var(--text3)",textTransform:"uppercase",textAlign:"left",background:"var(--bg3)",borderBottom:"1px solid var(--border2)",whiteSpace:"nowrap"};
+    return(<div style={{overflowX:"auto",border:"1px solid var(--border2)",borderRadius:12,background:"var(--bg2)"}}>
+      <table style={{width:"100%",borderCollapse:"collapse",minWidth:860,fontSize:12.5}}>
+        <thead><tr><th style={th}>Data</th><th style={th}>Conta</th><th style={th}>Post</th><th style={th}>Responsável</th><th style={th}>Etapa</th><th style={{...th,textAlign:"right"}}>Ações</th></tr></thead>
+        <tbody>
+          {lst.length===0&&<tr><td colSpan={6} style={{padding:28,textAlign:"center",color:"var(--text4)"}}>Nenhum post encontrado.</td></tr>}
+          {lst.map(p=>{const c=contaDe(p.contaId);const at=igAtrasado(p);return(<tr key={p.id} onClick={()=>setEditor(p)} style={{borderTop:"1px solid var(--border2)",cursor:"pointer",background:at?"rgba(239,68,68,.04)":undefined}}>
+            <td style={{padding:"8px 10px",whiteSpace:"nowrap",fontWeight:700,color:at?"#b91c1c":"var(--text)"}}>{p.data?igFmtDataCurta(p.data):"—"}<div style={{fontSize:10.5,color:"var(--text3)",fontWeight:500}}>{p.data?(p.hora||"09:00"):"sem data"}</div></td>
+            <td style={{padding:"8px 10px"}}><div style={{display:"flex",alignItems:"center",gap:7}}><IgAvatar conta={c} size={26}/><div style={{minWidth:0}}><div style={{fontWeight:800,fontSize:12}}>{c?"@"+(c.usuario||c.nome).replace(/^@/,""):"—"}</div><div style={{fontSize:10.5,color:"var(--text3)"}}>{c?.nome||""}</div></div></div></td>
+            <td style={{padding:"8px 10px",maxWidth:380}}><div style={{display:"flex",gap:8,alignItems:"center"}}><IgThumb post={p} size={38}/><div style={{minWidth:0}}><div style={{fontSize:10.5,color:"var(--text3)",fontWeight:700}}>{(IG_TIPO[p.tipo]||IG_TIPO.feed).ic} {(IG_TIPO[p.tipo]||IG_TIPO.feed).l}</div><div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:300}}>{p.legenda||<i style={{color:"#94a3b8"}}>sem legenda</i>}</div></div></div></td>
+            <td style={{padding:"8px 10px",whiteSpace:"nowrap",color:p.responsavelId?"#4338ca":"var(--text4)",fontWeight:700,fontSize:12}}>{p.responsavelId?"👤 "+nomeColab(p.responsavelId):"—"}</td>
+            <td style={{padding:"8px 10px"}}><IgStatusChip post={p}/>{p.status==="publicado"&&p.publicadoPor&&<div style={{fontSize:10,color:"var(--text4)",marginTop:2}}>por {p.publicadoPor}</div>}</td>
+            <td style={{padding:"8px 10px",textAlign:"right",whiteSpace:"nowrap"}} onClick={e=>e.stopPropagation()}>
+              {p.status!=="publicado"&&(p.midias||[]).length>0&&<button onClick={()=>setPostar(p)} style={{border:"none",background:"#e1306c",color:"#fff",borderRadius:7,padding:"4px 10px",fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📲 Postar</button>}
+              {p.status==="publicado"&&p.link&&<a href={p.link} target="_blank" rel="noopener noreferrer" style={{fontSize:11.5,fontWeight:800,color:"#be185d"}}>ver post ↗</a>}
+            </td>
+          </tr>);})}
+        </tbody>
+      </table>
+    </div>);
+  };
+
+  const kpiBtn=(k,v,l,c,bg)=>(<button key={k} onClick={()=>setFEspecial(f=>f===k?"":k)} style={{display:"flex",alignItems:"baseline",gap:6,padding:"8px 14px",borderRadius:11,border:fEspecial===k?"2px solid "+c:"1px solid "+c+"33",background:bg,cursor:"pointer",fontFamily:"inherit"}}><span style={{fontSize:20,fontWeight:900,color:c,lineHeight:1}}>{v}</span><span style={{fontSize:11,fontWeight:700,color:c,whiteSpace:"nowrap"}}>{l}</span>{fEspecial===k&&<span style={{fontSize:10,color:c,fontWeight:900}}>✕</span>}</button>);
+  const sel={padding:"7px 10px",borderRadius:9,border:"1.5px solid var(--border3)",fontSize:12.5,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none"};
+  const contasAtivas=contas.filter(c=>c.ativa!==false);
+
+  return(
+    <div style={{padding:"18px 22px",display:"flex",flexDirection:"column",gap:14}}>
+      <style>{`.ig-dia .ig-add{opacity:0;transition:opacity .15s}.ig-dia:hover .ig-add{opacity:1}@media (hover:none){.ig-dia .ig-add{opacity:1}}`}</style>
+      <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+        <div style={{width:42,height:42,borderRadius:12,background:"linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,color:"#fff"}}>📸</div>
+        <div><div style={{fontSize:24,fontWeight:900,color:"var(--text)",lineHeight:1.1}}>Instagram</div><div style={{fontSize:12,color:"var(--text3)"}}>Planejamento e postagem · {contasAtivas.length} conta(s)</div></div>
+        <div style={{marginLeft:"auto",display:"flex",gap:8,flexWrap:"wrap"}}>
+          <Btn onClick={()=>setContasOpen(true)} v="ghost" sz="sm">👤 Contas</Btn>
+          <Btn onClick={()=>{if(!contasAtivas.length){toast("Cadastre uma conta primeiro.","warn");setContasOpen(true);return;}novoPost();}} sz="sm" col="#e1306c">＋ Novo post</Btn>
+        </div>
+      </div>
+
+      {carregado&&contas.length===0&&<div style={{padding:"22px 20px",borderRadius:14,border:"1.5px dashed #f9a8d4",background:"#fdf2f8",display:"flex",gap:16,alignItems:"center",flexWrap:"wrap"}}>
+        <div style={{fontSize:34}}>👋</div>
+        <div style={{flex:1,minWidth:240}}><div style={{fontWeight:900,fontSize:15,color:"#9d174d"}}>Comece cadastrando as contas</div><div style={{fontSize:12.5,color:"#9d174d",marginTop:3,lineHeight:1.5}}>Cadastre a conta da MD e as dos clientes. Depois crie os posts, defina data, hora e responsável. Na hora marcada, o responsável recebe um aviso no sino com o botão <b>📲 Postar agora</b>.</div></div>
+        <Btn onClick={()=>setContasOpen(true)} sz="sm" col="#e1306c">👤 Cadastrar contas</Btn>
+      </div>}
+
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        {kpiBtn("hoje",kpi.hoje,"para hoje","#be185d","#fdf2f8")}
+        {kpiBtn("atrasados",kpi.atrasados,"atrasados","#b91c1c","#fee2e2")}
+        {kpiBtn("aprovacao",kpi.aprovacao,"aguardando aprovação","#b45309","#fef3c7")}
+        {myId&&kpiBtn("meus",kpi.meus,"comigo","#4338ca","#eef2ff")}
+        <div style={{display:"flex",alignItems:"baseline",gap:6,padding:"8px 14px",borderRadius:11,border:"1px solid #86efac55",background:"#f0fdf4"}}><span style={{fontSize:20,fontWeight:900,color:"#15803d",lineHeight:1}}>{kpi.publicadosMes}</span><span style={{fontSize:11,fontWeight:700,color:"#15803d"}}>publicados no mês</span></div>
+      </div>
+
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+        <button onClick={()=>setFConta("")} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 12px",borderRadius:20,border:"1.5px solid "+(fConta===""?"#e1306c":"var(--border2)"),background:fConta===""?"#fdf2f8":"var(--bg2)",color:fConta===""?"#be185d":"var(--text2)",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Todas as contas</button>
+        {contasAtivas.map(c=>{const pend=ig.posts.filter(p=>p.contaId===c.id&&p.status!=="publicado").length;const at=ig.posts.filter(p=>p.contaId===c.id&&igAtrasado(p)).length;return(
+          <button key={c.id} onClick={()=>setFConta(f=>f===c.id?"":c.id)} style={{display:"flex",alignItems:"center",gap:6,padding:"3px 10px 3px 4px",borderRadius:20,border:"1.5px solid "+(fConta===c.id?c.cor:"var(--border2)"),background:fConta===c.id?c.cor+"18":"var(--bg2)",color:"var(--text)",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
+            <IgAvatar conta={c} size={22}/>{(c.usuario||c.nome).replace(/^@/,"")}{pend>0&&<span style={{fontSize:10,background:"var(--bg3)",color:"var(--text3)",borderRadius:10,padding:"0 6px"}}>{pend}</span>}{at>0&&<span style={{fontSize:10,background:"#fee2e2",color:"#b91c1c",borderRadius:10,padding:"0 6px"}}>🔴{at}</span>}
+          </button>);})}
+      </div>
+
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",padding:"10px 12px",borderRadius:12,background:"var(--bg2)",border:"1px solid var(--border2)"}}>
+        <input value={fBusca} onChange={e=>setFBusca(e.target.value)} placeholder="🔍 Buscar na legenda, hashtags, notas…" style={{...sel,flex:"1 1 220px"}}/>
+        <select value={fResp} onChange={e=>setFResp(e.target.value)} style={sel}><option value="">👤 Todos os responsáveis</option><option value="__sem__">— sem responsável —</option>{collaborators.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>
+        <div title="Escolha como ver — fica salvo para as próximas vezes" style={{display:"flex",border:"1px solid var(--border2)",borderRadius:10,overflow:"hidden",marginLeft:"auto"}}>
+          {[["calendario","📅 Calendário"],["kanban","▥ Kanban"],["lista","☰ Lista"]].map(([k,l])=><button key={k} onClick={()=>setView(k)} style={{padding:"7px 12px",border:"none",borderRight:k!=="lista"?"1px solid var(--border2)":"none",background:view===k?"#e1306c":"transparent",color:view===k?"#fff":"var(--text3)",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{l}</button>)}
+        </div>
+      </div>
+
+      {!carregado?<div style={{padding:40,textAlign:"center",color:"var(--text4)"}}>Carregando…</div>
+        :view==="calendario"?renderCalendario():view==="kanban"?renderKanban():renderLista()}
+
+      <IgPostEditor open={!!editor} post={editor||{}} novo={!!editor&&!ig.posts.some(x=>x.id===editor.id)} contas={contas} collaborators={collaborators} companies={companies} userName={userName} myCollabId={myId}
+        onClose={()=>setEditor(null)} onSalvar={salvarPost} onExcluir={excluirPost} onPostar={(p)=>setPostar(p)} toast={toast}/>
+      <IgPostarAgora open={!!postar} post={postar} conta={postar?contaDe(postar.contaId):null} onClose={()=>setPostar(null)} onPublicado={marcarPublicado} toast={toast}/>
+      <IgContasModal open={contasOpen} onClose={()=>setContasOpen(false)} contas={contas} companies={companies} collaborators={collaborators} posts={ig.posts} onSalvar={salvarContas} toast={toast}/>
+    </div>
+  );
+}
+
+// ── Avisos "hora de postar" (roda em qualquer tela do sistema) ─────
+// A cada minuto confere os posts agendados que chegaram na hora. Marca "avisado" no banco
+// (só um navegador consegue marcar) e manda a notificação para o responsável.
+function InstagramAvisos({addNotification,myCollabId,toast,onNavigate}){
+  const ref=React.useRef(false);
+  React.useEffect(()=>{
+    let parado=false;
+    const checar=async()=>{
+      if(ref.current||parado)return;ref.current=true;
+      try{
+        const{data:row}=await sb.from("app_data").select("payload").eq("id",IG_ROW_ID).maybeSingle();
+        const posts=(row?.payload?.posts)||[];const contas=(row?.payload?.contas)||[];
+        const agora=new Date();
+        const vencidos=posts.filter(p=>p.status==="agendado"&&!p.avisado&&p.data&&igDataHora(p)<=agora);
+        for(const p of vencidos){
+          let virou=false;
+          await gravarMesclado(IG_ROW_ID,(rem)=>{
+            virou=false;
+            const ps=Array.isArray(rem?.posts)?rem.posts:[];
+            const novos=ps.map(x=>{if(x.id===p.id&&!x.avisado&&x.status==="agendado"){virou=true;return{...x,avisado:true,avisadoEm:new Date().toISOString()};}return x;});
+            return{...(rem||{}),posts:novos};
+          });
+          if(!virou)continue;
+          const c=contas.find(x=>x.id===p.contaId);
+          const quem=p.responsavelId||c?.respPadrao||"";
+          const conta=c?"@"+(c.usuario||c.nome).replace(/^@/,""):"Instagram";
+          const atrasoMin=Math.round((agora-igDataHora(p))/60000);
+          const txt=`📸 Hora de postar: ${conta} · ${(IG_TIPO[p.tipo]||IG_TIPO.feed).l} (${igFmtData(p.data)} ${p.hora||"09:00"})${atrasoMin>30?" — já passou do horário":""}`;
+          if(quem)addNotification({toId:quem,icon:"📸",page:"instagram",text:txt});
+          if(quem&&quem===myCollabId)toast&&toast(txt,"ok",9000);
+        }
+      }catch(e){}
+      ref.current=false;
+    };
+    const t0=setTimeout(checar,8000);
+    const iv=setInterval(checar,60000);
+    return()=>{parado=true;clearTimeout(t0);clearInterval(iv);};
+  },[myCollabId]);
+  return null;
+}
+
 </script>
 <script type="text/babel" data-presets="react">
 function App(){
@@ -8051,7 +8794,7 @@ function App(){
   const DEFAULT_FEATURE_FLAGS={
     modules:{dashboard:true,kanban:true,lista:true,calendario:true,gantt:true,tabela:true,hoje:true,minhas:true,arquivadas:true,
       modelos:true,empresas:true,setores:true,colaboradores:true,marcadores:true,recorrencias:true,"painel-rec":true,servicos:true,"links-uteis":true,
-      relatorio:true,carga:true,contabil:true,fiscal:true,"folha-pagamento":true,"relatorio-contabil":true,auditoria:true},
+      relatorio:true,carga:true,contabil:true,fiscal:true,"folha-pagamento":true,"relatorio-contabil":true,instagram:true,auditoria:true},
     fields:{socioResponsavel:true,slaGrupo:true,checklistPersonalizavel:true,acoesMassaObrigacao:true,exportarPDF:true,notificacoesAtraso:true,restricaoGruposPorUsuario:true}
   };
   const [featureFlags,setFeatureFlags]=useState(DEFAULT_FEATURE_FLAGS);
@@ -8927,6 +9670,7 @@ function App(){
               "Cadastros":"#0ea5e9",
               "Relatórios":"#f59e0b",
               "Contabilidade":"#a855f7",
+              "Marketing":"#e1306c",
               "Sistema":"#64748b"
             };
             const itemColors={
@@ -8934,6 +9678,7 @@ function App(){
               "modelos":"#06b6d4","empresas":"#0ea5e9","setores":"#0891b2","colaboradores":"#14b8a6","marcadores":"#10b981","recorrencias":"#34d399","painel-rec":"#6ee7b7","servicos":"#a7f3d0",
               "relatorio":"#fbbf24","carga":"#f59e0b",
               "contabil":"#6366f1","fiscal":"#f59e0b","folha-pagamento":"#06b6d4","relatorio-contabil":"#8b5cf6",
+              "instagram":"#e1306c",
               "auditoria":"#8b5cf6","configuracoes":"#94a3b8"
             };
             const groupColor=groupColors[group.label]||"#6366f1";
@@ -9102,9 +9847,12 @@ function App(){
         {page==="contabil"      && <ContabilPage toast={toast} data={data} isAdmin={isAdmin} myCollab={myCollab} featureFlags={featureFlags}/>}
         {page==="fiscal"          && <FiscalPage toast={toast} sysData={data} onNavigate={setPage} isAdmin={isAdmin} myCollab={myCollab} featureFlags={featureFlags}/>}
         {page==="folha-pagamento" && <FolhaPagPage toast={toast} sysData={data} onNavigate={setPage} isAdmin={isAdmin} myCollab={myCollab} featureFlags={featureFlags}/>}
+        {page==="instagram" && <InstagramPage toast={toast} data={data} myCollab={myCollab} isAdmin={isAdmin} userName={userName}/>}
         {page==="relatorio-contabil" && <RelatorioContabilPage toast={toast} isAdmin={isAdmin} myPerms={myPerms} userName={userName} sysNotifications={data.notifications||[]} addNotification={addNotification} myCollabId={myCollabId} myCollab={myCollab} featureFlags={featureFlags}/>}
         </>)}
       </main>
+      {/* Avisos do Instagram ("hora de postar") — roda em qualquer tela */}
+      {(isAdmin||featureFlags.modules?.instagram!==false)&&<InstagramAvisos addNotification={addNotification} myCollabId={myCollabId} toast={toast}/>}
 
       {/* Modal de tarefa */}
       <Modal open={taskModal.open} onClose={closeTask}

@@ -8175,7 +8175,8 @@ function IgConexaoBloco({conta,salva,estado,toast}){
   if(!salva)return<div style={{...wrap,borderColor:"var(--border2)",background:"var(--bg3)",color:"var(--text3)"}}>💾 Salve a conta para poder conectar ao Instagram.</div>;
   if(cx)return(<div style={wrap}>
     <span style={{fontWeight:800,color:"#15803d"}}>✅ Conectada ao Instagram como @{cx.username}</span>
-    <span style={{color:"#64748b",fontSize:11}}>{cx.tipoConta?(cx.tipoConta==="BUSINESS"?"Conta Empresa":cx.tipoConta==="MEDIA_CREATOR"?"Criador de conteúdo":cx.tipoConta)+" · ":""}acesso renova sozinho{cx.expiraEm?" (válido até "+new Date(cx.expiraEm).toLocaleDateString("pt-BR")+")":""}</span>
+    <span style={{color:"#64748b",fontSize:11}}>{cx.expiraEm?"acesso renova sozinho (válido até "+new Date(cx.expiraEm).toLocaleDateString("pt-BR")+")":"acesso permanente (não expira)"}</span>
+    {Array.isArray(cx.outras)&&cx.outras.length>0&&<span style={{flexBasis:"100%",color:"#64748b",fontSize:11}}>Também autorizadas nesse login: {cx.outras.map(u=>"@"+u).join(", ")} — cadastre cada uma como conta para usar.</span>}
     {cx.erro&&<span style={{color:"#b91c1c",fontWeight:700,flexBasis:"100%"}}>⚠️ {cx.erro}</span>}
     {teste&&<span style={{flexBasis:"100%",color:teste.ok?"#15803d":"#b91c1c",fontWeight:700}}>{teste.ok?`✔ Conexão funcionando · ${teste.usoHoje??0} de ${teste.limiteDia??100} publicações usadas nas últimas 24h`:"⚠️ "+teste.erro}</span>}
     <span style={{marginLeft:"auto",display:"flex",gap:6}}>
@@ -8235,16 +8236,17 @@ $$);`;
   return(<div style={{display:"flex",flexDirection:"column",gap:10}}>
     <div style={{padding:"10px 12px",borderRadius:12,background:e.ok?"#f0fdf4":"#fff7ed",border:"1px solid "+(e.ok?"#86efac":"#fed7aa"),display:"flex",gap:14,flexWrap:"wrap",alignItems:"center",fontSize:12}}>
       <b style={{fontSize:13}}>{e.ok?(e.metaConfigurado&&e.tabela&&e.cronSecret&&e.appUrl?"🟢 Robô instalado e pronto":"🟡 Robô instalado — falta configurar"):"🔴 Robô não instalado"}</b>
-      <span>{ok(e.ok)} Função</span><span>{ok(e.tabela)} Tabela</span><span>{ok(e.metaConfigurado)} Chaves da Meta</span><span>{ok(!!e.appUrl)} APP_URL</span><span>{ok(e.cronSecret)} CRON_SECRET</span>
+      <span>{ok(e.ok)} Função</span><span>{ok(e.tabela)} Tabela</span><span title={(e.faltando||[]).length?"Falta: "+e.faltando.join(", "):""}>{ok(e.metaConfigurado)} Chaves da Meta{(e.faltando||[]).length?" (falta "+e.faltando.join(", ")+")":""}</span><span>{ok(!!e.appUrl)} APP_URL</span><span>{ok(e.cronSecret)} CRON_SECRET</span>
       <button onClick={onRecarregar} disabled={carregando} style={{marginLeft:"auto",border:"1px solid var(--border2)",background:"var(--bg2)",borderRadius:8,padding:"5px 10px",fontSize:11.5,fontWeight:800,cursor:"pointer"}}>{carregando?"⏳ Verificando…":"🔄 Verificar instalação"}</button>
       {!e.ok&&e.erro&&<span style={{flexBasis:"100%",color:"#9a3412"}}>{e.erro}</span>}
     </div>
     <div style={{fontSize:12,color:"var(--text3)"}}>Faça uma vez só. Quem tiver acesso ao Supabase e ao Facebook da empresa faz em uns 30 minutos. Os valores abaixo já estão prontos para copiar.</div>
-    {passo(1,"Criar o app na Meta",<>
-      Em <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener noreferrer">developers.facebook.com/apps</a> → <b>Criar app</b> → caso de uso <b>“Gerenciar mensagens e conteúdo no Instagram”</b> → vincule ao portfólio empresarial da MD.<br/>
-      No app, abra <b>API do Instagram → Configuração da API com login do Instagram</b> e anote o <b>ID do app do Instagram</b> e a <b>Chave secreta do app do Instagram</b> (passo 4).<br/>
-      Na seção <b>Configurar login comercial do Instagram</b>, em <b>URIs de redirecionamento OAuth válidos</b>, cole:
+    {passo(1,"Configurar o app na Meta (login unificado)",<>
+      Em <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener noreferrer">developers.facebook.com/apps</a>, no app com o caso de uso <b>“Gerenciar mensagens e conteúdo no Instagram”</b> e ligado ao <b>portfólio empresarial</b> da MD:<br/>
+      a) <b>Casos de uso → Personalizar → API setup with Unified login</b> → <b>Criar nova configuração</b> (token de usuário do sistema, ativo: conta do Instagram; permissões <code>instagram_basic</code> e <code>instagram_content_publish</code> são as necessárias). Copie o <b>ID da configuração</b>.<br/>
+      b) Na mesma tela, em <b>Registrar um novo URL de redirecionamento</b>, cole e salve:
       {linhaCopia("Redirect URI",redirect)}
+      c) <b>Configurações do app → Básico</b>: copie o <b>ID do app</b> e a <b>Chave secreta do app</b> (passo 4).
     </>)}
     {passo(2,"Rodar o SQL no Supabase",<>
       Supabase → <b>SQL Editor</b> → <b>New query</b> → cole e clique em <b>Run</b>. Cria a tabela trancada das autorizações e agenda o robô para rodar a cada 5 minutos.
@@ -8257,16 +8259,17 @@ $$);`;
     </>)}
     {passo(4,"Cadastrar os segredos da função",<>
       Supabase → <b>Edge Functions → Secrets</b> → adicione um por um:
-      {linhaCopia("IG_APP_ID","(ID do app do Instagram — passo 1)")}
-      {linhaCopia("IG_APP_SECRET","(Chave secreta do app do Instagram — passo 1)")}
+      {linhaCopia("META_APP_ID","(ID do app — Configurações do app → Básico)")}
+      {linhaCopia("META_APP_SECRET","(Chave secreta do app — Configurações do app → Básico)")}
+      {linhaCopia("META_CONFIG_ID","(ID da configuração do login unificado — passo 1a)")}
       {linhaCopia("APP_URL",appUrl)}
       {linhaCopia("IG_SIGN_SECRET",v.sign,true)}
       {linhaCopia("CRON_SECRET",v.cron,true)}
       <span style={{fontSize:11,color:"var(--text3)"}}>O CRON_SECRET já está dentro do SQL do passo 2 — use o mesmo valor. Estes dois valores foram gerados neste navegador; se trocar de computador no meio da instalação, gere o SQL de novo.</span>
     </>)}
     {passo(5,"Liberar as contas",<>
-      <b>Conta da MD (libera na hora):</b> no app da Meta → <b>Funções do app → Funções → Testadores do Instagram</b> → adicione o @ da MD. No Instagram da MD: <b>Configurações → Apps e sites → Convites de testador</b> → aceitar. A conta precisa ser <b>profissional</b> (Empresa ou Criador).<br/>
-      <b>Contas de clientes:</b> a Meta exige <b>verificação da empresa</b> (portfólio empresarial com CNPJ) e <b>análise do app</b> pedindo as permissões <code>instagram_business_basic</code> e <code>instagram_business_content_publish</code>. Depois da aprovação, coloque o app em modo <b>Ao vivo</b>. Até lá, só contas cadastradas como testadoras conseguem conectar.
+      <b>Conta da MD (libera já):</b> com o app em modo de desenvolvimento, quem tem função no app (você, como administradora) já consegue conectar contas do Instagram que administra. A conta precisa ser <b>profissional</b> (Empresa ou Criador de conteúdo).<br/>
+      <b>Contas de clientes:</b> a Meta exige a <b>verificação da empresa</b> (portfólio Md Motriz Soluções, com CNPJ) e a <b>análise do app</b> pedindo acesso avançado a <code>instagram_basic</code> e <code>instagram_content_publish</code>. Depois da aprovação, publique o app (modo <b>Ao vivo</b>). Até lá, clientes seguem no modo manual.
     </>)}
     {passo(6,"Conectar e testar",<>
       Volte para a aba <b>Contas</b> e clique em <b>🔗 Conectar com Instagram</b> na conta da MD. Depois crie um post de teste, marque <b>🤖 Publicar automaticamente</b> ou use <b>🚀 Publicar agora pelo sistema</b>.

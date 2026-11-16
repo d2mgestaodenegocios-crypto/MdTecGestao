@@ -2,14 +2,16 @@
 //  MdTec Gestão — Robô do Instagram (Supabase Edge Function "instagram")
 //
 //  Rotas (todas em https://<projeto>.supabase.co/functions/v1/instagram):
-//    GET  /callback          → retorno do "Conectar com Instagram" (OAuth)
+//    GET  /callback          → retorno do "Conectar com Instagram" (login unificado da Meta)
 //    GET  /midia/<id>.jpg    → entrega a mídia do post para o Instagram baixar (link assinado)
-//    POST /cron              → roda a cada 5 min (pg_cron): publica posts agendados e renova acessos
+//    POST /cron              → roda a cada 5 min (pg_cron): publica posts agendados
 //    POST /api               → ações do sistema (usuário logado): estado, link-conexao, publicar,
 //                              desconectar, testar
 //
 //  Segredos (Edge Functions → Secrets):
-//    IG_APP_ID, IG_APP_SECRET   → do app da Meta (Instagram API com login do Instagram)
+//    META_APP_ID                → ID do app (Configurações do app → Básico)
+//    META_APP_SECRET            → Chave secreta do app (Configurações do app → Básico)
+//    META_CONFIG_ID             → ID da configuração do "API setup with Unified login"
 //    APP_URL                    → endereço do sistema (ex.: https://md-tec-gestao.vercel.app)
 //    IG_SIGN_SECRET             → texto aleatório (assina links de conexão e de mídia)
 //    CRON_SECRET                → texto aleatório (protege a rota /cron)
@@ -23,17 +25,19 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const env = (k: string) => (Deno.env.get(k) || "").trim();
 const SUPABASE_URL = env("SUPABASE_URL");
 const SERVICE_KEY = env("SUPABASE_SERVICE_ROLE_KEY");
-const IG_APP_ID = env("IG_APP_ID");
-const IG_APP_SECRET = env("IG_APP_SECRET");
+const META_APP_ID = env("META_APP_ID");
+const META_APP_SECRET = env("META_APP_SECRET");
+const META_CONFIG_ID = env("META_CONFIG_ID");
 const APP_URL = env("APP_URL").replace(/\/+$/, "");
 const SIGN_SECRET = env("IG_SIGN_SECRET") || SERVICE_KEY;
 const CRON_SECRET = env("CRON_SECRET");
 
-const GRAPH = "https://graph.instagram.com/v25.0";
+// Login unificado: tudo passa pelo graph.facebook.com
+const GRAPH_VER = "v25.0";
+const GRAPH = "https://graph.facebook.com/" + GRAPH_VER;
 const FN_URL = SUPABASE_URL + "/functions/v1/instagram";
 const REDIRECT_URI = FN_URL + "/callback";
 const ROW_ID = 24; // linha do módulo Instagram no app_data
-const SCOPES = "instagram_business_basic,instagram_business_content_publish";
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
@@ -114,6 +118,7 @@ function mensagemErro(j: Payload, status: number) {
   if (code === 190) return "A conexão com o Instagram expirou ou foi removida. Reconecte a conta.";
   if (code === 4 || code === 17 || code === 32 || code === 613) return "Limite de uso da API do Instagram atingido. Tente mais tarde.";
   if (code === 9 || sub === 2207042) return "Limite de 100 publicações por dia atingido nesta conta.";
+  if (code === 100 && sub === 33) return "A Meta não liberou esta conta do Instagram para o acesso. Clique em Conectar de novo e, na janela da Meta, marque o @ correto.";
   if (code === 10 || code === 200) return "Permissão negada pelo Instagram. Confira se a conta é profissional e se o app tem a permissão de publicar.";
   if (sub === 2207026 || sub === 2207004) return "Formato da mídia não aceito pelo Instagram (" + (e.error_user_msg || e.message || "") + ").";
   if (sub === 2207052 || sub === 2207003) return "O Instagram não conseguiu baixar a mídia. Tente de novo em alguns minutos.";
@@ -122,15 +127,15 @@ function mensagemErro(j: Payload, status: number) {
 async function gPost(path: string, body: Record<string, unknown>, token: string) {
   const r = await fetch(GRAPH + path, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
-    body: JSON.stringify(body),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...body, access_token: token }),
   });
   const j = await r.json().catch(() => ({}));
   if (!r.ok || j.error) throw new Error(mensagemErro(j, r.status));
   return j;
 }
 async function gGet(path: string, token: string) {
-  const r = await fetch(GRAPH + path, { headers: { Authorization: "Bearer " + token } });
+  const r = await fetch(GRAPH + path + (path.includes("?") ? "&" : "?") + "access_token=" + encodeURIComponent(token));
   const j = await r.json().catch(() => ({}));
   if (!r.ok || j.error) throw new Error(mensagemErro(j, r.status));
   return j;
@@ -284,14 +289,40 @@ async function linkConexao(contaId: string, dias: number) {
   const corpo = b64url(JSON.stringify({ c: contaId, e: exp }));
   const state = corpo + "." + (await assinar("state:" + corpo));
   const q = new URLSearchParams({
-    client_id: IG_APP_ID,
+    client_id: META_APP_ID,
     redirect_uri: REDIRECT_URI,
+    config_id: META_CONFIG_ID,
     response_type: "code",
-    scope: SCOPES,
+    override_default_response_type: "true",
     state,
-    force_reauth: "true",
   });
-  return { url: "https://www.instagram.com/oauth/authorize?" + q.toString(), expira: new Date(exp).toISOString() };
+  return { url: `https://www.facebook.com/${GRAPH_VER}/dialog/oauth?` + q.toString(), expira: new Date(exp).toISOString() };
+}
+// Contas do Instagram liberadas para o token (login unificado → /me/assigned_instagram_accounts)
+async function contasAutorizadas(token: string): Promise<{ id: string; username: string; profile_picture_url?: string }[]> {
+  const out: { id: string; username: string; profile_picture_url?: string }[] = [];
+  const add = (x: Payload) => { if (x && x.id && !out.some((o) => o.id === String(x.id))) out.push({ id: String(x.id), username: x.username || "", profile_picture_url: x.profile_picture_url }); };
+  try {
+    let url: string | null = `/me/assigned_instagram_accounts?fields=id,username,profile_picture_url&limit=100`;
+    for (let i = 0; url && i < 5; i++) {
+      const j = await gGet(url, token);
+      (j.data || []).forEach(add);
+      url = j.paging?.next ? j.paging.next.replace(/^https:\/\/graph\.facebook\.com\/v[\d.]+/, "").replace(/([?&])access_token=[^&]*&?/, "$1") : null;
+    }
+  } catch (_) {
+    try { (await gGet(`/me/assigned_instagram_accounts`, token)).data?.forEach(add); } catch (_) { /* tenta o caminho pela página */ }
+  }
+  if (!out.length) {
+    try {
+      const j = await gGet(`/me/accounts?fields=instagram_business_account{id,username,profile_picture_url}&limit=100`, token);
+      (j.data || []).forEach((pg: Payload) => add(pg.instagram_business_account));
+    } catch (_) { /* nada */ }
+  }
+  // completa o @ que faltar
+  for (const c of out) {
+    if (!c.username) { try { const j = await gGet(`/${c.id}?fields=username,profile_picture_url`, token); c.username = j.username || ""; c.profile_picture_url = j.profile_picture_url; } catch (_) { /* ok */ } }
+  }
+  return out;
 }
 function voltarParaApp(params: Record<string, string>) {
   const q = new URLSearchParams(params).toString();
@@ -308,22 +339,34 @@ async function callback(url: URL) {
   try { st = JSON.parse(deb64url(corpo)); } catch (_) { return voltarParaApp({ ig_conexao: "erro", m: "Link de conexão inválido." }); }
   if (Date.now() > st.e) return voltarParaApp({ ig_conexao: "erro", m: "Este link de conexão expirou. Peça um novo." });
   try {
-    // 1) código → token curto
-    const f = new URLSearchParams({ client_id: IG_APP_ID, client_secret: IG_APP_SECRET, grant_type: "authorization_code", redirect_uri: REDIRECT_URI, code });
-    const r1 = await fetch("https://api.instagram.com/oauth/access_token", { method: "POST", body: f });
+    // 1) código → token (login unificado: normalmente um token de usuário do sistema que não expira)
+    const q1 = new URLSearchParams({ client_id: META_APP_ID, client_secret: META_APP_SECRET, redirect_uri: REDIRECT_URI, code });
+    const r1 = await fetch(`${GRAPH}/oauth/access_token?` + q1.toString());
     const j1 = await r1.json().catch(() => ({}));
-    const curto = j1?.data?.[0]?.access_token || j1?.access_token;
-    if (!curto) throw new Error(j1?.error_message || j1?.error?.message || "Não foi possível obter o acesso.");
-    // 2) token curto → token longo (60 dias)
-    const r2 = await fetch(`https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${encodeURIComponent(IG_APP_SECRET)}&access_token=${encodeURIComponent(curto)}`);
-    const j2 = await r2.json().catch(() => ({}));
-    if (!j2.access_token) throw new Error(mensagemErro(j2, r2.status));
-    const token = j2.access_token as string;
-    const expira = new Date(Date.now() + (Number(j2.expires_in) || 5184000) * 1000).toISOString();
-    // 3) quem é a conta
-    const eu = await gGet(`/me?fields=user_id,username,account_type,profile_picture_url`, token);
-    const igId = String(eu.user_id || eu.id || j1?.data?.[0]?.user_id || j1?.user_id || "");
-    if (!igId) throw new Error("Não foi possível identificar a conta.");
+    let token: string = j1?.access_token || "";
+    if (!token) throw new Error(mensagemErro(j1, r1.status));
+    // 2) quanto tempo vale? (0 = nunca expira)
+    let expira: string | null = null;
+    try {
+      const dbg = await (await fetch(`${GRAPH}/debug_token?input_token=${encodeURIComponent(token)}&access_token=${encodeURIComponent(META_APP_ID + "|" + META_APP_SECRET)}`)).json();
+      const exp = Number(dbg?.data?.expires_at || 0);
+      if (exp > 0) {
+        // token de usuário comum: troca pelo de longa duração (60 dias)
+        const q2 = new URLSearchParams({ grant_type: "fb_exchange_token", client_id: META_APP_ID, client_secret: META_APP_SECRET, fb_exchange_token: token });
+        const j2 = await (await fetch(`${GRAPH}/oauth/access_token?` + q2.toString())).json().catch(() => ({}));
+        if (j2?.access_token) { token = j2.access_token; expira = new Date(Date.now() + (Number(j2.expires_in) || 5184000) * 1000).toISOString(); }
+        else expira = new Date(exp * 1000).toISOString();
+      }
+    } catch (_) { /* sem debug: considera que não expira */ }
+    // 3) quais contas do Instagram foram autorizadas
+    const contas = await contasAutorizadas(token);
+    if (!contas.length) throw new Error("Nenhuma conta do Instagram foi autorizada. Na janela da Meta, selecione a conta do Instagram e toque em Continuar/Salvar.");
+    // escolhe a conta com o mesmo @ cadastrado no sistema; senão, a primeira
+    const atual = await lerPayload();
+    const cadastro = (atual.contas || []).find((x: Payload) => x.id === st.c);
+    const alvo = String(cadastro?.usuario || "").replace(/^@/, "").toLowerCase();
+    const eu = contas.find((c) => (c.username || "").toLowerCase() === alvo) || contas[0];
+    const igId = String(eu.id);
     const { error } = await db.from("ig_tokens").upsert({
       conta_id: st.c, ig_user_id: igId, username: eu.username || "", access_token: token, expires_at: expira, updated_at: new Date().toISOString(),
     });
@@ -333,7 +376,11 @@ async function callback(url: URL) {
       const c = d.contas.find((x: Payload) => x.id === st.c);
       if (c) {
         nomeConta = c.nome || "";
-        c.conexao = { username: eu.username || "", igUserId: igId, tipoConta: eu.account_type || "", foto: eu.profile_picture_url || "", conectadoEm: new Date().toISOString(), expiraEm: expira, erro: "" };
+        c.conexao = {
+          username: eu.username || "", igUserId: igId, tipoConta: "", foto: eu.profile_picture_url || "",
+          conectadoEm: new Date().toISOString(), expiraEm: expira, erro: "",
+          outras: contas.filter((x) => x.id !== eu.id).map((x) => x.username).filter(Boolean),
+        };
       }
       return d;
     });
@@ -345,23 +392,29 @@ async function callback(url: URL) {
 
 // ── Renovação de acesso (60 dias) ────────────────────────────────────
 async function renovarTokens() {
+  // O login unificado normalmente entrega um token que não expira (expires_at vazio).
+  // Se vier um token de 60 dias, tenta estender antes de vencer.
   const { data } = await db.from("ig_tokens").select("*");
   const limite = Date.now() + 20 * 86400000;
   let renovados = 0;
   for (const t of data || []) {
-    const exp = Date.parse(t.expires_at || "0");
+    if (!t.expires_at) continue;
+    const exp = Date.parse(t.expires_at);
     const idade = Date.now() - Date.parse(t.updated_at || "0");
     if (exp > limite || idade < 26 * 3600000) continue;
     try {
-      const r = await fetch(`https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&access_token=${encodeURIComponent(t.access_token)}`);
+      const q = new URLSearchParams({ grant_type: "fb_exchange_token", client_id: META_APP_ID, client_secret: META_APP_SECRET, fb_exchange_token: t.access_token });
+      const r = await fetch(`${GRAPH}/oauth/access_token?` + q.toString());
       const j = await r.json().catch(() => ({}));
       if (!j.access_token) throw new Error(mensagemErro(j, r.status));
       const novaExp = new Date(Date.now() + (Number(j.expires_in) || 5184000) * 1000).toISOString();
       await db.from("ig_tokens").update({ access_token: j.access_token, expires_at: novaExp, updated_at: new Date().toISOString() }).eq("conta_id", t.conta_id);
       await gravar((d) => { const c = d.contas.find((x: Payload) => x.id === t.conta_id); if (c && c.conexao) { c.conexao.expiraEm = novaExp; c.conexao.erro = ""; } return d; });
       renovados++;
-    } catch (e) {
-      await gravar((d) => { const c = d.contas.find((x: Payload) => x.id === t.conta_id); if (c && c.conexao) c.conexao.erro = (e as Error).message; return d; }).catch(() => {});
+    } catch (_) {
+      if (exp - Date.now() < 7 * 86400000) {
+        await gravar((d) => { const c = d.contas.find((x: Payload) => x.id === t.conta_id); if (c && c.conexao) c.conexao.erro = "A conexão vence em breve — clique em Conectar de novo para renovar."; return d; }).catch(() => {});
+      }
     }
   }
   return renovados;
@@ -418,11 +471,12 @@ async function api(req: Request) {
     if (error) tabela = false; else conectadas = data || [];
     return json({
       ok: true, versao: 1,
-      metaConfigurado: !!(IG_APP_ID && IG_APP_SECRET), appUrl: APP_URL, assinaturaPropria: !!env("IG_SIGN_SECRET"),
+      metaConfigurado: !!(META_APP_ID && META_APP_SECRET && META_CONFIG_ID), faltando: [!META_APP_ID && "META_APP_ID", !META_APP_SECRET && "META_APP_SECRET", !META_CONFIG_ID && "META_CONFIG_ID"].filter(Boolean),
+      appUrl: APP_URL, assinaturaPropria: !!env("IG_SIGN_SECRET"),
       cronSecret: !!CRON_SECRET, tabela, redirectUri: REDIRECT_URI, conectadas,
     });
   }
-  if (!IG_APP_ID || !IG_APP_SECRET) return json({ ok: false, erro: "Faltam os segredos IG_APP_ID e IG_APP_SECRET na função." });
+  if (!META_APP_ID || !META_APP_SECRET || !META_CONFIG_ID) return json({ ok: false, erro: "Faltam os segredos META_APP_ID, META_APP_SECRET e META_CONFIG_ID na função do robô." });
 
   if (acao === "link-conexao") {
     if (!body.contaId) return json({ ok: false, erro: "Conta não informada." });
@@ -445,10 +499,10 @@ async function api(req: Request) {
     const tk = await tokenDaConta(String(body.contaId));
     if (!tk) return json({ ok: false, erro: "Conta não conectada." });
     try {
-      const eu = await gGet(`/me?fields=user_id,username,account_type`, tk.access_token);
+      const eu = await gGet(`/${tk.ig_user_id}?fields=id,username`, tk.access_token);
       let limite: Payload = null;
       try { limite = (await gGet(`/${tk.ig_user_id}/content_publishing_limit?fields=quota_usage,config`, tk.access_token))?.data?.[0] || null; } catch (_) { /* opcional */ }
-      return json({ ok: true, username: eu.username, tipoConta: eu.account_type, usoHoje: limite?.quota_usage ?? null, limiteDia: limite?.config?.quota_total ?? null, expiraEm: tk.expires_at });
+      return json({ ok: true, username: eu.username, tipoConta: "", usoHoje: limite?.quota_usage ?? null, limiteDia: limite?.config?.quota_total ?? null, expiraEm: tk.expires_at });
     } catch (e) { return json({ ok: false, erro: (e as Error).message }); }
   }
   return json({ ok: false, erro: "Ação desconhecida." }, 400);

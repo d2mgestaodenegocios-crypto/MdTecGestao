@@ -2462,9 +2462,11 @@ function RascunhoAuto({pagina,usuario}){
     document.addEventListener("input",aoDigitar,true);
     document.addEventListener("change",aoDigitar,true);
     document.addEventListener("click",aoClicar,true);
+    const aoSalvarExterno=()=>{estado.current.forEach(st=>{st.salvando=Date.now();});};
+    document.addEventListener("mdtec-rascunho-salvo",aoSalvarExterno);
     // modais que já estão abertos
     document.querySelectorAll('[style*="position: fixed"]').forEach(b=>{if(b.querySelector("input,textarea,select"))registrar(b);});
-    return()=>{obs.disconnect();document.removeEventListener("input",aoDigitar,true);document.removeEventListener("change",aoDigitar,true);document.removeEventListener("click",aoClicar,true);clearTimeout(timer);};
+    return()=>{obs.disconnect();document.removeEventListener("input",aoDigitar,true);document.removeEventListener("change",aoDigitar,true);document.removeEventListener("click",aoClicar,true);document.removeEventListener("mdtec-rascunho-salvo",aoSalvarExterno);clearTimeout(timer);};
   },[usuario]);
 
   const restaurar=async()=>{
@@ -8226,6 +8228,7 @@ function CargaPage({data}){
 // ════════════════════════════════════════════════════════════════════
 const IG_ROW_ID=24;
 const IG_STATUS=[
+  {k:"rascunho",l:"Rascunho",ic:"📝",c:"#64748b",bg:"#f1f5f9"},
   {k:"producao",l:"Produção",ic:"🎨",c:"#0284c7",bg:"#e0f2fe"},
   {k:"aprovacao",l:"Aprovação",ic:"⏳",c:"#b45309",bg:"#fef3c7"},
   {k:"agendado",l:"Agendado",ic:"📅",c:"#4f46e5",bg:"#eef2ff"},
@@ -8654,14 +8657,14 @@ const igAssinaturaAlertas=(al)=>al.map(a=>a.tipo+":"+a.outra+":"+a.msg).sort().j
 
 // Barra de etapas
 function IgEtapas({post}){
-  const et=igEtapa(post);const ordem=["producao","aprovacao","agendado","publicado"];const idx=ordem.indexOf(et);
+  const et=igEtapa(post);const ordem=["rascunho","producao","aprovacao","agendado","publicado"];const idx=ordem.indexOf(et);
   return(<div style={{display:"flex",alignItems:"center",gap:0,padding:"4px 2px"}}>
     {ordem.map((k,i)=>{const s=IG_ST[k];const feito=i<idx,atual=i===idx;return(<React.Fragment key={k}>
       <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
         <span style={{width:24,height:24,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11.5,fontWeight:900,background:atual?s.c:feito?"#22c55e":"var(--bg3)",color:atual||feito?"#fff":"var(--text4)",border:atual||feito?"none":"1.5px solid var(--border2)"}}>{feito?"✓":i+1}</span>
         <span style={{fontSize:12,fontWeight:atual?900:700,color:atual?s.c:feito?"#15803d":"var(--text4)",whiteSpace:"nowrap"}}>{s.l}{k==="publicado"?" 🤖":""}</span>
       </div>
-      {i<3&&<div style={{flex:1,minWidth:14,height:2,margin:"0 8px",background:i<idx?"#22c55e":"var(--border2)"}}/>}
+      {i<4&&<div style={{flex:1,minWidth:14,height:2,margin:"0 8px",background:i<idx?"#22c55e":"var(--border2)"}}/>}
     </React.Fragment>);})}
   </div>);
 }
@@ -8726,7 +8729,8 @@ function IgPostEditor({open,post,novo,contas,collaborators,companies,posts,userN
     return next;
   };
   const salvar=(extra={},fechar=true)=>{
-    if(!f.contaId){toast("⚠️ Escolha a conta do Instagram.","warn");setAba("conteudo");return;}
+    const st=extra.status||f.status;
+    if(!f.contaId&&st!=="rascunho"){toast("⚠️ Escolha a conta do Instagram.","warn");setAba("conteudo");return;}
     if(f.data&&!/^\d{4}-\d{2}-\d{2}$/.test(f.data)){toast("⚠️ A data do post está inválida (confira o ano). Corrija antes de salvar.","err",8000);setAba("conteudo");return;}
     onSalvar(finalizar(extra),fechar);
   };
@@ -8764,12 +8768,32 @@ function IgPostEditor({open,post,novo,contas,collaborators,companies,posts,userN
   const tabBtn=(k,l)=>(<button onClick={()=>setAba(k)} style={{padding:"7px 12px",border:"none",borderBottom:aba===k?"2.5px solid #e1306c":"2.5px solid transparent",background:"none",color:aba===k?"#e1306c":"var(--text3)",fontWeight:800,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>);
   const user=conta?(conta.usuario||conta.nome).replace(/^@/,""):"";
   // próximo passo (botão principal)
+  const irProducao=()=>{
+    if(!f.contaId){toast("⚠️ Escolha a conta do Instagram antes de mandar para Produção.","warn");setAba("conteudo");return;}
+    salvar({status:"producao"},false);setF(p=>({...p,status:"producao"}));toast("🎨 Rascunho enviado para Produção.","ok");
+  };
+  const voltarRascunho=()=>{
+    if(igAprovadoValido(f)&&!window.confirm("Voltar para Rascunho? A aprovação é desfeita."))return;
+    const ex={status:"rascunho",aprovadoPor:"",aprovadoEm:"",aprovadoAssinatura:"",aprovadoRegistradoPor:""};salvar(ex,false);setF(p=>({...p,...ex}));toast("📝 Voltou para Rascunho.","ok");
+  };
+  // Fechar um post novo sem salvar: guarda como rascunho (se tiver algo escrito ou mídia)
+  const fecharEditor=()=>{
+    const temAlgo=(f.legenda||"").trim()||(f.midias||[]).length||(f.primeiroComentario||"").trim()||(f.notas||"").trim();
+    if(ehNovo&&!publicado&&temAlgo){
+      try{document.dispatchEvent(new Event("mdtec-rascunho-salvo"));}catch(e){}
+      onSalvar({...finalizar(),status:"rascunho"},true);
+      toast("📝 Post guardado em Rascunho — continue depois pela coluna Rascunho.","ok",6000);
+      return;
+    }
+    onClose();
+  };
   const proximo=publicado?null
+    :etapa==="rascunho"?<Btn onClick={irProducao} sz="sm" col="#0284c7">🎨 Mandar para Produção</Btn>
     :etapa==="producao"?<Btn onClick={enviarAprovacao} sz="sm" col="#b45309">📤 Enviar para aprovação</Btn>
     :etapa==="aprovacao"?(aprovadoValido?<Btn onClick={agendar} sz="sm" col="#4f46e5">📅 Agendar</Btn>:<Btn onClick={()=>aprovar(conta?.tipo==="propria"?userName:(conta?.contatoAprovacao||""))} sz="sm" col="#16a34a">✅ Aprovar</Btn>)
     :etapa==="agendado"?<>{conectada&&(f.midias||[]).length>0&&<Btn onClick={()=>{if(!exigirSemAlertas())return;onSalvar(finalizar(),false);onPostar(finalizar());}} sz="sm" col="#e1306c">🚀 Publicar agora</Btn>}</>:null;
   return(
-    <Modal open={open} onClose={onClose} title={(ehNovo?"✨ Novo post":"✏️ Editar post")+(conta?" · @"+user:"")} width={1020}>
+    <Modal open={open} onClose={fecharEditor} title={(ehNovo?"✨ Novo post":"✏️ Editar post")+(conta?" · @"+user:"")} width={1020}>
       <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:12}}>
         <IgEtapas post={f}/>
         {conta&&<div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:12,background:(conta.cor||"#6366f1")+"14",border:"1.5px solid "+(conta.cor||"#6366f1")+"55"}}>
@@ -8844,6 +8868,7 @@ function IgPostEditor({open,post,novo,contas,collaborators,companies,posts,userN
             <div><span style={lbl}>Primeiro comentário (opcional)</span><input value={f.primeiroComentario||""} onChange={e=>up("primeiroComentario",e.target.value)} placeholder="Ex.: link, hashtags extras…" style={inp}/></div>
           </fieldset>}
           {aba==="aprovacao"&&<div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {etapa==="rascunho"&&<div style={{padding:"10px 12px",borderRadius:10,background:"var(--bg3)",border:"1px solid var(--border2)",fontSize:12.5,color:"var(--text2)"}}>📝 Este post é um <b>Rascunho</b>. Termine quando puder e clique em <b>🎨 Mandar para Produção</b>; depois ele segue para Aprovação → Agendado → Publicado.</div>}
             {etapa==="producao"&&<div style={{padding:"10px 12px",borderRadius:10,background:"var(--bg3)",border:"1px solid var(--border2)",fontSize:12.5,color:"var(--text2)"}}>Este post está em <b>Produção</b>. Quando terminar, clique em <b>📤 Enviar para aprovação</b>.</div>}
             {etapa==="aprovacao"&&!aprovadoValido&&<>
               <div style={{padding:"10px 12px",borderRadius:10,background:"#fdf2f8",border:"1px solid #fbcfe8",fontSize:12,color:"#9d174d",lineHeight:1.5}}>
@@ -8879,8 +8904,9 @@ function IgPostEditor({open,post,novo,contas,collaborators,companies,posts,userN
       <div style={{display:"flex",gap:8,justifyContent:"space-between",flexWrap:"wrap",marginTop:16,paddingTop:12,borderTop:"1px solid var(--border2)"}}>
         <div>{!ehNovo&&!publicado&&<Btn onClick={()=>{if(window.confirm("Excluir este post e as mídias dele? Isso não pode ser desfeito."))onExcluir(f);}} v="danger" sz="sm">🗑 Excluir</Btn>}</div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          <Btn onClick={onClose} v="ghost" sz="sm">{publicado?"Fechar":"Cancelar"}</Btn>
-          {!publicado&&<Btn onClick={()=>salvar()} v="ghost" sz="sm">💾 Salvar</Btn>}
+          <Btn onClick={fecharEditor} v="ghost" sz="sm">{publicado||ehNovo?"Fechar":"Cancelar"}</Btn>
+          {!publicado&&etapa==="producao"&&<Btn onClick={voltarRascunho} v="ghost" sz="sm">↩ Voltar p/ rascunho</Btn>}
+          {!publicado&&<Btn onClick={()=>salvar()} v="ghost" sz="sm">{etapa==="rascunho"?"📝 Salvar rascunho":"💾 Salvar"}</Btn>}
           {publicado&&<Btn onClick={()=>salvar()} v="ghost" sz="sm">💾 Salvar notas</Btn>}
           {proximo}
         </div>
@@ -9501,7 +9527,7 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
   };
   const novoPost=(extra={})=>{
     const c=contaDe(fConta)||contas.filter(x=>x.ativa!==false)[0];
-    setEditor({id:uid(),contaId:c?.id||"",tipo:"feed",status:"producao",data:"",hora:"09:00",legenda:"",hashtags:c?.hashtagsPadrao||"",primeiroComentario:"",responsavelId:c?.respPadrao||myId||"",midias:[],ajustes:[],notas:"",...extra});
+    setEditor({id:uid(),contaId:c?.id||"",tipo:"feed",status:"rascunho",data:"",hora:"09:00",legenda:"",hashtags:c?.hashtagsPadrao||"",primeiroComentario:"",responsavelId:c?.respPadrao||myId||"",midias:[],ajustes:[],notas:"",...extra});
   };
   const salvarPost=async(p,fechar=true)=>{
     const agora=new Date().toISOString();
@@ -9531,11 +9557,17 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
     if(atual==="publicado"){toast("✅ Post publicado não volta de etapa.","warn");return;}
     const c=contaDe(p.contaId);
     const grava=(extra)=>atualizar(d=>({...d,posts:d.posts.map(x=>x.id===p.id?igComQuando({...x,...extra,avisado:false,editadoEm:new Date().toISOString(),editadoPor:userName||""}):x)}));
+    if(status==="rascunho"){
+      if((atual==="agendado"||igAprovadoValido(p))&&!window.confirm("Voltar para Rascunho? A aprovação é desfeita."))return;
+      grava({status:"rascunho",aprovadoPor:"",aprovadoEm:"",aprovadoAssinatura:""});return;
+    }
     if(status==="producao"){
+      if(!p.contaId){toast("⚠️ Escolha a conta do post antes de mandar para Produção.","warn");setEditor(p);return;}
       if((atual==="agendado"||igAprovadoValido(p))&&!window.confirm("Voltar para Produção? A aprovação é desfeita e o post precisa ser aprovado de novo."))return;
       grava({status:"producao",aprovadoPor:"",aprovadoEm:"",aprovadoAssinatura:""});return;
     }
     if(status==="aprovacao"){
+      if(!p.contaId){toast("⚠️ Escolha a conta do post.","warn");setEditor(p);return;}
       if(!(p.midias||[]).length){toast("⚠️ Adicione a imagem ou o vídeo antes de enviar para aprovação.","warn");setEditor(p);return;}
       if(temAlerta(p)){toast("🛡 Este post tem alerta de conta errada — revise no editor.","err",7000);setEditor(p);return;}
       if(atual==="agendado"){grava({status:"aprovacao"});return;}
@@ -9660,14 +9692,14 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
         <div style={{fontSize:11,fontWeight:800,color:"var(--text3)",textTransform:"uppercase",letterSpacing:".05em"}}>💡 Sem data ({semData.length})</div>
         <div style={{fontSize:10.5,color:"var(--text4)"}}>Ideias e posts sem dia definido. Arraste para o calendário.</div>
         {semData.map(p=>cardPost(p,false))}
-        <button onClick={()=>novoPost({status:"producao"})} style={{border:"1.5px dashed var(--border2)",background:"transparent",borderRadius:10,padding:"8px",color:"var(--text3)",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>＋ Novo rascunho</button>
+        <button onClick={()=>novoPost({status:"rascunho"})} style={{border:"1.5px dashed var(--border2)",background:"transparent",borderRadius:10,padding:"8px",color:"var(--text3)",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>＋ Novo rascunho</button>
       </div>
     </div>);
   };
   const navBtn={width:30,height:30,borderRadius:8,border:"1px solid var(--border2)",background:"var(--bg2)",color:"var(--text)",cursor:"pointer",fontWeight:900,fontSize:15,fontFamily:"inherit"};
 
   const renderKanban=()=>(
-    <div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(230px,1fr))",gap:10,overflowX:"auto",paddingBottom:6}}>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(5,minmax(210px,1fr))",gap:10,overflowX:"auto",paddingBottom:6}}>
       {IG_STATUS.map(s=>{
         let lst=postsFiltrados.filter(p=>igEtapa(p)===s.k);
         if(s.k==="publicado")lst=lst.sort((a,b)=>(b.publicadoEm||"").localeCompare(a.publicadoEm||"")).slice(0,30);
@@ -9678,7 +9710,7 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
           {lst.length===0&&<div style={{textAlign:"center",color:"var(--text4)",fontSize:11,padding:14}}>— vazio —</div>}
           {lst.map(p=>cardPost(p,false))}
           {s.k==="publicado"&&<div style={{fontSize:10.5,color:"var(--text4)",textAlign:"center"}}>🤖 só o robô coloca posts aqui</div>}
-          {s.k==="producao"&&<button onClick={()=>novoPost({status:"producao"})} style={{border:"1.5px dashed var(--border2)",background:"transparent",borderRadius:10,padding:8,color:"var(--text3)",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>＋ Novo post</button>}
+          {s.k==="rascunho"&&<button onClick={()=>novoPost({status:"rascunho"})} style={{border:"1.5px dashed var(--border2)",background:"transparent",borderRadius:10,padding:8,color:"var(--text3)",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>＋ Novo post</button>}
           {s.k==="publicado"&&postsFiltrados.filter(p=>p.status==="publicado").length>30&&<div style={{fontSize:10.5,color:"var(--text4)",textAlign:"center"}}>mostrando os 30 mais recentes — use a Lista para ver todos</div>}
         </div>);
       })}

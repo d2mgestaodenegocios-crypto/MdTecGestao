@@ -8145,7 +8145,11 @@ async function igApi(acao,dados={}){
   if(!jwt&&!colab)return{ok:false,erro:"Sessão expirada — saia e entre de novo no sistema."};
   try{
     const h={"Content-Type":"application/json",Authorization:"Bearer "+(jwt||SUPABASE_KEY),apikey:SUPABASE_KEY};
-    const r=await fetch(IG_FUNC_URL+"/api",{method:"POST",headers:h,body:JSON.stringify({acao,...dados,...(colab?{_colab:String(colab)}:{})})});
+    const ctrl=new AbortController();const lim=setTimeout(()=>ctrl.abort(),acao==="publicar"||acao==="tentar-de-novo"?60000:30000);
+    let r;
+    try{r=await fetch(IG_FUNC_URL+"/api",{method:"POST",headers:h,body:JSON.stringify({acao,...dados,...(colab?{_colab:String(colab)}:{})}),signal:ctrl.signal});}
+    catch(e){clearTimeout(lim);if(e&&e.name==="AbortError")return(acao==="publicar"||acao==="tentar-de-novo")?{ok:true,emAndamento:true,msg:"O robô continua trabalhando em segundo plano. O card do post mostra o resultado."}:{ok:false,erro:"O robô demorou para responder. Tente de novo."};throw e;}
+    clearTimeout(lim);
     if(r.status===401){const j=await r.json().catch(()=>null);return{ok:false,erro:(j&&j.erro)||"O robô recusou o acesso. Instale a versão mais nova do index.ts no Supabase."};}
     if(r.status===404){const t=await r.text().catch(()=>"");if(!/rota não encontrada/.test(t))return{ok:false,naoInstalado:true,erro:"O robô ainda não foi instalado no Supabase."};}
     const j=await r.json().catch(()=>null);
@@ -8156,6 +8160,10 @@ async function igApi(acao,dados={}){
 // Guarda o momento exato (com fuso do navegador) para o robô saber a hora certa
 const igComQuando=(p)=>({...p,quando:p.data?new Date(p.data+"T"+(p.hora||"09:00")+":00").toISOString():""});
 const igAuto=(p,conta)=>p.autoPublicar===true&&!!conta?.conexao;
+// Estado do robô para a tela: "publicando" parado há mais de 5 min vira erro (publicação interrompida)
+const igRobo=(p)=>{const r=(p&&p.robo)||{};if(p&&p.status==="publicado")return{estado:"ok"};
+  if((r.estado==="publicando")&&r.desde&&Date.now()-Date.parse(r.desde)>5*60000)return{...r,estado:"erro",erro:"A publicação foi interrompida (sem resposta da Meta). Clique em Tentar de novo."};
+  return r;};
 const igRndSecret=()=>{const a=new Uint8Array(24);crypto.getRandomValues(a);return Array.from(a).map(b=>b.toString(16).padStart(2,"0")).join("");};
 function igSetupValores(){
   let v=null;try{v=JSON.parse(localStorage.getItem("mdtec_ig_setup")||"null");}catch(e){}
@@ -8339,7 +8347,7 @@ function IgThumb({post,size=40,radius=8}){
 }
 function IgStatusChip({post,small}){
   const at=igAtrasado(post);const s=IG_ST[post.status]||IG_ST.ideia;
-  const rb=post.robo||{};
+  const rb=igRobo(post);
   if(post.status!=="publicado"&&rb.estado==="erro")return<span title={rb.erro||""} style={{display:"inline-flex",alignItems:"center",gap:3,padding:small?"1px 6px":"2px 8px",borderRadius:20,fontSize:small?9.5:10.5,fontWeight:800,background:"#fee2e2",color:"#b91c1c",border:"1px solid #fca5a5",whiteSpace:"nowrap"}}>⚠️ Falhou ao publicar</span>;
   if(post.status!=="publicado"&&(rb.estado==="processando"||rb.estado==="publicando"))return<span style={{display:"inline-flex",alignItems:"center",gap:3,padding:small?"1px 6px":"2px 8px",borderRadius:20,fontSize:small?9.5:10.5,fontWeight:800,background:"#fef3c7",color:"#b45309",whiteSpace:"nowrap"}}>⏳ Publicando…</span>;
   if(at)return<span style={{display:"inline-flex",alignItems:"center",gap:3,padding:small?"1px 6px":"2px 8px",borderRadius:20,fontSize:small?9.5:10.5,fontWeight:800,background:"#fee2e2",color:"#b91c1c",border:"1px solid #fca5a5",whiteSpace:"nowrap"}}>🔴 Atrasado</span>;
@@ -8453,11 +8461,11 @@ function IgPostEditor({open,post,novo,contas,collaborators,companies,userName,my
                 <span style={{fontSize:12.5,color:"var(--text)"}}><b>🤖 Publicar automaticamente no horário</b><br/><span style={{color:"var(--text3)",fontSize:11.5}}>{f.autoPublicar?"Quando estiver “Agendado”, o robô publica sozinho em @"+conta.conexao.username+" na data e hora marcadas.":"Desligado — na hora marcada o responsável recebe o aviso para postar."}</span></span>
               </label>
               :<div style={{fontSize:11.5,color:"var(--text3)",padding:"7px 10px",borderRadius:9,background:"var(--bg3)",border:"1px dashed var(--border2)"}}>🔌 Esta conta não está conectada ao Instagram — a postagem será manual. Para publicar sozinho, conecte em <b>👤 Contas</b>.</div>)}
-            {f.status!=="publicado"&&f.robo?.estado==="erro"&&<div style={{padding:"10px 12px",borderRadius:11,background:"#fef2f2",border:"1px solid #fca5a5",fontSize:12.5,color:"#991b1b",display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
-              <span style={{flex:"1 1 260px"}}><b>⚠️ O robô não conseguiu publicar.</b><br/>{f.robo.erro}{f.robo.em?<span style={{color:"#b91c1c",fontSize:11}}> · {new Date(f.robo.em).toLocaleString("pt-BR")}</span>:null}</span>
+            {f.status!=="publicado"&&igRobo(f).estado==="erro"&&<div style={{padding:"10px 12px",borderRadius:11,background:"#fef2f2",border:"1px solid #fca5a5",fontSize:12.5,color:"#991b1b",display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+              <span style={{flex:"1 1 260px"}}><b>⚠️ O robô não conseguiu publicar.</b><br/>{igRobo(f).erro}{f.robo?.em?<span style={{color:"#b91c1c",fontSize:11}}> · {new Date(f.robo.em).toLocaleString("pt-BR")}</span>:null}</span>
               {onTentar&&conta?.conexao&&<Btn onClick={()=>onTentar(f)} sz="sm" col="#dc2626">🔁 Tentar de novo</Btn>}
             </div>}
-            {f.status!=="publicado"&&(f.robo?.estado==="processando"||f.robo?.estado==="publicando")&&<div style={{padding:"9px 12px",borderRadius:11,background:"#fffbeb",border:"1px solid #fcd34d",fontSize:12.5,color:"#92400e"}}>⏳ <b>Publicando…</b> O Instagram está processando a mídia. O robô termina sozinho em alguns minutos.</div>}
+            {f.status!=="publicado"&&(igRobo(f).estado==="processando"||igRobo(f).estado==="publicando")&&<div style={{padding:"9px 12px",borderRadius:11,background:"#fffbeb",border:"1px solid #fcd34d",fontSize:12.5,color:"#92400e"}}>⏳ <b>Publicando…</b> O Instagram está processando a mídia. O robô termina sozinho em alguns minutos.</div>}
             <div>
               <span style={lbl}>Mídias {f.tipo==="carrossel"?"(até 10)":"(1 arquivo)"}</span>
               <div onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();addArquivos(e.dataTransfer.files);}} style={{border:"2px dashed var(--border2)",borderRadius:12,padding:10,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",background:"var(--bg3)"}}>
@@ -8532,7 +8540,7 @@ function IgPostEditor({open,post,novo,contas,collaborators,companies,userName,my
 }
 
 // ── Postar agora (manual, assistido) ───────────────────────────────
-function IgPostarAgora({open,post,conta,onClose,onPublicado,onPublicarSistema,toast}){
+function IgPostarAgora({open,post,postVivo,conta,onClose,onPublicado,onPublicarSistema,toast}){
   const [copiado,setCopiado]=React.useState(false);
   const [midiasOk,setMidiasOk]=React.useState(false);
   const [link,setLink]=React.useState("");
@@ -8540,6 +8548,12 @@ function IgPostarAgora({open,post,conta,onClose,onPublicado,onPublicarSistema,to
   const [sis,setSis]=React.useState(null); // {estado:"enviando"|"ok"|"pendente"|"erro", msg}
   const [manual,setManual]=React.useState(false);
   React.useEffect(()=>{if(open){setCopiado(false);setMidiasOk(false);setLink("");setSis(null);setManual(false);}},[open,post?.id]);
+  // acompanha o resultado gravado pelo robô (publicação em segundo plano)
+  React.useEffect(()=>{
+    if(!open||!postVivo||!sis||!["fundo","enviando"].includes(sis.estado))return;
+    if(postVivo.status==="publicado")setSis({estado:"ok",msg:postVivo.link||""});
+    else{const rb=igRobo(postVivo);if(rb.estado==="erro"&&rb.erro)setSis({estado:"erro",msg:rb.erro});}
+  },[open,postVivo?.status,postVivo?.robo?.estado,postVivo?.robo?.erro]);
   if(!open||!post)return null;
   const texto=igTextoCompleto(post);
   const mobile=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent||"");
@@ -8575,7 +8589,8 @@ function IgPostarAgora({open,post,conta,onClose,onPublicado,onPublicarSistema,to
           <div style={{fontWeight:900,fontSize:14.5,color:"#312e81"}}>🚀 Publicar direto pelo sistema</div>
           <div style={{fontSize:12,color:"#4338ca",marginTop:3,lineHeight:1.45}}>Publica agora em <b>@{conta.conexao.username}</b>, sem abrir o Instagram. Leva de alguns segundos a poucos minutos (vídeos demoram mais).</div>
           <div style={{display:"flex",gap:8,alignItems:"center",marginTop:10,flexWrap:"wrap"}}>
-            <Btn onClick={async()=>{if(!window.confirm("Publicar agora em @"+conta.conexao.username+"?"))return;setSis({estado:"enviando"});const r=await onPublicarSistema(post);setSis(r.ok?(r.publicado?{estado:"ok",msg:r.link}:{estado:"pendente",msg:r.msg}):{estado:"erro",msg:r.erro});}} sz="sm" col="#4f46e5" disabled={sis?.estado==="enviando"||sis?.estado==="ok"}>{sis?.estado==="enviando"?"⏳ Publicando…":"🚀 Publicar agora"}</Btn>
+            <Btn onClick={async()=>{if(!window.confirm("Publicar agora em @"+conta.conexao.username+"?"))return;setSis({estado:"enviando"});const r=await onPublicarSistema(post);setSis(r.ok?(r.publicado?{estado:"ok",msg:r.link}:r.emAndamento?{estado:"fundo",msg:r.msg}:{estado:"pendente",msg:r.msg}):{estado:"erro",msg:r.erro||"Não foi possível publicar."});}} sz="sm" col="#4f46e5" disabled={sis?.estado==="enviando"||sis?.estado==="ok"||sis?.estado==="fundo"}>{sis?.estado==="enviando"||sis?.estado==="fundo"?"⏳ Publicando…":"🚀 Publicar agora"}</Btn>
+            {sis?.estado==="fundo"&&<span style={{fontSize:12,fontWeight:700,color:"#4338ca"}}>⏳ Publicando em segundo plano… pode fechar esta janela — o card do post mostra o resultado.</span>}
             {sis?.estado==="ok"&&<span style={{fontSize:12.5,fontWeight:800,color:"#15803d"}}>✅ Publicado!{sis.msg&&<> <a href={sis.msg} target="_blank" rel="noopener noreferrer" style={{color:"#be185d"}}>ver post ↗</a></>}</span>}
             {sis?.estado==="pendente"&&<span style={{fontSize:12,fontWeight:700,color:"#b45309"}}>⏳ {sis.msg}</span>}
             {sis?.estado==="erro"&&<span style={{fontSize:12,fontWeight:700,color:"#b91c1c"}}>⚠️ {sis.msg}</span>}
@@ -8749,7 +8764,8 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
   const publicarSistema=async(p)=>{
     if(editor&&editor.id===p.id)await salvarPost(p,false);
     const r=await igApi("publicar",{postId:p.id});
-    if(r.ok&&r.publicado){toast("🚀 Publicado no Instagram!","ok",6000);setTimeout(()=>{setPostar(null);setEditor(null);},1600);}
+    if(r.ok&&r.emAndamento){toast("⏳ Publicando em segundo plano — o card do post mostra o resultado.","ok",7000);}
+    else if(r.ok&&r.publicado){toast("🚀 Publicado no Instagram!","ok",6000);setTimeout(()=>{setPostar(null);setEditor(null);},1600);}
     else if(r.ok&&r.pendente)toast("⏳ "+r.msg,"ok",8000);
     else toast("⚠️ "+(r.erro||"Não foi possível publicar."),"err",9000);
     return r;
@@ -8758,7 +8774,8 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
     await salvarPost(p,false);
     toast("🔁 Tentando publicar de novo…","ok");
     const r=await igApi("tentar-de-novo",{postId:p.id});
-    if(r.ok&&r.publicado){toast("🚀 Publicado no Instagram!","ok",6000);setEditor(null);}
+    if(r.ok&&r.emAndamento){toast("⏳ Publicando em segundo plano — o card do post mostra o resultado.","ok",7000);setEditor(null);}
+    else if(r.ok&&r.publicado){toast("🚀 Publicado no Instagram!","ok",6000);setEditor(null);}
     else if(r.ok&&r.pendente)toast("⏳ "+r.msg,"ok",8000);
     else toast("⚠️ "+(r.erro||"Não foi possível publicar."),"err",9000);
   };
@@ -8771,15 +8788,15 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
       style={{background:"var(--bg2)",border:"1px solid "+(at?"#fca5a5":"var(--border2)"),borderLeft:"4px solid "+(c?.cor||"#cbd5e1"),borderRadius:10,padding:compacto?"5px 6px":"9px 10px",display:"flex",gap:compacto?6:9,alignItems:compacto?"center":"flex-start",cursor:"pointer",boxShadow:"0 1px 2px rgba(0,0,0,.04)",opacity:arrastando===p.id?.4:1}}>
       <IgThumb post={p} size={compacto?26:46}/>
       <div style={{minWidth:0,flex:1}}>
-        {compacto?<div style={{fontSize:10.5,fontWeight:800,color:at||p.robo?.estado==="erro"?"#b91c1c":"var(--text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.status==="publicado"?"✅":p.robo?.estado==="erro"?"⚠️":at?"🔴":igAuto(p,c)?"🤖":""}{p.hora||"09:00"} · {c?(c.usuario||c.nome).replace(/^@/,""):"sem conta"}</div>
+        {compacto?<div style={{fontSize:10.5,fontWeight:800,color:at||igRobo(p).estado==="erro"?"#b91c1c":"var(--text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.status==="publicado"?"✅":igRobo(p).estado==="erro"?"⚠️":["publicando","processando"].includes(igRobo(p).estado)?"⏳":at?"🔴":igAuto(p,c)?"🤖":""}{p.hora||"09:00"} · {c?(c.usuario||c.nome).replace(/^@/,""):"sem conta"}</div>
         :<>
           <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}><b style={{fontSize:12}}>{c?"@"+(c.usuario||c.nome).replace(/^@/,""):"sem conta"}</b><span style={{fontSize:10.5,color:"var(--text3)"}}>{(IG_TIPO[p.tipo]||IG_TIPO.feed).ic} {(IG_TIPO[p.tipo]||IG_TIPO.feed).l}</span></div>
           <div style={{fontSize:11.5,color:"var(--text2)",marginTop:2,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",lineHeight:1.35}}>{p.legenda||<i style={{color:"#94a3b8"}}>sem legenda</i>}</div>
           <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",marginTop:5}}>
             <span style={{fontSize:10.5,fontWeight:700,color:at?"#b91c1c":"var(--text3)"}}>📅 {p.data?igFmtDataCurta(p.data)+" "+(p.hora||"09:00"):"sem data"}</span>
             {p.responsavelId&&<span style={{fontSize:10.5,color:"#4338ca",fontWeight:700}}>👤 {nomeColab(p.responsavelId).split(" ")[0]}</span>}
-            {(at||p.robo?.estado==="erro"||p.robo?.estado==="processando")&&p.status!=="publicado"&&<IgStatusChip post={p} small/>}
-            {p.status!=="publicado"&&igAuto(p,c)&&!at&&p.robo?.estado!=="erro"&&<span title={"Publica sozinho em @"+c.conexao.username} style={{fontSize:10,fontWeight:800,color:"#4338ca",background:"#eef2ff",borderRadius:20,padding:"1px 7px"}}>🤖 automático</span>}
+            {(at||["erro","processando","publicando"].includes(igRobo(p).estado))&&p.status!=="publicado"&&<IgStatusChip post={p} small/>}
+            {p.status!=="publicado"&&igAuto(p,c)&&!at&&!["erro","processando","publicando"].includes(igRobo(p).estado)&&<span title={"Publica sozinho em @"+c.conexao.username} style={{fontSize:10,fontWeight:800,color:"#4338ca",background:"#eef2ff",borderRadius:20,padding:"1px 7px"}}>🤖 automático</span>}
             {(p.status==="agendado"||at)&&(p.midias||[]).length>0&&<button onClick={e=>{e.stopPropagation();setPostar(p);}} style={{marginLeft:"auto",border:"none",background:c?.conexao?"#4f46e5":"#e1306c",color:"#fff",borderRadius:7,padding:"3px 9px",fontSize:10.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>{c?.conexao?"🚀 Publicar":"📲 Postar"}</button>}
             {p.status==="publicado"&&p.link&&<a href={p.link} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} style={{marginLeft:"auto",fontSize:10.5,fontWeight:800,color:"#be185d"}}>ver post ↗</a>}
           </div>
@@ -8939,7 +8956,7 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
 
       <IgPostEditor open={!!editor} post={(editor&&ig.posts.find(x=>x.id===editor.id))||editor||{}} novo={!!editor&&!ig.posts.some(x=>x.id===editor.id)} contas={contas} collaborators={collaborators} companies={companies} userName={userName} myCollabId={myId}
         onClose={()=>setEditor(null)} onSalvar={salvarPost} onExcluir={excluirPost} onPostar={(p)=>setPostar(p)} onTentar={tentarDeNovo} toast={toast}/>
-      <IgPostarAgora open={!!postar} post={postar} conta={postar?contaDe(postar.contaId):null} onClose={()=>setPostar(null)} onPublicado={marcarPublicado} onPublicarSistema={publicarSistema} toast={toast}/>
+      <IgPostarAgora open={!!postar} post={postar} postVivo={postar?ig.posts.find(x=>x.id===postar.id):null} conta={postar?contaDe(postar.contaId):null} onClose={()=>setPostar(null)} onPublicado={marcarPublicado} onPublicarSistema={publicarSistema} toast={toast}/>
       <IgContasModal open={contasOpen} onClose={()=>setContasOpen(false)} contas={contas} companies={companies} collaborators={collaborators} posts={ig.posts} onSalvar={salvarContas} toast={toast}/>
     </div>
   );

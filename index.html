@@ -8854,35 +8854,73 @@ const igDiaDe=(iso)=>{const d=new Date(iso);return new Date(d.getTime()-3*360000
 const igHoraBR=(iso)=>new Date(new Date(iso).getTime()-3*3600000).getUTCHours();
 const igDowBR=(iso)=>new Date(new Date(iso).getTime()-3*3600000).getUTCDay();
 
-// Calcula os números de uma conta num período [ini, fim] e no período anterior de mesmo tamanho
-function igResumoConta(mc,dias){
+// Período: {ini, fim} em ms. Compara com o período anterior de mesmo tamanho.
+const igDiaIniBR=(iso)=>Date.parse(iso+"T00:00:00-03:00");
+const igDiaFimBR=(iso)=>Date.parse(iso+"T23:59:59-03:00");
+const igPeriodoDe=(p)=>{
+  if(p.modo==="custom"&&p.de&&p.ate){const a=igDiaIniBR(p.de<=p.ate?p.de:p.ate),b=igDiaFimBR(p.de<=p.ate?p.ate:p.de);return{ini:a,fim:b,rotulo:igFmtData(p.de<=p.ate?p.de:p.ate)+" a "+igFmtData(p.de<=p.ate?p.ate:p.de)};}
+  const d=Number(p.modo)||30,fim=Date.now();return{ini:fim-d*864e5,fim,rotulo:d===365?"últimos 12 meses":"últimos "+d+" dias"};
+};
+const igSomaNull=(l,f)=>{let t=0,tem=false;l.forEach(m=>{const v=f(m);if(v!=null){t+=v;tem=true;}});return tem?t:null;};
+function igResumo(mc,per){
   if(!mc)return null;
-  const agora=Date.now(),ini=agora-dias*864e5,iniAnt=ini-dias*864e5;
+  const{ini,fim}=per;const dur=Math.max(864e5,fim-ini);const iniAnt=ini-dur,fimAnt=ini-1;
   const midias=(mc.midias||[]).filter(m=>m.ts&&m.tipo!=="story");
-  const noPer=midias.filter(m=>Date.parse(m.ts)>=ini);
-  const ant=midias.filter(m=>{const t=Date.parse(m.ts);return t>=iniAnt&&t<ini;});
+  const noPer=midias.filter(m=>{const t=Date.parse(m.ts);return t>=ini&&t<=fim;});
+  const ant=midias.filter(m=>{const t=Date.parse(m.ts);return t>=iniAnt&&t<=fimAnt;});
   const soma=(l,f)=>l.reduce((a,m)=>a+(f(m)||0),0);
   const hist=(mc.historico||[]).slice().sort((a,b)=>a.d.localeCompare(b.d));
-  const diaIni=igDiaDe(new Date(ini).toISOString());
-  const baseHist=hist.find(h=>h.d>=diaIni)||null;
-  const atual=mc.perfil?.seguidores??(hist.length?hist[hist.length-1].seg:null);
-  const segIni=baseHist?baseHist.seg:null;
-  const ganho=segIni!=null&&atual!=null?atual-segIni:null;
+  const dIni=new Date(ini-3*3600e3).toISOString().slice(0,10),dFim=new Date(fim-3*3600e3).toISOString().slice(0,10);
+  const hIni=hist.find(h=>h.d>=dIni&&h.d<=dFim)||null;
+  const hFim=[...hist].reverse().find(h=>h.d<=dFim&&h.d>=dIni)||null;
+  const atual=hFim?hFim.seg:(mc.perfil?.seguidores??null);
+  const segIni=hIni?hIni.seg:null;
+  const ganho=segIni!=null&&atual!=null&&hIni!==hFim?atual-segIni:(segIni!=null&&atual!=null?0:null);
+  const var_=(a,b)=>a!=null&&b!=null&&b>0?((a-b)/b)*100:null;
   const intPer=soma(noPer,igInteracoes),intAnt=soma(ant,igInteracoes);
   const medPer=noPer.length?intPer/noPer.length:0,medAnt=ant.length?intAnt/ant.length:0;
-  const temAlc=noPer.some(m=>m.alcance!=null);
-  const alcPer=temAlc?soma(noPer,m=>m.alcance)/Math.max(1,noPer.filter(m=>m.alcance!=null).length):null;
-  const alcAnt=ant.some(m=>m.alcance!=null)?soma(ant,m=>m.alcance)/Math.max(1,ant.filter(m=>m.alcance!=null).length):null;
-  const var_=(a,b)=>b>0?((a-b)/b)*100:null;
+  const viewsPer=igSomaNull(noPer,m=>m.views),viewsAnt=igSomaNull(ant,m=>m.views);
+  const comViews=noPer.filter(m=>m.views!=null);
+  const alcPer=igSomaNull(noPer,m=>m.alcance);
+  const alcMed=alcPer!=null?alcPer/Math.max(1,noPer.filter(m=>m.alcance!=null).length):null;
+  const alcAntS=igSomaNull(ant,m=>m.alcance);const alcAntMed=alcAntS!=null?alcAntS/Math.max(1,ant.filter(m=>m.alcance!=null).length):null;
   return{
-    atual,segIni,ganho,ganhoPct:segIni?((atual-segIni)/segIni)*100:null,histDesde:hist.length?hist[0].d:null,dias,
+    atual,segIni,ganho,ganhoPct:segIni?((atual-segIni)/segIni)*100:null,histDesde:hist.length?hist[0].d:null,
     posts:noPer.length,postsAnt:ant.length,postsVar:var_(noPer.length,ant.length),
     interacoes:intPer,interacoesAnt:intAnt,interacoesVar:var_(intPer,intAnt),
     media:medPer,mediaAnt:medAnt,mediaVar:var_(medPer,medAnt),
     taxa:atual?(medPer/atual)*100:null,taxaAnt:atual?(medAnt/atual)*100:null,
-    alcance:alcPer,alcanceVar:alcPer!=null&&alcAnt?var_(alcPer,alcAnt):null,
-    noPer,todas:midias,hist,
+    views:viewsPer,viewsAnt,viewsVar:var_(viewsPer,viewsAnt),viewsMed:comViews.length?viewsPer/comViews.length:null,
+    alcance:alcMed,alcanceVar:var_(alcMed,alcAntMed),
+    noPer,todas:midias,hist:hist.filter(h=>h.d>=dIni&&h.d<=dFim),
   };
+}
+// compatibilidade (comparativo usa dias)
+const igResumoConta=(mc,dias)=>igResumo(mc,{ini:Date.now()-dias*864e5,fim:Date.now()});
+
+// Tudo que o relatório de uma conta mostra (usado na tela e no PDF)
+function igCalcConta(mc,per,posts,contaId){
+  const r=igResumo(mc,per);if(!r)return null;
+  const media=r.noPer.length?r.interacoes/r.noPer.length:0;
+  const virais=r.noPer.slice().sort((a,b)=>igInteracoes(b)-igInteracoes(a)).slice(0,5);
+  const maisVistos=r.noPer.filter(m=>m.views!=null).sort((a,b)=>(b.views||0)-(a.views||0)).slice(0,5);
+  const cron=r.noPer.slice().sort((a,b)=>a.ts.localeCompare(b.ts));
+  const amostra=r.todas.slice(0,120);
+  const agrupa=(chave)=>{const g={};amostra.forEach(m=>{const k=chave(m);(g[k]=g[k]||[]).push(igInteracoes(m));});return g;};
+  const porDia=agrupa(m=>igDowBR(m.ts));
+  const dias=IG_DIAS_SEM.map((n,i)=>{const l=porDia[i]||[];return{n,i,qt:l.length,med:l.length?l.reduce((a,b)=>a+b,0)/l.length:0};});
+  const melhorDia=dias.reduce((a,b)=>b.med>a.med?b:a,dias[0]);
+  const faixas=[["Madrugada","0h–6h",0,6],["Manhã","6h–12h",6,12],["Tarde","12h–18h",12,18],["Noite","18h–24h",18,24]];
+  const porFaixa=faixas.map(([n,h,a,b])=>{const l=amostra.filter(m=>{const x=igHoraBR(m.ts);return x>=a&&x<b;}).map(igInteracoes);return{n,h,qt:l.length,med:l.length?l.reduce((s,v)=>s+v,0)/l.length:0};});
+  const melhorFaixa=porFaixa.reduce((a,b)=>b.med>a.med?b:a,porFaixa[0]);
+  const porTipo=Object.entries(agrupa(m=>m.tipo)).map(([t,l])=>({t,qt:l.length,med:l.reduce((a,b)=>a+b,0)/l.length})).sort((a,b)=>b.med-a.med);
+  const dIni=new Date(per.ini-3*3600e3).toISOString().slice(0,10),dFim=new Date(per.fim-3*3600e3).toISOString().slice(0,10);
+  const doSis=posts.filter(p=>p.contaId===contaId);
+  const planejados=doSis.filter(p=>p.data&&p.data>=dIni&&p.data<=dFim).length;
+  const publicadosSis=doSis.filter(p=>p.status==="publicado"&&p.publicadoEm&&Date.parse(p.publicadoEm)>=per.ini&&Date.parse(p.publicadoEm)<=per.fim);
+  const pelaIA=publicadosSis.filter(p=>String(p.publicadoPor||"").includes("Robô")).length;
+  const pontos=r.hist.map(h=>({d:h.d,v:h.seg}));
+  return{r,media,virais,maisVistos,cron,dias,melhorDia,porFaixa,melhorFaixa,porTipo,planejados,publicados:publicadosSis.length,pelaIA,pontos};
 }
 
 // Gráfico de linha simples (uma série): seguidores ao longo do tempo
@@ -8960,183 +8998,245 @@ function IgRelacao({contas,posts,metricas,collaborators,onEditar,onRelatorio}){
   </div>);
 }
 
+// ── Peças do relatório (tela e PDF) ───────────────────────────────
+const igCard={background:"var(--bg2)",border:"1px solid var(--border2)",borderRadius:14,padding:"14px 16px",breakInside:"avoid"};
+const igTit={fontSize:12,fontWeight:900,color:"var(--text2)",textTransform:"uppercase",letterSpacing:".05em",marginBottom:10,display:"flex",alignItems:"center",gap:6};
+function IgVar({v,rot}){return v==null?<span style={{fontSize:11,color:"var(--text4)"}}>sem comparação</span>:<span style={{fontSize:11.5,fontWeight:800,color:v>0?"#15803d":v<0?"#b91c1c":"var(--text3)"}}>{v>0?"▲":v<0?"▼":"="} {igFmtPct(v)} <span style={{fontWeight:600,color:"var(--text4)"}}>{rot||"vs período anterior"}</span></span>;}
+function IgKpi({rot,val,extra,dica}){return(<div title={dica||""} style={{...igCard,padding:"12px 14px",flex:"1 1 160px",minWidth:150}}>
+  <div style={{fontSize:11,fontWeight:800,color:"var(--text3)",textTransform:"uppercase",letterSpacing:".04em"}}>{rot}</div>
+  <div style={{fontSize:25,fontWeight:900,color:"var(--text)",lineHeight:1.15,marginTop:4}}>{val}</div>
+  <div style={{marginTop:4}}>{extra}</div></div>);}
+function IgListaPosts({lista,media,porViews,pdf}){
+  if(!lista.length)return<div style={{fontSize:12.5,color:"var(--text4)"}}>Nenhum post no período.</div>;
+  return(<div style={{display:"flex",flexDirection:"column",gap:7}}>
+    {lista.map((m,i)=>{const x=media>0?igInteracoes(m)/media:0;const Tag=pdf?"div":"a";return(<Tag key={m.id} {...(pdf?{}:{href:m.link,target:"_blank",rel:"noopener noreferrer"})} style={{display:"flex",gap:10,alignItems:"center",padding:"7px 10px",borderRadius:11,border:"1px solid var(--border2)",background:i===0?"#fdf2f8":"var(--bg2)",textDecoration:"none",color:"var(--text)",breakInside:"avoid"}}>
+      <span style={{fontSize:15,fontWeight:900,width:22,textAlign:"center",color:i===0?"#be185d":"var(--text3)"}}>{i+1}º</span>
+      <div style={{width:44,height:44,borderRadius:8,background:m.img?`center/cover url("${m.img}")`:"var(--bg3)",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>{!m.img&&"📷"}</div>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:12.5,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.legenda||<i style={{color:"var(--text4)"}}>sem legenda</i>}</div>
+        <div style={{fontSize:11,color:"var(--text3)",marginTop:2}}>{new Date(m.ts).toLocaleDateString("pt-BR")} · {IG_TIPO_REL[m.tipo]||m.tipo}{m.views!=null?" · 👁 "+igFmtN(m.views):""} · ❤️ {igFmtN(m.curtidas)} · 💬 {igFmtN(m.comentarios)}{m.salvos!=null?" · 🔖 "+igFmtN(m.salvos):""}{m.compart!=null?" · ➤ "+igFmtN(m.compart):""}{m.alcance!=null?" · 👥 "+igFmtN(m.alcance):""}</div>
+        {pdf&&m.link&&<div style={{fontSize:9.5,color:"var(--text4)"}}>{m.link}</div>}
+      </div>
+      <div style={{textAlign:"right",flexShrink:0}}>
+        <div style={{fontSize:15,fontWeight:900}}>{porViews?igFmtN(m.views):igFmtN(igInteracoes(m))}</div>
+        <div style={{fontSize:10,color:"var(--text4)"}}>{porViews?"visualizações":"interações"}</div>
+        {!porViews&&x>=1.5&&<div style={{fontSize:10.5,fontWeight:800,color:"#be185d"}}>🔥 {x.toLocaleString("pt-BR",{maximumFractionDigits:1})}× a média</div>}
+      </div>
+    </Tag>);})}
+  </div>);
+}
+function IgBarraH({rot,sub,v,mx,dest,valTxt}){return(<div style={{display:"flex",alignItems:"center",gap:8,fontSize:12}}>
+  <span style={{width:120,color:"var(--text2)"}}><b>{rot}</b> <span style={{color:"var(--text4)"}}>{sub}</span></span>
+  <div style={{flex:1,height:10,background:"var(--bg3)",borderRadius:5,overflow:"hidden"}}><div style={{height:"100%",width:(mx?v/mx*100:0)+"%",background:dest?"#e1306c":"#6366f1",borderRadius:5,printColorAdjust:"exact",WebkitPrintColorAdjust:"exact"}}/></div>
+  <span style={{width:50,textAlign:"right",fontWeight:800}}>{valTxt}</span></div>);}
+
+// Relatório completo de uma conta
+function IgRelContaView({conta,mc,c,per,pdf}){
+  const r=c.r;const user=(conta?.conexao?.username||conta?.usuario||"").replace(/^@/,"");
+  const temViews=r.views!=null;
+  const barrasInt=c.cron.map(m=>({v:igInteracoes(m),link:pdf?null:m.link,viral:c.media>0&&igInteracoes(m)>=c.media*2,rot:c.cron.length<=16?new Date(m.ts).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"}):"",
+    dica:<><b>{igFmtN(igInteracoes(m))}</b> interações{m.views!=null?<> · {igFmtN(m.views)} visualizações</>:null}<div style={{color:"var(--text3)"}}>{new Date(m.ts).toLocaleDateString("pt-BR")} · {IG_TIPO_REL[m.tipo]||m.tipo}</div><div style={{color:"var(--text3)",whiteSpace:"normal"}}>{(m.legenda||"").slice(0,60)}</div></>}));
+  const barrasViews=c.cron.filter(m=>m.views!=null).map(m=>({v:m.views,link:pdf?null:m.link,rot:c.cron.length<=16?new Date(m.ts).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"}):"",
+    dica:<><b>{igFmtN(m.views)}</b> visualizações<div style={{color:"var(--text3)"}}>{new Date(m.ts).toLocaleDateString("pt-BR")} · {IG_TIPO_REL[m.tipo]||m.tipo}</div><div style={{color:"var(--text3)",whiteSpace:"normal"}}>{(m.legenda||"").slice(0,60)}</div></>}));
+  const diasItens=c.dias.map(d=>({v:Math.round(d.med),rot:d.n,dest:d===c.melhorDia&&d.med>0,dica:<><b>{d.n}</b>: {igFmtN(Math.round(d.med))} interações em média<div style={{color:"var(--text3)"}}>{d.qt} post(s)</div></>}));
+  const mxTipo=Math.max(1,...c.porTipo.map(x=>x.med));
+  const grid2={display:"grid",gridTemplateColumns:pdf?"1fr 1fr":"repeat(auto-fit,minmax(320px,1fr))",gap:12};
+  return(<div style={{display:"flex",flexDirection:"column",gap:12}}>
+    <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+      <IgAvatar conta={conta} size={38}/>
+      <div><div style={{fontWeight:900,fontSize:17}}>@{user}</div><div style={{fontSize:11.5,color:"var(--text3)"}}>{conta?.nome} · {igFmtN(mc.perfil?.posts)} posts no perfil · seguindo {igFmtN(mc.perfil?.seguindo)} · {per.rotulo}</div></div>
+    </div>
+    {mc.insights===false&&<div style={{padding:"9px 12px",borderRadius:10,background:"#fffbeb",border:"1px solid #fcd34d",fontSize:12,color:"#92400e"}}>ℹ️ Visualizações, alcance, salvamentos e compartilhamentos não estão disponíveis: a conexão desta conta não tem a permissão <code>instagram_manage_insights</code>. Os números usam curtidas, comentários e seguidores.</div>}
+    <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+      <IgKpi rot="Seguidores" val={igFmtN(r.atual)} extra={r.ganho!=null?<span style={{fontSize:11.5,fontWeight:800,color:r.ganho>0?"#15803d":r.ganho<0?"#b91c1c":"var(--text3)"}}>{r.ganho>0?"▲ +":r.ganho<0?"▼ ":""}{igFmtN(r.ganho)}{r.ganhoPct!=null?" ("+igFmtPct(r.ganhoPct)+")":""} no período</span>:<span style={{fontSize:11,color:"var(--text4)"}}>histórico desde {r.histDesde?r.histDesde.split("-").reverse().join("/"):"hoje"}</span>}/>
+      <IgKpi rot="Visualizações" val={temViews?igFmtN(r.views):"—"} extra={temViews?<IgVar v={r.viewsVar}/>:<span style={{fontSize:11,color:"var(--text4)"}}>precisa da permissão de estatísticas</span>} dica="Soma das visualizações dos posts publicados no período"/>
+      <IgKpi rot="Posts publicados" val={igFmtN(r.posts)} extra={<IgVar v={r.postsVar}/>}/>
+      <IgKpi rot="Interações" val={igFmtN(r.interacoes)} extra={<IgVar v={r.interacoesVar}/>} dica="Curtidas + comentários + salvamentos + compartilhamentos"/>
+      <IgKpi rot="Média por post" val={igFmtN(Math.round(r.media))} extra={<IgVar v={r.mediaVar}/>} dica="Interações por post"/>
+      <IgKpi rot="Engajamento" val={r.taxa!=null&&r.posts?r.taxa.toLocaleString("pt-BR",{maximumFractionDigits:2})+"%":"—"} extra={<span style={{fontSize:11,color:"var(--text4)"}}>{r.taxaAnt?"antes: "+r.taxaAnt.toLocaleString("pt-BR",{maximumFractionDigits:2})+"%":"interações por post ÷ seguidores"}</span>}/>
+      {r.alcance!=null&&<IgKpi rot="Alcance médio" val={igFmtN(Math.round(r.alcance))} extra={<IgVar v={r.alcanceVar}/>} dica="Pessoas alcançadas por post (média)"/>}
+    </div>
+    <div style={grid2}>
+      <div style={igCard}><div style={igTit}>👥 Seguidores</div><IgLinha pontos={c.pontos}/></div>
+      {temViews
+        ?<div style={igCard}><div style={igTit}>👁 Visualizações por post</div><IgBarras itens={barrasViews} altura={170}/></div>
+        :<div style={igCard}><div style={igTit}>❤️ Interações por post <span style={{fontWeight:600,textTransform:"none",letterSpacing:0,color:"var(--text4)"}}>· rosa = 🔥 2× a média</span></div><IgBarras itens={barrasInt} destaque={it=>it.viral} altura={170}/></div>}
+    </div>
+    {temViews&&<div style={igCard}><div style={igTit}>❤️ Interações por post <span style={{fontWeight:600,textTransform:"none",letterSpacing:0,color:"var(--text4)"}}>· rosa = 🔥 2× a média{pdf?"":" · clique abre o post"}</span></div><IgBarras itens={barrasInt} destaque={it=>it.viral} altura={150}/></div>}
+    <div style={grid2}>
+      <div style={igCard}><div style={igTit}>🔥 Posts mais virais <span style={{fontWeight:600,textTransform:"none",letterSpacing:0,color:"var(--text4)"}}>· por interações</span></div><IgListaPosts lista={c.virais} media={c.media} pdf={pdf}/></div>
+      {temViews&&<div style={igCard}><div style={igTit}>👁 Posts mais vistos</div><IgListaPosts lista={c.maisVistos} media={c.media} porViews pdf={pdf}/></div>}
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:pdf?"1fr 1fr":"repeat(auto-fit,minmax(260px,1fr))",gap:12}}>
+      <div style={igCard}><div style={igTit}>📅 Melhor dia para postar</div><IgBarras itens={diasItens} destaque={it=>it.dest} altura={100}/>
+        {c.melhorDia&&c.melhorDia.med>0&&<div style={{fontSize:12,color:"var(--text2)",marginTop:8}}>Posts de <b>{c.melhorDia.n}</b> engajam mais (média de {igFmtN(Math.round(c.melhorDia.med))} interações).</div>}</div>
+      <div style={igCard}><div style={igTit}>🕐 Melhor horário</div>
+        <div style={{display:"flex",flexDirection:"column",gap:7}}>{c.porFaixa.map(f=><IgBarraH key={f.n} rot={f.n} sub={f.h} v={f.med} mx={c.melhorFaixa.med} dest={f===c.melhorFaixa&&f.med>0} valTxt={igFmtN(Math.round(f.med))}/>)}</div>
+        <div style={{fontSize:11,color:"var(--text4)",marginTop:8}}>Média de interações por post, pelo horário de publicação (Brasília).</div></div>
+      <div style={igCard}><div style={igTit}>🎬 Formato que mais engaja</div>
+        <div style={{display:"flex",flexDirection:"column",gap:7}}>{c.porTipo.length===0&&<div style={{fontSize:12,color:"var(--text4)"}}>Sem dados.</div>}{c.porTipo.map((t,i)=><IgBarraH key={t.t} rot={IG_TIPO_REL[t.t]||t.t} sub={"("+t.qt+")"} v={t.med} mx={mxTipo} dest={i===0} valTxt={igFmtN(Math.round(t.med))}/>)}</div></div>
+      <div style={igCard}><div style={igTit}>📌 Planejado no sistema</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,fontSize:12}}>
+          <div><div style={{fontSize:22,fontWeight:900}}>{c.planejados}</div><div style={{color:"var(--text3)"}}>posts com data no período</div></div>
+          <div><div style={{fontSize:22,fontWeight:900,color:"#15803d"}}>{c.publicados}</div><div style={{color:"var(--text3)"}}>publicados pelo sistema</div></div>
+          <div><div style={{fontSize:22,fontWeight:900,color:"#4338ca"}}>{c.pelaIA}</div><div style={{color:"var(--text3)"}}>pelo 🤖 robô</div></div>
+        </div></div>
+    </div>
+  </div>);
+}
+
+// Comparativo entre contas
+function IgRelComparativo({linhas,per,pdf,onSel}){
+  const th={padding:pdf?"6px 5px":"8px 9px",fontSize:pdf?9:10,fontWeight:800,color:"var(--text3)",textTransform:"uppercase",textAlign:"right",background:"var(--bg3)",borderBottom:"1px solid var(--border2)",whiteSpace:"nowrap"};
+  const td={padding:pdf?"6px 5px":"8px 9px",fontSize:pdf?10.5:12,borderTop:"1px solid var(--border2)",textAlign:"right",whiteSpace:"nowrap"};
+  const tot=linhas.reduce((a,{r})=>({seg:a.seg+(r?.atual||0),ganho:a.ganho+(r?.ganho||0),posts:a.posts+(r?.posts||0),int:a.int+(r?.interacoes||0),views:a.views+(r?.views||0),temViews:a.temViews||r?.views!=null}),{seg:0,ganho:0,posts:0,int:0,views:0,temViews:false});
+  return(<div style={{display:"flex",flexDirection:"column",gap:12}}>
+    <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+      <IgKpi rot="Seguidores (todas)" val={igFmtN(tot.seg)} extra={<span style={{fontSize:11.5,fontWeight:800,color:tot.ganho>0?"#15803d":tot.ganho<0?"#b91c1c":"var(--text3)"}}>{tot.ganho>0?"+":""}{igFmtN(tot.ganho)} no período</span>}/>
+      <IgKpi rot="Visualizações" val={tot.temViews?igFmtN(tot.views):"—"} extra={<span style={{fontSize:11,color:"var(--text4)"}}>{tot.temViews?"posts do período":"precisa da permissão de estatísticas"}</span>}/>
+      <IgKpi rot="Posts publicados" val={igFmtN(tot.posts)} extra={<span style={{fontSize:11,color:"var(--text4)"}}>{per.rotulo}</span>}/>
+      <IgKpi rot="Interações" val={igFmtN(tot.int)} extra={<span style={{fontSize:11,color:"var(--text4)"}}>curtidas + comentários + salvos + compart.</span>}/>
+    </div>
+    <div style={{...igCard,padding:0,overflow:"hidden"}}>
+      <div style={{padding:"12px 16px 4px",...igTit}}>🏆 Comparativo entre contas · {per.rotulo}</div>
+      <div style={{overflowX:pdf?"visible":"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",minWidth:pdf?0:860}}>
+          <thead><tr><th style={{...th,textAlign:"left"}}>Conta</th><th style={th}>Seguidores</th><th style={th}>Crescimento</th><th style={th}>Posts</th><th style={th}>Visualiz.</th><th style={th}>Interações</th><th style={th}>Média/post</th><th style={th}>Engaj.</th><th style={{...th,textAlign:"left"}}>Destaque</th></tr></thead>
+          <tbody>{linhas.map(({c,r})=>{const top=r?.noPer?.slice().sort((a,b)=>igInteracoes(b)-igInteracoes(a))[0];return(
+            <tr key={c.id} onClick={()=>onSel&&onSel(c.id)} style={{cursor:onSel?"pointer":"default"}}>
+              <td style={{...td,textAlign:"left"}}><div style={{display:"flex",alignItems:"center",gap:8}}><IgAvatar conta={c} size={24}/><div><b>@{(c.conexao?.username||c.usuario||"").replace(/^@/,"")}</b><div style={{fontSize:10.5,color:"var(--text3)"}}>{c.nome}</div></div></div></td>
+              <td style={{...td,fontWeight:800}}>{r?igFmtN(r.atual):"—"}</td>
+              <td style={{...td,fontWeight:800,color:r?.ganho>0?"#15803d":r?.ganho<0?"#b91c1c":"var(--text3)"}}>{r&&r.ganho!=null?(r.ganho>0?"+":"")+igFmtN(r.ganho)+(r.ganhoPct!=null?" ("+igFmtPct(r.ganhoPct)+")":""):<span style={{fontWeight:500,color:"var(--text4)"}}>coletando…</span>}</td>
+              <td style={td}>{r?r.posts:"—"}</td>
+              <td style={td}>{r&&r.views!=null?igFmtN(r.views):"—"}</td>
+              <td style={td}>{r?igFmtN(r.interacoes):"—"}</td>
+              <td style={td}>{r&&r.posts?igFmtN(Math.round(r.media)):"—"}</td>
+              <td style={td}>{r&&r.taxa!=null&&r.posts?r.taxa.toLocaleString("pt-BR",{maximumFractionDigits:2})+"%":"—"}</td>
+              <td style={{...td,textAlign:"left",maxWidth:pdf?130:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:pdf?"normal":"nowrap"}}>{top?<span style={{color:"#be185d",fontWeight:700,fontSize:11.5}}>🔥 {igFmtN(igInteracoes(top))} · {(top.legenda||"(sem legenda)").slice(0,26)}</span>:"—"}</td>
+            </tr>);})}</tbody>
+        </table>
+      </div>
+      {!pdf&&<div style={{padding:"8px 16px 12px",fontSize:11,color:"var(--text4)"}}>Clique numa conta para ver o relatório completo. Engajamento = interações médias por post ÷ seguidores.</div>}
+    </div>
+  </div>);
+}
+
+// ── PDF ─────────────────────────────────────────────────────────────
+// Abre uma janela só com o relatório e chama "Imprimir → Salvar como PDF"
+function igGerarPDF(titulo,elemento,toast){
+  const w=window.open("","_blank");
+  if(!w){toast&&toast("⚠️ O navegador bloqueou a janela do PDF. Permita pop-ups para este site e tente de novo.","err",8000);return;}
+  w.document.open();
+  w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${titulo.replace(/[<>&"]/g,"")}</title>
+<style>
+:root{--bg:#fff;--bg2:#fff;--bg3:#f8fafc;--bg4:#f9fafb;--text:#0f172a;--text2:#374151;--text3:#64748b;--text4:#94a3b8;--border:#f1f5f9;--border2:#e2e8f0;--border3:#e5e7eb}
+*{box-sizing:border-box}html,body{margin:0;background:#fff;color:#0f172a;font-family:'Plus Jakarta Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+#root{max-width:1000px;margin:0 auto;padding:22px}
+.quebra{break-before:page;page-break-before:always}
+@page{size:A4;margin:11mm}
+@media print{#root{padding:0;max-width:none}.naoimprime{display:none!important}a{color:inherit;text-decoration:none}}
+.barra{position:sticky;top:0;background:#fff;border-bottom:1px solid #e2e8f0;padding:10px 22px;display:flex;gap:10px;align-items:center;font-size:13px;z-index:5}
+.barra button{border:none;background:#e1306c;color:#fff;font-weight:800;padding:8px 16px;border-radius:9px;cursor:pointer;font-size:13px}
+</style></head><body><div class="barra naoimprime"><b>📄 ${titulo.replace(/[<>&"]/g,"")}</b><span style="color:#64748b">Na janela de impressão, escolha <b>Salvar como PDF</b>.</span><button onclick="window.print()" style="margin-left:auto">Salvar PDF</button></div><div id="root"></div></body></html>`);
+  w.document.close();
+  try{
+    ReactDOM.createRoot(w.document.getElementById("root")).render(elemento);
+    setTimeout(()=>{try{w.focus();w.print();}catch(e){}},1200);
+  }catch(e){toast&&toast("⚠️ Não foi possível montar o PDF: "+e.message,"err");}
+}
+function IgPDFCapa({titulo,sub,per}){
+  return(<div style={{display:"flex",alignItems:"center",gap:14,paddingBottom:14,marginBottom:14,borderBottom:"2px solid #e1306c"}}>
+    <div style={{width:46,height:46,borderRadius:12,background:"linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,color:"#fff",printColorAdjust:"exact",WebkitPrintColorAdjust:"exact"}}>📸</div>
+    <div style={{flex:1}}><div style={{fontSize:21,fontWeight:900}}>{titulo}</div><div style={{fontSize:12.5,color:"#64748b"}}>{sub} · Período: <b>{per.rotulo}</b> (comparado com o período anterior de mesmo tamanho)</div></div>
+    <div style={{textAlign:"right",fontSize:11,color:"#64748b"}}><b style={{color:"#0f172a"}}>MdTec Gestão</b><br/>gerado em {new Date().toLocaleString("pt-BR")}</div>
+  </div>);
+}
+
 // Tela de relatórios
 function IgRelatorios({contas,posts,metricas,contaSel,setContaSel,toast}){
-  const [dias,setDias]=React.useState(()=>{try{return Number(localStorage.getItem("mdtec_ig_rel_dias"))||30;}catch(e){return 30;}});
-  const setDiasP=(d)=>{setDias(d);try{localStorage.setItem("mdtec_ig_rel_dias",String(d));}catch(e){}};
+  const [periodo,setPeriodo]=React.useState(()=>{try{const v=JSON.parse(localStorage.getItem("mdtec_ig_rel_per")||"null");if(v&&v.modo)return v;}catch(e){}return{modo:"30",de:"",ate:""};});
+  const setPer=(p)=>{setPeriodo(p);try{localStorage.setItem("mdtec_ig_rel_per",JSON.stringify(p));}catch(e){}};
   const [atualizando,setAtualizando]=React.useState(false);
   const conectadas=contas.filter(c=>c.conexao&&c.ativa!==false);
   const sel=contaSel&&conectadas.some(c=>c.id===contaSel)?contaSel:"";
+  const per=igPeriodoDe(periodo);
   const atualizar=async()=>{
     setAtualizando(true);
     const r=await igApi("metricas",sel?{contaId:sel}:{});
     setAtualizando(false);
-    if(r.ok)toast(r.emAndamento?"🔄 Atualizando os números de "+r.contas+" conta(s)… a tela se atualiza sozinha.":"✅ Números atualizados"+(r.insights===false?" (sem alcance/salvamentos: falta a permissão de estatísticas)":""),"ok",7000);
+    if(r.ok)toast(r.emAndamento?"🔄 Atualizando os números de "+r.contas+" conta(s)… a tela se atualiza sozinha.":"✅ Números atualizados"+(r.insights===false?" (sem visualizações: falta a permissão de estatísticas)":""),"ok",7000);
     else toast("⚠️ "+(r.erro||"Não foi possível atualizar."),"err",8000);
   };
-  const card={background:"var(--bg2)",border:"1px solid var(--border2)",borderRadius:14,padding:"14px 16px"};
-  const tit={fontSize:12,fontWeight:900,color:"var(--text2)",textTransform:"uppercase",letterSpacing:".05em",marginBottom:10,display:"flex",alignItems:"center",gap:6};
-  const chipVar=(v,inverso)=>v==null?<span style={{fontSize:11,color:"var(--text4)"}}>sem comparação</span>:<span style={{fontSize:11.5,fontWeight:800,color:(inverso?-v:v)>0?"#15803d":(inverso?-v:v)<0?"#b91c1c":"var(--text3)"}}>{v>0?"▲":v<0?"▼":"="} {igFmtPct(v)} <span style={{fontWeight:600,color:"var(--text4)"}}>vs {dias} dias antes</span></span>;
-  const kpi=(rot,val,extra,dica)=>(<div title={dica||""} style={{...card,padding:"12px 14px",flex:"1 1 170px",minWidth:160}}>
-    <div style={{fontSize:11,fontWeight:800,color:"var(--text3)",textTransform:"uppercase",letterSpacing:".04em"}}>{rot}</div>
-    <div style={{fontSize:26,fontWeight:900,color:"var(--text)",lineHeight:1.15,marginTop:4}}>{val}</div>
-    <div style={{marginTop:4}}>{extra}</div>
-  </div>);
-  const periodos=[[7,"7 dias"],[30,"30 dias"],[90,"90 dias"],[365,"12 meses"]];
-
-  const cabecalho=(<div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-    <select value={sel} onChange={e=>setContaSel(e.target.value)} style={{padding:"7px 10px",borderRadius:9,border:"1.5px solid var(--border3)",fontSize:13,fontWeight:700,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)"}}>
-      <option value="">📊 Todas as contas (comparativo)</option>
-      {conectadas.map(c=><option key={c.id} value={c.id}>@{(c.conexao.username||c.usuario||c.nome).replace(/^@/,"")} — {c.nome}</option>)}
-    </select>
-    <div style={{display:"flex",border:"1px solid var(--border2)",borderRadius:9,overflow:"hidden"}}>{periodos.map(([d,l])=><button key={d} onClick={()=>setDiasP(d)} style={{padding:"6px 11px",border:"none",borderRight:d!==365?"1px solid var(--border2)":"none",background:dias===d?"#4f46e5":"var(--bg2)",color:dias===d?"#fff":"var(--text3)",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>)}</div>
-    <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-      {sel&&metricas.contas?.[sel]?.atualizadoEm&&<span style={{fontSize:11,color:"var(--text4)"}}>atualizado {new Date(metricas.contas[sel].atualizadoEm).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}</span>}
-      <Btn onClick={atualizar} v="ghost" sz="sm" disabled={atualizando}>{atualizando?"⏳ Atualizando…":"🔄 Atualizar números"}</Btn>
+  const linhasTodas=()=>conectadas.map(c=>({c,r:igResumo(metricas.contas?.[c.id],per)})).sort((a,b)=>((b.r?.ganhoPct)??-1e9)-((a.r?.ganhoPct)??-1e9));
+  const pdfConta=(id)=>{
+    const conta=contas.find(c=>c.id===id);const mc=metricas.contas?.[id];const c=igCalcConta(mc,per,posts,id);
+    if(!c){toast("⚠️ Ainda não há números desta conta. Clique em Atualizar números.","warn");return;}
+    const user=(conta?.conexao?.username||conta?.usuario||"").replace(/^@/,"");
+    igGerarPDF("Relatório Instagram @"+user+" — "+per.rotulo,<div><IgPDFCapa titulo={"Relatório do Instagram · @"+user} sub={conta?.nome||""} per={per}/><IgRelContaView conta={conta} mc={mc} c={c} per={per} pdf/></div>,toast);
+  };
+  const pdfTodas=()=>{
+    const ls=linhasTodas();
+    const paginas=conectadas.map(conta=>({conta,mc:metricas.contas?.[conta.id],c:igCalcConta(metricas.contas?.[conta.id],per,posts,conta.id)})).filter(x=>x.c);
+    igGerarPDF("Relatório Instagram — todas as contas — "+per.rotulo,<div>
+      <IgPDFCapa titulo="Relatório do Instagram · Todas as contas" sub={conectadas.length+" conta(s) conectada(s)"} per={per}/>
+      <IgRelComparativo linhas={ls} per={per} pdf/>
+      {paginas.map(({conta,mc,c})=>(<div key={conta.id} className="quebra"><IgPDFCapa titulo={"@"+(conta.conexao?.username||conta.usuario||"").replace(/^@/,"")} sub={conta.nome} per={per}/><IgRelContaView conta={conta} mc={mc} c={c} per={per} pdf/></div>))}
+    </div>,toast);
+  };
+  const presets=[["7","7 dias"],["30","30 dias"],["90","90 dias"],["365","12 meses"]];
+  const inpD={padding:"5px 8px",borderRadius:8,border:"1.5px solid var(--border3)",fontSize:12.5,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)"};
+  const cabecalho=(<div style={{display:"flex",flexDirection:"column",gap:8}}>
+    <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+      <select value={sel} onChange={e=>setContaSel(e.target.value)} style={{padding:"7px 10px",borderRadius:9,border:"1.5px solid var(--border3)",fontSize:13,fontWeight:700,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)"}}>
+        <option value="">📊 Todas as contas (comparativo)</option>
+        {conectadas.map(c=><option key={c.id} value={c.id}>@{(c.conexao.username||c.usuario||c.nome).replace(/^@/,"")} — {c.nome}</option>)}
+      </select>
+      <div style={{display:"flex",border:"1px solid var(--border2)",borderRadius:9,overflow:"hidden"}}>
+        {presets.map(([k,l])=><button key={k} onClick={()=>setPer({...periodo,modo:k})} style={{padding:"6px 11px",border:"none",borderRight:"1px solid var(--border2)",background:periodo.modo===k?"#4f46e5":"var(--bg2)",color:periodo.modo===k?"#fff":"var(--text3)",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>)}
+        <button onClick={()=>{const hoje=igHojeISO();const ini=new Date(Date.now()-30*864e5-3*3600e3).toISOString().slice(0,10);setPer({modo:"custom",de:periodo.de||ini,ate:periodo.ate||hoje});}} style={{padding:"6px 11px",border:"none",background:periodo.modo==="custom"?"#4f46e5":"var(--bg2)",color:periodo.modo==="custom"?"#fff":"var(--text3)",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>📅 Datas</button>
+      </div>
+      {periodo.modo==="custom"&&<div style={{display:"flex",gap:6,alignItems:"center",fontSize:12,color:"var(--text3)"}}>
+        de <input type="date" value={periodo.de} max={periodo.ate||undefined} onChange={e=>setPer({...periodo,de:e.target.value})} style={inpD}/>
+        até <input type="date" value={periodo.ate} min={periodo.de||undefined} onChange={e=>setPer({...periodo,ate:e.target.value})} style={inpD}/>
+      </div>}
+      <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+        {sel&&metricas.contas?.[sel]?.atualizadoEm&&<span style={{fontSize:11,color:"var(--text4)"}}>atualizado {new Date(metricas.contas[sel].atualizadoEm).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}</span>}
+        <Btn onClick={atualizar} v="ghost" sz="sm" disabled={atualizando}>{atualizando?"⏳ Atualizando…":"🔄 Atualizar números"}</Btn>
+        {sel&&<Btn onClick={()=>pdfConta(sel)} v="ghost" sz="sm">📄 PDF desta conta</Btn>}
+        <Btn onClick={pdfTodas} sz="sm" col="#e1306c">📄 PDF de todas as contas</Btn>
+      </div>
     </div>
+    <div style={{fontSize:11.5,color:"var(--text3)"}}>Período: <b>{per.rotulo}</b> · comparado com os {Math.round((per.fim-per.ini)/864e5)} dias anteriores</div>
   </div>);
 
-  if(!conectadas.length)return(<div style={{display:"flex",flexDirection:"column",gap:12}}>
-    <div style={{...card,textAlign:"center",padding:"36px 20px",color:"var(--text3)"}}><div style={{fontSize:34}}>📊</div><div style={{fontWeight:900,fontSize:15,color:"var(--text)",marginTop:6}}>Relatórios precisam de uma conta conectada</div><div style={{fontSize:12.5,marginTop:6,lineHeight:1.5}}>Conecte as contas em <b>👤 Contas</b> (botão “Conectar com Instagram”). O robô passa a guardar os números todo dia para mostrar a evolução.</div></div>
-  </div>);
+  if(!conectadas.length)return(<div style={{...igCard,textAlign:"center",padding:"36px 20px",color:"var(--text3)"}}><div style={{fontSize:34}}>📊</div><div style={{fontWeight:900,fontSize:15,color:"var(--text)",marginTop:6}}>Relatórios precisam de uma conta conectada</div><div style={{fontSize:12.5,marginTop:6,lineHeight:1.5}}>Conecte as contas em <b>👤 Contas</b> (botão “Conectar com Instagram”). O robô passa a guardar os números todo dia para mostrar a evolução.</div></div>);
 
-  // ── Comparativo entre contas ──
-  if(!sel){
-    const linhas=conectadas.map(c=>({c,r:igResumoConta(metricas.contas?.[c.id],dias)})).sort((a,b)=>((b.r?.ganhoPct)??-1e9)-((a.r?.ganhoPct)??-1e9));
-    const th={padding:"9px 10px",fontSize:10.5,fontWeight:800,color:"var(--text3)",textTransform:"uppercase",textAlign:"right",background:"var(--bg3)",borderBottom:"1px solid var(--border2)",whiteSpace:"nowrap"};
-    const td={padding:"9px 10px",fontSize:12.5,borderTop:"1px solid var(--border2)",textAlign:"right",whiteSpace:"nowrap"};
-    const tot=linhas.reduce((a,{r})=>({seg:a.seg+(r?.atual||0),ganho:a.ganho+(r?.ganho||0),posts:a.posts+(r?.posts||0),int:a.int+(r?.interacoes||0)}),{seg:0,ganho:0,posts:0,int:0});
-    return(<div style={{display:"flex",flexDirection:"column",gap:12}}>
-      {cabecalho}
-      <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-        {kpi("Seguidores (todas)",igFmtN(tot.seg),<span style={{fontSize:11.5,fontWeight:800,color:tot.ganho>0?"#15803d":tot.ganho<0?"#b91c1c":"var(--text3)"}}>{tot.ganho>0?"+":""}{igFmtN(tot.ganho)} no período</span>)}
-        {kpi("Posts publicados",igFmtN(tot.posts),<span style={{fontSize:11,color:"var(--text4)"}}>últimos {dias} dias</span>)}
-        {kpi("Interações",igFmtN(tot.int),<span style={{fontSize:11,color:"var(--text4)"}}>curtidas + comentários{linhas.some(l=>l.r?.alcance!=null)?" + salvos + compart.":""}</span>)}
-      </div>
-      <div style={{...card,padding:0,overflow:"hidden"}}>
-        <div style={{padding:"12px 16px 4px",...tit}}>🏆 Comparativo entre contas · últimos {dias} dias</div>
-        <div style={{overflowX:"auto"}}>
-          <table style={{width:"100%",borderCollapse:"collapse",minWidth:820}}>
-            <thead><tr><th style={{...th,textAlign:"left"}}>Conta</th><th style={th}>Seguidores</th><th style={th}>Crescimento</th><th style={th}>Posts</th><th style={th}>Interações</th><th style={th}>Média por post</th><th style={th}>Engajamento</th><th style={{...th,textAlign:"left"}}>Post de destaque</th></tr></thead>
-            <tbody>{linhas.map(({c,r})=>{const top=r?.noPer?.slice().sort((a,b)=>igInteracoes(b)-igInteracoes(a))[0];return(
-              <tr key={c.id} onClick={()=>setContaSel(c.id)} style={{cursor:"pointer"}}>
-                <td style={{...td,textAlign:"left"}}><div style={{display:"flex",alignItems:"center",gap:8}}><IgAvatar conta={c} size={26}/><div><b>@{(c.conexao.username||c.usuario||"").replace(/^@/,"")}</b><div style={{fontSize:11,color:"var(--text3)"}}>{c.nome}</div></div></div></td>
-                <td style={{...td,fontWeight:800}}>{r?igFmtN(r.atual):"—"}</td>
-                <td style={{...td,fontWeight:800,color:r?.ganho>0?"#15803d":r?.ganho<0?"#b91c1c":"var(--text3)"}}>{r&&r.ganho!=null?(r.ganho>0?"+":"")+igFmtN(r.ganho)+" ("+igFmtPct(r.ganhoPct)+")":<span style={{fontWeight:500,color:"var(--text4)"}}>coletando…</span>}</td>
-                <td style={td}>{r?r.posts:"—"}</td>
-                <td style={td}>{r?igFmtN(r.interacoes):"—"}</td>
-                <td style={td}>{r&&r.posts?igFmtN(Math.round(r.media)):"—"}</td>
-                <td style={td}>{r&&r.taxa!=null&&r.posts?r.taxa.toLocaleString("pt-BR",{maximumFractionDigits:2})+"%":"—"}</td>
-                <td style={{...td,textAlign:"left",maxWidth:220,overflow:"hidden",textOverflow:"ellipsis"}}>{top?<a href={top.link} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} style={{color:"#be185d",fontWeight:700,fontSize:12}}>🔥 {igFmtN(igInteracoes(top))} · {(top.legenda||"(sem legenda)").slice(0,30)}</a>:"—"}</td>
-              </tr>);})}</tbody>
-          </table>
-        </div>
-        <div style={{padding:"8px 16px 12px",fontSize:11,color:"var(--text4)"}}>Clique numa conta para ver o relatório completo. Engajamento = interações médias por post ÷ seguidores.</div>
-      </div>
-    </div>);
-  }
+  if(!sel)return(<div style={{display:"flex",flexDirection:"column",gap:12}}>{cabecalho}<IgRelComparativo linhas={linhasTodas()} per={per} onSel={setContaSel}/></div>);
 
-  // ── Relatório de uma conta ──
-  const mc=metricas.contas?.[sel];
-  const conta=contas.find(c=>c.id===sel);
-  const r=igResumoConta(mc,dias);
-  if(!mc||!r)return(<div style={{display:"flex",flexDirection:"column",gap:12}}>{cabecalho}
-    <div style={{...card,textAlign:"center",padding:"36px 20px",color:"var(--text3)"}}><div style={{fontSize:34}}>⏳</div><div style={{fontWeight:900,fontSize:15,color:"var(--text)",marginTop:6}}>Ainda não há números desta conta</div><div style={{fontSize:12.5,marginTop:6}}>Clique em <b>🔄 Atualizar números</b>. Depois o robô atualiza sozinho uma vez por dia.</div></div></div>);
-  const media=r.noPer.length?r.interacoes/r.noPer.length:0;
-  const virais=r.noPer.slice().sort((a,b)=>igInteracoes(b)-igInteracoes(a)).slice(0,5);
-  const barras=r.noPer.slice().sort((a,b)=>a.ts.localeCompare(b.ts)).map(m=>({v:igInteracoes(m),link:m.link,viral:media>0&&igInteracoes(m)>=media*2,
-    dica:<><b>{igFmtN(igInteracoes(m))}</b> interações{media>0&&igInteracoes(m)>=media*2?<span style={{color:"#be185d",fontWeight:800}}> 🔥</span>:null}<div style={{color:"var(--text3)"}}>{new Date(m.ts).toLocaleDateString("pt-BR")} · {IG_TIPO_REL[m.tipo]||m.tipo}</div><div style={{color:"var(--text3)",whiteSpace:"normal"}}>{(m.legenda||"").slice(0,60)}</div></>}));
-  // melhor dia / horário / tipo (usa todos os posts conhecidos para ter amostra)
-  const amostra=r.todas.slice(0,120);
-  const agrupa=(chave)=>{const g={};amostra.forEach(m=>{const k=chave(m);(g[k]=g[k]||[]).push(igInteracoes(m));});return g;};
-  const porDia=agrupa(m=>igDowBR(m.ts));
-  const diasItens=IG_DIAS_SEM.map((n,i)=>{const l=porDia[i]||[];const mv=l.length?l.reduce((a,b)=>a+b,0)/l.length:0;return{v:Math.round(mv),rot:n,dica:<><b>{n}</b>: {igFmtN(Math.round(mv))} interações em média<div style={{color:"var(--text3)"}}>{l.length} post(s)</div></>};});
-  const melhorDia=diasItens.reduce((a,b)=>b.v>a.v?b:a,diasItens[0]);
-  const faixas=[["Madrugada","0h–6h",0,6],["Manhã","6h–12h",6,12],["Tarde","12h–18h",12,18],["Noite","18h–24h",18,24]];
-  const porFaixa=faixas.map(([n,h,a,b])=>{const l=amostra.filter(m=>{const x=igHoraBR(m.ts);return x>=a&&x<b;}).map(igInteracoes);return{n,h,qt:l.length,med:l.length?l.reduce((s,v)=>s+v,0)/l.length:0};});
-  const melhorFaixa=porFaixa.reduce((a,b)=>b.med>a.med?b:a,porFaixa[0]);
-  const porTipo=Object.entries(agrupa(m=>m.tipo)).map(([t,l])=>({t,qt:l.length,med:l.reduce((a,b)=>a+b,0)/l.length})).sort((a,b)=>b.med-a.med);
-  const mxTipo=Math.max(1,...porTipo.map(x=>x.med));
-  // planejado x publicado (do sistema)
-  const iniISO=new Date(Date.now()-dias*864e5).toISOString();
-  const doSis=posts.filter(p=>p.contaId===sel);
-  const planejados=doSis.filter(p=>p.data&&p.data>=iniISO.slice(0,10)&&p.data<=igHojeISO()).length;
-  const publicadosSis=doSis.filter(p=>p.status==="publicado"&&(p.publicadoEm||"")>=iniISO);
-  const pelaIA=publicadosSis.filter(p=>String(p.publicadoPor||"").includes("Robô")).length;
-  const atrasados=doSis.filter(igAtrasado).length;
-  const pontos=r.hist.filter(h=>h.d>=igDiaDe(iniISO)).map(h=>({d:h.d,v:h.seg}));
-  const user=(conta?.conexao?.username||conta?.usuario||"").replace(/^@/,"");
+  const mc=metricas.contas?.[sel];const conta=contas.find(c=>c.id===sel);
+  const c=igCalcConta(mc,per,posts,sel);
+  if(!mc||!c)return(<div style={{display:"flex",flexDirection:"column",gap:12}}>{cabecalho}
+    <div style={{...igCard,textAlign:"center",padding:"36px 20px",color:"var(--text3)"}}><div style={{fontSize:34}}>⏳</div><div style={{fontWeight:900,fontSize:15,color:"var(--text)",marginTop:6}}>Ainda não há números desta conta</div><div style={{fontSize:12.5,marginTop:6}}>Clique em <b>🔄 Atualizar números</b>. Depois o robô atualiza sozinho uma vez por dia.</div></div></div>);
+  const r=c.r;const user=(conta?.conexao?.username||conta?.usuario||"").replace(/^@/,"");
   const copiarResumo=async()=>{
-    const linhas=[`📊 Relatório do Instagram @${user} — últimos ${dias} dias`,"",
-      `👥 Seguidores: ${igFmtN(r.atual)}${r.ganho!=null?` (${r.ganho>=0?"+":""}${igFmtN(r.ganho)}, ${igFmtPct(r.ganhoPct)})`:""}`,
+    const linhas=[`📊 Relatório do Instagram @${user} — ${per.rotulo}`,"",
+      `👥 Seguidores: ${igFmtN(r.atual)}${r.ganho!=null?` (${r.ganho>=0?"+":""}${igFmtN(r.ganho)}${r.ganhoPct!=null?", "+igFmtPct(r.ganhoPct):""})`:""}`,
+      r.views!=null?`👁 Visualizações: ${igFmtN(r.views)}${r.viewsVar!=null?` (${igFmtPct(r.viewsVar)} vs período anterior)`:""}`:null,
       `📝 Posts publicados: ${r.posts}${r.postsAnt?` (antes: ${r.postsAnt})`:""}`,
       `❤️ Interações: ${igFmtN(r.interacoes)}${r.interacoesVar!=null?` (${igFmtPct(r.interacoesVar)} vs período anterior)`:""}`,
       `📈 Média por post: ${igFmtN(Math.round(r.media))}${r.mediaVar!=null?` (${igFmtPct(r.mediaVar)})`:""}`,
-      r.alcance!=null?`👀 Alcance médio por post: ${igFmtN(Math.round(r.alcance))}`:null,
-      virais[0]?`🔥 Post de destaque: "${(virais[0].legenda||"").slice(0,60)}" — ${igFmtN(igInteracoes(virais[0]))} interações ${virais[0].link}`:null,
-      melhorDia&&melhorDia.v?`📅 Melhor dia para postar: ${melhorDia.rot}`:null,
-      melhorFaixa&&melhorFaixa.qt?`🕐 Melhor horário: ${melhorFaixa.n} (${melhorFaixa.h})`:null,
-      porTipo[0]?`🎬 Formato que mais engaja: ${(IG_TIPO_REL[porTipo[0].t]||porTipo[0].t).replace(/^\S+\s/,"")}`:null,
+      c.virais[0]?`🔥 Post de destaque: "${(c.virais[0].legenda||"").slice(0,60)}" — ${igFmtN(igInteracoes(c.virais[0]))} interações ${c.virais[0].link}`:null,
+      c.maisVistos[0]?`👁 Mais visto: "${(c.maisVistos[0].legenda||"").slice(0,60)}" — ${igFmtN(c.maisVistos[0].views)} visualizações`:null,
+      c.melhorDia&&c.melhorDia.med?`📅 Melhor dia para postar: ${c.melhorDia.n}`:null,
+      c.melhorFaixa&&c.melhorFaixa.qt?`🕐 Melhor horário: ${c.melhorFaixa.n} (${c.melhorFaixa.h})`:null,
+      c.porTipo[0]?`🎬 Formato que mais engaja: ${(IG_TIPO_REL[c.porTipo[0].t]||c.porTipo[0].t).replace(/^\S+\s/,"")}`:null,
     ].filter(Boolean);
     const ok=await igCopiar(linhas.join("\n"));toast(ok?"📋 Resumo copiado — cole no WhatsApp do cliente.":"⚠️ Não foi possível copiar.","ok");
   };
   return(<div style={{display:"flex",flexDirection:"column",gap:12}}>
     {cabecalho}
-    <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-      <IgAvatar conta={conta} size={36}/>
-      <div><div style={{fontWeight:900,fontSize:16}}>@{user}</div><div style={{fontSize:11.5,color:"var(--text3)"}}>{conta?.nome} · {igFmtN(mc.perfil?.posts)} posts no perfil · seguindo {igFmtN(mc.perfil?.seguindo)}</div></div>
-      <Btn onClick={copiarResumo} sz="sm" col="#e1306c" xs={{marginLeft:"auto"}}>📋 Copiar resumo para o cliente</Btn>
-    </div>
-    {mc.insights===false&&<div style={{padding:"9px 12px",borderRadius:10,background:"#fffbeb",border:"1px solid #fcd34d",fontSize:12,color:"#92400e"}}>ℹ️ Alcance, visualizações, salvamentos e compartilhamentos não estão disponíveis: a configuração da Meta não tem a permissão <code>instagram_manage_insights</code>. Os relatórios usam curtidas, comentários e seguidores.</div>}
-    <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-      {kpi("Seguidores",igFmtN(r.atual),r.ganho!=null?<span style={{fontSize:11.5,fontWeight:800,color:r.ganho>0?"#15803d":r.ganho<0?"#b91c1c":"var(--text3)"}}>{r.ganho>0?"▲ +":r.ganho<0?"▼ ":""}{igFmtN(r.ganho)} ({igFmtPct(r.ganhoPct)}) no período</span>:<span style={{fontSize:11,color:"var(--text4)"}}>histórico desde {r.histDesde?r.histDesde.split("-").reverse().join("/"):"hoje"}</span>)}
-      {kpi("Posts publicados",igFmtN(r.posts),chipVar(r.postsVar))}
-      {kpi("Interações",igFmtN(r.interacoes),chipVar(r.interacoesVar),"Curtidas + comentários"+(r.alcance!=null?" + salvamentos + compartilhamentos":""))}
-      {kpi("Média por post",igFmtN(Math.round(r.media)),chipVar(r.mediaVar))}
-      {kpi("Engajamento",r.taxa!=null&&r.posts?r.taxa.toLocaleString("pt-BR",{maximumFractionDigits:2})+"%":"—",<span style={{fontSize:11,color:"var(--text4)"}}>{r.taxaAnt?"antes: "+r.taxaAnt.toLocaleString("pt-BR",{maximumFractionDigits:2})+"%":"interações por post ÷ seguidores"}</span>)}
-      {r.alcance!=null&&kpi("Alcance médio",igFmtN(Math.round(r.alcance)),chipVar(r.alcanceVar),"Pessoas alcançadas por post (média)")}
-    </div>
-    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))",gap:12}}>
-      <div style={card}><div style={tit}>👥 Seguidores</div><IgLinha pontos={pontos}/></div>
-      <div style={card}><div style={tit}>❤️ Interações por post <span style={{fontWeight:600,textTransform:"none",letterSpacing:0,color:"var(--text4)"}}>· rosa = 🔥 2× a média · clique abre o post</span></div><IgBarras itens={barras} destaque={it=>it.viral} altura={170}/></div>
-    </div>
-    <div style={card}>
-      <div style={tit}>🔥 Posts mais virais <span style={{fontWeight:600,textTransform:"none",letterSpacing:0,color:"var(--text4)"}}>· últimos {dias} dias</span></div>
-      {virais.length===0&&<div style={{fontSize:12.5,color:"var(--text4)"}}>Nenhum post no período.</div>}
-      <div style={{display:"flex",flexDirection:"column",gap:8}}>
-        {virais.map((m,i)=>{const x=media>0?igInteracoes(m)/media:0;return(<a key={m.id} href={m.link} target="_blank" rel="noopener noreferrer" style={{display:"flex",gap:10,alignItems:"center",padding:"8px 10px",borderRadius:11,border:"1px solid var(--border2)",background:i===0?"#fdf2f8":"var(--bg2)",textDecoration:"none",color:"var(--text)"}}>
-          <span style={{fontSize:16,fontWeight:900,width:22,textAlign:"center",color:i===0?"#be185d":"var(--text3)"}}>{i+1}º</span>
-          <div style={{width:48,height:48,borderRadius:8,background:m.img?`center/cover url("${m.img}")`:"var(--bg3)",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{!m.img&&"📷"}</div>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:12.5,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.legenda||<i style={{color:"var(--text4)"}}>sem legenda</i>}</div>
-            <div style={{fontSize:11,color:"var(--text3)",marginTop:2}}>{new Date(m.ts).toLocaleDateString("pt-BR")} · {IG_TIPO_REL[m.tipo]||m.tipo} · ❤️ {igFmtN(m.curtidas)} · 💬 {igFmtN(m.comentarios)}{m.salvos!=null?" · 🔖 "+igFmtN(m.salvos):""}{m.compart!=null?" · ➤ "+igFmtN(m.compart):""}{m.alcance!=null?" · 👀 "+igFmtN(m.alcance):""}</div>
-          </div>
-          <div style={{textAlign:"right",flexShrink:0}}><div style={{fontSize:16,fontWeight:900}}>{igFmtN(igInteracoes(m))}</div>{x>=1.5&&<div style={{fontSize:10.5,fontWeight:800,color:"#be185d"}}>🔥 {x.toLocaleString("pt-BR",{maximumFractionDigits:1})}× a média</div>}</div>
-        </a>);})}
-      </div>
-    </div>
-    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:12}}>
-      <div style={card}><div style={tit}>📅 Melhor dia para postar</div><IgBarras itens={diasItens} destaque={it=>it===melhorDia&&it.v>0} altura={110}/>
-        {melhorDia&&melhorDia.v>0&&<div style={{fontSize:12,color:"var(--text2)",marginTop:8}}>Posts de <b>{melhorDia.rot}</b> engajam mais (média de {igFmtN(melhorDia.v)} interações).</div>}</div>
-      <div style={card}><div style={tit}>🕐 Melhor horário</div>
-        <div style={{display:"flex",flexDirection:"column",gap:7}}>{porFaixa.map(f=>(<div key={f.n} title={`${f.qt} post(s)`} style={{display:"flex",alignItems:"center",gap:8,fontSize:12}}>
-          <span style={{width:118,color:"var(--text2)"}}><b>{f.n}</b> <span style={{color:"var(--text4)"}}>{f.h}</span></span>
-          <div style={{flex:1,height:10,background:"var(--bg3)",borderRadius:5,overflow:"hidden"}}><div style={{height:"100%",width:(melhorFaixa.med?f.med/melhorFaixa.med*100:0)+"%",background:f===melhorFaixa&&f.med>0?"#e1306c":"#6366f1",borderRadius:5}}/></div>
-          <span style={{width:46,textAlign:"right",fontWeight:800}}>{igFmtN(Math.round(f.med))}</span></div>))}</div>
-        <div style={{fontSize:11,color:"var(--text4)",marginTop:8}}>Média de interações por post, pelo horário em que foi publicado (horário de Brasília).</div></div>
-      <div style={card}><div style={tit}>🎬 Formato que mais engaja</div>
-        <div style={{display:"flex",flexDirection:"column",gap:7}}>{porTipo.length===0&&<div style={{fontSize:12,color:"var(--text4)"}}>Sem dados.</div>}{porTipo.map((t,i)=>(<div key={t.t} style={{display:"flex",alignItems:"center",gap:8,fontSize:12}}>
-          <span style={{width:118,color:"var(--text2)"}}><b>{IG_TIPO_REL[t.t]||t.t}</b> <span style={{color:"var(--text4)"}}>({t.qt})</span></span>
-          <div style={{flex:1,height:10,background:"var(--bg3)",borderRadius:5,overflow:"hidden"}}><div style={{height:"100%",width:(t.med/mxTipo*100)+"%",background:i===0?"#e1306c":"#6366f1",borderRadius:5}}/></div>
-          <span style={{width:46,textAlign:"right",fontWeight:800}}>{igFmtN(Math.round(t.med))}</span></div>))}</div></div>
-      <div style={card}><div style={tit}>📌 Planejado no sistema</div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,fontSize:12}}>
-          <div><div style={{fontSize:22,fontWeight:900}}>{planejados}</div><div style={{color:"var(--text3)"}}>posts com data no período</div></div>
-          <div><div style={{fontSize:22,fontWeight:900,color:"#15803d"}}>{publicadosSis.length}</div><div style={{color:"var(--text3)"}}>publicados pelo sistema</div></div>
-          <div><div style={{fontSize:22,fontWeight:900,color:"#4338ca"}}>{pelaIA}</div><div style={{color:"var(--text3)"}}>pelo 🤖 robô</div></div>
-          <div><div style={{fontSize:22,fontWeight:900,color:atrasados?"#b91c1c":"var(--text)"}}>{atrasados}</div><div style={{color:"var(--text3)"}}>atrasados agora</div></div>
-        </div></div>
-    </div>
+    <div style={{display:"flex",justifyContent:"flex-end"}}><Btn onClick={copiarResumo} v="ghost" sz="sm">📋 Copiar resumo para o cliente</Btn></div>
+    <IgRelContaView conta={conta} mc={mc} c={c} per={per}/>
   </div>);
 }
 

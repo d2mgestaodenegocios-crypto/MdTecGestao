@@ -43,7 +43,7 @@ const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: fal
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-secret",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-secret, x-mdtec-colab",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 const json = (obj: unknown, status = 200) =>
@@ -449,14 +449,28 @@ async function rodadaCron() {
 }
 
 // ── Usuário logado no sistema ────────────────────────────────────────
+// O MdTec Gestão tem dois logins: administrador (Supabase Auth) e colaboradores (login próprio do sistema).
+// 1) token do Supabase Auth válido → usuário confirmado
+// 2) colaborador: o sistema envia o id do colaborador; conferimos se ele existe e está ativo no cadastro
 async function usuarioDe(req: Request) {
   const auth = req.headers.get("authorization") || "";
   const jwt = auth.replace(/^Bearer\s+/i, "");
-  if (!jwt) return null;
-  const { data, error } = await db.auth.getUser(jwt);
-  if (error || !data?.user) return null;
-  const u = data.user;
-  return { id: u.id, nome: (u.user_metadata?.name as string) || (u.email || "").split("@")[0] || "Usuário" };
+  if (jwt) {
+    try {
+      const { data, error } = await db.auth.getUser(jwt);
+      if (!error && data?.user) {
+        const u = data.user;
+        return { id: u.id, nome: (u.user_metadata?.name as string) || (u.email || "").split("@")[0] || "Usuário" };
+      }
+    } catch (_) { /* tenta como colaborador */ }
+  }
+  const colabId = (req.headers.get("x-mdtec-colab") || "").trim();
+  if (!colabId) return null;
+  const { data } = await db.from("app_data").select("payload").eq("id", 1).maybeSingle();
+  const lista = (data?.payload?.collaborators || []) as Payload[];
+  const c = lista.find((x) => String(x.id) === colabId);
+  if (!c || c.ativo === false || c.inativo === true || c.status === "inativo") return null;
+  return { id: String(c.id), nome: c.name || c.nome || "Colaborador" };
 }
 
 async function api(req: Request) {

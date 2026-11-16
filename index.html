@@ -8138,11 +8138,15 @@ async function igMidiaParaArquivo(m,idx){
 // ── Robô de publicação (Supabase Edge Function "instagram") ─────────
 const IG_FUNC_URL=SUPABASE_URL+"/functions/v1/instagram";
 async function igApi(acao,dados={}){
-  let jwt="";
+  // Administrador: login do Supabase. Colaborador: login próprio do sistema (envia o id do colaborador).
+  let jwt="",colab="";
   try{const{data}=await sb.auth.getSession();jwt=data?.session?.access_token||"";}catch(e){}
-  if(!jwt)return{ok:false,erro:"Sessão expirada — saia e entre de novo no sistema."};
+  try{const loc=JSON.parse(localStorage.getItem("mdtec_local_session")||"null");colab=loc?._collabId||loc?.id||"";}catch(e){}
+  if(!jwt&&!colab)return{ok:false,erro:"Sessão expirada — saia e entre de novo no sistema."};
   try{
-    const r=await fetch(IG_FUNC_URL+"/api",{method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+jwt,apikey:SUPABASE_KEY},body:JSON.stringify({acao,...dados})});
+    const h={"Content-Type":"application/json",Authorization:"Bearer "+(jwt||SUPABASE_KEY),apikey:SUPABASE_KEY};
+    if(colab)h["x-mdtec-colab"]=String(colab);
+    const r=await fetch(IG_FUNC_URL+"/api",{method:"POST",headers:h,body:JSON.stringify({acao,...dados})});
     if(r.status===404){const t=await r.text().catch(()=>"");if(!/rota não encontrada/.test(t))return{ok:false,naoInstalado:true,erro:"O robô ainda não foi instalado no Supabase."};}
     const j=await r.json().catch(()=>null);
     if(!j||typeof j!=="object")return{ok:false,naoInstalado:true,erro:"O robô não respondeu corretamente (status "+r.status+")."};

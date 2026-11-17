@@ -9843,22 +9843,26 @@ function IgPDFModal({req,onClose,contasOp,montar,toast,imprimir}){
   const m=React.useMemo(()=>montar(idsUsados,{...req,versao}),[idsUsados.join(","),req,versao]);
   React.useEffect(()=>{
     let vivo=true;
+    if(!idsUsados.length){setSt({gerando:false,prog:0,url:"",erro:"Marque pelo menos uma conta acima para gerar o PDF.",tam:0,imagens:[]});return;}
     if(!m.paginas.length){setSt({gerando:false,prog:0,url:"",erro:"Nenhuma das contas escolhidas tem números no período.",tam:0,imagens:[]});return;}
     const ca=igPdfCache.get(m.chave);
     if(ca){setSt({gerando:false,prog:1,url:ca.url,erro:"",tam:ca.tam,imagens:ca.imagens||[]});return;}
     setSt({gerando:true,prog:0,url:"",erro:"",tam:0,imagens:[]});
     const t0=Date.now();
-    igMontarPDF(m.paginas,(i,n)=>{if(vivo)setSt(s=>({...s,prog:n?i/n:0}));})
+    // espera um instante: marcando/desmarcando várias contas seguidas, só gera uma vez no fim
+    let tm=null;
+    const iniciar=()=>igMontarPDF(m.paginas,(i,n)=>{if(vivo)setSt(s=>({...s,prog:n?i/n:0}));})
       .then(({blob,imagens})=>{const url=URL.createObjectURL(blob);igPdfGuardar(m.chave,{url,tam:blob.size,blob,imagens,ms:Date.now()-t0});if(vivo)setSt({gerando:false,prog:1,url,erro:"",tam:blob.size,imagens});})
       .catch(e=>{if(vivo)setSt({gerando:false,prog:0,url:"",erro:(e&&e.message)||String(e),tam:0,imagens:[]});});
-    return()=>{vivo=false;};
+    tm=setTimeout(()=>{if(vivo)iniciar();},450);
+    return()=>{vivo=false;clearTimeout(tm);};
   },[m.chave,tentativa]);
   const baixar=()=>{if(!st.url)return;const a=document.createElement("a");a.href=st.url;a.download=m.nome;document.body.appendChild(a);a.click();a.remove();toast("⬇️ Baixando "+m.nome,"ok");};
   const abrir=()=>{if(!st.url)return;const w=window.open(st.url,"_blank");if(!w)toast("⚠️ O navegador bloqueou a nova aba. Use ⬇ Baixar.","warn",7000);};
   const ca=igPdfCache.get(m.chave);
   const podeCompartilhar=!!(ca&&navigator.canShare&&(()=>{try{return navigator.canShare({files:[new File([ca.blob],m.nome,{type:"application/pdf"})]});}catch(e){return false;}})());
   const compartilhar=async()=>{try{await navigator.share({files:[new File([ca.blob],m.nome,{type:"application/pdf"})],title:m.titulo});}catch(e){}};
-  const alternar=(id)=>versao==="cliente"?setCliId(id):setIds(v=>v.includes(id)?(v.length>1?v.filter(x=>x!==id):v):[...v,id]);
+  const alternar=(id)=>versao==="cliente"?setCliId(id):setIds(v=>v.includes(id)?v.filter(x=>x!==id):[...v,id]);
   const btn=(bg,fg,bd)=>({border:"1px solid "+bd,background:bg,color:fg,borderRadius:9,padding:"7px 13px",fontSize:12.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"});
   return(<Modal open onClose={onClose} title={"📄 "+m.titulo} width={1000}>
     <div style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -9871,6 +9875,11 @@ function IgPDFModal({req,onClose,contasOp,montar,toast,imprimir}){
       </div>
       {(req.multi||versao==="cliente")&&contasOp.length>1&&<div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
         <span style={{fontSize:11.5,fontWeight:800,color:"var(--text3)"}}>{versao==="cliente"?"Cliente:":"Contas no PDF:"}</span>
+        {versao!=="cliente"&&<>
+          <button onClick={()=>setIds(contasOp.map(c=>c.id))} disabled={st.gerando||ids.length===contasOp.length} style={{border:"1px solid var(--border2)",background:"var(--bg2)",color:"var(--text2)",borderRadius:20,padding:"4px 10px",fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit",opacity:ids.length===contasOp.length?.5:1}}>☑ Marcar todas</button>
+          <button onClick={()=>setIds([])} disabled={st.gerando||!ids.length} style={{border:"1px solid var(--border2)",background:"var(--bg2)",color:"var(--text2)",borderRadius:20,padding:"4px 10px",fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit",opacity:ids.length?1:.5}}>☐ Desmarcar todas</button>
+          <span style={{width:1,height:18,background:"var(--border2)",margin:"0 2px"}}/>
+        </>}
         {contasOp.map(c=>{const on=idsUsados.includes(c.id);return(<button key={c.id} onClick={()=>alternar(c.id)} disabled={st.gerando} style={{display:"flex",alignItems:"center",gap:5,padding:"4px 10px 4px 5px",borderRadius:20,border:"1.5px solid "+(on?"#e1306c":"var(--border2)"),background:on?"#fdf2f8":"var(--bg2)",color:on?"#be185d":"var(--text3)",fontWeight:800,fontSize:11.5,cursor:"pointer",fontFamily:"inherit",opacity:st.gerando?.6:1}}>
           <IgAvatar conta={c} size={18}/>{on?"✓ ":""}@{(c.conexao?.username||c.usuario||c.nome).replace(/^@/,"")}</button>);})}
       </div>}
@@ -9898,8 +9907,8 @@ function IgPDFModal({req,onClose,contasOp,montar,toast,imprimir}){
         {st.erro&&<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,background:"var(--bg3)",color:"var(--text2)",padding:20,textAlign:"center"}}>
           <div style={{fontSize:30}}>⚠️</div><div style={{fontWeight:800}}>{st.erro}</div>
           <div style={{display:"flex",gap:8}}>
-            {m.paginas.length>0&&<button onClick={()=>setTentativa(t=>t+1)} style={btn("#e1306c","#fff","#e1306c")}>Tentar de novo</button>}
-            {m.paginas.length>0&&<button onClick={()=>imprimir(m)} style={btn("var(--bg2)","var(--text2)","var(--border2)")}>🖨 Abrir versão para imprimir</button>}
+            {m.paginas.length>0&&idsUsados.length>0&&<button onClick={()=>setTentativa(t=>t+1)} style={btn("#e1306c","#fff","#e1306c")}>Tentar de novo</button>}
+            {m.paginas.length>0&&idsUsados.length>0&&<button onClick={()=>imprimir(m)} style={btn("var(--bg2)","var(--text2)","var(--border2)")}>🖨 Abrir versão para imprimir</button>}
           </div></div>}
       </div>
       <div style={{fontSize:11,color:"var(--text4)"}}>Esta é a prévia do PDF. Use <b>⬇ Baixar PDF</b> para salvar o arquivo ou <b>↗ Abrir no navegador</b> para ver no leitor de PDF do navegador.</div>

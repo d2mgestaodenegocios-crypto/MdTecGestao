@@ -9175,15 +9175,16 @@ function IgLinha({pontos,altura=170}){
   </div>);
 }
 // Barras simples (uma série) com dica ao passar o mouse
-function IgBarras({itens,altura=150,destaque}){
+function IgBarras({itens,altura=150,destaque,valores}){
   const [hov,setHov]=React.useState(null);
   if(!itens||!itens.length)return<div style={{height:altura,display:"flex",alignItems:"center",justifyContent:"center",color:"var(--text4)",fontSize:12}}>Sem posts no período.</div>;
   const mx=Math.max(1,...itens.map(i=>i.v));
   return(<div style={{position:"relative"}}>
     <div style={{display:"flex",alignItems:"flex-end",gap:3,height:altura,padding:"0 2px",borderBottom:"1px solid var(--border2)"}}>
       {itens.map((it,i)=>(<div key={i} onMouseEnter={()=>setHov(i)} onMouseLeave={()=>setHov(null)} onClick={()=>it.link&&window.open(it.link,"_blank","noopener")}
-        style={{flex:1,minWidth:4,height:"100%",display:"flex",alignItems:"flex-end",cursor:it.link?"pointer":"default"}}>
-        <div style={{width:"100%",height:Math.max(2,(it.v/mx)*100)+"%",background:destaque&&destaque(it)?"#e1306c":"#6366f1",borderRadius:"4px 4px 0 0",opacity:hov==null||hov===i?1:.55,transition:"opacity .1s"}}/>
+        style={{flex:1,minWidth:4,height:"100%",display:"flex",flexDirection:"column",justifyContent:"flex-end",alignItems:"stretch",cursor:it.link?"pointer":"default"}}>
+        {valores&&(itens.length<=16||it.v===mx)&&<div style={{fontSize:9,fontWeight:800,color:"var(--text2)",textAlign:"center",lineHeight:1.1,marginBottom:1,whiteSpace:"nowrap",overflow:"visible"}}>{it.v>0?igFmtN(it.v):""}</div>}
+        <div style={{width:"100%",height:Math.max(2,(it.v/mx)*(valores?82:100))+"%",background:destaque&&destaque(it)?"#e1306c":"#6366f1",borderRadius:"4px 4px 0 0",opacity:hov==null||hov===i?1:.55,transition:"opacity .1s"}}/>
       </div>))}
     </div>
     {itens.some(i=>i.rot)&&<div style={{display:"flex",gap:3,padding:"4px 2px 0"}}>{itens.map((it,i)=><div key={i} style={{flex:1,minWidth:4,textAlign:"center",fontSize:10,color:"var(--text3)",overflow:"hidden",whiteSpace:"nowrap"}}>{it.rot||""}</div>)}</div>}
@@ -9226,87 +9227,126 @@ function IgRelacao({contas,posts,metricas,collaborators,onEditar,onRelatorio}){
 }
 
 // ── Peças do relatório (tela e PDF) ───────────────────────────────
-const igCard={background:"var(--bg2)",border:"1px solid var(--border2)",borderRadius:14,padding:"14px 16px",breakInside:"avoid"};
+const igCard={background:"var(--bg2)",border:"1px solid var(--border2)",borderRadius:14,padding:"14px 16px",breakInside:"avoid",minWidth:0};
+const igCardP={...igCard,borderRadius:10,padding:"9px 11px"};
 const igTit={fontSize:12,fontWeight:900,color:"var(--text2)",textTransform:"uppercase",letterSpacing:".05em",marginBottom:10,display:"flex",alignItems:"center",gap:6};
-function IgVar({v,rot}){return v==null?<span style={{fontSize:11,color:"var(--text4)"}}>sem comparação</span>:<span style={{fontSize:11.5,fontWeight:800,color:v>0?"#15803d":v<0?"#b91c1c":"var(--text3)"}}>{v>0?"▲":v<0?"▼":"="} {igFmtPct(v)} <span style={{fontWeight:600,color:"var(--text4)"}}>{rot||"vs período anterior"}</span></span>;}
-function IgKpi({rot,val,extra,dica}){return(<div title={dica||""} style={{...igCard,padding:"12px 14px",flex:"1 1 160px",minWidth:150}}>
-  <div style={{fontSize:11,fontWeight:800,color:"var(--text3)",textTransform:"uppercase",letterSpacing:".04em"}}>{rot}</div>
-  <div style={{fontSize:25,fontWeight:900,color:"var(--text)",lineHeight:1.15,marginTop:4}}>{val}</div>
-  <div style={{marginTop:4}}>{extra}</div></div>);}
+const igTitP={...igTit,fontSize:10,marginBottom:6};
+function IgVar({v,rot}){return v==null?<span style={{fontSize:rot===" "?9:11,color:"var(--text4)",whiteSpace:"nowrap"}}>{rot===" "?"sem compar.":"sem comparação"}</span>:<span style={{fontSize:11.5,fontWeight:800,color:v>0?"#15803d":v<0?"#b91c1c":"var(--text3)"}}>{v>0?"▲":v<0?"▼":"="} {igFmtPct(v)} <span style={{fontWeight:600,color:"var(--text4)"}}>{rot||"vs período anterior"}</span></span>;}
+function IgKpi({rot,val,extra,dica,pdf}){return(<div title={dica||""} style={pdf?{...igCardP,padding:"7px 9px"}:{...igCard,padding:"12px 14px",flex:"1 1 160px",minWidth:150}}>
+  <div style={{fontSize:pdf?8.5:11,fontWeight:800,color:"var(--text3)",textTransform:"uppercase",letterSpacing:".04em",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{rot}</div>
+  <div style={{fontSize:pdf?17:25,fontWeight:900,color:"var(--text)",lineHeight:1.15,marginTop:pdf?2:4}}>{val}</div>
+  <div style={{marginTop:pdf?1:4,fontSize:pdf?9:undefined,lineHeight:1.25}}>{extra}</div></div>);}
 function IgListaPosts({lista,media,porViews,pdf}){
   if(!lista.length)return<div style={{fontSize:12.5,color:"var(--text4)"}}>Nenhum post no período.</div>;
-  return(<div style={{display:"flex",flexDirection:"column",gap:7}}>
-    {lista.map((m,i)=>{const x=media>0?igInteracoes(m)/media:0;const Tag=pdf?"div":"a";return(<Tag key={m.id} {...(pdf?{}:{href:m.link,target:"_blank",rel:"noopener noreferrer"})} style={{display:"flex",gap:10,alignItems:"center",padding:"7px 10px",borderRadius:11,border:"1px solid var(--border2)",background:i===0?"#fdf2f8":"var(--bg2)",textDecoration:"none",color:"var(--text)",breakInside:"avoid"}}>
-      <span style={{fontSize:15,fontWeight:900,width:22,textAlign:"center",color:i===0?"#be185d":"var(--text3)"}}>{i+1}º</span>
-      <div style={{width:44,height:44,borderRadius:8,background:m.img?`center/cover url("${m.img}")`:"var(--bg3)",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>{!m.img&&"📷"}</div>
+  const nl={overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"};
+  return(<div style={{display:"flex",flexDirection:"column",gap:pdf?4:7}}>
+    {lista.map((m,i)=>{const x=media>0?igInteracoes(m)/media:0;const Tag=pdf?"div":"a";return(<Tag key={m.id} {...(pdf?{}:{href:m.link,target:"_blank",rel:"noopener noreferrer"})} style={{display:"flex",gap:pdf?7:10,alignItems:"center",padding:pdf?"4px 7px":"7px 10px",borderRadius:pdf?8:11,border:"1px solid var(--border2)",background:i===0?"#fdf2f8":"var(--bg2)",textDecoration:"none",color:"var(--text)",breakInside:"avoid",minWidth:0}}>
+      <span style={{fontSize:pdf?11:15,fontWeight:900,width:pdf?16:22,textAlign:"center",color:i===0?"#be185d":"var(--text3)",flexShrink:0}}>{i+1}º</span>
+      <div style={{width:pdf?30:44,height:pdf?30:44,borderRadius:pdf?6:8,background:m.img?`center/cover url("${m.img}")`:"var(--bg3)",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:pdf?12:16}}>{!m.img&&"📷"}</div>
       <div style={{flex:1,minWidth:0}}>
-        <div style={{fontSize:12.5,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.legenda||<i style={{color:"var(--text4)"}}>sem legenda</i>}</div>
-        <div style={{fontSize:11,color:"var(--text3)",marginTop:2}}>{new Date(m.ts).toLocaleDateString("pt-BR")} · {IG_TIPO_REL[m.tipo]||m.tipo}{m.views!=null?" · 👁 "+igFmtN(m.views):""} · ❤️ {igFmtN(m.curtidas)} · 💬 {igFmtN(m.comentarios)}{m.salvos!=null?" · 🔖 "+igFmtN(m.salvos):""}{m.compart!=null?" · ➤ "+igFmtN(m.compart):""}{m.alcance!=null?" · 👥 "+igFmtN(m.alcance):""}</div>
-        {pdf&&m.link&&<div style={{fontSize:9.5,color:"var(--text4)"}}>{m.link}</div>}
+        <div style={{fontSize:pdf?10:12.5,fontWeight:700,...nl}}>{m.legenda||<i style={{color:"var(--text4)"}}>sem legenda</i>}</div>
+        <div style={{fontSize:pdf?8.5:11,color:"var(--text3)",marginTop:1,...nl}}>{new Date(m.ts).toLocaleDateString("pt-BR")} · {IG_TIPO_REL[m.tipo]||m.tipo}{m.views!=null?" · 👁 "+igFmtN(m.views):""} · ❤️ {igFmtN(m.curtidas)} · 💬 {igFmtN(m.comentarios)}{m.salvos!=null?" · 🔖 "+igFmtN(m.salvos):""}{m.compart!=null?" · ➤ "+igFmtN(m.compart):""}{m.alcance!=null?" · 👥 "+igFmtN(m.alcance):""}</div>
       </div>
       <div style={{textAlign:"right",flexShrink:0}}>
-        <div style={{fontSize:15,fontWeight:900}}>{porViews?igFmtN(m.views):igFmtN(igInteracoes(m))}</div>
-        <div style={{fontSize:10,color:"var(--text4)"}}>{porViews?"visualizações":"interações"}</div>
-        {!porViews&&x>=1.5&&<div style={{fontSize:10.5,fontWeight:800,color:"#be185d"}}>🔥 {x.toLocaleString("pt-BR",{maximumFractionDigits:1})}× a média</div>}
+        <div style={{fontSize:pdf?12:15,fontWeight:900}}>{porViews?igFmtN(m.views):igFmtN(igInteracoes(m))}</div>
+        <div style={{fontSize:pdf?8:10,color:"var(--text4)"}}>{porViews?"visualiz.":"interações"}</div>
+        {!porViews&&x>=1.5&&<div style={{fontSize:pdf?8.5:10.5,fontWeight:800,color:"#be185d"}}>🔥 {x.toLocaleString("pt-BR",{maximumFractionDigits:1})}×</div>}
       </div>
     </Tag>);})}
   </div>);
 }
-function IgBarraH({rot,sub,v,mx,dest,valTxt}){return(<div style={{display:"flex",alignItems:"center",gap:8,fontSize:12}}>
-  <span style={{width:120,color:"var(--text2)"}}><b>{rot}</b> <span style={{color:"var(--text4)"}}>{sub}</span></span>
-  <div style={{flex:1,height:10,background:"var(--bg3)",borderRadius:5,overflow:"hidden"}}><div style={{height:"100%",width:(mx?v/mx*100:0)+"%",background:dest?"#e1306c":"#6366f1",borderRadius:5,printColorAdjust:"exact",WebkitPrintColorAdjust:"exact"}}/></div>
-  <span style={{width:50,textAlign:"right",fontWeight:800}}>{valTxt}</span></div>);}
+function IgBarraH({rot,sub,v,mx,dest,valTxt,pdf}){return(<div style={{display:"flex",alignItems:"center",gap:8,fontSize:pdf?9.5:12}}>
+  <span style={{width:pdf?56:120,color:"var(--text2)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",flexShrink:0}}><b>{rot}</b> <span style={{color:"var(--text4)"}}>{sub}</span></span>
+  <div style={{flex:1,height:pdf?7:10,background:"var(--bg3)",borderRadius:5,overflow:"hidden"}}><div style={{height:"100%",width:(mx?v/mx*100:0)+"%",background:dest?"#e1306c":"#6366f1",borderRadius:5}}/></div>
+  <span style={{width:pdf?26:50,textAlign:"right",fontWeight:800,flexShrink:0}}>{valTxt}</span></div>);}
+
+// Resumo em frases + recomendações (gerado a partir dos números)
+function igInsights(c,per){
+  const r=c.r;const L=[];const rec=[];
+  if(r.ganho!=null&&r.ganho!==0)L.push({ic:r.ganho>0?"📈":"📉",t:<>{r.ganho>0?"Ganhou":"Perdeu"} <b>{igFmtN(Math.abs(r.ganho))} seguidores</b>{r.ganhoPct!=null?<> ({igFmtPct(r.ganhoPct)})</>:null} no período.</>});
+  else if(r.ganho===0)L.push({ic:"➖",t:<>Seguidores estáveis no período (<b>{igFmtN(r.atual)}</b>).</>});
+  if(r.views!=null)L.push({ic:"👁",t:<><b>{igFmtN(r.views)} visualizações</b>{r.viewsVar!=null?<> — {r.viewsVar>=0?"alta":"queda"} de {igFmtPct(Math.abs(r.viewsVar))} vs período anterior</>:null}{r.viewsMed!=null?<>; média de {igFmtN(Math.round(r.viewsMed))} por post</>:null}.</>});
+  if(r.postsAnt||r.posts)L.push({ic:"📝",t:<><b>{r.posts} post(s)</b> publicados{r.postsAnt?<> (antes: {r.postsAnt})</>:null}{r.interacoesVar!=null?<>; interações {r.interacoesVar>=0?"subiram":"caíram"} {igFmtPct(Math.abs(r.interacoesVar))}</>:null}.</>});
+  if(c.virais[0]&&igInteracoes(c.virais[0])>0)L.push({ic:"🔥",t:<>Destaque: “{(c.virais[0].legenda||"sem legenda").slice(0,70)}{(c.virais[0].legenda||"").length>70?"…":""}” com <b>{igFmtN(igInteracoes(c.virais[0]))} interações</b>.</>});
+  const tipo=c.porTipo[0]&&c.porTipo.length>1&&c.porTipo[0].med>0?(IG_TIPO_REL[c.porTipo[0].t]||c.porTipo[0].t).replace(/^\S+\s/,""):null;
+  const DIAS_LONGOS={Dom:"domingos",Seg:"segundas",Ter:"terças",Qua:"quartas",Qui:"quintas",Sex:"sextas","Sáb":"sábados",Sab:"sábados"};
+  const dia=c.melhorDia&&c.melhorDia.med>0?(DIAS_LONGOS[c.melhorDia.n]||c.melhorDia.n):null;
+  const faixa=c.melhorFaixa&&c.melhorFaixa.med>0?c.melhorFaixa.n.toLowerCase():null;
+  if(tipo||dia||faixa)rec.push(<>Priorizar {tipo?<b>{tipo}</b>:"posts"}{dia?<> em <b>{dia}</b></>:null}{faixa?<> <b>{({"manhã":"pela manhã","tarde":"à tarde","noite":"à noite","madrugada":"de madrugada"})[faixa]||faixa}</b></>:null} — é o que mais engaja.</>);
+  const dias=Math.max(1,Math.round((per.fim-per.ini)/864e5));const porSem=r.posts/(dias/7);
+  if(dias>=14&&porSem<3)rec.push(<>Frequência baixa ({porSem.toLocaleString("pt-BR",{maximumFractionDigits:1})} post/semana). O ideal é de <b>3 a 5 por semana</b>.</>);
+  if(r.taxa!=null&&r.posts&&r.taxa<1)rec.push(<>Engajamento de {r.taxa.toLocaleString("pt-BR",{maximumFractionDigits:2})}%: usar chamadas para ação (“salve”, “comente”, “envie para alguém”) e mais Reels.</>);
+  if(r.views==null)rec.push(<>Reconectar a conta com a permissão de estatísticas para medir visualizações e alcance.</>);
+  return{L,rec};
+}
+function IgResumoBox({c,per,pdf}){
+  const {L,rec}=igInsights(c,per);if(!L.length&&!rec.length)return null;
+  return(<div style={{...(pdf?igCardP:igCard),background:"linear-gradient(135deg,#fdf2f8,#eef2ff)",borderColor:"#f5d0e6"}}>
+    <div style={{display:"grid",gridTemplateColumns:pdf?"1.3fr 1fr":"repeat(auto-fit,minmax(280px,1fr))",gap:pdf?10:16}}>
+      <div style={{minWidth:0}}><div style={pdf?igTitP:igTit}>🧾 Resumo do período</div>
+        <div style={{display:"flex",flexDirection:"column",gap:pdf?3:5}}>{L.map((x,i)=><div key={i} style={{fontSize:pdf?9.5:12.5,color:"#1e293b",lineHeight:1.35,display:"flex",gap:6}}><span>{x.ic}</span><span style={{minWidth:0}}>{x.t}</span></div>)}</div></div>
+      {rec.length>0&&<div style={{minWidth:0}}><div style={pdf?igTitP:igTit}>💡 Recomendações</div>
+        <div style={{display:"flex",flexDirection:"column",gap:pdf?3:5}}>{rec.map((x,i)=><div key={i} style={{fontSize:pdf?9.5:12.5,color:"#1e293b",lineHeight:1.35,display:"flex",gap:6}}><span>{i+1}.</span><span style={{minWidth:0}}>{x}</span></div>)}</div></div>}
+    </div>
+  </div>);
+}
 
 // Relatório completo de uma conta
 function IgRelContaView({conta,mc,c,per,pdf}){
   const r=c.r;const user=(conta?.conexao?.username||conta?.usuario||"").replace(/^@/,"");
   const temViews=r.views!=null;
-  const barrasInt=c.cron.map(m=>({v:igInteracoes(m),link:pdf?null:m.link,viral:c.media>0&&igInteracoes(m)>=c.media*2,rot:c.cron.length<=16?new Date(m.ts).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"}):"",
+  const card=pdf?igCardP:igCard,tit=pdf?igTitP:igTit;
+  const dd=(m)=>new Date(m.ts).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"});
+  const mostraRot=c.cron.length<=(pdf?12:16);
+  const barrasInt=c.cron.map(m=>({v:igInteracoes(m),link:pdf?null:m.link,viral:c.media>0&&igInteracoes(m)>=c.media*2,rot:mostraRot?dd(m):"",
     dica:<><b>{igFmtN(igInteracoes(m))}</b> interações{m.views!=null?<> · {igFmtN(m.views)} visualizações</>:null}<div style={{color:"var(--text3)"}}>{new Date(m.ts).toLocaleDateString("pt-BR")} · {IG_TIPO_REL[m.tipo]||m.tipo}</div><div style={{color:"var(--text3)",whiteSpace:"normal"}}>{(m.legenda||"").slice(0,60)}</div></>}));
-  const barrasViews=c.cron.filter(m=>m.views!=null).map(m=>({v:m.views,link:pdf?null:m.link,rot:c.cron.length<=16?new Date(m.ts).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"}):"",
+  const barrasViews=c.cron.filter(m=>m.views!=null).map(m=>({v:m.views,link:pdf?null:m.link,rot:mostraRot?dd(m):"",
     dica:<><b>{igFmtN(m.views)}</b> visualizações<div style={{color:"var(--text3)"}}>{new Date(m.ts).toLocaleDateString("pt-BR")} · {IG_TIPO_REL[m.tipo]||m.tipo}</div><div style={{color:"var(--text3)",whiteSpace:"normal"}}>{(m.legenda||"").slice(0,60)}</div></>}));
   const diasItens=c.dias.map(d=>({v:Math.round(d.med),rot:d.n,dest:d===c.melhorDia&&d.med>0,dica:<><b>{d.n}</b>: {igFmtN(Math.round(d.med))} interações em média<div style={{color:"var(--text3)"}}>{d.qt} post(s)</div></>}));
   const mxTipo=Math.max(1,...c.porTipo.map(x=>x.med));
-  const grid2={display:"grid",gridTemplateColumns:pdf?"1fr 1fr":"repeat(auto-fit,minmax(320px,1fr))",gap:12};
-  return(<div style={{display:"flex",flexDirection:"column",gap:12}}>
-    <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+  const nTop=pdf?3:5;
+  const grid2={display:"grid",gridTemplateColumns:pdf?"minmax(0,1fr) minmax(0,1fr)":"repeat(auto-fit,minmax(320px,1fr))",gap:pdf?8:12};
+  const hBar=pdf?95:170;
+  const kpis=[
+    <IgKpi key="s" pdf={pdf} rot="Seguidores" val={igFmtN(r.atual)} extra={r.ganho!=null?<span style={{fontSize:pdf?9:11.5,fontWeight:800,color:r.ganho>0?"#15803d":r.ganho<0?"#b91c1c":"var(--text3)"}}>{r.ganho>0?"▲ +":r.ganho<0?"▼ ":""}{igFmtN(r.ganho)}{r.ganhoPct!=null?" ("+igFmtPct(r.ganhoPct)+")":""}{pdf?"":" no período"}</span>:<span style={{fontSize:pdf?9:11,color:"var(--text4)"}}>desde {r.histDesde?r.histDesde.split("-").reverse().join("/"):"hoje"}</span>}/>,
+    <IgKpi key="v" pdf={pdf} rot="Visualizações" val={temViews?igFmtN(r.views):"—"} extra={temViews?<IgVar v={r.viewsVar} rot={pdf?" ":undefined}/>:<span style={{fontSize:pdf?9:11,color:"var(--text4)"}}>{pdf?"sem permissão":"precisa da permissão de estatísticas"}</span>} dica="Soma das visualizações dos posts publicados no período"/>,
+    <IgKpi key="p" pdf={pdf} rot="Posts" val={igFmtN(r.posts)} extra={<IgVar v={r.postsVar} rot={pdf?" ":undefined}/>}/>,
+    <IgKpi key="i" pdf={pdf} rot="Interações" val={igFmtN(r.interacoes)} extra={<IgVar v={r.interacoesVar} rot={pdf?" ":undefined}/>} dica="Curtidas + comentários + salvamentos + compartilhamentos"/>,
+    <IgKpi key="m" pdf={pdf} rot="Média/post" val={igFmtN(Math.round(r.media))} extra={<IgVar v={r.mediaVar} rot={pdf?" ":undefined}/>} dica="Interações por post"/>,
+    <IgKpi key="e" pdf={pdf} rot="Engajamento" val={r.taxa!=null&&r.posts?r.taxa.toLocaleString("pt-BR",{maximumFractionDigits:2})+"%":"—"} extra={<span style={{fontSize:pdf?9:11,color:"var(--text4)"}}>{r.taxaAnt?"antes: "+r.taxaAnt.toLocaleString("pt-BR",{maximumFractionDigits:2})+"%":pdf?"por post ÷ seguid.":"interações por post ÷ seguidores"}</span>}/>,
+    r.alcance!=null?<IgKpi key="a" pdf={pdf} rot="Alcance médio" val={igFmtN(Math.round(r.alcance))} extra={<IgVar v={r.alcanceVar} rot={pdf?" ":undefined}/>} dica="Pessoas alcançadas por post (média)"/>:null,
+  ].filter(Boolean);
+  return(<div style={{display:"flex",flexDirection:"column",gap:pdf?8:12}}>
+    {!pdf&&<div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
       <IgAvatar conta={conta} size={38}/>
       <div><div style={{fontWeight:900,fontSize:17}}>@{user}</div><div style={{fontSize:11.5,color:"var(--text3)"}}>{conta?.nome} · {igFmtN(mc.perfil?.posts)} posts no perfil · seguindo {igFmtN(mc.perfil?.seguindo)} · {per.rotulo}</div></div>
-    </div>
-    {mc.insights===false&&<div style={{padding:"9px 12px",borderRadius:10,background:"#fffbeb",border:"1px solid #fcd34d",fontSize:12,color:"#92400e"}}>ℹ️ Visualizações, alcance, salvamentos e compartilhamentos não estão disponíveis: a conexão desta conta não tem a permissão <code>instagram_manage_insights</code>. Os números usam curtidas, comentários e seguidores.</div>}
-    <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-      <IgKpi rot="Seguidores" val={igFmtN(r.atual)} extra={r.ganho!=null?<span style={{fontSize:11.5,fontWeight:800,color:r.ganho>0?"#15803d":r.ganho<0?"#b91c1c":"var(--text3)"}}>{r.ganho>0?"▲ +":r.ganho<0?"▼ ":""}{igFmtN(r.ganho)}{r.ganhoPct!=null?" ("+igFmtPct(r.ganhoPct)+")":""} no período</span>:<span style={{fontSize:11,color:"var(--text4)"}}>histórico desde {r.histDesde?r.histDesde.split("-").reverse().join("/"):"hoje"}</span>}/>
-      <IgKpi rot="Visualizações" val={temViews?igFmtN(r.views):"—"} extra={temViews?<IgVar v={r.viewsVar}/>:<span style={{fontSize:11,color:"var(--text4)"}}>precisa da permissão de estatísticas</span>} dica="Soma das visualizações dos posts publicados no período"/>
-      <IgKpi rot="Posts publicados" val={igFmtN(r.posts)} extra={<IgVar v={r.postsVar}/>}/>
-      <IgKpi rot="Interações" val={igFmtN(r.interacoes)} extra={<IgVar v={r.interacoesVar}/>} dica="Curtidas + comentários + salvamentos + compartilhamentos"/>
-      <IgKpi rot="Média por post" val={igFmtN(Math.round(r.media))} extra={<IgVar v={r.mediaVar}/>} dica="Interações por post"/>
-      <IgKpi rot="Engajamento" val={r.taxa!=null&&r.posts?r.taxa.toLocaleString("pt-BR",{maximumFractionDigits:2})+"%":"—"} extra={<span style={{fontSize:11,color:"var(--text4)"}}>{r.taxaAnt?"antes: "+r.taxaAnt.toLocaleString("pt-BR",{maximumFractionDigits:2})+"%":"interações por post ÷ seguidores"}</span>}/>
-      {r.alcance!=null&&<IgKpi rot="Alcance médio" val={igFmtN(Math.round(r.alcance))} extra={<IgVar v={r.alcanceVar}/>} dica="Pessoas alcançadas por post (média)"/>}
-    </div>
+    </div>}
+    {mc.insights===false&&!pdf&&<div style={{padding:"9px 12px",borderRadius:10,background:"#fffbeb",border:"1px solid #fcd34d",fontSize:12,color:"#92400e"}}>ℹ️ Visualizações, alcance, salvamentos e compartilhamentos não estão disponíveis: a conexão desta conta não tem a permissão <code>instagram_manage_insights</code>. Os números usam curtidas, comentários e seguidores.</div>}
+    <div style={pdf?{display:"grid",gridTemplateColumns:`repeat(${kpis.length},minmax(0,1fr))`,gap:6}:{display:"flex",gap:10,flexWrap:"wrap"}}>{kpis}</div>
+    <IgResumoBox c={c} per={per} pdf={pdf}/>
     <div style={grid2}>
-      <div style={igCard}><div style={igTit}>👥 Seguidores</div><IgLinha pontos={c.pontos}/></div>
+      <div style={card}><div style={tit}>👥 Seguidores</div><IgLinha pontos={c.pontos} altura={pdf?110:170}/></div>
       {temViews
-        ?<div style={igCard}><div style={igTit}>👁 Visualizações por post</div><IgBarras itens={barrasViews} altura={170}/></div>
-        :<div style={igCard}><div style={igTit}>❤️ Interações por post <span style={{fontWeight:600,textTransform:"none",letterSpacing:0,color:"var(--text4)"}}>· rosa = 🔥 2× a média</span></div><IgBarras itens={barrasInt} destaque={it=>it.viral} altura={170}/></div>}
+        ?<div style={card}><div style={tit}>👁 Visualizações por post</div><IgBarras itens={barrasViews} altura={hBar} valores={pdf||barrasViews.length<=16}/></div>
+        :<div style={card}><div style={tit}>❤️ Interações por post <span style={{fontWeight:600,textTransform:"none",letterSpacing:0,color:"var(--text4)"}}>· rosa = 🔥 2× a média</span></div><IgBarras itens={barrasInt} destaque={it=>it.viral} altura={hBar} valores={pdf||barrasInt.length<=16}/></div>}
     </div>
-    {temViews&&<div style={igCard}><div style={igTit}>❤️ Interações por post <span style={{fontWeight:600,textTransform:"none",letterSpacing:0,color:"var(--text4)"}}>· rosa = 🔥 2× a média{pdf?"":" · clique abre o post"}</span></div><IgBarras itens={barrasInt} destaque={it=>it.viral} altura={150}/></div>}
-    <div style={grid2}>
-      <div style={igCard}><div style={igTit}>🔥 Posts mais virais <span style={{fontWeight:600,textTransform:"none",letterSpacing:0,color:"var(--text4)"}}>· por interações</span></div><IgListaPosts lista={c.virais} media={c.media} pdf={pdf}/></div>
-      {temViews&&<div style={igCard}><div style={igTit}>👁 Posts mais vistos</div><IgListaPosts lista={c.maisVistos} media={c.media} porViews pdf={pdf}/></div>}
+    {temViews&&<div style={card}><div style={tit}>❤️ Interações por post <span style={{fontWeight:600,textTransform:"none",letterSpacing:0,color:"var(--text4)"}}>· rosa = 🔥 2× a média{pdf?"":" · clique abre o post"}</span></div><IgBarras itens={barrasInt} destaque={it=>it.viral} altura={pdf?80:150} valores={pdf||barrasInt.length<=16}/></div>}
+    <div style={temViews?grid2:{display:"block"}}>
+      <div style={card}><div style={tit}>🔥 Posts mais virais <span style={{fontWeight:600,textTransform:"none",letterSpacing:0,color:"var(--text4)"}}>· por interações</span></div><IgListaPosts lista={c.virais.slice(0,nTop)} media={c.media} pdf={pdf}/></div>
+      {temViews&&<div style={card}><div style={tit}>👁 Posts mais vistos</div><IgListaPosts lista={c.maisVistos.slice(0,nTop)} media={c.media} porViews pdf={pdf}/></div>}
     </div>
-    <div style={{display:"grid",gridTemplateColumns:pdf?"1fr 1fr":"repeat(auto-fit,minmax(260px,1fr))",gap:12}}>
-      <div style={igCard}><div style={igTit}>📅 Melhor dia para postar</div><IgBarras itens={diasItens} destaque={it=>it.dest} altura={100}/>
-        {c.melhorDia&&c.melhorDia.med>0&&<div style={{fontSize:12,color:"var(--text2)",marginTop:8}}>Posts de <b>{c.melhorDia.n}</b> engajam mais (média de {igFmtN(Math.round(c.melhorDia.med))} interações).</div>}</div>
-      <div style={igCard}><div style={igTit}>🕐 Melhor horário</div>
-        <div style={{display:"flex",flexDirection:"column",gap:7}}>{c.porFaixa.map(f=><IgBarraH key={f.n} rot={f.n} sub={f.h} v={f.med} mx={c.melhorFaixa.med} dest={f===c.melhorFaixa&&f.med>0} valTxt={igFmtN(Math.round(f.med))}/>)}</div>
-        <div style={{fontSize:11,color:"var(--text4)",marginTop:8}}>Média de interações por post, pelo horário de publicação (Brasília).</div></div>
-      <div style={igCard}><div style={igTit}>🎬 Formato que mais engaja</div>
-        <div style={{display:"flex",flexDirection:"column",gap:7}}>{c.porTipo.length===0&&<div style={{fontSize:12,color:"var(--text4)"}}>Sem dados.</div>}{c.porTipo.map((t,i)=><IgBarraH key={t.t} rot={IG_TIPO_REL[t.t]||t.t} sub={"("+t.qt+")"} v={t.med} mx={mxTipo} dest={i===0} valTxt={igFmtN(Math.round(t.med))}/>)}</div></div>
-      <div style={igCard}><div style={igTit}>📌 Planejado no sistema</div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,fontSize:12}}>
-          <div><div style={{fontSize:22,fontWeight:900}}>{c.planejados}</div><div style={{color:"var(--text3)"}}>posts com data no período</div></div>
-          <div><div style={{fontSize:22,fontWeight:900,color:"#15803d"}}>{c.publicados}</div><div style={{color:"var(--text3)"}}>publicados pelo sistema</div></div>
-          <div><div style={{fontSize:22,fontWeight:900,color:"#4338ca"}}>{c.pelaIA}</div><div style={{color:"var(--text3)"}}>pelo 🤖 robô</div></div>
+    <div style={{display:"grid",gridTemplateColumns:pdf?"repeat(4,minmax(0,1fr))":"repeat(auto-fit,minmax(260px,1fr))",gap:pdf?8:12}}>
+      <div style={card}><div style={tit}>📅 Melhor dia</div><IgBarras itens={diasItens.map(d=>({...d,rot:pdf?d.rot.slice(0,1):d.rot}))} destaque={it=>it.dest} altura={pdf?55:100} valores={pdf}/>
+        {c.melhorDia&&c.melhorDia.med>0&&<div style={{fontSize:pdf?9:12,color:"var(--text2)",marginTop:pdf?4:8}}>Posts de <b>{c.melhorDia.n}</b> engajam mais{pdf?"":<> (média de {igFmtN(Math.round(c.melhorDia.med))} interações)</>}.</div>}</div>
+      <div style={card}><div style={tit}>🕐 Melhor horário</div>
+        <div style={{display:"flex",flexDirection:"column",gap:pdf?4:7}}>{c.porFaixa.map(f=><IgBarraH key={f.n} pdf={pdf} rot={f.n} sub={pdf?"":f.h} v={f.med} mx={c.melhorFaixa.med} dest={f===c.melhorFaixa&&f.med>0} valTxt={igFmtN(Math.round(f.med))}/>)}</div>
+        {!pdf&&<div style={{fontSize:11,color:"var(--text4)",marginTop:8}}>Média de interações por post, pelo horário de publicação (Brasília).</div>}</div>
+      <div style={card}><div style={tit}>🎬 Formato</div>
+        <div style={{display:"flex",flexDirection:"column",gap:pdf?4:7}}>{c.porTipo.length===0&&<div style={{fontSize:12,color:"var(--text4)"}}>Sem dados.</div>}{c.porTipo.map((t,i)=><IgBarraH key={t.t} pdf={pdf} rot={pdf?(IG_TIPO_REL[t.t]||t.t).replace(/\s*\(.*\)$/,""):IG_TIPO_REL[t.t]||t.t} sub={pdf?"":"("+t.qt+")"} v={t.med} mx={mxTipo} dest={i===0} valTxt={igFmtN(Math.round(t.med))}/>)}</div></div>
+      <div style={card}><div style={tit}>📌 No sistema</div>
+        <div style={{display:"grid",gridTemplateColumns:pdf?"1fr":"1fr 1fr",gap:pdf?3:8,fontSize:pdf?9.5:12}}>
+          {[[c.planejados,"posts com data no período","var(--text)"],[c.publicados,"publicados pelo sistema","#15803d"],[c.pelaIA,"pelo 🤖 robô","#4338ca"]].map(([n,l,cor])=>
+            <div key={l} style={pdf?{display:"flex",gap:6,alignItems:"baseline"}:{}}><div style={{fontSize:pdf?14:22,fontWeight:900,color:cor}}>{n}</div><div style={{color:"var(--text3)"}}>{l}</div></div>)}
         </div></div>
     </div>
   </div>);
@@ -9318,11 +9358,11 @@ function IgRelComparativo({linhas,per,pdf,onSel}){
   const td={padding:pdf?"6px 5px":"8px 9px",fontSize:pdf?10.5:12,borderTop:"1px solid var(--border2)",textAlign:"right",whiteSpace:"nowrap"};
   const tot=linhas.reduce((a,{r})=>({seg:a.seg+(r?.atual||0),ganho:a.ganho+(r?.ganho||0),posts:a.posts+(r?.posts||0),int:a.int+(r?.interacoes||0),views:a.views+(r?.views||0),temViews:a.temViews||r?.views!=null}),{seg:0,ganho:0,posts:0,int:0,views:0,temViews:false});
   return(<div style={{display:"flex",flexDirection:"column",gap:12}}>
-    <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-      <IgKpi rot="Seguidores (todas)" val={igFmtN(tot.seg)} extra={<span style={{fontSize:11.5,fontWeight:800,color:tot.ganho>0?"#15803d":tot.ganho<0?"#b91c1c":"var(--text3)"}}>{tot.ganho>0?"+":""}{igFmtN(tot.ganho)} no período</span>}/>
-      <IgKpi rot="Visualizações" val={tot.temViews?igFmtN(tot.views):"—"} extra={<span style={{fontSize:11,color:"var(--text4)"}}>{tot.temViews?"posts do período":"precisa da permissão de estatísticas"}</span>}/>
-      <IgKpi rot="Posts publicados" val={igFmtN(tot.posts)} extra={<span style={{fontSize:11,color:"var(--text4)"}}>{per.rotulo}</span>}/>
-      <IgKpi rot="Interações" val={igFmtN(tot.int)} extra={<span style={{fontSize:11,color:"var(--text4)"}}>curtidas + comentários + salvos + compart.</span>}/>
+    <div style={pdf?{display:"grid",gridTemplateColumns:"repeat(4,minmax(0,1fr))",gap:6}:{display:"flex",gap:10,flexWrap:"wrap"}}>
+      <IgKpi pdf={pdf} rot="Seguidores (todas)" val={igFmtN(tot.seg)} extra={<span style={{fontSize:11.5,fontWeight:800,color:tot.ganho>0?"#15803d":tot.ganho<0?"#b91c1c":"var(--text3)"}}>{tot.ganho>0?"+":""}{igFmtN(tot.ganho)} no período</span>}/>
+      <IgKpi pdf={pdf} rot="Visualizações" val={tot.temViews?igFmtN(tot.views):"—"} extra={<span style={{fontSize:11,color:"var(--text4)"}}>{tot.temViews?"posts do período":"precisa da permissão de estatísticas"}</span>}/>
+      <IgKpi pdf={pdf} rot="Posts publicados" val={igFmtN(tot.posts)} extra={<span style={{fontSize:11,color:"var(--text4)"}}>{per.rotulo}</span>}/>
+      <IgKpi pdf={pdf} rot="Interações" val={igFmtN(tot.int)} extra={<span style={{fontSize:11,color:"var(--text4)"}}>curtidas + comentários + salvos + compart.</span>}/>
     </div>
     <div style={{...igCard,padding:0,overflow:"hidden"}}>
       <div style={{padding:"12px 16px 4px",...igTit}}>🏆 Comparativo entre contas · {per.rotulo}</div>
@@ -9358,10 +9398,11 @@ function igGerarPDF(titulo,elemento,toast){
 <style>
 :root{--bg:#fff;--bg2:#fff;--bg3:#f8fafc;--bg4:#f9fafb;--text:#0f172a;--text2:#374151;--text3:#64748b;--text4:#94a3b8;--border:#f1f5f9;--border2:#e2e8f0;--border3:#e5e7eb}
 *{box-sizing:border-box}html,body{margin:0;background:#fff;color:#0f172a;font-family:'Plus Jakarta Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-#root{max-width:1000px;margin:0 auto;padding:22px}
+#root{width:720px;margin:0 auto;padding:18px 0}
 .quebra{break-before:page;page-break-before:always}
-@page{size:A4;margin:11mm}
-@media print{#root{padding:0;max-width:none}.naoimprime{display:none!important}a{color:inherit;text-decoration:none}}
+@page{size:A4;margin:10mm 10mm 12mm;@bottom-right{content:"página " counter(page) " de " counter(pages);font:9px system-ui,sans-serif;color:#94a3b8}@bottom-left{content:"MdTec Gestão · Relatório do Instagram";font:9px system-ui,sans-serif;color:#94a3b8}}
+html{background:#f1f5f9}body{background:#f1f5f9}#root{background:#fff;padding:18px 20px;box-shadow:0 4px 24px rgba(0,0,0,.08);margin-top:14px;margin-bottom:24px}
+@media print{html,body{background:#fff}#root{padding:0;width:auto;max-width:none;box-shadow:none;margin:0}.naoimprime{display:none!important}a{color:inherit;text-decoration:none}}
 .barra{position:sticky;top:0;background:#fff;border-bottom:1px solid #e2e8f0;padding:10px 22px;display:flex;gap:10px;align-items:center;font-size:13px;z-index:5}
 .barra button{border:none;background:#e1306c;color:#fff;font-weight:800;padding:8px 16px;border-radius:9px;cursor:pointer;font-size:13px}
 </style></head><body><div class="barra naoimprime"><b>📄 ${titulo.replace(/[<>&"]/g,"")}</b><span style="color:#64748b">Na janela de impressão, escolha <b>Salvar como PDF</b>.</span><button onclick="window.print()" style="margin-left:auto">Salvar PDF</button></div><div id="root"></div></body></html>`);
@@ -9371,11 +9412,12 @@ function igGerarPDF(titulo,elemento,toast){
     setTimeout(()=>{try{w.focus();w.print();}catch(e){}},1200);
   }catch(e){toast&&toast("⚠️ Não foi possível montar o PDF: "+e.message,"err");}
 }
-function IgPDFCapa({titulo,sub,per}){
-  return(<div style={{display:"flex",alignItems:"center",gap:14,paddingBottom:14,marginBottom:14,borderBottom:"2px solid #e1306c"}}>
-    <div style={{width:46,height:46,borderRadius:12,background:"linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,color:"#fff",printColorAdjust:"exact",WebkitPrintColorAdjust:"exact"}}>📸</div>
-    <div style={{flex:1}}><div style={{fontSize:21,fontWeight:900}}>{titulo}</div><div style={{fontSize:12.5,color:"#64748b"}}>{sub} · Período: <b>{per.rotulo}</b> (comparado com o período anterior de mesmo tamanho)</div></div>
-    <div style={{textAlign:"right",fontSize:11,color:"#64748b"}}><b style={{color:"#0f172a"}}>MdTec Gestão</b><br/>gerado em {new Date().toLocaleString("pt-BR")}</div>
+function IgPDFCapa({titulo,sub,per,conta,mc,principal}){
+  return(<div style={{display:"flex",alignItems:"center",gap:10,paddingBottom:8,marginBottom:10,borderBottom:"2px solid #e1306c",breakAfter:"avoid"}}>
+    {conta?<IgAvatar conta={conta} size={principal?40:32}/>:<div style={{width:40,height:40,borderRadius:10,background:"linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,color:"#fff"}}>📸</div>}
+    <div style={{flex:1,minWidth:0}}><div style={{fontSize:principal?18:15,fontWeight:900,lineHeight:1.2}}>{titulo}</div>
+      <div style={{fontSize:10,color:"#64748b",marginTop:2}}>{sub}{mc?.perfil?<> · {igFmtN(mc.perfil.posts)} posts no perfil · seguindo {igFmtN(mc.perfil.seguindo)}</>:null} · Período: <b style={{color:"#0f172a"}}>{per.rotulo}</b> <span>(vs. período anterior de mesmo tamanho)</span></div></div>
+    {principal&&<div style={{textAlign:"right",fontSize:9.5,color:"#64748b",flexShrink:0}}><b style={{color:"#0f172a",fontSize:11}}>MdTec Gestão</b><br/>gerado em {new Date().toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"})}</div>}
   </div>);
 }
 
@@ -9399,15 +9441,15 @@ function IgRelatorios({contas,posts,metricas,contaSel,setContaSel,toast}){
     const conta=contas.find(c=>c.id===id);const mc=metricas.contas?.[id];const c=igCalcConta(mc,per,posts,id);
     if(!c){toast("⚠️ Ainda não há números desta conta. Clique em Atualizar números.","warn");return;}
     const user=(conta?.conexao?.username||conta?.usuario||"").replace(/^@/,"");
-    igGerarPDF("Relatório Instagram @"+user+" — "+per.rotulo,<div><IgPDFCapa titulo={"Relatório do Instagram · @"+user} sub={conta?.nome||""} per={per}/><IgRelContaView conta={conta} mc={mc} c={c} per={per} pdf/></div>,toast);
+    igGerarPDF("Relatório Instagram @"+user+" — "+per.rotulo,<div><IgPDFCapa principal titulo={"Relatório do Instagram · @"+user} sub={conta?.nome||""} per={per} conta={conta} mc={mc}/><IgRelContaView conta={conta} mc={mc} c={c} per={per} pdf/></div>,toast);
   };
   const pdfTodas=()=>{
     const ls=linhasTodas();
     const paginas=conectadas.map(conta=>({conta,mc:metricas.contas?.[conta.id],c:igCalcConta(metricas.contas?.[conta.id],per,posts,conta.id)})).filter(x=>x.c);
     igGerarPDF("Relatório Instagram — todas as contas — "+per.rotulo,<div>
-      <IgPDFCapa titulo="Relatório do Instagram · Todas as contas" sub={conectadas.length+" conta(s) conectada(s)"} per={per}/>
+      <IgPDFCapa principal titulo="Relatório do Instagram · Todas as contas" sub={conectadas.length+" conta(s) conectada(s)"} per={per}/>
       <IgRelComparativo linhas={ls} per={per} pdf/>
-      {paginas.map(({conta,mc,c})=>(<div key={conta.id} className="quebra"><IgPDFCapa titulo={"@"+(conta.conexao?.username||conta.usuario||"").replace(/^@/,"")} sub={conta.nome} per={per}/><IgRelContaView conta={conta} mc={mc} c={c} per={per} pdf/></div>))}
+      {paginas.map(({conta,mc,c})=>(<div key={conta.id} className="quebra"><IgPDFCapa titulo={"@"+(conta.conexao?.username||conta.usuario||"").replace(/^@/,"")} sub={conta.nome} per={per} conta={conta} mc={mc}/><IgRelContaView conta={conta} mc={mc} c={c} per={per} pdf/></div>))}
     </div>,toast);
   };
   const presets=[["7","7 dias"],["30","30 dias"],["90","90 dias"],["365","12 meses"]];

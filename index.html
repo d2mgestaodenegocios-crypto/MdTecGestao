@@ -8623,8 +8623,53 @@ function IgAvatar({conta,size=28}){
     </div>
   </div>);
 }
+// ── Capa de vídeo (Reels): um quadro do próprio vídeo ou uma imagem enviada ──
+function IgCapaVideo({f,setF,publicado,toast}){
+  const video=(f.midias||[]).find(m=>m.tipo==="video");
+  const [src,setSrc]=React.useState("");const [dur,setDur]=React.useState(0);
+  const [aberto,setAberto]=React.useState(false);const [enviando,setEnviando]=React.useState(false);
+  const vRef=React.useRef(null);const inRef=React.useRef(null);
+  const capa=f.capa||null;
+  React.useEffect(()=>{let ok=true;if(aberto&&video&&!src)igCarregarMidia(video).then(u=>{if(ok)setSrc(u);});return()=>{ok=false;};},[aberto,video&&video.id]);
+  if(!video||f.tipo==="story"||f.tipo==="carrossel")return null;
+  const fotografar=()=>{const v=vRef.current;if(!v)return"";try{const esc=Math.min(1,320/Math.max(v.videoWidth,v.videoHeight));const cv=document.createElement("canvas");cv.width=Math.round(v.videoWidth*esc);cv.height=Math.round(v.videoHeight*esc);cv.getContext("2d").drawImage(v,0,0,cv.width,cv.height);return cv.toDataURL("image/jpeg",0.8);}catch(e){return"";}};
+  const ms=capa&&capa.tipo==="quadro"?capa.ms:0;
+  const escolherQuadro=(seg)=>{const v=vRef.current;if(!v)return;v.currentTime=seg;};
+  const aoBuscar=()=>{const v=vRef.current;if(!v)return;setF(p=>({...p,capa:{tipo:"quadro",ms:Math.round(v.currentTime*1000),thumb:fotografar()}}));};
+  const enviarImagem=async(file)=>{if(!file)return;setEnviando(true);try{const m=await igEnviarMidia(file);setF(p=>({...p,capa:{tipo:"imagem",midia:m,thumb:m.thumb}}));toast("🖼 Capa enviada.","ok");}catch(e){toast("⚠️ "+(e.message||"Falha ao enviar a capa"),"err");}setEnviando(false);};
+  const btn=(on)=>({border:"1.5px solid "+(on?"#e1306c":"var(--border2)"),background:on?"#fdf2f8":"var(--bg2)",color:on?"#be185d":"var(--text3)",borderRadius:8,padding:"5px 10px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"});
+  return(<div style={{border:"1px solid var(--border2)",borderRadius:12,padding:"10px 12px",background:"var(--bg3)"}}>
+    <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+      <div style={{width:54,height:96,borderRadius:8,background:capa&&capa.thumb?`center/cover url(${capa.thumb})`:video.thumb?`center/cover url(${video.thumb})`:"#0f172a",border:"1px solid var(--border2)",flexShrink:0,position:"relative"}}>
+        <span style={{position:"absolute",bottom:2,left:2,right:2,fontSize:8.5,fontWeight:800,color:"#fff",background:"rgba(0,0,0,.55)",borderRadius:4,textAlign:"center"}}>CAPA</span>
+      </div>
+      <div style={{flex:1,minWidth:180}}>
+        <div style={{fontSize:12.5,fontWeight:900,color:"var(--text)"}}>🎞 Capa do vídeo</div>
+        <div style={{fontSize:11.5,color:"var(--text3)",marginTop:2}}>{!capa?"Nenhuma escolhida — o Instagram usa o primeiro quadro.":capa.tipo==="quadro"?"Quadro do vídeo em "+(ms/1000).toFixed(1).replace(".",",")+" s":"Imagem enviada"+(capa.midia&&capa.midia.nome?" ("+capa.midia.nome+")":"")}</div>
+        {!publicado&&<div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap"}}>
+          <button onClick={()=>setAberto(a=>!a)} style={btn(aberto)}>🎬 Escolher um quadro</button>
+          <button onClick={()=>inRef.current&&inRef.current.click()} disabled={enviando} style={btn(capa&&capa.tipo==="imagem")}>{enviando?"⏳ Enviando…":"🖼 Enviar imagem de capa"}</button>
+          {capa&&<button onClick={()=>setF(p=>{const n={...p};delete n.capa;return n;})} style={{...btn(false),color:"#b91c1c"}}>✕ Tirar capa</button>}
+          <input ref={inRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>{enviarImagem(e.target.files[0]);e.target.value="";}}/>
+        </div>}
+      </div>
+    </div>
+    {aberto&&!publicado&&<div style={{marginTop:10,display:"flex",gap:12,alignItems:"flex-start",flexWrap:"wrap"}}>
+      {src?<video ref={vRef} src={src} crossOrigin="anonymous" muted playsInline preload="auto" onLoadedMetadata={e=>{setDur(e.currentTarget.duration||0);e.currentTarget.currentTime=(ms||0)/1000;}} onSeeked={aoBuscar}
+        style={{width:150,maxHeight:266,borderRadius:10,background:"#000",objectFit:"contain"}}/>:<div style={{width:150,height:266,borderRadius:10,background:"#0f172a",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12}}>⏳ carregando…</div>}
+      <div style={{flex:1,minWidth:180}}>
+        <div style={{fontSize:12,color:"var(--text2)",marginBottom:6}}>Arraste para escolher o momento do vídeo que vira a capa:</div>
+        <input type="range" min={0} max={Math.max(0.1,dur)} step={0.1} value={(ms||0)/1000} onChange={e=>escolherQuadro(Number(e.target.value))} disabled={!dur} style={{width:"100%"}}/>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"var(--text4)"}}><span>0 s</span><b style={{color:"#be185d"}}>{((ms||0)/1000).toFixed(1).replace(".",",")} s</b><span>{dur?dur.toFixed(1).replace(".",",")+" s":""}</span></div>
+        <div style={{fontSize:11,color:"var(--text4)",marginTop:6,lineHeight:1.4}}>Dica: a capa aparece no perfil cortada em quadrado (1:1) e no feed de Reels em 9:16. Uma imagem de capa enviada deve ser vertical (1080×1920).</div>
+      </div>
+    </div>}
+  </div>);
+}
+
 function IgThumb({post,size=40,radius=8}){
-  const m=(post.midias||[])[0];const t=IG_TIPO[post.tipo]||IG_TIPO.feed;
+  const m0=(post.midias||[])[0];const t=IG_TIPO[post.tipo]||IG_TIPO.feed;
+  const m=m0&&m0.tipo==="video"&&post.capa&&post.capa.thumb?{...m0,thumb:post.capa.thumb}:m0;
   return(<div style={{width:size,height:size,borderRadius:radius,background:m?.thumb?`center/cover no-repeat url(${m.thumb})`:"linear-gradient(135deg,#fdf2f8,#eef2ff)",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:size*0.42,position:"relative",border:"1px solid var(--border2)"}}>
     {!m?.thumb&&t.ic}
     {m&&(post.midias||[]).length>1&&<span style={{position:"absolute",top:2,right:2,fontSize:8,background:"rgba(0,0,0,.55)",color:"#fff",borderRadius:4,padding:"0 3px",fontWeight:800}}>{post.midias.length}</span>}
@@ -8657,7 +8702,7 @@ function IgPreview({post,conta}){
     {post.tipo!=="story"&&<div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 10px"}}><IgAvatar conta={conta} size={30}/><b style={{fontSize:12.5}}>{user}</b><span style={{marginLeft:"auto",fontSize:16,color:"#64748b"}}>⋯</span></div>}
     <div style={{position:"relative",width:"100%",aspectRatio:vertical?"9/16":(m&&m.w&&m.h?Math.max(0.8,Math.min(1.91,m.w/m.h)):1)+"",background:"#f1f5f9",display:"flex",alignItems:"center",justifyContent:"center",maxHeight:vertical?420:380}}>
       {!m&&<div style={{textAlign:"center",color:"#94a3b8",fontSize:12}}><div style={{fontSize:34}}>{(IG_TIPO[post.tipo]||IG_TIPO.feed).ic}</div>Adicione imagens ou vídeo</div>}
-      {m&&m.tipo==="video"&&src&&!src.startsWith("data:image")?<video src={src} controls muted playsInline style={{width:"100%",height:"100%",objectFit:"cover"}}/>:m&&src?<img src={src} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:null}
+      {m&&m.tipo==="video"&&src&&!src.startsWith("data:image")?<video key={(post&&post.capa&&post.capa.thumb)||"v"} src={src} poster={(post&&post.capa&&post.capa.thumb)||undefined} preload={post&&post.capa&&post.capa.thumb?"none":"metadata"} controls muted playsInline style={{width:"100%",height:"100%",objectFit:"cover"}}/>:m&&src?<img src={src} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:null}
       {post.tipo==="story"&&<div style={{position:"absolute",top:8,left:8,right:8,display:"flex",alignItems:"center",gap:6,color:"#fff",textShadow:"0 1px 3px rgba(0,0,0,.5)"}}><IgAvatar conta={conta} size={24}/><b style={{fontSize:11.5}}>{user}</b></div>}
       {post.tipo==="reels"&&<div style={{position:"absolute",bottom:10,left:10,right:40,color:"#fff",fontSize:11,textShadow:"0 1px 3px rgba(0,0,0,.6)",lineHeight:1.35}}><b>{user}</b> · {(post.legenda||"").slice(0,70)}{(post.legenda||"").length>70?"…":""}</div>}
       {midias.length>1&&<>
@@ -8958,6 +9003,7 @@ function IgPostEditor({open,post,novo,contas,collaborators,companies,posts,userN
                 <input ref={inputRef} type="file" accept="image/*,video/*" multiple={f.tipo==="carrossel"||(f.midias||[]).length===0} style={{display:"none"}} onChange={e=>{addArquivos(e.target.files);e.target.value="";}}/>
                 {(f.midias||[]).length===0&&enviando===0&&<span style={{fontSize:11,color:"#94a3b8"}}>Arraste aqui ou clique em Adicionar. Imagens são convertidas para JPEG automaticamente.</span>}
               </div>
+              <div style={{marginTop:8}}><IgCapaVideo f={f} setF={setF} publicado={publicado} toast={toast}/></div>
             </div>
             <div>
               <span style={lbl}>Legenda {f.tipo==="story"&&<span style={{textTransform:"none",fontWeight:600}}>(Story não tem legenda — use como texto de apoio)</span>}</span>

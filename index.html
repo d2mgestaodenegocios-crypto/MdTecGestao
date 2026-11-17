@@ -10506,6 +10506,9 @@ function recAlterarSerie(tasks,grpId,rec,modelo){
     return{tasks:tasks.filter(t=>!tirar.has(t.id)).map(t=>t._recGroup===grpId?{...t,_recFim:true}:t),criadas:0,removidas:tirar.size};
   }
   const tirar=new Set(pendFut.map(t=>t.id));
+  // pendentes atrasadas que não batem com a nova regra (ex.: sábado/domingo quando vira "dias úteis") também saem
+  const ancoraAnt=base.dueDate&&/^\d{4}-\d{2}-\d{2}$/.test(base.dueDate)?recDataLocal(base.dueDate):new Date(hoje);
+  grupo.filter(t=>t.dueDate&&t.dueDate<hojeIso&&t.status!=="done"&&t.status!=="archived"&&!recBateNaRegra(rec,recDataLocal(t.dueDate),ancoraAnt)).forEach(t=>tirar.add(t.id));
   const ficam=tasks.filter(t=>!tirar.has(t.id)).map(t=>t._recGroup===grpId?{...t,_recurrenceId:rec.id,_recFim:false}:t);
   const ocupadas=new Set(ficam.filter(t=>t._recGroup===grpId).map(t=>t.dueDate));
   // âncora: data do modelo (para semanal/mensal manter o mesmo dia), ou hoje

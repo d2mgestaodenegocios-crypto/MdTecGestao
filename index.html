@@ -2701,7 +2701,7 @@ function QCBtn({status,onClick,size=26,absolute=true}){
     todo:  {border:"#d1d5db",bg:"#fff",    hover:"#eef2ff", icon:"",    title:"Avançar para Em Análise"},
     doing: {border:"#f59e0b",bg:"#fffbeb", hover:"#fef3c7", icon:"⏳",  title:"Avançar para Revisão"},
     review:{border:"#8b5cf6",bg:"#f5f3ff", hover:"#ede9fe", icon:"🔍",  title:"Avançar para Concluído"},
-    done:  {border:"#22c55e",bg:"#22c55e", hover:"#16a34a", icon:"✓",   title:"Reabrir tarefa"},
+    done:  {border:"#22c55e",bg:"#22c55e", hover:"#16a34a", icon:"✓",   title:"Concluída — clique para reabrir (pede confirmação)"},
   };
   const s=COLORS[status]||COLORS.todo;
   const isDone=status==="done";
@@ -11116,7 +11116,19 @@ function App(){
     const CYCLE=Object.fromEntries(cycleArr.map((id,i)=>[id,cycleArr[(i+1)%cycleArr.length]]));
     const LABELS=Object.fromEntries(fullSTS.map(s=>[s.id,s.l]));
     const cur=task.status||"todo";
-    const next=CYCLE[cur]||"doing";
+    // evita clique duplo (2º clique reabria a tarefa que acabou de ser concluída)
+    const agora=Date.now();window.__qcUltimo=window.__qcUltimo||{};
+    if(window.__qcUltimo[task.id]&&agora-window.__qcUltimo[task.id]<1200)return;
+    window.__qcUltimo[task.id]=agora;
+    let next=CYCLE[cur]||"doing";
+    // concluída: só reabre com confirmação, e volta para a etapa anterior (sem apagar o checklist)
+    if(cur==="done"){
+      const idx=cycleArr.indexOf("done");const anterior=idx>0?cycleArr[idx-1]:"doing";
+      if(!window.confirm(`Reabrir a tarefa "${task.title||""}"? Ela volta para ${LABELS[anterior]||"a etapa anterior"}.`))return;
+      setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{...t,status:anterior,completedAt:null,completedBy:null,completedByName:null}:t)}));
+      toast(`↩ Tarefa reaberta → ${LABELS[anterior]||anterior}`,"ok");
+      return;
+    }
     // Verificar permissões
     if(!isAdmin){
       if(next==="done"&&!myPerms.canComplete){

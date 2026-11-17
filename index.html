@@ -9086,6 +9086,15 @@ const igDiaIniBR=(iso)=>Date.parse(iso+"T00:00:00-03:00");
 const igDiaFimBR=(iso)=>Date.parse(iso+"T23:59:59-03:00");
 const igPeriodoDe=(p)=>{
   if(p.modo==="custom"&&p.de&&p.ate){const a=igDiaIniBR(p.de<=p.ate?p.de:p.ate),b=igDiaFimBR(p.de<=p.ate?p.ate:p.de);return{ini:a,fim:b,rotulo:igFmtData(p.de<=p.ate?p.de:p.ate)+" a "+igFmtData(p.de<=p.ate?p.ate:p.de)};}
+  if(p.modo==="mes"||p.modo==="mesant"){
+    const MESES=["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
+    const h=igHojeISO();let y=+h.slice(0,4),mo=+h.slice(5,7);
+    if(p.modo==="mesant"){mo--;if(mo<1){mo=12;y--;}}
+    const ini=y+"-"+String(mo).padStart(2,"0")+"-01";
+    const ult=new Date(y,mo,0).getDate();
+    const fimIso=p.modo==="mes"?h:y+"-"+String(mo).padStart(2,"0")+"-"+String(ult).padStart(2,"0");
+    return{ini:igDiaIniBR(ini),fim:p.modo==="mes"?Date.now():igDiaFimBR(fimIso),rotulo:MESES[mo-1]+"/"+y+(p.modo==="mes"?" (até hoje)":"")};
+  }
   const d=Number(p.modo)||30,fim=Date.now();return{ini:fim-d*864e5,fim,rotulo:d===365?"últimos 12 meses":"últimos "+d+" dias"};
 };
 const igSomaNull=(l,f)=>{let t=0,tem=false;l.forEach(m=>{const v=f(m);if(v!=null){t+=v;tem=true;}});return tem?t:null;};
@@ -9421,6 +9430,131 @@ function IgPDFCapa({titulo,sub,per,conta,mc,principal}){
   </div>);
 }
 
+// ── PDF gerado dentro do app (prévia + baixar + abrir no navegador) ──────────
+const IG_PDF_LIBS=["https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js","https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"];
+let igLibsPromise=null;
+// Carrega o gerador só na 1ª vez que alguém pede um PDF (depois fica em cache)
+function igCarregarLibsPDF(){
+  if(window.html2canvas&&window.jspdf)return Promise.resolve();
+  if(igLibsPromise)return igLibsPromise;
+  igLibsPromise=Promise.all(IG_PDF_LIBS.map(src=>new Promise((ok,erro)=>{
+    if(document.querySelector('script[src="'+src+'"]')&&(src.includes("html2canvas")?window.html2canvas:window.jspdf))return ok();
+    const s=document.createElement("script");s.src=src;s.async=true;s.onload=ok;
+    s.onerror=()=>erro(new Error("Não foi possível carregar o gerador de PDF. Verifique a internet e tente de novo."));
+    document.head.appendChild(s);
+  }))).catch(e=>{igLibsPromise=null;throw e;});
+  return igLibsPromise;
+}
+const IG_PDF_VARS={"--bg":"#fff","--bg2":"#fff","--bg3":"#f8fafc","--bg4":"#f9fafb","--text":"#0f172a","--text2":"#374151","--text3":"#64748b","--text4":"#94a3b8","--border":"#f1f5f9","--border2":"#e2e8f0","--border3":"#e5e7eb"};
+// Desenha cada página fora da tela, fotografa e monta um PDF A4
+async function igMontarPDF(paginas,onProg){
+  await igCarregarLibsPDF();
+  const host=document.createElement("div");
+  host.setAttribute("aria-hidden","true");
+  host.style.cssText="position:absolute;left:-20000px;top:0;width:760px;background:#fff;color:#0f172a;pointer-events:none";
+  Object.entries(IG_PDF_VARS).forEach(([k,v])=>host.style.setProperty(k,v));
+  document.body.appendChild(host);
+  const root=ReactDOM.createRoot(host);
+  try{
+    root.render(<div>{paginas.map((p,i)=><div key={i} data-pagina={i} style={{width:760,padding:"22px 20px 14px",background:"#fff",boxSizing:"border-box"}}>{p}</div>)}</div>);
+    await new Promise(r=>setTimeout(r,120));
+    try{if(document.fonts&&document.fonts.ready)await document.fonts.ready;}catch(e){}
+    const {jsPDF}=window.jspdf;
+    const doc=new jsPDF({unit:"mm",format:"a4",compress:true});
+    const PW=210,PH=297,RODAPE=9;
+    const nodes=[...host.querySelectorAll("[data-pagina]")];
+    let primeira=true;const imagens=[];
+    for(let i=0;i<nodes.length;i++){
+      onProg&&onProg(i,nodes.length);
+      await new Promise(r=>setTimeout(r,0)); // deixa a tela respirar (barra de progresso)
+      const cv=await window.html2canvas(nodes[i],{scale:1.8,backgroundColor:"#ffffff",useCORS:true,logging:false,imageTimeout:3500});
+      const pxMm=cv.width/PW;const alt=Math.floor((PH-RODAPE)*pxMm);
+      for(let y=0;y<cv.height;y+=alt){
+        const h=Math.min(alt,cv.height-y);if(h<30*1.8&&!primeira)break; // sobra mínima em branco
+        const pc=document.createElement("canvas");pc.width=cv.width;pc.height=h;
+        const cx=pc.getContext("2d");cx.fillStyle="#fff";cx.fillRect(0,0,pc.width,h);cx.drawImage(cv,0,y,cv.width,h,0,0,cv.width,h);
+        if(!primeira)doc.addPage();primeira=false;
+        const img=pc.toDataURL("image/jpeg",0.86);imagens.push({src:img,w:pc.width,h:pc.height});
+        doc.addImage(img,"JPEG",0,0,PW,h/pxMm,undefined,"FAST");
+      }
+    }
+    const n=doc.getNumberOfPages();
+    for(let p=1;p<=n;p++){doc.setPage(p);doc.setFontSize(7.5);doc.setTextColor(148,163,184);
+      doc.text("MdTec Gestão · Relatório do Instagram · gerado em "+new Date().toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"}),10,PH-4);
+      doc.text("página "+p+" de "+n,PW-10,PH-4,{align:"right"});}
+    onProg&&onProg(nodes.length,nodes.length);
+    return{blob:doc.output("blob"),imagens};
+  }finally{try{root.unmount();}catch(e){}host.remove();}
+}
+// PDFs já gerados (reabrir é instantâneo enquanto os números não mudarem)
+const igPdfCache=new Map();
+const igPdfGuardar=(k,v)=>{igPdfCache.set(k,v);while(igPdfCache.size>6){const [k0,v0]=igPdfCache.entries().next().value;try{URL.revokeObjectURL(v0.url);}catch(e){}igPdfCache.delete(k0);}};
+const igFmtTam=(b)=>b>1048576?(b/1048576).toLocaleString("pt-BR",{maximumFractionDigits:1})+" MB":Math.max(1,Math.round(b/1024))+" KB";
+
+function IgPDFModal({req,onClose,contasOp,montar,toast,imprimir}){
+  const [ids,setIds]=React.useState(req.ids);
+  const [st,setSt]=React.useState({gerando:true,prog:0,url:"",erro:"",tam:0,imagens:[]});
+  const [tentativa,setTentativa]=React.useState(0);
+  const m=React.useMemo(()=>montar(ids,req),[ids.join(","),req]);
+  React.useEffect(()=>{
+    let vivo=true;
+    if(!m.paginas.length){setSt({gerando:false,prog:0,url:"",erro:"Nenhuma das contas escolhidas tem números no período.",tam:0,imagens:[]});return;}
+    const ca=igPdfCache.get(m.chave);
+    if(ca){setSt({gerando:false,prog:1,url:ca.url,erro:"",tam:ca.tam,imagens:ca.imagens||[]});return;}
+    setSt({gerando:true,prog:0,url:"",erro:"",tam:0,imagens:[]});
+    const t0=Date.now();
+    igMontarPDF(m.paginas,(i,n)=>{if(vivo)setSt(s=>({...s,prog:n?i/n:0}));})
+      .then(({blob,imagens})=>{const url=URL.createObjectURL(blob);igPdfGuardar(m.chave,{url,tam:blob.size,blob,imagens,ms:Date.now()-t0});if(vivo)setSt({gerando:false,prog:1,url,erro:"",tam:blob.size,imagens});})
+      .catch(e=>{if(vivo)setSt({gerando:false,prog:0,url:"",erro:(e&&e.message)||String(e),tam:0,imagens:[]});});
+    return()=>{vivo=false;};
+  },[m.chave,tentativa]);
+  const baixar=()=>{if(!st.url)return;const a=document.createElement("a");a.href=st.url;a.download=m.nome;document.body.appendChild(a);a.click();a.remove();toast("⬇️ Baixando "+m.nome,"ok");};
+  const abrir=()=>{if(!st.url)return;const w=window.open(st.url,"_blank");if(!w)toast("⚠️ O navegador bloqueou a nova aba. Use ⬇ Baixar.","warn",7000);};
+  const ca=igPdfCache.get(m.chave);
+  const podeCompartilhar=!!(ca&&navigator.canShare&&(()=>{try{return navigator.canShare({files:[new File([ca.blob],m.nome,{type:"application/pdf"})]});}catch(e){return false;}})());
+  const compartilhar=async()=>{try{await navigator.share({files:[new File([ca.blob],m.nome,{type:"application/pdf"})],title:m.titulo});}catch(e){}};
+  const alternar=(id)=>setIds(v=>v.includes(id)?(v.length>1?v.filter(x=>x!==id):v):[...v,id]);
+  const btn=(bg,fg,bd)=>({border:"1px solid "+bd,background:bg,color:fg,borderRadius:9,padding:"7px 13px",fontSize:12.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"});
+  return(<Modal open onClose={onClose} title={"📄 "+m.titulo} width={1000}>
+    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+      {req.multi&&contasOp.length>1&&<div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+        <span style={{fontSize:11.5,fontWeight:800,color:"var(--text3)"}}>Contas no PDF:</span>
+        {contasOp.map(c=>{const on=ids.includes(c.id);return(<button key={c.id} onClick={()=>alternar(c.id)} disabled={st.gerando} style={{display:"flex",alignItems:"center",gap:5,padding:"4px 10px 4px 5px",borderRadius:20,border:"1.5px solid "+(on?"#e1306c":"var(--border2)"),background:on?"#fdf2f8":"var(--bg2)",color:on?"#be185d":"var(--text3)",fontWeight:800,fontSize:11.5,cursor:"pointer",fontFamily:"inherit",opacity:st.gerando?.6:1}}>
+          <IgAvatar conta={c} size={18}/>{on?"✓ ":""}@{(c.conexao?.username||c.usuario||c.nome).replace(/^@/,"")}</button>);})}
+      </div>}
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+        <span style={{fontSize:12,color:"var(--text3)"}}>{st.gerando?"Gerando…":st.url?<>✅ Pronto · {st.imagens.length||m.paginas.length} página(s) · {igFmtTam(st.tam)}</>:""}</span>
+        <div style={{marginLeft:"auto",display:"flex",gap:8,flexWrap:"wrap"}}>
+          {podeCompartilhar&&<button onClick={compartilhar} style={btn("var(--bg2)","#15803d","#86efac")}>📤 Compartilhar</button>}
+          <button onClick={abrir} disabled={!st.url} style={{...btn("var(--bg2)","#4338ca","#c7d2fe"),opacity:st.url?1:.5}}>↗ Abrir no navegador</button>
+          <button onClick={baixar} disabled={!st.url} style={{...btn("#e1306c","#fff","#e1306c"),opacity:st.url?1:.5}}>⬇ Baixar PDF</button>
+        </div>
+      </div>
+      <div style={{height:"min(70vh,900px)",borderRadius:12,border:"1px solid var(--border2)",background:"#e2e8f0",overflow:"hidden",position:"relative"}}>
+        {st.url&&<div data-previa-pdf style={{height:"100%",overflowY:"auto",padding:"16px 12px",display:"flex",flexDirection:"column",alignItems:"center",gap:14}}>
+          {st.imagens.map((im,i)=>(<div key={i} style={{width:"100%",maxWidth:780,position:"relative"}}>
+            <img src={im.src} alt={"Página "+(i+1)} style={{width:"100%",display:"block",background:"#fff",borderRadius:4,boxShadow:"0 4px 18px rgba(15,23,42,.18)",aspectRatio:im.w+"/"+im.h}}/>
+            <div style={{position:"absolute",top:8,right:8,background:"rgba(15,23,42,.65)",color:"#fff",fontSize:10.5,fontWeight:700,borderRadius:10,padding:"2px 8px"}}>{i+1}/{st.imagens.length}</div>
+          </div>))}
+        </div>}
+        {st.gerando&&<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,background:"var(--bg3)",color:"var(--text2)"}}>
+          <div style={{fontSize:34}}>📄</div>
+          <div style={{fontWeight:800,fontSize:14}}>Montando o PDF… {Math.round(st.prog*100)}%</div>
+          <div style={{width:260,height:8,borderRadius:5,background:"var(--border2)",overflow:"hidden"}}><div style={{height:"100%",width:Math.max(4,st.prog*100)+"%",background:"#e1306c",transition:"width .25s"}}/></div>
+          <div style={{fontSize:11.5,color:"var(--text4)"}}>{m.paginas.length} página(s){!window.jspdf?" · na 1ª vez carrega o gerador":""}</div>
+        </div>}
+        {st.erro&&<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,background:"var(--bg3)",color:"var(--text2)",padding:20,textAlign:"center"}}>
+          <div style={{fontSize:30}}>⚠️</div><div style={{fontWeight:800}}>{st.erro}</div>
+          <div style={{display:"flex",gap:8}}>
+            {m.paginas.length>0&&<button onClick={()=>setTentativa(t=>t+1)} style={btn("#e1306c","#fff","#e1306c")}>Tentar de novo</button>}
+            {m.paginas.length>0&&<button onClick={()=>imprimir(m)} style={btn("var(--bg2)","var(--text2)","var(--border2)")}>🖨 Abrir versão para imprimir</button>}
+          </div></div>}
+      </div>
+      <div style={{fontSize:11,color:"var(--text4)"}}>Esta é a prévia do PDF. Use <b>⬇ Baixar PDF</b> para salvar o arquivo ou <b>↗ Abrir no navegador</b> para ver no leitor de PDF do navegador.</div>
+    </div>
+  </Modal>);
+}
+
 // Tela de relatórios
 function IgRelatorios({contas,posts,metricas,contaSel,setContaSel,toast}){
   const [periodo,setPeriodo]=React.useState(()=>{try{const v=JSON.parse(localStorage.getItem("mdtec_ig_rel_per")||"null");if(v&&v.modo)return v;}catch(e){}return{modo:"30",de:"",ate:""};});
@@ -9436,23 +9570,49 @@ function IgRelatorios({contas,posts,metricas,contaSel,setContaSel,toast}){
     if(r.ok)toast(r.emAndamento?"🔄 Atualizando os números de "+r.contas+" conta(s)… a tela se atualiza sozinha.":"✅ Números atualizados"+(r.insights===false?" (sem visualizações: falta a permissão de estatísticas)":""),"ok",7000);
     else toast("⚠️ "+(r.erro||"Não foi possível atualizar."),"err",8000);
   };
-  const linhasTodas=()=>conectadas.map(c=>({c,r:igResumo(metricas.contas?.[c.id],per)})).sort((a,b)=>((b.r?.ganhoPct)??-1e9)-((a.r?.ganhoPct)??-1e9));
+  // cálculos só refeitos quando números/período mudam
+  const chaveDia=Math.floor(per.ini/864e5)+"-"+Math.floor(per.fim/864e5);
+  const linhasMemo=React.useMemo(()=>conectadas.map(c=>({c,r:igResumo(metricas.contas?.[c.id],per)})).sort((a,b)=>((b.r?.ganhoPct)??-1e9)-((a.r?.ganhoPct)??-1e9)),[metricas,contas,chaveDia]);
+  const linhasTodas=()=>linhasMemo;
+  const [pdfReq,setPdfReq]=React.useState(null);
+  const calcSel=React.useMemo(()=>sel?igCalcConta(metricas.contas?.[sel],per,posts,sel):null,[sel,metricas,posts,chaveDia]);
+  const [lembreteOff,setLembreteOff]=React.useState(()=>{try{return localStorage.getItem("mdtec_ig_rel_lembrete")||"";}catch(e){return"";}});
+  const nomeArq=(t)=>t.normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-zA-Z0-9@._ -]+/g," ").replace(/\s+/g,"-").replace(/-+/g,"-").slice(0,90)+".pdf";
+  const montarPDF=(ids,req)=>{
+    const p=req.per;
+    const itens=ids.map(id=>{const conta=contas.find(c=>c.id===id);const mc=metricas.contas?.[id];return{conta,mc,c:conta?igCalcConta(mc,p,posts,id):null};}).filter(x=>x.conta&&x.c);
+    const userDe=(c)=>(c.conexao?.username||c.usuario||"").replace(/^@/,"");
+    const paginas=[];
+    if(req.multi){
+      const ls=itens.map(x=>({c:x.conta,r:igResumo(x.mc,p)})).sort((a,b)=>((b.r?.ganhoPct)??-1e9)-((a.r?.ganhoPct)??-1e9));
+      paginas.push(<div><IgPDFCapa principal titulo={itens.length>1?"Relatório do Instagram · "+itens.length+" contas":"Relatório do Instagram"} sub={itens.map(x=>"@"+userDe(x.conta)).join(" · ")} per={p}/><IgRelComparativo linhas={ls} per={p} pdf/></div>);
+    }
+    itens.forEach(({conta,mc,c},i)=>paginas.push(<div><IgPDFCapa principal={!req.multi} titulo={(req.multi?"":"Relatório do Instagram · ")+"@"+userDe(conta)} sub={conta.nome||""} per={p} conta={conta} mc={mc}/><IgRelContaView conta={conta} mc={mc} c={c} per={p} pdf/></div>));
+    const titulo=req.multi?"Relatório Instagram — "+(itens.length===1?"@"+userDe(itens[0].conta):itens.length+" contas")+" — "+p.rotulo:"Relatório Instagram @"+(itens[0]?userDe(itens[0].conta):"")+" — "+p.rotulo;
+    const chave=JSON.stringify([req.multi,ids,Math.floor(p.ini/864e5),Math.floor(p.fim/864e5),ids.map(id=>metricas.contas?.[id]?.atualizadoEm||""),posts.length]);
+    return{paginas,titulo,nome:nomeArq(titulo.replace(/\//g,"-")),chave};
+  };
+  const imprimirPDF=(m)=>igGerarPDF(m.titulo,<div>{m.paginas.map((pg,i)=><div key={i} className={i?"quebra":""}>{pg}</div>)}</div>,toast);
+  const comDados=conectadas.filter(c=>metricas.contas?.[c.id]);
   const pdfConta=(id)=>{
-    const conta=contas.find(c=>c.id===id);const mc=metricas.contas?.[id];const c=igCalcConta(mc,per,posts,id);
-    if(!c){toast("⚠️ Ainda não há números desta conta. Clique em Atualizar números.","warn");return;}
-    const user=(conta?.conexao?.username||conta?.usuario||"").replace(/^@/,"");
-    igGerarPDF("Relatório Instagram @"+user+" — "+per.rotulo,<div><IgPDFCapa principal titulo={"Relatório do Instagram · @"+user} sub={conta?.nome||""} per={per} conta={conta} mc={mc}/><IgRelContaView conta={conta} mc={mc} c={c} per={per} pdf/></div>,toast);
+    if(!metricas.contas?.[id]){toast("⚠️ Ainda não há números desta conta. Clique em Atualizar números.","warn");return;}
+    setPdfReq({ids:[id],multi:false,per});
   };
-  const pdfTodas=()=>{
-    const ls=linhasTodas();
-    const paginas=conectadas.map(conta=>({conta,mc:metricas.contas?.[conta.id],c:igCalcConta(metricas.contas?.[conta.id],per,posts,conta.id)})).filter(x=>x.c);
-    igGerarPDF("Relatório Instagram — todas as contas — "+per.rotulo,<div>
-      <IgPDFCapa principal titulo="Relatório do Instagram · Todas as contas" sub={conectadas.length+" conta(s) conectada(s)"} per={per}/>
-      <IgRelComparativo linhas={ls} per={per} pdf/>
-      {paginas.map(({conta,mc,c})=>(<div key={conta.id} className="quebra"><IgPDFCapa titulo={"@"+(conta.conexao?.username||conta.usuario||"").replace(/^@/,"")} sub={conta.nome} per={per} conta={conta} mc={mc}/><IgRelContaView conta={conta} mc={mc} c={c} per={per} pdf/></div>))}
-    </div>,toast);
+  const pdfTodas=(perX)=>{
+    if(!comDados.length){toast("⚠️ Ainda não há números. Clique em Atualizar números.","warn");return;}
+    setPdfReq({ids:comDados.map(c=>c.id),multi:true,per:perX||per});
   };
-  const presets=[["7","7 dias"],["30","30 dias"],["90","90 dias"],["365","12 meses"]];
+  const pdfModal=pdfReq&&<IgPDFModal req={pdfReq} onClose={()=>setPdfReq(null)} contasOp={comDados} montar={montarPDF} toast={toast} imprimir={imprimirPDF}/>;
+  // lembrete do fechamento do mês (dias 1 a 7)
+  const hojeISO=igHojeISO();const mesAtual=hojeISO.slice(0,7);
+  const perMesAnt=igPeriodoDe({modo:"mesant"});
+  const lembrete=+hojeISO.slice(8,10)<=7&&lembreteOff!==mesAtual&&comDados.length>0&&(<div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",padding:"10px 14px",borderRadius:12,background:"linear-gradient(135deg,#fdf2f8,#eef2ff)",border:"1px solid #f5d0e6"}}>
+    <span style={{fontSize:20}}>📅</span>
+    <div style={{flex:1,minWidth:200,fontSize:12.5,color:"#1e293b"}}><b>{perMesAnt.rotulo.replace(/^./,x=>x.toUpperCase())} fechou!</b> Gere o relatório do mês para enviar aos clientes.</div>
+    <Btn sz="sm" col="#e1306c" onClick={()=>{setPer({modo:"mesant",de:"",ate:""});pdfTodas(perMesAnt);}}>📄 Gerar PDF do mês</Btn>
+    <button onClick={()=>{setLembreteOff(mesAtual);try{localStorage.setItem("mdtec_ig_rel_lembrete",mesAtual);}catch(e){}}} style={{border:"none",background:"none",color:"var(--text3)",cursor:"pointer",fontSize:12,fontFamily:"inherit"}}>dispensar</button>
+  </div>);
+  const presets=[["7","7 dias"],["30","30 dias"],["90","90 dias"],["mes","Este mês"],["mesant","Mês passado"],["365","12 meses"]];
   const inpD={padding:"5px 8px",borderRadius:8,border:"1.5px solid var(--border3)",fontSize:12.5,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)"};
   const cabecalho=(<div style={{display:"flex",flexDirection:"column",gap:8}}>
     <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
@@ -9472,10 +9632,12 @@ function IgRelatorios({contas,posts,metricas,contaSel,setContaSel,toast}){
         {sel&&metricas.contas?.[sel]?.atualizadoEm&&<span style={{fontSize:11,color:"var(--text4)"}}>atualizado {new Date(metricas.contas[sel].atualizadoEm).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}</span>}
         <Btn onClick={atualizar} v="ghost" sz="sm" disabled={atualizando}>{atualizando?"⏳ Atualizando…":"🔄 Atualizar números"}</Btn>
         {sel&&<Btn onClick={()=>pdfConta(sel)} v="ghost" sz="sm">📄 PDF desta conta</Btn>}
-        <Btn onClick={pdfTodas} sz="sm" col="#e1306c">📄 PDF de todas as contas</Btn>
+        <Btn onClick={()=>pdfTodas()} sz="sm" col="#e1306c">📄 PDF de todas as contas</Btn>
       </div>
     </div>
     <div style={{fontSize:11.5,color:"var(--text3)"}}>Período: <b>{per.rotulo}</b> · comparado com os {Math.round((per.fim-per.ini)/864e5)} dias anteriores</div>
+    {lembrete}
+    {pdfModal}
   </div>);
 
   if(!conectadas.length)return(<div style={{...igCard,textAlign:"center",padding:"36px 20px",color:"var(--text3)"}}><div style={{fontSize:34}}>📊</div><div style={{fontWeight:900,fontSize:15,color:"var(--text)",marginTop:6}}>Relatórios precisam de uma conta conectada</div><div style={{fontSize:12.5,marginTop:6,lineHeight:1.5}}>Conecte as contas em <b>👤 Contas</b> (botão “Conectar com Instagram”). O robô passa a guardar os números todo dia para mostrar a evolução.</div></div>);
@@ -9483,7 +9645,7 @@ function IgRelatorios({contas,posts,metricas,contaSel,setContaSel,toast}){
   if(!sel)return(<div style={{display:"flex",flexDirection:"column",gap:12}}>{cabecalho}<IgRelComparativo linhas={linhasTodas()} per={per} onSel={setContaSel}/></div>);
 
   const mc=metricas.contas?.[sel];const conta=contas.find(c=>c.id===sel);
-  const c=igCalcConta(mc,per,posts,sel);
+  const c=calcSel;
   if(!mc||!c)return(<div style={{display:"flex",flexDirection:"column",gap:12}}>{cabecalho}
     <div style={{...igCard,textAlign:"center",padding:"36px 20px",color:"var(--text3)"}}><div style={{fontSize:34}}>⏳</div><div style={{fontWeight:900,fontSize:15,color:"var(--text)",marginTop:6}}>Ainda não há números desta conta</div><div style={{fontSize:12.5,marginTop:6}}>Clique em <b>🔄 Atualizar números</b>. Depois o robô atualiza sozinho uma vez por dia.</div></div></div>);
   const r=c.r;const user=(conta?.conexao?.username||conta?.usuario||"").replace(/^@/,"");

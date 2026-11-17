@@ -2682,20 +2682,47 @@ const isoLocalHoje=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.g
 function montarResumoDia(data,{pessoaId,dia,incluirAndamento=true,incluirAmanha=false}){
   const colabs=data.collaborators||[];const c=colabs.find(x=>x.id===pessoaId);
   const nomeEmp=(t)=>{try{return taskCompanies(t).map(id=>(data.companies||[]).find(x=>x.id===id)?.name||"").filter(Boolean).join(", ");}catch(e){return "";}};
-  // a data de conclusão é gravada em UTC: depois das 21h (Brasília) ela já cai no dia seguinte
-  const diaUtcSeg=(()=>{const d=new Date(dia+"T12:00:00");d.setDate(d.getDate()+1);return d.toISOString().slice(0,10);})();
-  const ehMinha=(t)=>pessoaId?(t.completedBy?t.completedBy===pessoaId:toArr(t.assignees).includes(pessoaId)):true;
+  // datas que contam como "o dia": local e UTC (versões antigas gravavam a conclusão em UTC)
+  const dias=new Set([dia]);
+  if(dia===isoLocalHoje()){dias.add(new Date().toISOString().slice(0,10));}
+  const noDia=(iso)=>{if(!iso)return false;const t=Date.parse(iso);if(!t)return dias.has(String(iso).slice(0,10));const d=new Date(t);const loc=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");return loc===dia;};
+  const norm=(s)=>String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();
+  const nomes=c?[norm(c.name),norm(c.name).split(" ")[0],norm(c.email||"").split("@")[0]].filter(Boolean):[];
+  const ehEle=(quem)=>{if(!pessoaId)return true;const q=norm(quem);return !!q&&nomes.some(n=>q===n||q.split(" ")[0]===n);};
+  const responsavel=(t)=>!pessoaId||toArr(t.assignees).includes(pessoaId);
   const tarefas=data.tasks||[];
-  const feitas=tarefas.filter(t=>t.status==="done"&&ehMinha(t)&&(t.completedAt===dia||(t.completedAt===diaUtcSeg&&dia===isoLocalHoje()&&new Date().getHours()>=21)));
-  const andamento=incluirAndamento?tarefas.filter(t=>(t.status==="doing"||t.status==="review")&&(!pessoaId||toArr(t.assignees).includes(pessoaId))):[];
+  const concluiuHoje=(t)=>t.status==="done"&&(dias.has(String(t.completedAt||"").slice(0,10))||toArr(t.history).some(h=>noDia(h.at)&&/→\s*Conclu/i.test(h.changes||"")));
+  const feitas=tarefas.filter(t=>concluiuHoje(t)&&(responsavel(t)||t.completedBy===pessoaId||ehEle(t.completedByName)));
+  const idsFeitas=new Set(feitas.map(t=>t.id));
+  // entregues para revisão hoje (quem conclui é o gestor/administrador)
+  const enviouRevisaoHoje=(t)=>toArr(t.history).some(x=>noDia(x.at)&&/→\s*Em Revis/i.test(x.changes||"")&&(ehEle(x.user)||responsavel(t)));
+  const entregues=tarefas.filter(t=>!idsFeitas.has(t.id)&&t.status==="review"&&responsavel(t)&&enviouRevisaoHoje(t));
+  const idsEntregues=new Set(entregues.map(t=>t.id));
+  const andamento=incluirAndamento?tarefas.filter(t=>(t.status==="doing"||t.status==="review")&&responsavel(t)&&!idsEntregues.has(t.id)):[];
+  // outras coisas que ele fez no dia: comentários e mudanças de etapa
+  const outras=[];
+  tarefas.forEach(t=>{
+    if(idsFeitas.has(t.id)||idsEntregues.has(t.id))return;
+    const coms=toArr(t.comments).filter(x=>noDia(x.createdAt)&&ehEle(x.author));
+    const hs=toArr(t.history).filter(x=>noDia(x.at)&&ehEle(x.user));
+    if(coms.length||hs.length){
+      const partes=[];
+      if(hs.length)partes.push(hs[hs.length-1].changes.replace(/^Status: /,"etapa: "));
+      if(coms.length)partes.push(coms.length+" comentário"+(coms.length>1?"s":""));
+      outras.push({t,txt:partes.join(" · ")});
+    }
+  });
   const amanha=(()=>{const d=new Date(dia+"T12:00:00");d.setDate(d.getDate()+1);return d.toISOString().slice(0,10);})();
-  const prox=incluirAmanha?tarefas.filter(t=>t.status!=="done"&&t.status!=="archived"&&t.dueDate&&t.dueDate<=amanha&&(!pessoaId||toArr(t.assignees).includes(pessoaId))&&!andamento.includes(t)):[];
+  const prox=incluirAmanha?tarefas.filter(t=>t.status!=="done"&&t.status!=="archived"&&t.dueDate&&t.dueDate<=amanha&&responsavel(t)&&!andamento.includes(t)):[];
   const stLbl={doing:"em andamento",review:"em revisão"};
   const linha=(t,extra)=>{const e=nomeEmp(t);const ck=toArr(t.checklist);const ckTxt=ck.length?" ["+ck.filter(x=>x.done).length+"/"+ck.length+"]":"";return "• "+(t.title||"(sem título)")+(e?" — "+e:"")+ckTxt+(extra?" ("+extra+")":"")+"\n";};
   const dt=new Date(dia+"T12:00:00").toLocaleDateString("pt-BR",{weekday:"long",day:"2-digit",month:"2-digit",year:"numeric"});
   let s="✅ *Resumo do dia"+(c?" — "+c.name:"")+"*\n_"+dt+"_\n";
-  s+="\n*Concluídas ("+feitas.length+")*\n"+(feitas.length?feitas.map(t=>linha(t)).join(""):"• nenhuma tarefa concluída\n");
-  if(andamento.length)s+="\n*Em andamento ("+andamento.length+")*\n"+andamento.map(t=>linha(t,stLbl[t.status])).join("");
+  s+="\n*Concluídas ("+feitas.length+")*\n"+(feitas.length?feitas.map(t=>linha(t,t.completedByName&&!ehEle(t.completedByName)?"aprovada por "+String(t.completedByName).split(" ")[0]:"")).join(""):"• nenhuma tarefa concluída hoje\n");
+  if(entregues.length)s+="\n*Entregues para revisão ("+entregues.length+")*\n"+entregues.map(t=>linha(t,"aguardando aprovação")).join("");
+  const outrasSemAnd=outras.filter(o=>!andamento.includes(o.t));
+  if(andamento.length)s+="\n*Em andamento ("+andamento.length+")*\n"+andamento.map(t=>{const o=outras.find(x=>x.t===t);return linha(t,(t.status==="review"?"aguardando aprovação":stLbl[t.status])+(o&&/coment/.test(o.txt)?" · "+o.txt.split(" · ").filter(p=>/coment/.test(p)).join(""):""));}).join("");
+  if(outrasSemAnd.length)s+="\n*Também trabalhou em ("+outrasSemAnd.length+")*\n"+outrasSemAnd.map(o=>linha(o.t,o.txt)).join("");
   if(prox.length)s+="\n*Pendentes até amanhã ("+prox.length+")*\n"+prox.map(t=>linha(t,t.dueDate<dia?"atrasada":t.dueDate===dia?"vence hoje":"vence amanhã")).join("");
   return (s+"\n_Enviado pelo MDTec Gestão_").replace(/\n{3,}/g,"\n\n");
 }
@@ -11366,7 +11393,7 @@ function App(){
       labels: Array.isArray(updated.labels)?updated.labels:[],
       checklist: Array.isArray(updated.checklist)?updated.checklist:[],
       dependencies: Array.isArray(updated.dependencies)?updated.dependencies:[],
-      completedAt:updated.status==="done"&&!updated.completedAt?todayStr():updated.completedAt,
+      completedAt:updated.status==="done"?((wasNotDone||!updated.completedAt)?isoLocalHoje():updated.completedAt):null,
       // Grava quem finalizou (apenas quando muda para done)
       completedBy: updated.status==="done"
         ? (updated.completedBy||(wasNotDone?myCollabId:null)||null)
@@ -11591,7 +11618,7 @@ function App(){
     } else if(action==="status"){
       const barradas=data.tasks.filter(t=>ids.includes(t.id)&&checklistBloqueia(t,value)).map(t=>t.id);
       if(barradas.length){toast(`☑ ${barradas.length} tarefa(s) com checklist incompleto não foram movidas.`,"warn",6000);ids=ids.filter(id=>!barradas.includes(id));if(!ids.length)return;}
-      setData(d=>({...d,tasks:d.tasks.map(t=>ids.includes(t.id)?{...t,status:value,completedAt:value==="done"?todayStr():(t.completedAt&&value!=="done"?null:t.completedAt)}:t)}));
+      setData(d=>({...d,tasks:d.tasks.map(t=>ids.includes(t.id)?{...t,status:value,completedAt:value==="done"?(t.status==="done"&&t.completedAt?t.completedAt:isoLocalHoje()):null,completedBy:value==="done"?(t.status==="done"?t.completedBy:(myCollabId||null)):null,completedByName:value==="done"?(t.status==="done"?t.completedByName:(userName||null)):null}:t)}));
       toast(`✅ ${ids.length} tarefa(s) movidas para ${STS.find(s=>s.id===value)?.l||value}.`,"ok");
     } else if(action==="priority"){
       setData(d=>({...d,tasks:d.tasks.map(t=>ids.includes(t.id)?{...t,priority:value}:t)}));
@@ -11642,7 +11669,7 @@ function App(){
       );
       if(seriesFuture.length>0){
         setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{
-          ...t,status:"done",completedAt:todayStr(),
+          ...t,status:"done",completedAt:isoLocalHoje(),history:[...toArr(t.history),{user:userName||"Usuário",at:new Date().toISOString(),changes:"Status: "+(STS.find(x=>x.id===t.status)?.l||t.status)+" → "+(STS.find(x=>x.id==="done")?.l||"done")}],
           completedBy:myCollabId||null,
           completedByName:userName||null,
           checklist:t.checklist.map(c=>({...c,done:true})),
@@ -11652,8 +11679,8 @@ function App(){
       }
     }
     setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{
-      ...t,status:next,
-      completedAt:next==="done"?todayStr():null,
+      ...t,status:next,history:[...toArr(t.history),{user:userName||"Usuário",at:new Date().toISOString(),changes:"Status: "+(STS.find(x=>x.id===t.status)?.l||t.status)+" → "+(STS.find(x=>x.id===next)?.l||next)}],
+      completedAt:next==="done"?isoLocalHoje():null,
       completedBy:next==="done"?(myCollabId||null):null,
       completedByName:next==="done"?(userName||null):null,
       checklist:next==="done"
@@ -11688,8 +11715,8 @@ function App(){
     {const tk=data.tasks.find(t=>t.id===taskId);const msg=checklistBloqueia(tk,newStatus);if(msg){toast(msg,"warn",6000);return;}}
     const statusLabel=getFullSTS(data.customStatuses).find(s=>s.id===newStatus)?.l||newStatus;
     setData(d=>({...d,tasks:d.tasks.map(t=>t.id===taskId?{
-      ...t,status:newStatus,
-      completedAt:newStatus==="done"?todayStr():(t.completedAt&&newStatus!=="done"?null:t.completedAt),
+      ...t,status:newStatus,history:[...toArr(t.history),{user:userName||"Usuário",at:new Date().toISOString(),changes:"Status: "+(STS.find(x=>x.id===t.status)?.l||t.status)+" → "+(STS.find(x=>x.id===newStatus)?.l||newStatus)}],
+      completedAt:newStatus==="done"?isoLocalHoje():null,
       completedBy:newStatus==="done"?(myCollabId||null):null,
       completedByName:newStatus==="done"?(userName||null):null,
     }:t)}));

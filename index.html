@@ -8830,6 +8830,7 @@ function IgPostEditor({open,post,novo,contas,collaborators,companies,posts,userN
           {!publicado&&verificando&&<span style={{fontSize:11,color:"var(--text4)"}}>🛡 verificando…</span>}
           {!publicado&&!verificando&&alertas.length===0&&<span style={{fontSize:11.5,fontWeight:800,color:"#15803d"}}>🛡 nenhum sinal de outra conta</span>}
         </div>}
+        {conta&&<IgKitPainel conta={conta} toast={toast}/>}
         {!publicado&&alertas.length>0&&<div style={{padding:"10px 12px",borderRadius:12,background:alertasPendentes?"#fef2f2":"#f0fdf4",border:"1.5px solid "+(alertasPendentes?"#fca5a5":"#86efac")}}>
           <div style={{fontSize:13,fontWeight:900,color:alertasPendentes?"#991b1b":"#15803d"}}>{alertasPendentes?"🛡 Atenção: este post pode ser de OUTRA conta":"🛡 Alertas revisados"}</div>
           <ul style={{margin:"6px 0 0",paddingLeft:18,fontSize:12.5,color:alertasPendentes?"#991b1b":"#166534",lineHeight:1.5}}>{alertas.map((a,i)=><li key={i}>{a.msg}</li>)}</ul>
@@ -9017,6 +9018,111 @@ function IgPostarAgora({open,post,postVivo,conta,onClose,onPublicado,onPublicarS
 }
 
 // ── Cadastro de contas ─────────────────────────────────────────────
+// ── Kit da marca: logos (arquivo original), descrição das atividades e pontos de atenção ──
+function igThumbLogo(src,max=160){
+  return new Promise(res=>{const img=new Image();img.onload=()=>{try{const w=img.naturalWidth||img.width||max,h=img.naturalHeight||img.height||max;const esc=Math.min(1,max/Math.max(w,h));const cv=document.createElement("canvas");cv.width=Math.max(1,Math.round(w*esc));cv.height=Math.max(1,Math.round(h*esc));cv.getContext("2d").drawImage(img,0,0,cv.width,cv.height);res(cv.toDataURL("image/png"));}catch(e){res("");}};img.onerror=()=>res("");img.src=src;});
+}
+// guarda o arquivo como veio (PNG com fundo transparente, SVG etc.), sem comprimir
+async function igEnviarLogo(file){
+  if(file.size>8*1024*1024)throw new Error(`"${file.name}" tem ${(file.size/1048576).toFixed(1)} MB. O limite por logo é 8 MB.`);
+  const dataUrl=await igLerDataUrl(file);
+  const ehSvg=/svg/i.test(file.type)||/\.svg$/i.test(file.name||"");
+  let thumb=await igThumbLogo(dataUrl);
+  if(!thumb&&ehSvg&&dataUrl.length<200000)thumb=dataUrl;
+  const id=igNovoMidiaId();
+  const nome=file.name||"logo";
+  const{error}=await sb.from("app_data").upsert({id,payload:{tipo:"ig-logo",mime:file.type||"application/octet-stream",nome,data:dataUrl,em:Date.now()}});
+  if(error)throw error;
+  igMidiaCache.set(id,dataUrl);
+  return{id,nome,mime:file.type||"",thumb,tam:file.size,em:Date.now()};
+}
+async function igBaixarLogo(l,toast){
+  const d=await igCarregarMidia({id:l.id});
+  if(!d){toast&&toast("⚠️ Não encontrei o arquivo desta logo.","err");return false;}
+  const a=document.createElement("a");a.href=d;a.download=l.nome||"logo";document.body.appendChild(a);a.click();a.remove();return true;
+}
+const IG_XADREZ="repeating-conic-gradient(#e5e7eb 0% 25%, #fff 0% 50%) 50% / 14px 14px";
+function IgLogos({logos,editavel,onMudar,toast}){
+  const [enviando,setEnviando]=React.useState(0);
+  const [fundo,setFundo]=React.useState("xadrez");
+  const ref=React.useRef(null);
+  const enviar=async(files)=>{
+    const lista=[...files].filter(f=>/^image\//.test(f.type)||/\.(svg|png|jpe?g|webp|gif)$/i.test(f.name||""));
+    if(!lista.length){toast("⚠️ Envie imagens (PNG, SVG, JPG ou WEBP).","warn");return;}
+    setEnviando(lista.length);const novos=[];
+    for(const f of lista){try{novos.push(await igEnviarLogo(f));}catch(e){toast("⚠️ "+(e.message||"Falha ao enviar "+f.name),"err",8000);}setEnviando(n=>n-1);}
+    if(novos.length){onMudar([...(logos||[]),...novos]);toast("🎨 "+novos.length+" logo(s) guardada(s). Clique em Salvar contas.","ok");}
+  };
+  const baixarTodas=async()=>{for(const [i,l] of (logos||[]).entries()){await new Promise(r=>setTimeout(r,i?350:0));await igBaixarLogo(l,toast);}};
+  const bgFundo=fundo==="escuro"?"#0f172a":fundo==="branco"?"#fff":IG_XADREZ;
+  return(<div>
+    <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",marginBottom:6}}>
+      <span style={{fontSize:11,color:"var(--text4)"}}>fundo:</span>
+      {[["xadrez","▦"],["branco","⬜"],["escuro","⬛"]].map(([k,ic])=><button key={k} onClick={()=>setFundo(k)} title={"Ver sobre fundo "+k} style={{border:"1px solid "+(fundo===k?"#6366f1":"var(--border2)"),background:"var(--bg2)",borderRadius:6,padding:"1px 6px",cursor:"pointer",fontSize:11}}>{ic}</button>)}
+      {(logos||[]).length>1&&<button onClick={baixarTodas} style={{marginLeft:"auto",border:"1px solid #c7d2fe",background:"#eef2ff",color:"#4338ca",borderRadius:8,padding:"3px 10px",fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>⬇ Baixar todas</button>}
+    </div>
+    <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+      {(logos||[]).map(l=>(<div key={l.id} style={{width:118,border:"1px solid var(--border2)",borderRadius:10,overflow:"hidden",background:"var(--bg2)"}}>
+        <div style={{height:78,background:bgFundo,display:"flex",alignItems:"center",justifyContent:"center",padding:6}}>
+          {l.thumb?<img src={l.thumb} alt={l.nome} style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain"}}/>:<span style={{fontSize:22}}>🖼</span>}
+        </div>
+        <div style={{padding:"5px 6px"}}>
+          {editavel?<input value={l.nome||""} onChange={e=>onMudar(logos.map(x=>x.id===l.id?{...x,nome:e.target.value}:x))} title="Nome do arquivo ao baixar" style={{width:"100%",border:"none",borderBottom:"1px dashed var(--border2)",fontSize:10.5,fontWeight:700,background:"transparent",color:"var(--text)",fontFamily:"inherit",padding:"1px 0"}}/>
+            :<div title={l.nome} style={{fontSize:10.5,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.nome}</div>}
+          <div style={{display:"flex",gap:4,marginTop:4}}>
+            <button onClick={()=>igBaixarLogo(l,toast)} style={{flex:1,border:"none",background:"#e1306c",color:"#fff",borderRadius:6,padding:"3px 0",fontSize:10.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>⬇ Baixar</button>
+            {editavel&&<button onClick={()=>{if(!window.confirm("Remover a logo "+l.nome+"?"))return;igApagarMidia({id:l.id});onMudar(logos.filter(x=>x.id!==l.id));}} title="Remover" style={{border:"none",background:"var(--bg3)",borderRadius:6,padding:"3px 6px",cursor:"pointer",fontSize:10.5}}>🗑</button>}
+          </div>
+        </div>
+      </div>))}
+      {editavel&&<div onClick={()=>!enviando&&ref.current?.click()} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();enviar(e.dataTransfer.files);}}
+        style={{width:118,minHeight:118,border:"2px dashed var(--border3)",borderRadius:10,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,cursor:"pointer",color:"var(--text3)",fontSize:11,textAlign:"center",padding:6}}>
+        <span style={{fontSize:20}}>{enviando?"⏳":"＋"}</span><b>{enviando?"Enviando "+enviando+"…":"Enviar logos"}</b><span style={{fontSize:10,color:"var(--text4)"}}>PNG, SVG, JPG · arraste aqui</span>
+        <input ref={ref} type="file" multiple accept="image/*,.svg" style={{display:"none"}} onChange={e=>{enviar(e.target.files);e.target.value="";}}/>
+      </div>}
+      {!editavel&&!(logos||[]).length&&<div style={{fontSize:12,color:"var(--text4)"}}>Nenhuma logo cadastrada — envie em 👤 Contas → Cadastro.</div>}
+    </div>
+  </div>);
+}
+// Bloco do cadastro da conta
+function IgKitCadastro({c,upd,toast,inp,lbl}){
+  const [aberto,setAberto]=React.useState(!!((c.logos||[]).length||c.descricao||c.atencao));
+  const n=(c.logos||[]).length;
+  return(<div style={{marginTop:10,border:"1px solid var(--border2)",borderRadius:12,background:"var(--bg3)"}}>
+    <button onClick={()=>setAberto(v=>!v)} style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"8px 12px",border:"none",background:"transparent",cursor:"pointer",fontFamily:"inherit",color:"var(--text)",textAlign:"left"}}>
+      <span style={{fontSize:13,fontWeight:900}}>🎨 Kit da marca</span>
+      <span style={{fontSize:11.5,color:"var(--text3)"}}>{n} logo(s){c.descricao?" · atividades":""}{c.atencao?" · ⚠️ pontos de atenção":""}</span>
+      <span style={{marginLeft:"auto",color:"var(--text4)"}}>{aberto?"▲":"▼"}</span>
+    </button>
+    {aberto&&<div style={{padding:"0 12px 12px",display:"flex",flexDirection:"column",gap:10}}>
+      <div><span style={lbl}>Logos (arquivo original, para baixar e usar nas artes)</span><IgLogos logos={c.logos||[]} editavel onMudar={(v)=>upd(c.id,"logos",v)} toast={toast}/></div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:8}}>
+        <div><span style={lbl}>Descrição das atividades</span><textarea value={c.descricao||""} onChange={e=>upd(c.id,"descricao",e.target.value)} rows={4} placeholder="O que a empresa faz, produtos/serviços, público, tom de voz, cores…" style={{...inp,resize:"vertical",lineHeight:1.45}}/></div>
+        <div><span style={{...lbl,color:"#b45309"}}>⚠️ Pontos de atenção</span><textarea value={c.atencao||""} onChange={e=>upd(c.id,"atencao",e.target.value)} rows={4} placeholder="Ex.: não usar a logo antiga; não citar preços; sempre colocar o WhatsApp; evitar fundo vermelho…" style={{...inp,resize:"vertical",lineHeight:1.45,borderColor:c.atencao?"#fcd34d":undefined,background:c.atencao?"#fffbeb":undefined}}/></div>
+      </div>
+    </div>}
+  </div>);
+}
+// Painel no editor do post (só leitura + baixar logos)
+function IgKitPainel({conta,toast}){
+  const [aberto,setAberto]=React.useState(false);
+  if(!conta)return null;
+  const n=(conta.logos||[]).length;
+  if(!n&&!conta.descricao&&!conta.atencao)return null;
+  return(<div style={{borderRadius:12,border:"1px solid var(--border2)",background:"var(--bg2)"}}>
+    {conta.atencao&&<div style={{padding:"8px 12px",background:"#fffbeb",borderBottom:aberto?"1px solid #fde68a":"none",borderRadius:aberto?"12px 12px 0 0":12,fontSize:12.5,color:"#92400e",whiteSpace:"pre-wrap",lineHeight:1.45}}><b>⚠️ Pontos de atenção de {conta.nome}:</b> {conta.atencao}</div>}
+    <button onClick={()=>setAberto(v=>!v)} style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"7px 12px",border:"none",background:"transparent",cursor:"pointer",fontFamily:"inherit",color:"var(--text)",textAlign:"left"}}>
+      <span style={{fontSize:12.5,fontWeight:900}}>🎨 Kit da marca</span>
+      <span style={{fontSize:11.5,color:"var(--text3)"}}>{n} logo(s) para baixar{conta.descricao?" · descrição das atividades":""}</span>
+      <span style={{marginLeft:"auto",color:"var(--text4)",fontSize:12}}>{aberto?"fechar ▲":"abrir ▼"}</span>
+    </button>
+    {aberto&&<div style={{padding:"0 12px 12px",display:"flex",flexDirection:"column",gap:10}}>
+      {conta.descricao&&<div style={{fontSize:12.5,color:"var(--text2)",whiteSpace:"pre-wrap",lineHeight:1.5,padding:"8px 10px",background:"var(--bg3)",borderRadius:9}}><b>Atividades:</b> {conta.descricao}</div>}
+      {n>0&&<IgLogos logos={conta.logos} toast={toast}/>}
+    </div>}
+  </div>);
+}
+
 function IgContasModal({open,onClose,contas,companies,collaborators,posts,onSalvar,toast,abaInicial,metricas,onRelatorio}){
   const [lista,setLista]=React.useState([]);
   const [verInativas,setVerInativas]=React.useState(false);
@@ -9075,6 +9181,7 @@ function IgContasModal({open,onClose,contas,companies,collaborators,posts,onSalv
               {c.tipo!=="propria"&&<div><span style={lbl}>Quem aprova no cliente</span><input value={c.contatoAprovacao||""} onChange={e=>upd(c.id,"contatoAprovacao",e.target.value)} placeholder="Nome / WhatsApp" style={inp}/></div>}
               <div style={{gridColumn:"1 / -1"}}><span style={lbl}>Hashtags padrão</span><input value={c.hashtagsPadrao||""} onChange={e=>upd(c.id,"hashtagsPadrao",e.target.value)} placeholder="#contabilidade #mdtec" style={inp}/></div>
             </div>
+            <IgKitCadastro c={c} upd={upd} toast={toast} inp={inp} lbl={lbl}/>
             {c.ativa!==false&&<IgConexaoBloco conta={contas.find(x=>x.id===c.id)||c} salva={contas.some(x=>x.id===c.id)} estado={estado} toast={toast}/>}
           </div>))}
         </div>

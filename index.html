@@ -1134,26 +1134,51 @@ const FEED_KEY="mdtec_feed_atividades";
 function lerFeed(){try{return JSON.parse(localStorage.getItem(FEED_KEY)||"[]")||[];}catch(e){return[];}}
 function FeedAtividades({onAbrir,tarefas,collaborators}){
   const [lista,setLista]=useState(lerFeed);const [aberto,setAberto]=useState(false);
+  const [aba,setAba]=useState(()=>{try{return localStorage.getItem(FEED_KEY+"_aba")||"comentarios";}catch(e){return"comentarios";}});
   const [visto,setVisto]=useState(()=>{try{return Number(localStorage.getItem(FEED_KEY+"_visto")||0);}catch(e){return 0;}});
+  const [vistoCom,setVistoCom]=useState(()=>{try{return Number(localStorage.getItem(FEED_KEY+"_vistoCom")||0);}catch(e){return 0;}});
+  const [busca,setBusca]=useState("");
   useEffect(()=>{const f=()=>setLista(lerFeed());window.addEventListener("mdtec_feed",f);return()=>window.removeEventListener("mdtec_feed",f);},[]);
-  const novos=lista.filter(x=>x.quando>visto).length;
-  const abrir=()=>{setAberto(a=>!a);const t=Date.now();setVisto(t);try{localStorage.setItem(FEED_KEY+"_visto",String(t));}catch(e){}};
+  // todos os comentários de todas as tarefas (ficam salvos nas tarefas, então aparecem mesmo que o adm estivesse fora)
+  const comentarios=useMemo(()=>{const out=[];(tarefas||[]).forEach(t=>toArr(t.comments).forEach(c=>{const ts=Date.parse(c.createdAt||"")||0;out.push({...c,ts,task:t});}));return out.sort((a,b)=>b.ts-a.ts).slice(0,300);},[tarefas]);
+  const novosAtiv=lista.filter(x=>x.quando>visto).length;
+  const novosCom=comentarios.filter(c=>c.ts>vistoCom).length;
+  const marcar=(qual)=>{const t=Date.now();if(qual==="ativ"){setVisto(t);try{localStorage.setItem(FEED_KEY+"_visto",String(t));}catch(e){}}else{setVistoCom(t);try{localStorage.setItem(FEED_KEY+"_vistoCom",String(t));}catch(e){}}};
+  const trocarAba=(a)=>{setAba(a);try{localStorage.setItem(FEED_KEY+"_aba",a);}catch(e){}};
   const ic={criou:"✨",concluiu:"✅",status:"➡️",comentou:"💬",checklist:"☑",editou:"✏️",excluiu:"🗑"};
   const hora=(t)=>{const d=new Date(t);return (new Date().toDateString()===d.toDateString()?"":d.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})+" ")+d.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});};
+  const total=novosAtiv+novosCom;
+  const bq=busca.trim().toLowerCase();
+  const comFiltrados=bq?comentarios.filter(c=>(c.text+" "+c.author+" "+(c.task.title||"")).toLowerCase().includes(bq)):comentarios;
+  const tabBtn=(k,l,n)=>(<button onClick={()=>trocarAba(k)} style={{border:"none",borderBottom:"2px solid "+(aba===k?"#6366f1":"transparent"),background:"none",padding:"6px 4px",marginRight:10,fontSize:12.5,fontWeight:800,color:aba===k?"#4f46e5":"var(--text3)",cursor:"pointer",fontFamily:"inherit"}}>{l}{n>0&&<span style={{marginLeft:5,background:"#ef4444",color:"#fff",borderRadius:9,padding:"0 5px",fontSize:10}}>{n}</span>}</button>);
   return(<div style={{position:"relative"}}>
-    <button onClick={abrir} title="Atividades da equipe em tempo real" style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:10,background:"var(--bg2)",border:"1px solid var(--border)",cursor:"pointer",fontSize:12,fontWeight:800,color:"var(--text2)",fontFamily:"inherit"}}>
-      <span style={{width:8,height:8,borderRadius:"50%",background:"#22c55e",boxShadow:"0 0 0 3px rgba(34,197,94,.2)"}}/>Ao vivo
-      {novos>0&&<span style={{background:"#ef4444",color:"#fff",borderRadius:10,padding:"0 6px",fontSize:10.5}}>{novos>99?"99+":novos}</span>}
+    <button onClick={()=>setAberto(a=>!a)} title="Comentários e atividades da equipe" style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:10,background:"var(--bg2)",border:"1px solid var(--border)",cursor:"pointer",fontSize:12,fontWeight:800,color:"var(--text2)",fontFamily:"inherit"}}>
+      <span style={{width:8,height:8,borderRadius:"50%",background:"#22c55e",boxShadow:"0 0 0 3px rgba(34,197,94,.2)"}}/>Equipe
+      {total>0&&<span style={{background:"#ef4444",color:"#fff",borderRadius:10,padding:"0 6px",fontSize:10.5}}>{total>99?"99+":total}</span>}
     </button>
-    {aberto&&<div style={{position:"absolute",right:0,top:42,width:380,maxHeight:"70vh",overflowY:"auto",background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:14,boxShadow:"0 16px 40px rgba(0,0,0,.18)",zIndex:300,padding:10}}>
-      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}><b style={{fontSize:13}}>📡 Atividades da equipe</b><span style={{fontSize:11,color:"var(--text4)"}}>em tempo real</span>
-        {lista.length>0&&<button onClick={()=>{try{localStorage.setItem(FEED_KEY,"[]");}catch(e){}setLista([]);}} style={{marginLeft:"auto",border:"none",background:"none",color:"var(--text4)",cursor:"pointer",fontSize:11,fontFamily:"inherit"}}>limpar</button>}</div>
-      {lista.length===0&&<div style={{fontSize:12,color:"var(--text4)",padding:"14px 4px"}}>Nada ainda. Assim que alguém criar, mover, comentar ou concluir uma tarefa, aparece aqui na hora.</div>}
-      {lista.map((x,i)=>{const t=tarefas.find(y=>y.id===x.id);return(<div key={i} onClick={()=>{if(t){onAbrir(t);setAberto(false);}}} style={{display:"flex",gap:8,padding:"7px 6px",borderTop:i?"1px solid var(--border)":"none",cursor:t?"pointer":"default",background:x.quando>visto?"rgba(99,102,241,.06)":"transparent",borderRadius:8}}>
-        <span style={{fontSize:15}}>{ic[x.tipo]||"•"}</span>
-        <div style={{flex:1,minWidth:0,fontSize:12,lineHeight:1.4}}><b>{x.quem||"Alguém"}</b> {x.txt} <span style={{color:"#4f46e5",fontWeight:700}}>{x.titulo?"“"+x.titulo+"”":""}</span></div>
-        <span style={{fontSize:10.5,color:"var(--text4)",whiteSpace:"nowrap"}}>{hora(x.quando)}</span>
-      </div>);})}
+    {aberto&&<div style={{position:"absolute",right:0,top:42,width:410,maxWidth:"92vw",maxHeight:"72vh",display:"flex",flexDirection:"column",background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:14,boxShadow:"0 16px 40px rgba(0,0,0,.18)",zIndex:300}}>
+      <div style={{padding:"10px 12px 0",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center"}}>
+        {tabBtn("comentarios","💬 Comentários",novosCom)}{tabBtn("ativ","📡 Ao vivo",novosAtiv)}
+        <button onClick={()=>marcar(aba==="ativ"?"ativ":"com")} style={{marginLeft:"auto",border:"none",background:"none",color:"#6366f1",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"inherit"}}>marcar como visto</button>
+      </div>
+      <div style={{overflowY:"auto",padding:10}}>
+      {aba==="comentarios"&&<>
+        <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="🔍 Buscar por texto, pessoa ou tarefa…" style={{width:"100%",padding:"6px 10px",borderRadius:8,border:"1px solid var(--border)",fontSize:12,fontFamily:"inherit",marginBottom:8,background:"var(--bg3)",color:"var(--text)",boxSizing:"border-box"}}/>
+        {comFiltrados.length===0&&<div style={{fontSize:12,color:"var(--text4)",padding:"14px 4px"}}>Nenhum comentário ainda.</div>}
+        {comFiltrados.map((c,i)=>(<div key={c.id||i} onClick={()=>{onAbrir(c.task);setAberto(false);}} style={{padding:"8px",borderTop:i?"1px solid var(--border)":"none",cursor:"pointer",background:c.ts>vistoCom?"rgba(99,102,241,.07)":"transparent",borderRadius:8}}>
+          <div style={{display:"flex",gap:6,alignItems:"baseline"}}><b style={{fontSize:12}}>{c.author||"Alguém"}</b><span style={{fontSize:11,color:"var(--text4)"}}>em</span><span style={{fontSize:11.5,fontWeight:700,color:"#4f46e5",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{c.task.title}</span><span style={{fontSize:10.5,color:"var(--text4)",whiteSpace:"nowrap"}}>{c.ts?hora(c.ts):""}</span></div>
+          <div style={{fontSize:12.5,color:"var(--text2)",marginTop:2,whiteSpace:"pre-wrap",lineHeight:1.4}}>{c.text}</div>
+        </div>))}
+      </>}
+      {aba==="ativ"&&<>
+        {lista.length===0&&<div style={{fontSize:12,color:"var(--text4)",padding:"14px 4px"}}>Nada ainda. Assim que alguém criar, mover, comentar ou concluir uma tarefa (com o sistema aberto), aparece aqui na hora.</div>}
+        {lista.map((x,i)=>{const t=tarefas.find(y=>y.id===x.id);return(<div key={i} onClick={()=>{if(t){onAbrir(t);setAberto(false);}}} style={{display:"flex",gap:8,padding:"7px 6px",borderTop:i?"1px solid var(--border)":"none",cursor:t?"pointer":"default",background:x.quando>visto?"rgba(99,102,241,.06)":"transparent",borderRadius:8}}>
+          <span style={{fontSize:15}}>{ic[x.tipo]||"•"}</span>
+          <div style={{flex:1,minWidth:0,fontSize:12,lineHeight:1.4}}><b>{x.quem||"Alguém"}</b> {x.txt} <span style={{color:"#4f46e5",fontWeight:700}}>{x.titulo?"“"+x.titulo+"”":""}</span></div>
+          <span style={{fontSize:10.5,color:"var(--text4)",whiteSpace:"nowrap"}}>{hora(x.quando)}</span>
+        </div>);})}
+      </>}
+      </div>
     </div>}
   </div>);
 }
@@ -3541,6 +3566,7 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
             }
             return<span style={{fontSize:11,color:over?"#ef4444":"#94a3b8",fontWeight:over?800:400,display:"inline-flex",alignItems:"center"}}>📅 {fmtDate(task.dueDate)}{task.dueTime?` ${task.dueTime}`:""}{countdown}</span>;
           })()}
+          {toArr(task.comments).length>0&&(()=>{const cs=toArr(task.comments);const u=cs[cs.length-1]||{};return<span title={"Último comentário — "+(u.author||"")+": "+String(u.text||"").slice(0,120)} style={{fontSize:10.5,padding:"1px 7px",borderRadius:20,background:"#eef2ff",color:"#4338ca",fontWeight:800,border:"1px solid #c7d2fe"}}>💬 {cs.length}</span>;})()}
           {slaUrgent&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#fef3c7",color:"#b45309",fontWeight:800,animation:"pulse 1.5s infinite"}}>⏱ SLA</span>}
           {task.slaHours&&!slaUrgent&&!done&&<span style={{fontSize:10,color:"#f59e0b",fontWeight:700}}>⏱ {task.slaHours}h</span>}
           {toArr(task.assignees).length===0&&!done&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#f1f5f9",color:"#94a3b8",fontWeight:700,border:"1px dashed #cbd5e1"}}>👤 Sem responsável</span>}

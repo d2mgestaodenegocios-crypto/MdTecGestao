@@ -3010,7 +3010,7 @@ function DepPicker({tasks,selfId,selected,onChange,blocked}){
   );
 }
 
-function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,onForce,currentUser}){
+function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,onForce,currentUser,onComentar}){
   const blank={id:uid(),title:"",description:"",status:defStatus,priority:"media",company:"",companies:[],sector:"",assignees:[],labels:[],dueDate:"",dueTime:"",slaHours:"",valor:"",checklist:[],dependencies:[],recurrence:"",createdAt:todayStr(),comments:[],history:[],internalNote:"",pinned:false};
   const [f,sf]=useState(task?{...sanitizeTask(task),comments:task.comments||[]}:blank);
   const [ckTxt,sCk]=useState("");
@@ -3028,6 +3028,8 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
     const comment={id:uid(),text:commentTxt.trim(),author:currentUser||"Usuário",createdAt:new Date().toISOString()};
     set("comments",[...(f.comments||[]),comment]);
     setCommentTxt("");
+    // tarefa já existente: o comentário é salvo e avisado na hora (não depende de clicar em Salvar)
+    if(onComentar&&data.tasks.some(t=>t.id===f.id))onComentar(f.id,comment);
   };
   const blocked=!!lockInfo;
 
@@ -11243,6 +11245,22 @@ function App(){
     setTM({open:true,task:null,defStatus:s,lockInfo:null});
   };
 
+  // ── Comentários: quem precisa saber ──
+  const normN=(s)=>String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();
+  const mencionadosEm=(texto)=>{const t=normN(texto);return (data.collaborators||[]).filter(u=>{const n=normN(u.name);if(!n)return false;const pn=n.split(" ")[0].replace(/[.*+?^${}()|[\]\\]/g,"\\$&");const nn=n.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");return new RegExp("@"+nn+"(?![a-z0-9])").test(t)||new RegExp("@"+pn+"(?![a-z0-9])").test(t);});};
+  const avisarComentario=(task,comment)=>{
+    const ja=new Set([myCollabId]);
+    const titulo=(task.title||"tarefa").slice(0,50);const trecho=String(comment.text||"").slice(0,70);
+    mencionadosEm(comment.text).forEach(u=>{if(ja.has(u.id))return;ja.add(u.id);addNotification({toId:u.id,icon:"💬",text:`💬 ${userName} mencionou você em “${titulo}”: "${trecho}"`,page:"kanban",taskId:task.id});});
+    toArr(task.assignees).forEach(id=>{if(ja.has(id))return;ja.add(id);addNotification({toId:id,icon:"🗨",text:`🗨 ${userName} comentou em “${titulo}”: "${trecho}"`,page:"kanban",taskId:task.id});});
+    (data.collaborators||[]).filter(u=>u.accessLevel==="admin").forEach(u=>{if(ja.has(u.id))return;ja.add(u.id);addNotification({toId:u.id,icon:"🗨",text:`🗨 ${userName} comentou em “${titulo}”: "${trecho}"`,page:"kanban",taskId:task.id});});
+  };
+  const comentarTarefa=(taskId,comment)=>{
+    const tk=data.tasks.find(t=>t.id===taskId);if(!tk)return;
+    setData(d=>({...d,tasks:d.tasks.map(t=>t.id===taskId&&!toArr(t.comments).some(c=>c.id===comment.id)?{...t,comments:[...toArr(t.comments),comment]}:t)}));
+    avisarComentario(tk,comment);
+    toast("💬 Comentário salvo e enviado aos envolvidos.","ok",3500);
+  };
   const duplicateTask=(task)=>{
     const copy={
       ...task,
@@ -11379,21 +11397,10 @@ function App(){
       if(prev&&prev.status!==updated.status&&updated.status!=="done"&&!myPerms.canAdvanceStatus){toast("🔒 Você não tem permissão para avançar o status.","err");return;}
     }
     {const prev=data.tasks.find(t=>t.id===updated.id);const msg=checklistBloqueia({...updated,status:prev?prev.status:(updated.status==="done"||updated.status==="review"?"todo":updated.status)},updated.status);if(msg){toast(msg,"warn",7000);return;}}
-    // Detect new @mentions in comments and notify
+    // Comentários novos: avisa mencionados, responsáveis e administradores
     const prevComments=data.tasks.find(t=>t.id===updated.id)?.comments||[];
     const newComments=(updated.comments||[]).filter(nc=>!prevComments.find(pc=>pc.id===nc.id));
-    newComments.forEach(comment=>{
-      const mentionRe=/@([\w ]+?)(?=\s|$|@)/g;
-      let match;
-      while((match=mentionRe.exec(comment.text))!==null){
-        const name=match[1].trim();
-        const mentioned=data.collaborators.find(u=>u.name.toLowerCase()===name.toLowerCase());
-        if(mentioned&&mentioned.id!==myCollabId){
-          addNotification({toId:mentioned.id,icon:"💬",text:`💬 ${userName} mencionou você: "${comment.text.slice(0,60)}"`,page:"kanban"});
-          if(mentioned.id===myCollabId) toast(`💬 ${userName} mencionou você!`,"mention",6000);
-        }
-      }
-    });
+    newComments.forEach(comment=>avisarComentario(updated,comment));
     const prevTask=data.tasks.find(t=>t.id===updated.id);
     const wasNotDone=prevTask&&prevTask.status!=="done";
     const base={
@@ -11987,6 +11994,7 @@ function App(){
             lockInfo={taskModal.lockInfo}
             onForce={forceLock}
             currentUser={userName}
+            onComentar={comentarTarefa}
           />
         )}
       </Modal>
@@ -15102,7 +15110,8 @@ function GuestView({grpId, pageId, toast, toasts}){
   const applyP=(p)=>{if(p.empresas)setEmpresas(p.empresas.map(e=>({...e,expandido:false})));if(p.grupos)setGrupos(p.grupos);if(p.dados)setDados(p.dados);if(p.obs)setObs(p.obs);if(p.prazos)setPrazos(p.prazos);};
   useEffect(()=>{
     (async()=>{try{const{data:row}=await sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle();if(row?.payload)applyP(row.payload);}catch(e){}setLoaded(true);})();
-    const ch=sb.channel("gv_"+ROW_ID).on("postgres_changes",{event:"*",schema:"public",table:"app_data",filter:`id=eq.${ROW_ID}`},pl=>{if(pl.new?.payload)applyP(pl.new.payload);}).subscribe();
+    const buscarGV=()=>sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle().then(({data:r})=>{if(r?.payload)applyP(r.payload);}).catch(()=>{});
+    const ch=sb.channel("gv_"+ROW_ID).on("postgres_changes",{event:"*",schema:"public",table:"app_data",filter:`id=eq.${ROW_ID}`},pl=>{const np=pl.new?.payload;if(np&&(np.empresas||np.dados||np.obs))applyP(np);else buscarGV();}).subscribe();
     const h=(e)=>{if(e.data?.rowId===ROW_ID&&e.data?.tabId!==_tabId){sb.from("app_data").select("payload").eq("id",ROW_ID).maybeSingle().then(({data:r})=>{if(r?.payload)applyP(r.payload);});}};
     if(_bc)_bc.addEventListener("message",h);
     return()=>{sb.removeChannel(ch);if(_bc)_bc.removeEventListener("message",h);};
@@ -15431,7 +15440,7 @@ function makePageComponent(PAGE_CFG){
       // Real-time: Supabase Postgres changes
       const ch=sb.channel("sp_"+ROW_ID)
         .on("postgres_changes",{event:"*",schema:"public",table:"app_data",filter:`id=eq.${ROW_ID}`},
-          pl=>{if(pl.new?.payload&&mounted)applyPayload(pl.new.payload);})
+          pl=>{const np=pl.new?.payload;if(!mounted)return;if(np&&(np.empresas||np.dados||np.obs))applyPayload(np);else if(typeof checar==="function")checar();})
         .subscribe();
       // BroadcastChannel: mudanças na mesma aba/browser
       const h=(e)=>{if(e.data?.rowId===ROW_ID&&e.data?.tabId!==_tabId){
@@ -15450,7 +15459,7 @@ function makePageComponent(PAGE_CFG){
           }
         }catch(e){}
       };
-      const poll=setInterval(checar,30000);
+      const poll=setInterval(checar,8000);
       const onVis=()=>{if(document.visibilityState==="visible")checar();};
       document.addEventListener("visibilitychange",onVis);window.addEventListener("focus",checar);
       return()=>{mounted=false;if(loadTimer)clearTimeout(loadTimer);sb.removeChannel(ch);if(_bc)_bc.removeEventListener("message",h);clearInterval(poll);document.removeEventListener("visibilitychange",onVis);window.removeEventListener("focus",checar);};

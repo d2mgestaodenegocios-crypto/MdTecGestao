@@ -3708,11 +3708,13 @@ function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusC
             if(kanbanFilter==="today") return isDueToday;
             return isOverdue||isDueToday||(due>=wkStart&&due<=wkEnd);
           });
-          tasks.sort((a,b)=>{
-            if(a.pinned&&!b.pinned) return -1;
-            if(!a.pinned&&b.pinned) return 1;
-            return (a.dueDate||"").localeCompare(b.dueDate||"");
-          });
+          // fixadas no topo; depois por vencimento (mais antigo primeiro; sem prazo no fim), horário e prioridade
+          const ordPri={critica:0,alta:1,media:2,baixa:3};
+          tasks.sort((a,b)=>(a.pinned&&!b.pinned?-1:!a.pinned&&b.pinned?1:0)
+            ||(a.dueDate||"9999-99-99").localeCompare(b.dueDate||"9999-99-99")
+            ||(a.dueTime||"99:99").localeCompare(b.dueTime||"99:99")
+            ||(ordPri[a.priority]??2)-(ordPri[b.priority]??2)
+            ||(a.title||"").localeCompare(b.title||""));
           const isDropTarget=dragOver===st.id;
           return(
             <div key={st.id} className="kanban-col" style={{flexShrink:0,width:268}}
@@ -11111,6 +11113,7 @@ function App(){
       if(prev&&prev.status!=="done"&&updated.status==="done"&&!myPerms.canComplete){toast("🔒 Você não tem permissão para concluir tarefas.","err");return;}
       if(prev&&prev.status!==updated.status&&updated.status!=="done"&&!myPerms.canAdvanceStatus){toast("🔒 Você não tem permissão para avançar o status.","err");return;}
     }
+    {const prev=data.tasks.find(t=>t.id===updated.id);const msg=checklistBloqueia({...updated,status:prev?prev.status:(updated.status==="done"||updated.status==="review"?"todo":updated.status)},updated.status);if(msg){toast(msg,"warn",7000);return;}}
     // Detect new @mentions in comments and notify
     const prevComments=data.tasks.find(t=>t.id===updated.id)?.comments||[];
     const newComments=(updated.comments||[]).filter(nc=>!prevComments.find(pc=>pc.id===nc.id));
@@ -11340,11 +11343,25 @@ function App(){
     toast(`✅ ${removed} duplicata${removed>1?"s removidas":" removida"} com segurança!`,"ok");
   };
 
+  // Checklist incompleto: não pode ir para Revisão (nem para depois dela, como Concluído)
+  const checklistBloqueia=(task,novo)=>{
+    const ck=toArr(task&&task.checklist);const falta=ck.filter(c=>!c.done).length;
+    if(!falta||!novo||novo===task.status||novo==="archived")return null;
+    const sts=getFullSTS(data.customStatuses).filter(s=>s.id!=="archived").sort((a,b)=>a.order-b.order);
+    const ordem=sts.map(s=>s.id);
+    const limite=ordem.indexOf("review")>=0?ordem.indexOf("review"):ordem.indexOf("done");
+    const iNovo=ordem.indexOf(novo),iAtual=ordem.indexOf(task.status||"todo");
+    if(iNovo<0||limite<0||iNovo<limite||iNovo<=iAtual&&iAtual>=limite)return null;
+    const lbl=sts.find(s=>s.id===novo)?.l||novo;
+    return `☑ "${task.title||"Tarefa"}": conclua o checklist antes de enviar para ${lbl} — faltam ${falta} de ${ck.length} itens.`;
+  };
   const bulkUpdate=(action,ids,value)=>{
     if(action==="delete"){
       setData(d=>({...d,tasks:d.tasks.filter(t=>!ids.includes(t.id))}));
       toast(`🗑 ${ids.length} tarefa(s) excluída(s).`,"warn");
     } else if(action==="status"){
+      const barradas=data.tasks.filter(t=>ids.includes(t.id)&&checklistBloqueia(t,value)).map(t=>t.id);
+      if(barradas.length){toast(`☑ ${barradas.length} tarefa(s) com checklist incompleto não foram movidas.`,"warn",6000);ids=ids.filter(id=>!barradas.includes(id));if(!ids.length)return;}
       setData(d=>({...d,tasks:d.tasks.map(t=>ids.includes(t.id)?{...t,status:value,completedAt:value==="done"?todayStr():(t.completedAt&&value!=="done"?null:t.completedAt)}:t)}));
       toast(`✅ ${ids.length} tarefa(s) movidas para ${STS.find(s=>s.id===value)?.l||value}.`,"ok");
     } else if(action==="priority"){
@@ -11377,6 +11394,7 @@ function App(){
       toast(`↩ Tarefa reaberta → ${LABELS[anterior]||anterior}`,"ok");
       return;
     }
+    {const msg=checklistBloqueia(task,next);if(msg){toast(msg,"warn",6000);return;}}
     // Verificar permissões
     if(!isAdmin){
       if(next==="done"&&!myPerms.canComplete){
@@ -11438,6 +11456,7 @@ function App(){
       if(newStatus==="done"&&!myPerms.canComplete){toast("🔒 Você não tem permissão para concluir tarefas.","err");return;}
       if(newStatus!=="done"&&!myPerms.canAdvanceStatus){toast("🔒 Você não tem permissão para avançar o status.","err");return;}
     }
+    {const tk=data.tasks.find(t=>t.id===taskId);const msg=checklistBloqueia(tk,newStatus);if(msg){toast(msg,"warn",6000);return;}}
     const statusLabel=getFullSTS(data.customStatuses).find(s=>s.id===newStatus)?.l||newStatus;
     setData(d=>({...d,tasks:d.tasks.map(t=>t.id===taskId?{
       ...t,status:newStatus,

@@ -3312,6 +3312,7 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
     const NOMES=["DOMINGO","SEGUNDA","TERÇA","QUARTA","QUINTA","SEXTA","SÁBADO"];
     return {label:DOW_NAMES[dow],nome:NOMES[dow],data:task.dueDate.slice(8,10)+"/"+task.dueDate.slice(5,7),color:DOW_COLORS[dow],isToday,isTomorrow};
   })();
+  const venceHoje=task.status!=="done"&&task.status!=="archived"&&task.dueDate===isoLocalHoje();
   const sector=task.sector?data.sectors.find(s=>s.id===task.sector):null;
   const company=data.companies.find(c=>c.id===task.company);
   const ckDone=task.checklist.filter(c=>c.done).length;
@@ -3352,8 +3353,8 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
         cursor:isDragging?"grabbing":"pointer",
         transition:"box-shadow .15s,transform .15s,opacity .15s",
         position:"relative",
-        borderLeft:`4px solid ${done?"#22c55e":over?"#ef4444":task.pinned?"#f59e0b":p.d}`,
-        boxShadow:task.pinned&&!isDragging?`0 2px 8px rgba(245,158,11,.25),0 0 0 1.5px #fcd34d`:isDragging?"none":done?`0 1px 3px rgba(0,0,0,.05),0 0 0 1.5px #bbf7d0`:(ckOverdue>0&&!done)?`0 2px 8px ${p.d}33,0 0 0 1.5px ${p.d}66`:`0 1px 3px rgba(0,0,0,.07),0 0 0 1px ${p.d}30`,
+        borderLeft:`4px solid ${done?"#22c55e":over?"#ef4444":venceHoje?"#f97316":task.pinned?"#f59e0b":p.d}`,
+        boxShadow:venceHoje&&!isDragging?"0 0 0 2px #f97316,0 6px 18px rgba(249,115,22,.35)":task.pinned&&!isDragging?`0 2px 8px rgba(245,158,11,.25),0 0 0 1.5px #fcd34d`:isDragging?"none":done?`0 1px 3px rgba(0,0,0,.05),0 0 0 1.5px #bbf7d0`:(ckOverdue>0&&!done)?`0 2px 8px ${p.d}33,0 0 0 1.5px ${p.d}66`:`0 1px 3px rgba(0,0,0,.07),0 0 0 1px ${p.d}30`,
         opacity:isDragging?.3:1,
         display:"flex",
         flexDirection:"row",
@@ -3366,7 +3367,7 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
         e.currentTarget.style.transform="translateY(-2px)";
       }}
       onMouseLeave={e=>{
-        e.currentTarget.style.boxShadow=done?"0 1px 3px rgba(0,0,0,.05),0 0 0 1.5px #bbf7d0":"0 1px 3px rgba(0,0,0,.07),0 0 0 1px rgba(0,0,0,.05)";
+        e.currentTarget.style.boxShadow=done?"0 1px 3px rgba(0,0,0,.05),0 0 0 1.5px #bbf7d0":venceHoje?"0 0 0 2px #f97316,0 6px 18px rgba(249,115,22,.35)":task.pinned?"0 2px 8px rgba(245,158,11,.25),0 0 0 1.5px #fcd34d":"0 1px 3px rgba(0,0,0,.07),0 0 0 1px rgba(0,0,0,.05)";
         e.currentTarget.style.transform="none";
       }}
     >
@@ -3398,6 +3399,7 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
       <div style={{flex:1,padding:"12px 14px",minWidth:0}}>
         <QCBtn status={task.status} onClick={()=>onComplete&&onComplete(task)} size={26} absolute={true}/>
 
+        {venceHoje&&<div style={{display:"inline-flex",alignItems:"center",gap:5,marginBottom:8,color:"#ea580c",fontSize:12,fontWeight:900,letterSpacing:".08em"}}><span style={{width:8,height:8,borderRadius:"50%",background:"#f97316",boxShadow:"0 0 0 4px rgba(249,115,22,.2)"}}/>HOJE{task.dueTime?" · "+task.dueTime:""}</div>}
         {dowTag&&<DiaSemanaTag t={dowTag} done={done}/>}
         {labels.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8,paddingRight:36}}>{labels.map(l=><Chip key={l.id} label={l.name} color={l.color}/>)}</div>}
 
@@ -3433,10 +3435,10 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
         <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:8}}>
           <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:700,background:p.bg,color:p.t}}><span style={{display:"inline-block",width:5,height:5,borderRadius:"50%",background:p.d,marginRight:4,verticalAlign:"middle"}}/>{p.l}</span>
           {task.dueDate&&(()=>{
-            const today=todayStr();
+            const today=isoLocalHoje();
             const isToday=task.dueDate===today;
             const tomorrow=new Date();tomorrow.setDate(tomorrow.getDate()+1);
-            const isTomorrow=task.dueDate===tomorrow.toISOString().slice(0,10);
+            const isTomorrow=task.dueDate===recIsoLocal(tomorrow);
             const diffMs=new Date(task.dueDate+"T23:59:59")-new Date();
             const diffH=Math.floor(diffMs/3600000);
             const diffD=Math.floor(diffMs/86400000);
@@ -3444,7 +3446,7 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
             if(!done&&task.dueDate>=today){
               if(isToday){
                 const hLeft=Math.max(0,Math.floor((new Date(task.dueDate+"T23:59:59")-new Date())/3600000));
-                countdown=<span style={{fontSize:10,padding:"1px 7px",borderRadius:20,background:"#fef3c7",color:"#d97706",fontWeight:900,border:"1px solid #fde68a",animation:"pulse 2s infinite",marginLeft:4}}>⏰ hoje</span>;
+                countdown=<span style={{fontSize:10,padding:"1px 7px",borderRadius:20,background:"#f97316",color:"#fff",fontWeight:900,marginLeft:4,boxShadow:"0 1px 4px rgba(249,115,22,.4)"}}>⏰ HOJE</span>;
               } else if(isTomorrow){
                 countdown=<span style={{fontSize:10,padding:"1px 7px",borderRadius:20,background:"#ede9fe",color:"#7c3aed",fontWeight:800,border:"1px solid #ddd6fe",marginLeft:4}}>↑ amanhã</span>;
               } else if(diffD<=3){

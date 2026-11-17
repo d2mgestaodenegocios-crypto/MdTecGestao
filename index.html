@@ -10792,13 +10792,16 @@ function App(){
       const sig=(r)=>r.interval+":"+[...(r.days||[])].sort().join(",");
       const faltamPresets=REC_PRESETS_EXTRA.filter(p=>!(d0.recurrences||[]).some(r=>r.id===p.id||sig(r)===sig(p)));
       const novas=recRenovarSeries(d0);
-      if(!faltamPresets.length&&!novas.length)return;
+      const copiasPresas=d0.tasks.some(t=>t._recGroup&&/\(cópia\)\s*$/.test(t.title||""));
+      if(!faltamPresets.length&&!novas.length&&!copiasPresas)return;
       setData(d=>{
         let nd=d;
         const fp=REC_PRESETS_EXTRA.filter(p=>!(nd.recurrences||[]).some(r=>r.id===p.id||sig(r)===sig(p)));
         if(fp.length)nd={...nd,recurrences:[...(nd.recurrences||[]),...fp]};
         const ids=new Set((nd.tasks||[]).map(t=>t.id));
         const chaves=new Set((nd.tasks||[]).filter(t=>t._recGroup).map(t=>t._recGroup+"|"+t.dueDate));
+        // cópias feitas antes da correção ficavam ligadas à série da original: solta essas cópias
+        if(nd.tasks.some(t=>t._recGroup&&/\(cópia\)\s*$/.test(t.title||"")))nd={...nd,tasks:nd.tasks.map(t=>t._recGroup&&/\(cópia\)\s*$/.test(t.title||"")?{...t,_recGroup:null,_recurrenceId:null,_serviceId:null}:t)};
         const add=recRenovarSeries(nd).filter(t=>!ids.has(t.id)&&!chaves.has(t._recGroup+"|"+t.dueDate));
         if(add.length)nd={...nd,tasks:[...nd.tasks,...add]};
         return nd;
@@ -11253,8 +11256,14 @@ function App(){
       history:[],
       completedBy:null,
       completedByName:null,
-      assignees:Array.isArray(task.assignees)?task.assignees:[],
+      assignees:[...toArr(task.assignees)],
+      labels:[...toArr(task.labels)],
+      companies:[...toArr(task.companies)],
+      dependencies:[...toArr(task.dependencies)],
       checklist:toArr(task.checklist).map(c=>({...c,id:uid(),done:false})),
+      status:task.status==="done"||task.status==="archived"?"todo":task.status,
+      // a cópia é uma tarefa independente: não pertence à série recorrente nem ao serviço da original
+      recurrence:"",_recGroup:null,_recurrenceId:null,_recFim:false,_seqEnd:null,_serviceId:null,_copies:[],_parentId:task._parentId||null,
     };
     setData(d=>({...d,tasks:[...d.tasks,copy]}));
     toast("⧉ Tarefa duplicada!","ok");

@@ -8533,10 +8533,16 @@ function useInstagramData(toast){
 }
 
 // ── Avatar da conta ─────────────────────────────────────────────────
+// Fotos de perfil vindas do Instagram (o robô atualiza todo dia)
+const igFotos={};
 function IgAvatar({conta,size=28}){
   const nome=(conta?.nome||"?").trim();
-  return(<div title={conta?("@"+(conta.usuario||nome)):""} style={{width:size,height:size,borderRadius:"50%",padding:2,background:"linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7)",flexShrink:0}}>
-    <div style={{width:"100%",height:"100%",borderRadius:"50%",background:conta?.cor||"#6366f1",border:"2px solid var(--bg2)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:900,fontSize:Math.max(8,size*0.34),boxSizing:"border-box"}}>{nome.slice(0,2).toUpperCase()}</div>
+  const foto=conta&&(igFotos[conta.id]||conta.conexao?.foto||"");
+  const [falhou,setFalhou]=React.useState("");
+  return(<div title={conta?("@"+(conta.usuario||nome)):""} style={{width:size,height:size,borderRadius:"50%",padding:2,background:"linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7)",flexShrink:0,boxSizing:"border-box"}}>
+    <div style={{width:"100%",height:"100%",borderRadius:"50%",background:conta?.cor||"#6366f1",border:"2px solid var(--bg2)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:900,fontSize:Math.max(8,size*0.34),boxSizing:"border-box",position:"relative",overflow:"hidden"}}>{nome.slice(0,2).toUpperCase()}
+      {foto&&falhou!==foto&&<img src={foto} alt="" referrerPolicy="no-referrer" onError={()=>setFalhou(foto)} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",borderRadius:"50%"}}/>}
+    </div>
   </div>);
 }
 function IgThumb({post,size=40,radius=8}){
@@ -9029,7 +9035,9 @@ function IgContasModal({open,onClose,contas,companies,collaborators,posts,onSalv
           {visiveis.map(c=>(<div key={c.id} id={"ig-conta-"+c.id} style={{transition:"box-shadow .3s",border:"1px solid var(--border2)",borderLeft:"4px solid "+(c.cor||"#6366f1"),borderRadius:12,padding:12,background:c.ativa===false?"var(--bg3)":"var(--bg2)",opacity:c.ativa===false?.7:1}}>
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
               <IgAvatar conta={c} size={34}/>
-              <span style={{fontSize:10.5,fontWeight:800,padding:"2px 8px",borderRadius:20,background:c.tipo==="propria"?"#fdf2f8":"#eef2ff",color:c.tipo==="propria"?"#be185d":"#4338ca"}}>{c.tipo==="propria"?"Conta própria (MD)":"Cliente"}</span>
+              <div title="Tipo da conta — clique para trocar" style={{display:"flex",border:"1px solid var(--border2)",borderRadius:20,overflow:"hidden"}}>
+                {[["propria","MD (própria)","#be185d","#fdf2f8"],["cliente","Cliente","#4338ca","#eef2ff"]].map(([k,l,cor,bg])=>{const on=(c.tipo==="propria"?"propria":"cliente")===k;return(<button key={k} onClick={()=>!on&&upd(c.id,"tipo",k)} style={{border:"none",padding:"3px 10px",fontSize:10.5,fontWeight:800,cursor:on?"default":"pointer",background:on?bg:"var(--bg2)",color:on?cor:"var(--text4)",fontFamily:"inherit"}}>{on?"● ":""}{l}</button>);})}
+              </div>
               {c.ativa===false&&<span style={{fontSize:10.5,fontWeight:800,color:"#64748b"}}>⏸ inativa</span>}
               <div style={{marginLeft:"auto",display:"flex",gap:6,alignItems:"center"}}>
                 <div style={{display:"flex",gap:3}}>{IG_CORES.map(cor=><span key={cor} onClick={()=>upd(c.id,"cor",cor)} style={{width:14,height:14,borderRadius:"50%",background:cor,cursor:"pointer",outline:c.cor===cor?"2px solid var(--text)":"none",outlineOffset:1}}/>)}</div>
@@ -9065,7 +9073,7 @@ function useIgMetricas(){
   const [m,setM]=React.useState({contas:{}});
   React.useEffect(()=>{
     let ok=true;
-    const aplicar=(p)=>{if(ok&&p)setM({contas:(p&&typeof p.contas==="object"&&p.contas)||{}});};
+    const aplicar=(p)=>{if(ok&&p){const cs=(p&&typeof p.contas==="object"&&p.contas)||{};Object.keys(cs).forEach(id=>{if(cs[id]?.perfil?.foto)igFotos[id]=cs[id].perfil.foto;});setM({contas:cs});}};
     (async()=>{try{const{data:row}=await sb.from("app_data").select("payload").eq("id",IG_METRICAS_ROW).maybeSingle();aplicar(row?.payload||{contas:{}});}catch(e){}})();
     const ch=sb.channel("instagram_metricas").on("postgres_changes",{event:"*",schema:"public",table:"app_data",filter:`id=eq.${IG_METRICAS_ROW}`},pl=>{if(pl.new?.payload)aplicar(pl.new.payload);}).subscribe();
     return()=>{ok=false;try{sb.removeChannel(ch);}catch(e){}};
@@ -9378,9 +9386,13 @@ function IgRelComparativo({linhas,per,pdf,onSel}){
       <div style={{overflowX:pdf?"visible":"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",minWidth:pdf?0:860}}>
           <thead><tr><th style={{...th,textAlign:"left"}}>Conta</th><th style={th}>Seguidores</th><th style={th}>Crescimento</th><th style={th}>Posts</th><th style={th}>Visualiz.</th><th style={th}>Interações</th><th style={th}>Média/post</th><th style={th}>Engaj.</th><th style={{...th,textAlign:"left"}}>Destaque</th></tr></thead>
-          <tbody>{linhas.map(({c,r})=>{const top=r?.noPer?.slice().sort((a,b)=>igInteracoes(b)-igInteracoes(a))[0];return(
+          <tbody>{linhas.map(({c,r,mc})=>{const top=r?.noPer?.slice().sort((a,b)=>igInteracoes(b)-igInteracoes(a))[0];return(
             <tr key={c.id} onClick={()=>onSel&&onSel(c.id)} style={{cursor:onSel?"pointer":"default"}}>
-              <td style={{...td,textAlign:"left"}}><div style={{display:"flex",alignItems:"center",gap:8}}><IgAvatar conta={c} size={24}/><div><b>@{(c.conexao?.username||c.usuario||"").replace(/^@/,"")}</b><div style={{fontSize:10.5,color:"var(--text3)"}}>{c.nome}</div></div></div></td>
+              <td style={{...td,textAlign:"left"}}><div style={{display:"flex",alignItems:"center",gap:8}}><IgAvatar conta={c} size={24}/><div style={{minWidth:0}}><b>@{(c.conexao?.username||c.usuario||"").replace(/^@/,"")}</b><div style={{fontSize:10.5,color:"var(--text3)"}}>{c.nome}</div>
+                {mc?.erro&&<div title={mc.erro} style={{fontSize:10,color:"#b91c1c",fontWeight:700,whiteSpace:"normal",maxWidth:220}}>⚠️ {mc.erro.slice(0,90)}</div>}
+                {!mc?.erro&&mc&&!(mc.midias||[]).length&&(mc.perfil?.posts||0)>0&&<div style={{fontSize:10,color:"#b45309",fontWeight:700,whiteSpace:"normal",maxWidth:220}}>⚠️ o Instagram não devolveu os posts desta conta</div>}
+                {!mc&&!pdf&&<div style={{fontSize:10,color:"#b45309",fontWeight:700}}>ainda sem leitura — clique em 🔄 Atualizar números</div>}
+              </div></div></td>
               <td style={{...td,fontWeight:800}}>{r?igFmtN(r.atual):"—"}</td>
               <td style={{...td,fontWeight:800,color:r?.ganho>0?"#15803d":r?.ganho<0?"#b91c1c":"var(--text3)"}}>{r&&r.ganho!=null?(r.ganho>0?"+":"")+igFmtN(r.ganho)+(r.ganhoPct!=null?" ("+igFmtPct(r.ganhoPct)+")":""):<span style={{fontWeight:500,color:"var(--text4)"}}>coletando…</span>}</td>
               <td style={td}>{r?r.posts:"—"}</td>
@@ -9572,7 +9584,7 @@ function IgRelatorios({contas,posts,metricas,contaSel,setContaSel,toast}){
   };
   // cálculos só refeitos quando números/período mudam
   const chaveDia=Math.floor(per.ini/864e5)+"-"+Math.floor(per.fim/864e5);
-  const linhasMemo=React.useMemo(()=>conectadas.map(c=>({c,r:igResumo(metricas.contas?.[c.id],per)})).sort((a,b)=>((b.r?.ganhoPct)??-1e9)-((a.r?.ganhoPct)??-1e9)),[metricas,contas,chaveDia]);
+  const linhasMemo=React.useMemo(()=>conectadas.map(c=>({c,mc:metricas.contas?.[c.id],r:igResumo(metricas.contas?.[c.id],per)})).sort((a,b)=>((b.r?.ganhoPct)??-1e9)-((a.r?.ganhoPct)??-1e9)),[metricas,contas,chaveDia]);
   const linhasTodas=()=>linhasMemo;
   const [pdfReq,setPdfReq]=React.useState(null);
   const calcSel=React.useMemo(()=>sel?igCalcConta(metricas.contas?.[sel],per,posts,sel):null,[sel,metricas,posts,chaveDia]);
@@ -9584,7 +9596,7 @@ function IgRelatorios({contas,posts,metricas,contaSel,setContaSel,toast}){
     const userDe=(c)=>(c.conexao?.username||c.usuario||"").replace(/^@/,"");
     const paginas=[];
     if(req.multi){
-      const ls=itens.map(x=>({c:x.conta,r:igResumo(x.mc,p)})).sort((a,b)=>((b.r?.ganhoPct)??-1e9)-((a.r?.ganhoPct)??-1e9));
+      const ls=itens.map(x=>({c:x.conta,mc:x.mc,r:igResumo(x.mc,p)})).sort((a,b)=>((b.r?.ganhoPct)??-1e9)-((a.r?.ganhoPct)??-1e9));
       paginas.push(<div><IgPDFCapa principal titulo={itens.length>1?"Relatório do Instagram · "+itens.length+" contas":"Relatório do Instagram"} sub={itens.map(x=>"@"+userDe(x.conta)).join(" · ")} per={p}/><IgRelComparativo linhas={ls} per={p} pdf/></div>);
     }
     itens.forEach(({conta,mc,c},i)=>paginas.push(<div><IgPDFCapa principal={!req.multi} titulo={(req.multi?"":"Relatório do Instagram · ")+"@"+userDe(conta)} sub={conta.nome||""} per={p} conta={conta} mc={mc}/><IgRelContaView conta={conta} mc={mc} c={c} per={p} pdf/></div>));

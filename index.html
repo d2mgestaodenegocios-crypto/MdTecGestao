@@ -717,6 +717,7 @@ function RichText({text,collaborators,isMe}){
 // Normaliza uma tarefa do Supabase/storage, preservando TODOS os campos
 function normalizeTask(t){
   return {
+    ...t, // mantém os campos extras (quem concluiu, série encerrada, serviço, urgente…)
     id: t.id||uid(),
     title: t.title||"",
     description: t.description||"",
@@ -3002,8 +3003,13 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
         <Sel label="Setor" value={f.sector} onChange={v=>{set("sector",v);set("assignees",[]);}} placeholder="Selecionar..." options={fS.map(s=>({value:s.id,label:s.name}))} disabled={blocked}/>
       </div>
 
-      <Sel label="Recorrência" value={f.recurrence||""} onChange={v=>set("recurrence",v)} placeholder="Sem recorrência" options={data.recurrences.map(r=>({value:r.id,label:r.name}))} disabled={blocked}/>
-      {f.recurrence&&(()=>{const r=data.recurrences.find(x=>x.id===f.recurrence);if(!r)return null;const desc=r.interval==="custom_days"&&r.days?.length?"Toda "+[...r.days].sort().map(d=>WDAYS[d].s).join(", "):(RINTS.find(x=>x.value===r.interval)?.label||r.interval);
+      {f._recGroup&&!f._serviceId
+        ?<Sel label="Recorrência da série" value={f._novaRec!==undefined?f._novaRec:(f._recFim?"":(f._recurrenceId||""))} onChange={v=>set("_novaRec",v)} placeholder="Sem recorrência (encerrar a série)" options={data.recurrences.map(r=>({value:r.id,label:r.name}))} disabled={blocked}/>
+        :<Sel label="Recorrência" value={f.recurrence||""} onChange={v=>set("recurrence",v)} placeholder="Sem recorrência" options={data.recurrences.map(r=>({value:r.id,label:r.name}))} disabled={blocked}/>}
+      {f._recGroup&&f._novaRec!==undefined&&f._novaRec!==(f._recFim?"":(f._recurrenceId||""))&&<div style={{marginTop:-6,marginBottom:10,fontSize:11.5,color:"#92400e",background:"#fffbeb",border:"1px solid #fcd34d",borderRadius:8,padding:"6px 10px"}}>
+        {f._novaRec?<>↻ Ao salvar, a série inteira passa a ser <b>{data.recurrences.find(r=>r.id===f._novaRec)?.name}</b>: as tarefas pendentes de hoje em diante são refeitas na nova regra, com o conteúdo desta tarefa. As concluídas não mudam.</>:<>⏹ Ao salvar, a série é <b>encerrada</b>: as próximas ocorrências pendentes (depois de hoje) são removidas. As concluídas não mudam.</>}
+      </div>}
+      {!f._recGroup&&f.recurrence&&(()=>{const r=data.recurrences.find(x=>x.id===f.recurrence);if(!r)return null;const desc=r.interval==="custom_days"&&r.days?.length?"Toda "+[...r.days].sort().map(d=>WDAYS[d].s).join(", "):(RINTS.find(x=>x.value===r.interval)?.label||r.interval);
         return(<div style={{marginTop:-6,marginBottom:10,fontSize:11.5,color:"#4338ca",background:"#eef2ff",borderRadius:8,padding:"6px 10px"}}>↻ {desc}{r.interval==="daily"?" (inclui sábado e domingo — para só dias úteis use “Dias úteis”)":""} · começa {f.dueDate?"em "+f.dueDate.split("-").reverse().join("/"):"hoje"} · a série se renova sozinha (sempre com as próximas semanas criadas).</div>);})()}
 
       <Fld label={`Responsáveis (máx. 2)${(f.assignees||[]).length>=2?" · limite":""}`}>
@@ -3284,8 +3290,10 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
     if(!task._recGroup||!task.dueDate) return null;
     const d=new Date(task.dueDate+"T12:00:00");
     const dow=d.getDay();
-    const isToday=task.dueDate===todayStr();
-    return {label:DOW_NAMES[dow],color:DOW_COLORS[dow],isToday};
+    const hj=isoLocalHoje();const am=(()=>{const x=new Date();x.setDate(x.getDate()+1);return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0");})();
+    const isToday=task.dueDate===hj;const isTomorrow=task.dueDate===am;
+    const NOMES=["DOMINGO","SEGUNDA","TERÇA","QUARTA","QUINTA","SEXTA","SÁBADO"];
+    return {label:DOW_NAMES[dow],nome:NOMES[dow],data:task.dueDate.slice(8,10)+"/"+task.dueDate.slice(5,7),color:DOW_COLORS[dow],isToday,isTomorrow};
   })();
   const sector=task.sector?data.sectors.find(s=>s.id===task.sector):null;
   const company=data.companies.find(c=>c.id===task.company);
@@ -3374,10 +3382,11 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
         <QCBtn status={task.status} onClick={()=>onComplete&&onComplete(task)} size={26} absolute={true}/>
 
         {dowTag&&(
-          <div style={{display:"inline-flex",alignItems:"center",gap:5,marginBottom:8,padding:"3px 10px 3px 8px",borderRadius:20,background:dowTag.isToday?"linear-gradient(90deg,#f59e0b,#d97706)":dowTag.color+"22",border:`1.5px solid ${dowTag.color}`,alignSelf:"flex-start"}}>
-            <span style={{width:7,height:7,borderRadius:"50%",background:dowTag.color,flexShrink:0}}/>
-            <span style={{fontSize:11,fontWeight:900,color:dowTag.isToday?"#fff":dowTag.color,letterSpacing:".04em"}}>{dowTag.label}</span>
-            {dowTag.isToday&&<span style={{fontSize:10,color:"#fff",fontWeight:700,marginLeft:2}}>· hoje</span>}
+          <div title="Dia da semana desta ocorrência" style={{display:"flex",alignItems:"center",gap:7,minWidth:0,marginBottom:9,marginRight:34,padding:"6px 11px",borderRadius:10,background:done?"#e2e8f0":dowTag.color,boxShadow:done?"none":`0 2px 8px ${dowTag.color}55`}}>
+            <span style={{fontSize:14,color:"#fff",lineHeight:1}}>↻</span>
+            <span style={{fontSize:14,fontWeight:900,color:done?"#64748b":"#fff",letterSpacing:".06em",lineHeight:1.1}}>{dowTag.nome}</span>
+            <span style={{fontSize:12,fontWeight:700,color:done?"#94a3b8":"rgba(255,255,255,.85)"}}>{dowTag.data}</span>
+            {(dowTag.isToday||dowTag.isTomorrow)&&!done&&<span style={{marginLeft:"auto",fontSize:9.5,fontWeight:900,color:dowTag.color,background:"#fff",borderRadius:20,padding:"2px 7px",whiteSpace:"nowrap",flexShrink:0}}>{dowTag.isToday?"HOJE":"AMANHÃ"}</span>}
           </div>
         )}
         {labels.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8,paddingRight:36}}>{labels.map(l=><Chip key={l.id} label={l.name} color={l.color}/>)}</div>}
@@ -6995,6 +7004,14 @@ function PainelRecorrencias({data,setData,onEdit,toast}){
 
             {/* Ações */}
             <div style={{display:"flex",gap:6,flexShrink:0,alignSelf:"flex-start"}}>
+              {!g.svc&&<select value={g.tasks.some(t=>t._recFim)?"":(g.recurrenceId||"")} title="Mudar a recorrência desta série" onChange={e=>{
+                  const v=e.target.value;const rec=v?data.recurrences.find(r=>r.id===v):null;
+                  if(!window.confirm(rec?`Mudar a série "${g.title}" para "${rec.name}"?\n\nAs tarefas pendentes de hoje em diante serão refeitas na nova regra. As concluídas não mudam.`:`Encerrar a série "${g.title}"?\n\nAs próximas ocorrências pendentes serão removidas. As concluídas não mudam.`))return;
+                  setData(d=>{const r=recAlterarSerie(d.tasks,g.id,rec,null);setTimeout(()=>toast(rec?`↻ "${g.title}" agora é ${rec.name} (${r.criadas} próximas).`:`⏹ Série encerrada (${r.removidas} removidas).`,"ok",5000),0);return{...d,tasks:r.tasks};});
+                }} style={{padding:"5px 8px",borderRadius:8,border:"1px solid #c7d2fe",background:"#eef2ff",color:"#4338ca",fontSize:11,fontWeight:700,fontFamily:"inherit",cursor:"pointer",maxWidth:170}}>
+                <option value="">⏹ Encerrar série</option>
+                {data.recurrences.map(r=><option key={r.id} value={r.id}>↻ {r.name}</option>)}
+              </select>}
               {!g.paused
                 ?<button onClick={()=>archiveGroup(g.id)} title="Pausar/arquivar série" style={{padding:"5px 12px",borderRadius:8,border:"1px solid #e2e8f0",background:"var(--bg3)",cursor:"pointer",fontSize:11,fontWeight:700,color:"#64748b",fontFamily:"inherit",transition:"all .15s"}}
                   onMouseEnter={e=>e.currentTarget.style.color="#f59e0b"}
@@ -10449,6 +10466,51 @@ function recRenovarSeries(data){
   return novas;
 }
 
+// Muda a regra de uma série já existente (ex.: de "Seg e Qua" para "Toda Sexta") ou encerra (rec=null).
+// As concluídas ficam; as pendentes de hoje em diante são refeitas pela nova regra, com o conteúdo do "modelo".
+function recBateNaRegra(rec,d,ancora){
+  const dow=d.getDay(),dia=d.getDate(),ultimo=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();
+  const diaBase=Math.min(ancora.getDate(),ultimo);
+  const meses=(d.getFullYear()-ancora.getFullYear())*12+d.getMonth()-ancora.getMonth();
+  switch(rec.interval){
+    case "daily":return true;
+    case "custom_days":return Array.isArray(rec.days)&&rec.days.includes(dow);
+    case "weekly":return dow===ancora.getDay();
+    case "biweekly":return dow===ancora.getDay()&&Math.round((d-ancora)/(7*864e5))%2===0;
+    case "monthly":return dia===diaBase;
+    case "lastday":return dia===ultimo;
+    case "quarterly":return dia===diaBase&&meses%3===0;
+    case "yearly":return dia===diaBase&&d.getMonth()===ancora.getMonth();
+    default:return false;
+  }
+}
+function recAlterarSerie(tasks,grpId,rec,modelo){
+  const hoje=new Date();hoje.setHours(0,0,0,0);const hojeIso=recIsoLocal(hoje);
+  const grupo=tasks.filter(t=>t._recGroup===grpId);
+  const pendFut=grupo.filter(t=>t.dueDate&&t.dueDate>=hojeIso&&t.status!=="done"&&t.status!=="archived");
+  const base=modelo||pendFut.sort((a,b)=>a.dueDate.localeCompare(b.dueDate))[0]||grupo.sort((a,b)=>(b.dueDate||"").localeCompare(a.dueDate||""))[0];
+  if(!base)return{tasks,criadas:0,removidas:0};
+  if(!rec){
+    // encerrar: tira só as futuras (depois de hoje); a de hoje e a que está sendo editada ficam
+    const tirar=new Set(pendFut.filter(t=>t.dueDate>hojeIso&&t.id!==(modelo&&modelo.id)).map(t=>t.id));
+    return{tasks:tasks.filter(t=>!tirar.has(t.id)).map(t=>t._recGroup===grpId?{...t,_recFim:true}:t),criadas:0,removidas:tirar.size};
+  }
+  const tirar=new Set(pendFut.map(t=>t.id));
+  const ficam=tasks.filter(t=>!tirar.has(t.id)).map(t=>t._recGroup===grpId?{...t,_recurrenceId:rec.id,_recFim:false}:t);
+  const ocupadas=new Set(ficam.filter(t=>t._recGroup===grpId).map(t=>t.dueDate));
+  // âncora: data do modelo (para semanal/mensal manter o mesmo dia), ou hoje
+  const ancora=base.dueDate&&/^\d{4}-\d{2}-\d{2}$/.test(base.dueDate)?recDataLocal(base.dueDate):new Date(hoje);
+  const fim=recHorizonte(rec,hoje);const novas=[];
+  for(const d=new Date(hoje);d<=fim;d.setDate(d.getDate()+1)){
+    if(!recBateNaRegra(rec,d,ancora))continue;
+    const ds=recIsoLocal(d);if(ocupadas.has(ds))continue;ocupadas.add(ds);
+    novas.push({...base,id:"rec_"+grpId+"_"+ds,dueDate:ds,status:"todo",recurrence:"",_recGroup:grpId,_recurrenceId:rec.id,_recFim:false,
+      completedAt:null,completedBy:null,completedByName:null,archivedAt:null,comments:[],
+      checklist:toArr(base.checklist).map(c=>({...c,id:uid(),done:false}))});
+  }
+  return{tasks:[...ficam,...novas],criadas:novas.length,removidas:tirar.size};
+}
+
 function App(){
   const {user,loading:authLoading,signIn,signOut} = useAuth();
   const [data,setData,synced] = useSharedData();
@@ -11102,6 +11164,21 @@ function App(){
       }
     }
 
+    // Trocar a recorrência de uma série (ou encerrar)
+    if(!isNew && base._recGroup && base._novaRec!==undefined && base._novaRec!==(base._recFim?"":(base._recurrenceId||""))){
+      const novo=base._novaRec;const rec=novo?data.recurrences.find(r=>r.id===novo):null;
+      const modelo={...base};delete modelo._novaRec;
+      setData(d=>{
+        const comEdicao=d.tasks.map(t=>t.id===modelo.id?modelo:t);
+        const r=recAlterarSerie(comEdicao,modelo._recGroup,rec,modelo);
+        setTimeout(()=>toast(rec?`↻ Série agora é "${rec.name}" — ${r.criadas} tarefa(s) nas próximas semanas.`:`⏹ Série encerrada — ${r.removidas} tarefa(s) futura(s) removida(s).`,"ok",6000),0);
+        return {...d,tasks:r.tasks};
+      });
+      if(taskModal.task) release(taskModal.task.id);
+      setTM(m=>({...m,open:false}));
+      return;
+    }
+    if(base._novaRec!==undefined){delete base._novaRec;}
     // Tarefa já existente que ganhou recorrência: vira o 1º item da série e cria as próximas
     if(!isNew && base.recurrence && !base._recGroup){
       const rec=data.recurrences.find(r=>r.id===base.recurrence);

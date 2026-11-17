@@ -1110,6 +1110,54 @@ async function gravarMesclado(rowId,mesclar){
   throw new Error("muitas gravações simultâneas — tentando de novo");
 }
 
+// ── Atividades ao vivo: compara a versão anterior com a nova e descreve o que mudou ──
+function diffAtividades(antes,depois){
+  const out=[];const A=new Map((antes||[]).map(t=>[t.id,t]));const D=new Map((depois||[]).map(t=>[t.id,t]));
+  const stl=(s)=>({todo:"A Fazer",doing:"Em Andamento",review:"Em Revisão",done:"Concluído",archived:"Arquivado"}[s]||s);
+  D.forEach((t,id)=>{
+    const a=A.get(id);
+    if(!a){out.push({tipo:"criou",id,titulo:t.title,txt:"criou a tarefa"});return;}
+    if(a.status!==t.status)out.push({tipo:t.status==="done"?"concluiu":"status",id,titulo:t.title,txt:t.status==="done"?"concluiu":"moveu para "+stl(t.status)});
+    const ca=toArr(a.comments).length,cd=toArr(t.comments).length;
+    if(cd>ca){const c=toArr(t.comments)[cd-1]||{};out.push({tipo:"comentou",id,titulo:t.title,txt:"comentou: “"+String(c.text||"").slice(0,80)+"”"});}
+    const ka=toArr(a.checklist).filter(c=>c.done).length,kd=toArr(t.checklist).filter(c=>c.done).length;
+    if(kd!==ka&&a.status===t.status)out.push({tipo:"checklist",id,titulo:t.title,txt:"checklist "+kd+"/"+toArr(t.checklist).length});
+    const campos=[];
+    if(a.title!==t.title)campos.push("título");if(a.dueDate!==t.dueDate)campos.push("prazo");if(a.priority!==t.priority)campos.push("prioridade");
+    if(JSON.stringify(toArr(a.assignees))!==JSON.stringify(toArr(t.assignees)))campos.push("responsáveis");if(a.description!==t.description)campos.push("descrição");
+    if(campos.length)out.push({tipo:"editou",id,titulo:t.title,txt:"alterou "+campos.join(", ")});
+  });
+  A.forEach((t,id)=>{if(!D.has(id))out.push({tipo:"excluiu",id,titulo:t.title,txt:"excluiu a tarefa"});});
+  return out;
+}
+const FEED_KEY="mdtec_feed_atividades";
+function lerFeed(){try{return JSON.parse(localStorage.getItem(FEED_KEY)||"[]")||[];}catch(e){return[];}}
+function FeedAtividades({onAbrir,tarefas,collaborators}){
+  const [lista,setLista]=useState(lerFeed);const [aberto,setAberto]=useState(false);
+  const [visto,setVisto]=useState(()=>{try{return Number(localStorage.getItem(FEED_KEY+"_visto")||0);}catch(e){return 0;}});
+  useEffect(()=>{const f=()=>setLista(lerFeed());window.addEventListener("mdtec_feed",f);return()=>window.removeEventListener("mdtec_feed",f);},[]);
+  const novos=lista.filter(x=>x.quando>visto).length;
+  const abrir=()=>{setAberto(a=>!a);const t=Date.now();setVisto(t);try{localStorage.setItem(FEED_KEY+"_visto",String(t));}catch(e){}};
+  const ic={criou:"✨",concluiu:"✅",status:"➡️",comentou:"💬",checklist:"☑",editou:"✏️",excluiu:"🗑"};
+  const hora=(t)=>{const d=new Date(t);return (new Date().toDateString()===d.toDateString()?"":d.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})+" ")+d.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});};
+  return(<div style={{position:"relative"}}>
+    <button onClick={abrir} title="Atividades da equipe em tempo real" style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:10,background:"var(--bg2)",border:"1px solid var(--border)",cursor:"pointer",fontSize:12,fontWeight:800,color:"var(--text2)",fontFamily:"inherit"}}>
+      <span style={{width:8,height:8,borderRadius:"50%",background:"#22c55e",boxShadow:"0 0 0 3px rgba(34,197,94,.2)"}}/>Ao vivo
+      {novos>0&&<span style={{background:"#ef4444",color:"#fff",borderRadius:10,padding:"0 6px",fontSize:10.5}}>{novos>99?"99+":novos}</span>}
+    </button>
+    {aberto&&<div style={{position:"absolute",right:0,top:42,width:380,maxHeight:"70vh",overflowY:"auto",background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:14,boxShadow:"0 16px 40px rgba(0,0,0,.18)",zIndex:300,padding:10}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}><b style={{fontSize:13}}>📡 Atividades da equipe</b><span style={{fontSize:11,color:"var(--text4)"}}>em tempo real</span>
+        {lista.length>0&&<button onClick={()=>{try{localStorage.setItem(FEED_KEY,"[]");}catch(e){}setLista([]);}} style={{marginLeft:"auto",border:"none",background:"none",color:"var(--text4)",cursor:"pointer",fontSize:11,fontFamily:"inherit"}}>limpar</button>}</div>
+      {lista.length===0&&<div style={{fontSize:12,color:"var(--text4)",padding:"14px 4px"}}>Nada ainda. Assim que alguém criar, mover, comentar ou concluir uma tarefa, aparece aqui na hora.</div>}
+      {lista.map((x,i)=>{const t=tarefas.find(y=>y.id===x.id);return(<div key={i} onClick={()=>{if(t){onAbrir(t);setAberto(false);}}} style={{display:"flex",gap:8,padding:"7px 6px",borderTop:i?"1px solid var(--border)":"none",cursor:t?"pointer":"default",background:x.quando>visto?"rgba(99,102,241,.06)":"transparent",borderRadius:8}}>
+        <span style={{fontSize:15}}>{ic[x.tipo]||"•"}</span>
+        <div style={{flex:1,minWidth:0,fontSize:12,lineHeight:1.4}}><b>{x.quem||"Alguém"}</b> {x.txt} <span style={{color:"#4f46e5",fontWeight:700}}>{x.titulo?"“"+x.titulo+"”":""}</span></div>
+        <span style={{fontSize:10.5,color:"var(--text4)",whiteSpace:"nowrap"}}>{hora(x.quando)}</span>
+      </div>);})}
+    </div>}
+  </div>);
+}
+
 function useSharedData() {
   const [data, setRaw] = useState(SEED);
   const [synced, setSynced] = useState(false);
@@ -1252,10 +1300,10 @@ function useSharedData() {
     const snapshot = latestStateRef.current;
     try {
       if (!snapshot) return;
-      const me = localStorage.getItem(USER_KEY) || "";
+      const me = window.__mdtecQuem || localStorage.getItem(USER_KEY) || "";
       const toSave = await gravarMesclado(1, (remoto) => {
         const merged = remoto ? merge3(baseRef.current || {}, snapshot, preencherPadroes(remoto)) : { ...snapshot };
-        return { ...merged, _savedBy: me };
+        return { ...merged, _savedBy: me, _savedSessao: MY_NAME };
       });
       myLastSave.current = toSave._savedAt;
       failCount.current = 0;
@@ -1290,9 +1338,18 @@ function useSharedData() {
       latestStateRef.current = r;
       return r;
     });
-    const myUser = localStorage.getItem(USER_KEY) || "";
-    if (p._savedBy && p._savedBy !== myUser) {
+    const deOutro = p._savedSessao ? p._savedSessao !== MY_NAME : (p._savedBy && p._savedBy !== (localStorage.getItem(USER_KEY) || ""));
+    if (deOutro) {
       window.dispatchEvent(new CustomEvent("mdtec_collab_update", { detail: p._savedBy }));
+      try {
+        const mud = base ? diffAtividades(base.tasks, p.tasks) : [];
+        if (mud.length) {
+          const quando = Date.now();
+          const feed = [...mud.map(m => ({ ...m, quem: p._savedBy, quando })), ...lerFeed()].slice(0, 300);
+          localStorage.setItem(FEED_KEY, JSON.stringify(feed));
+          window.dispatchEvent(new CustomEvent("mdtec_feed", { detail: mud }));
+        }
+      } catch (e) {}
     }
   }
 
@@ -1301,7 +1358,7 @@ function useSharedData() {
     const channel = sb
       .channel("app_data_changes")
       .on("postgres_changes", { event: "*", schema: "public", table: "app_data", filter: "id=eq.1" },
-        (payload) => { if (payload.new?.payload) aplicarRemoto(payload.new.payload); })
+        (payload) => { const np = payload.new?.payload; if (np && Array.isArray(np.tasks)) aplicarRemoto(np); else checar(); })
       .subscribe();
 
     // Rede de segurança: se o realtime cair (computador dormiu, Wi-Fi oscilou), confere a cada 30s e ao voltar para a aba
@@ -1315,7 +1372,7 @@ function useSharedData() {
         }
       } catch (e) {}
     };
-    const iv = setInterval(checar, 30000);
+    const iv = setInterval(checar, 8000);
     const onVis = () => { if (document.visibilityState === "visible") checar(); };
     document.addEventListener("visibilitychange", onVis);
     window.addEventListener("focus", checar);
@@ -8596,8 +8653,13 @@ function useInstagramData(toast){
   React.useEffect(()=>{
     let ok=true;
     (async()=>{try{const{data:row}=await sb.from("app_data").select("payload").eq("id",IG_ROW_ID).maybeSingle();if(ok){aplicar(row?.payload||{contas:[],posts:[]});setCarregado(true);}}catch(e){if(ok)setCarregado(true);}})();
-    const ch=sb.channel("instagram_mod").on("postgres_changes",{event:"*",schema:"public",table:"app_data",filter:`id=eq.${IG_ROW_ID}`},pl=>{if(pl.new?.payload)aplicar(pl.new.payload);}).subscribe();
-    return()=>{ok=false;try{sb.removeChannel(ch);}catch(e){}};
+    // linha grande pode chegar sem o conteúdo pelo tempo real: aí busca no banco
+    let ultTs=0;
+    const buscar=async()=>{try{const{data:r}=await sb.from("app_data").select("ts:payload->>_savedAt").eq("id",IG_ROW_ID).maybeSingle();const ts=Number(r?.ts||0);if(ts&&ts!==ultTs){const{data:row}=await sb.from("app_data").select("payload").eq("id",IG_ROW_ID).maybeSingle();if(ok&&row?.payload){ultTs=ts;aplicar(row.payload);}}}catch(e){}};
+    const ch=sb.channel("instagram_mod").on("postgres_changes",{event:"*",schema:"public",table:"app_data",filter:`id=eq.${IG_ROW_ID}`},pl=>{const np=pl.new?.payload;if(np&&Array.isArray(np.posts)){ultTs=Number(np._savedAt||0);aplicar(np);}else buscar();}).subscribe();
+    const iv=setInterval(buscar,10000);
+    const vis=()=>{if(document.visibilityState==="visible")buscar();};document.addEventListener("visibilitychange",vis);
+    return()=>{ok=false;clearInterval(iv);document.removeEventListener("visibilitychange",vis);try{sb.removeChannel(ch);}catch(e){}};
   },[]);
   // Aplica a alteração sobre a versão mais nova do banco (não perde o que outra pessoa salvou)
   const atualizar=async(fn,msgErro)=>{
@@ -11105,6 +11167,8 @@ function App(){
   );
 
   const userName = user.user_metadata?.name || user.email?.split("@")[0] || "Usuário";
+  // nome real de quem salva (aparece para o administrador em "Ao vivo")
+  if(typeof window!=="undefined")window.__mdtecQuem=(myCollab&&myCollab.name)||userName;
   // Filtrar tarefas para o usuário atual
   // Admin vê tudo; colaboradores veem tarefas próprias + tarefas sem responsável
   const visibleTasks = isAdmin
@@ -11759,6 +11823,7 @@ function App(){
             </div>
           </div>
           <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+            {isAdmin&&<FeedAtividades onAbrir={openEdit} tarefas={data.tasks} collaborators={data.collaborators}/>}
             {/* Indicador de atualização de colaborador */}
             {collabUpdateMsg&&(
               <div style={{display:"flex",alignItems:"center",gap:6,padding:"5px 11px",borderRadius:10,background:"#f0fdf4",border:"1px solid #86efac",animation:"fadeIn .3s ease",fontSize:12,fontWeight:700,color:"#15803d"}}>

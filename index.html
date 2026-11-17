@@ -2292,10 +2292,10 @@ function WDSel({value=[],onChange}){
   return<div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{WDAYS.map(d=>{const s=value.includes(d.id);return<button key={d.id} onClick={()=>onChange(s?value.filter(x=>x!==d.id):[...value,d.id])} style={{padding:"5px 11px",borderRadius:8,border:`2px solid ${s?"#6366f1":"#e5e7eb"}`,background:s?"#eef2ff":"#f9fafb",color:s?"#6366f1":"#6b7280",cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"inherit",transition:"all .12s"}}>{d.s}</button>;})}</div>;
 }
 
-function Modal({open,onClose,title,children,width=630}){
+function Modal({open,onClose,title,children,width=630,fecharFora=true}){
   if(!open)return null;
   return(
-    <div className="modal-backdrop" onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(3px)"}}>
+    <div className="modal-backdrop" onClick={e=>fecharFora&&e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(3px)"}}>
       <div className="modal-box" style={{background:"var(--bg2)",borderRadius:18,width:"100%",maxWidth:width,maxHeight:"92dvh",overflow:"auto",boxShadow:"0 32px 80px rgba(0,0,0,.22)",animation:"popIn .22s cubic-bezier(.34,1.56,.64,1)"}}>
         <div style={{padding:"15px 20px",borderBottom:"1px solid #f3f4f6",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,background:"var(--bg2)",zIndex:1,borderRadius:"18px 18px 0 0"}}>
           <h3 style={{fontSize:15,fontWeight:800,color:"#0f172a"}}>{title}</h3>
@@ -8693,6 +8693,18 @@ function IgPostEditor({open,post,novo,contas,collaborators,companies,posts,userN
     const t=setTimeout(async()=>{const al=await igVerificarConta(f,contas,companies,posts);if(ok){setAlertas(al);setVerificando(false);}},350);
     return()=>{ok=false;clearTimeout(t);};
   },[open,chaveVerif,contas,posts]);
+  // salvamento automático no banco (sem precisar clicar em Salvar)
+  const IG_FORA_AUTO=["robo","status","aprovadoPor","aprovadoEm","aprovadoAssinatura","aprovadoRegistradoPor","alertas","alertasPendentes","autoPublicar","avisado","editadoEm","editadoPor","criadoEm","criadoPor","quando"];
+  const sigAuto=(p)=>{if(!p)return"";const o={};Object.keys(p).sort().forEach(k=>{if(!IG_FORA_AUTO.includes(k))o[k]=p[k];});return JSON.stringify(o);};
+  const ultimoSalvo=React.useRef("");const autoRef=React.useRef(null);
+  const [salvoEm,setSalvoEm]=React.useState(null);
+  React.useEffect(()=>{if(open&&post){const cp=JSON.parse(JSON.stringify(post));if(cp.status==="ideia")cp.status="producao";ultimoSalvo.current=sigAuto(cp);setSalvoEm(null);}},[open,post?.id]);
+  const sigF=sigAuto(f);
+  React.useEffect(()=>{
+    if(!open||!f||sigF===ultimoSalvo.current)return;
+    const t=setTimeout(()=>{autoRef.current&&autoRef.current(sigF);},1400);
+    return()=>clearTimeout(t);
+  },[sigF,open]);
   if(!open||!f)return null;
   const up=(k,v)=>setF(p=>({...p,[k]:v}));
   const conta=contas.find(c=>c.id===f.contaId);
@@ -8784,14 +8796,22 @@ function IgPostEditor({open,post,novo,contas,collaborators,companies,posts,userN
     const ex={status:"rascunho",aprovadoPor:"",aprovadoEm:"",aprovadoAssinatura:"",aprovadoRegistradoPor:""};salvar(ex,false);setF(p=>({...p,...ex}));toast("📝 Voltou para Rascunho.","ok");
   };
   // Fechar um post novo sem salvar: guarda como rascunho (se tiver algo escrito ou mídia)
+  const temAlgo=!!((f.legenda||"").trim()||(f.midias||[]).length||(f.primeiroComentario||"").trim()||(f.notas||"").trim());
+  const dataOk=!f.data||/^\d{4}-\d{2}-\d{2}$/.test(f.data);
+  autoRef.current=(sig)=>{
+    if(publicado||(ehNovo&&!temAlgo)||!dataOk||(!f.contaId&&etapa!=="rascunho"))return;
+    const s=finalizar();onSalvar(s,false);ultimoSalvo.current=sig;setSalvoEm(Date.now());
+    if(s.status!==f.status||s.aprovadoPor!==f.aprovadoPor)setF(p=>({...p,status:s.status,aprovadoPor:s.aprovadoPor,aprovadoEm:s.aprovadoEm,aprovadoAssinatura:s.aprovadoAssinatura,aprovadoRegistradoPor:s.aprovadoRegistradoPor}));
+  };
+  // Fechar: o que mudou desde o último salvamento automático é salvo agora
   const fecharEditor=()=>{
-    const temAlgo=(f.legenda||"").trim()||(f.midias||[]).length||(f.primeiroComentario||"").trim()||(f.notas||"").trim();
-    if(ehNovo&&!publicado&&temAlgo){
-      try{document.dispatchEvent(new Event("mdtec-rascunho-salvo"));}catch(e){}
-      onSalvar({...finalizar(),status:"rascunho"},true);
-      toast("📝 Post guardado em Rascunho — continue depois pela coluna Rascunho.","ok",6000);
+    const pendente=sigAuto(f)!==ultimoSalvo.current;
+    if(!publicado&&pendente&&(ehNovo?temAlgo:true)&&dataOk&&(f.contaId||etapa==="rascunho")){
+      onSalvar(finalizar(),true);
+      if(ehNovo&&etapa==="rascunho")toast("📝 Post guardado em Rascunho — continue depois pela coluna Rascunho.","ok",6000);
       return;
     }
+    if(ehNovo&&etapa==="rascunho"&&salvoEm)toast("📝 Post guardado em Rascunho — continue depois pela coluna Rascunho.","ok",6000);
     onClose();
   };
   const proximo=publicado?null
@@ -8800,7 +8820,7 @@ function IgPostEditor({open,post,novo,contas,collaborators,companies,posts,userN
     :etapa==="aprovacao"?(aprovadoValido?<Btn onClick={agendar} sz="sm" col="#4f46e5">📅 Agendar</Btn>:<Btn onClick={()=>aprovar(conta?.tipo==="propria"?userName:(conta?.contatoAprovacao||""))} sz="sm" col="#16a34a">✅ Aprovar</Btn>)
     :etapa==="agendado"?<>{conectada&&(f.midias||[]).length>0&&<Btn onClick={()=>{if(!exigirSemAlertas())return;onSalvar(finalizar(),false);onPostar(finalizar());}} sz="sm" col="#e1306c">🚀 Publicar agora</Btn>}</>:null;
   return(
-    <Modal open={open} onClose={fecharEditor} title={(ehNovo?"✨ Novo post":"✏️ Editar post")+(conta?" · @"+user:"")} width={1020}><div {...(ehNovo&&etapa==="rascunho"?{}:{"data-norascunho":""})}>
+    <Modal open={open} onClose={fecharEditor} fecharFora={false} title={(ehNovo?"✨ Novo post":"✏️ Editar post")+(conta?" · @"+user:"")} width={1020}><div data-norascunho="">
       <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:12}}>
         <IgEtapas post={f}/>
         {conta&&<div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:12,background:(conta.cor||"#6366f1")+"14",border:"1.5px solid "+(conta.cor||"#6366f1")+"55"}}>
@@ -8909,9 +8929,10 @@ function IgPostEditor({open,post,novo,contas,collaborators,companies,posts,userN
         </div>
       </div>
       <div style={{display:"flex",gap:8,justifyContent:"space-between",flexWrap:"wrap",marginTop:16,paddingTop:12,borderTop:"1px solid var(--border2)"}}>
-        <div>{!ehNovo&&!publicado&&<Btn onClick={()=>{if(window.confirm("Excluir este post e as mídias dele? Isso não pode ser desfeito."))onExcluir(f);}} v="danger" sz="sm">🗑 Excluir</Btn>}</div>
+        <div style={{display:"flex",gap:10,alignItems:"center"}}>{!ehNovo&&!publicado&&<Btn onClick={()=>{if(window.confirm("Excluir este post e as mídias dele? Isso não pode ser desfeito."))onExcluir(f);}} v="danger" sz="sm">🗑 Excluir</Btn>}
+          {!publicado&&<span style={{fontSize:11.5,color:"var(--text4)"}}>{sigF!==ultimoSalvo.current&&(temAlgo||!ehNovo)?"⏳ salvando…":salvoEm?"☁️ salvo automaticamente às "+new Date(salvoEm).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}):"☁️ tudo é salvo automaticamente"}</span>}</div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          <Btn onClick={fecharEditor} v="ghost" sz="sm">{publicado||ehNovo?"Fechar":"Cancelar"}</Btn>
+          <Btn onClick={fecharEditor} v="ghost" sz="sm">Fechar</Btn>
           {!publicado&&etapa==="producao"&&<Btn onClick={voltarRascunho} v="ghost" sz="sm">↩ Voltar p/ rascunho</Btn>}
           {!publicado&&<Btn onClick={()=>salvar()} v="ghost" sz="sm">{etapa==="rascunho"?"📝 Salvar rascunho":"💾 Salvar"}</Btn>}
           {publicado&&<Btn onClick={()=>salvar()} v="ghost" sz="sm">💾 Salvar notas</Btn>}
@@ -9073,7 +9094,7 @@ function useIgMetricas(){
   const [m,setM]=React.useState({contas:{}});
   React.useEffect(()=>{
     let ok=true;
-    const aplicar=(p)=>{if(ok&&p){const cs=(p&&typeof p.contas==="object"&&p.contas)||{};Object.keys(cs).forEach(id=>{if(cs[id]?.perfil?.foto)igFotos[id]=cs[id].perfil.foto;});setM({contas:cs});}};
+    const aplicar=(p)=>{if(ok&&p){const cs=(p&&typeof p.contas==="object"&&p.contas)||{};Object.keys(cs).forEach(id=>{if(cs[id]?.perfil?.foto)igFotos[id]=cs[id].perfil.foto;(cs[id]?.midias||[]).forEach(m=>{if(m&&typeof m.ts==="string"&&/[+-]\d{4}$/.test(m.ts))m.ts=m.ts.replace(/([+-]\d\d)(\d\d)$/,"$1:$2");});});setM({contas:cs});}};
     (async()=>{try{const{data:row}=await sb.from("app_data").select("payload").eq("id",IG_METRICAS_ROW).maybeSingle();aplicar(row?.payload||{contas:{}});}catch(e){}})();
     const ch=sb.channel("instagram_metricas").on("postgres_changes",{event:"*",schema:"public",table:"app_data",filter:`id=eq.${IG_METRICAS_ROW}`},pl=>{if(pl.new?.payload)aplicar(pl.new.payload);}).subscribe();
     return()=>{ok=false;try{sb.removeChannel(ch);}catch(e){}};
@@ -9389,6 +9410,7 @@ function IgRelComparativo({linhas,per,pdf,onSel}){
           <tbody>{linhas.map(({c,r,mc})=>{const top=r?.noPer?.slice().sort((a,b)=>igInteracoes(b)-igInteracoes(a))[0];return(
             <tr key={c.id} onClick={()=>onSel&&onSel(c.id)} style={{cursor:onSel?"pointer":"default"}}>
               <td style={{...td,textAlign:"left"}}><div style={{display:"flex",alignItems:"center",gap:8}}><IgAvatar conta={c} size={24}/><div style={{minWidth:0}}><b>@{(c.conexao?.username||c.usuario||"").replace(/^@/,"")}</b><div style={{fontSize:10.5,color:"var(--text3)"}}>{c.nome}</div>
+                {mc?.perfil?.username&&(c.usuario||"").replace(/^@/,"").toLowerCase()&&mc.perfil.username.toLowerCase()!==(c.usuario||"").replace(/^@/,"").toLowerCase()&&<div style={{fontSize:10,color:"#b91c1c",fontWeight:800,whiteSpace:"normal",maxWidth:240}}>⚠️ os números vêm de @{mc.perfil.username}, não de {c.usuario}. Clique em Reconectar nesta conta e marque a conta certa na Meta.</div>}
                 {mc?.erro&&<div title={mc.erro} style={{fontSize:10,color:"#b91c1c",fontWeight:700,whiteSpace:"normal",maxWidth:220}}>⚠️ {mc.erro.slice(0,90)}</div>}
                 {!mc?.erro&&mc&&!(mc.midias||[]).length&&(mc.perfil?.posts||0)>0&&<div style={{fontSize:10,color:"#b45309",fontWeight:700,whiteSpace:"normal",maxWidth:220}}>⚠️ o Instagram não devolveu os posts desta conta</div>}
                 {!mc&&!pdf&&<div style={{fontSize:10,color:"#b45309",fontWeight:700}}>ainda sem leitura — clique em 🔄 Atualizar números</div>}
@@ -9834,6 +9856,13 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
   const temAlerta=(p)=>p.status!=="publicado"&&(!!alertasMap[p.id]||!!p.alertasPendentes);
   React.useEffect(()=>{const f=()=>setEstreito(window.innerWidth<720);window.addEventListener("resize",f);return()=>window.removeEventListener("resize",f);},[]);
   const contas=ig.contas;const contaDe=(id)=>contas.find(c=>c.id===id);
+  // avisa quando o robô termina de publicar
+  const statusAnt=React.useRef(null);
+  React.useEffect(()=>{
+    const m={};(ig.posts||[]).forEach(p=>{m[p.id]=p.status;});
+    if(statusAnt.current)(ig.posts||[]).forEach(p=>{const a=statusAnt.current[p.id];if(p.status==="publicado"&&a&&a!=="publicado")toast("✅ Publicado em @"+((contaDe(p.contaId)?.conexao?.username)||"")+"!","ok",7000);});
+    statusAnt.current=m;
+  },[ig.posts]);
   const nomeColab=(id)=>collaborators.find(c=>c.id===id)?.name||"";
   const hoje=igHojeISO();
   const postsFiltrados=React.useMemo(()=>ig.posts.filter(p=>{
@@ -9927,9 +9956,9 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
   const publicarSistema=async(p)=>{
     if(editor&&editor.id===p.id)await salvarPost(p,false);
     const r=await igApi("publicar",{postId:p.id});
-    if(r.ok&&r.emAndamento){toast("⏳ Publicando em segundo plano — o card do post mostra o resultado.","ok",7000);}
-    else if(r.ok&&r.publicado){toast("🚀 Publicado no Instagram!","ok",6000);setTimeout(()=>{setPostar(null);setEditor(null);},1600);}
-    else if(r.ok&&r.pendente)toast("⏳ "+r.msg,"ok",8000);
+    if(r.ok&&r.emAndamento){toast("🚀 Publicando em @"+(contaDe(p.contaId)?.conexao?.username||"")+"… pode continuar trabalhando, avisamos quando terminar.","ok",7000);setPostar(null);setEditor(null);}
+    else if(r.ok&&r.publicado){toast("✅ Publicado no Instagram!","ok",6000);setPostar(null);setEditor(null);}
+    else if(r.ok&&r.pendente){toast("⏳ "+r.msg,"ok",8000);setPostar(null);setEditor(null);}
     else toast("⚠️ "+(r.erro||"Não foi possível publicar."),"err",9000);
     return r;
   };

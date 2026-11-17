@@ -2382,7 +2382,7 @@ function RascunhoAuto({pagina,usuario}){
   React.useEffect(()=>{
     // limpa rascunhos com mais de 30 dias
     const todos=rascLer();let mudou=false;
-    Object.keys(todos).forEach(k=>{if(!todos[k]||Date.now()-(todos[k].em||0)>30*864e5){delete todos[k];mudou=true;}});
+    Object.keys(todos).forEach(k=>{if(!todos[k]||Date.now()-(todos[k].em||0)>30*864e5||/Editar post|Postar agora/.test(todos[k].titulo||"")){delete todos[k];mudou=true;}});
     if(mudou)rascGravar(todos);
   },[]);
 
@@ -8800,7 +8800,7 @@ function IgPostEditor({open,post,novo,contas,collaborators,companies,posts,userN
     :etapa==="aprovacao"?(aprovadoValido?<Btn onClick={agendar} sz="sm" col="#4f46e5">📅 Agendar</Btn>:<Btn onClick={()=>aprovar(conta?.tipo==="propria"?userName:(conta?.contatoAprovacao||""))} sz="sm" col="#16a34a">✅ Aprovar</Btn>)
     :etapa==="agendado"?<>{conectada&&(f.midias||[]).length>0&&<Btn onClick={()=>{if(!exigirSemAlertas())return;onSalvar(finalizar(),false);onPostar(finalizar());}} sz="sm" col="#e1306c">🚀 Publicar agora</Btn>}</>:null;
   return(
-    <Modal open={open} onClose={fecharEditor} title={(ehNovo?"✨ Novo post":"✏️ Editar post")+(conta?" · @"+user:"")} width={1020}>
+    <Modal open={open} onClose={fecharEditor} title={(ehNovo?"✨ Novo post":"✏️ Editar post")+(conta?" · @"+user:"")} width={1020}><div {...(ehNovo&&etapa==="rascunho"?{}:{"data-norascunho":""})}>
       <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:12}}>
         <IgEtapas post={f}/>
         {conta&&<div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:12,background:(conta.cor||"#6366f1")+"14",border:"1.5px solid "+(conta.cor||"#6366f1")+"55"}}>
@@ -8918,7 +8918,7 @@ function IgPostEditor({open,post,novo,contas,collaborators,companies,posts,userN
           {proximo}
         </div>
       </div>
-    </Modal>
+    </div></Modal>
   );
 }
 
@@ -8962,7 +8962,7 @@ function IgPostarAgora({open,post,postVivo,conta,onClose,onPublicado,onPublicarS
     <div style={{flex:1,minWidth:0}}><div style={{fontWeight:800,fontSize:13.5,color:"var(--text)"}}>{titulo}</div><div style={{fontSize:12,color:"var(--text3)",marginTop:2,lineHeight:1.45}}>{desc}</div>{acao&&<div style={{marginTop:8,display:"flex",gap:8,flexWrap:"wrap"}}>{acao}</div>}</div>
   </div>);
   return(
-    <Modal open={open} onClose={onClose} title={"📲 Postar agora"+(user?" · @"+user:"")} width={620}>
+    <Modal open={open} onClose={onClose} title={"📲 Postar agora"+(user?" · @"+user:"")} width={620}><div data-norascunho="">
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
         <div style={{display:"flex",gap:10,alignItems:"center",padding:"8px 10px",borderRadius:10,background:"var(--bg3)"}}>
           <IgThumb post={post} size={48}/>
@@ -8991,7 +8991,7 @@ function IgPostarAgora({open,post,postVivo,conta,onClose,onPublicado,onPublicarS
         </>}
         {post.primeiroComentario&&<div style={{fontSize:11.5,color:"#9d174d",background:"#fdf2f8",border:"1px solid #fbcfe8",borderRadius:9,padding:"8px 10px"}}>💬 Lembre do primeiro comentário: <b>{post.primeiroComentario}</b> <button onClick={async()=>{const ok=await igCopiar(post.primeiroComentario);toast(ok?"📋 Comentário copiado":"⚠️ Não copiou","ok");}} style={{border:"none",background:"none",color:"#be185d",fontWeight:800,cursor:"pointer"}}>copiar</button></div>}
       </div>
-    </Modal>
+    </div></Modal>
   );
 }
 

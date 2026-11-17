@@ -9698,7 +9698,8 @@ function igMeses(mc,fimMs,n=6,manterTodos=false){
     const histMes=hist.filter(h=>h.d>=ini&&h.d<=fim);
     const est=histMes.length>0&&histMes.every(h=>h.est);
     const seg=manual!=null&&(!temHistNoMes||est)?manual:temHistNoMes?segAte(fim):null;
-    return{chave:chaveMes,manual:manual!=null&&(!temHistNoMes||est),est:est&&manual==null,real:temHistNoMes&&!est,rot:IG_MESES_CURTO[mo-1]+"/"+String(y).slice(2),nome:IG_MESES_CURTO[mo-1]+"/"+y,ini,fim,posts:doMes.length,inter,media:doMes.length?inter/doMes.length:null,views,seg};
+    const nd=mc.novosDia||{};let novos=null;Object.keys(nd).forEach(k=>{if(k>=ini&&k<=fim){novos=(novos||0)+Number(nd[k]||0);}});
+    return{novos,chave:chaveMes,manual:manual!=null&&(!temHistNoMes||est),est:est&&manual==null,real:temHistNoMes&&!est,rot:IG_MESES_CURTO[mo-1]+"/"+String(y).slice(2),nome:IG_MESES_CURTO[mo-1]+"/"+y,ini,fim,posts:doMes.length,inter,media:doMes.length?inter/doMes.length:null,views,seg};
   });
   out.forEach((m,i)=>{
     const ant=out[i-1];
@@ -9716,10 +9717,11 @@ function IgMesesTabela({meses}){
   const temViews=meses.some(m=>m.views!=null);
   const cor=(v)=>v==null?"var(--text4)":v>0?"#15803d":v<0?"#b91c1c":"var(--text3)";
   return(<table style={{width:"100%",borderCollapse:"collapse"}}>
-    <thead><tr><th style={{...th,textAlign:"left"}}>Mês</th><th style={th}>Seguidores</th><th style={th}>Crescimento</th><th style={th}>Posts</th>{temViews&&<th style={th}>Visualizações</th>}<th style={th}>Interações</th><th style={th}>Var. interações</th><th style={th}>Média/post</th><th style={th}>Engajamento</th></tr></thead>
+    <thead><tr><th style={{...th,textAlign:"left"}}>Mês</th><th style={th}>Seguidores</th>{meses.some(m=>m.novos!=null)&&<th style={th}>Novos seguid.</th>}<th style={th}>Crescimento</th><th style={th}>Posts</th>{temViews&&<th style={th}>Visualizações</th>}<th style={th}>Interações</th><th style={th}>Var. interações</th><th style={th}>Média/post</th><th style={th}>Engajamento</th></tr></thead>
     <tbody>{meses.map((m,i)=>(<tr key={m.ini} style={{background:i===meses.length-1?"#fdf2f8":"transparent"}}>
       <td style={{...td,textAlign:"left",fontWeight:800}}>{m.nome}</td>
       <td style={{...td,fontWeight:700}} title={m.manual?"informado manualmente":m.est?"estimado pelos novos seguidores diários do Instagram":""}>{igFmtN(m.seg)}{m.manual?<sup style={{color:"var(--text4)",fontWeight:600}}> ✍</sup>:m.est?<sup style={{color:"var(--text4)",fontWeight:600}}> ≈</sup>:null}</td>
+      {meses.some(x=>x.novos!=null)&&<td style={{...td,fontWeight:800,color:m.novos?"#15803d":"var(--text4)"}}>{m.novos==null?"—":"+"+igFmtN(m.novos)}</td>}
       <td style={{...td,fontWeight:800,color:cor(m.ganho)}}>{m.ganho==null?"—":(m.ganho>0?"+":"")+igFmtN(m.ganho)}</td>
       <td style={td}>{m.posts}</td>
       {temViews&&<td style={td}>{igFmtN(m.views)}</td>}
@@ -9804,6 +9806,7 @@ function IgSeguidoresMeses({conta,mc,per,isAdmin,toast}){
             :<input value={v} disabled={!isAdmin} onChange={e=>setVals(o=>({...o,[m.chave]:e.target.value.replace(/\D/g,"")}))} placeholder={m.est?igFmtN(m.seg):"—"} inputMode="numeric" title={isAdmin?"Seguidores no fim do mês":"Só administradores informam"}
               style={{width:"100%",margin:"4px 0",padding:"4px 6px",borderRadius:7,border:"1.5px dashed var(--border3)",fontSize:14,fontWeight:800,textAlign:"center",fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",boxSizing:"border-box"}}/>}
           <div style={{fontSize:11,fontWeight:800,color:g==null?"var(--text4)":g>0?"#15803d":g<0?"#b91c1c":"var(--text3)"}}>{g==null?"—":(g>0?"+":"")+igFmtN(g)}</div>
+          {m.novos!=null&&<div title="Seguidores que entraram neste mês (dado do Instagram)" style={{fontSize:10.5,fontWeight:800,color:"#15803d"}}>👤+{igFmtN(m.novos)} novos</div>}
           <div style={{fontSize:9.5,color:"var(--text4)"}}>{m.real?"lido pelo robô":m.est?"≈ estimado":m.manual?"✍ informado":"sem dado"}</div>
         </div>);})}
     </div>
@@ -9959,6 +9962,19 @@ function IgRelatorios({contas,posts,metricas,contaSel,setContaSel,toast,isAdmin}
   const setPer=(p)=>{setPeriodo(p);try{localStorage.setItem("mdtec_ig_rel_per",JSON.stringify(p));}catch(e){}};
   const [atualizando,setAtualizando]=React.useState(false);
   const conectadas=contas.filter(c=>c.conexao&&c.ativa!==false);
+  // números antigos (mais de 3 h)? pede ao robô para atualizar sozinho, sem precisar clicar
+  const [autoAtualiz,setAutoAtualiz]=React.useState(false);
+  React.useEffect(()=>{
+    if(!conectadas.length)return;
+    const velha=conectadas.some(c=>{const a=Date.parse(metricas.contas?.[c.id]?.atualizadoEm||"")||0;return Date.now()-a>3*3600e3;});
+    if(!velha)return;
+    let ult=0;try{ult=Number(localStorage.getItem("mdtec_ig_auto_metricas")||0);}catch(e){}
+    if(Date.now()-ult<30*60e3)return; // no máximo uma vez a cada 30 min por computador
+    try{localStorage.setItem("mdtec_ig_auto_metricas",String(Date.now()));}catch(e){}
+    setAutoAtualiz(true);
+    igApi("metricas",{}).finally(()=>setTimeout(()=>setAutoAtualiz(false),90000));
+  },[conectadas.length]);
+  const ultimaAtualiz=Math.max(0,...conectadas.map(c=>Date.parse(metricas.contas?.[c.id]?.atualizadoEm||"")||0));
   const sel=contaSel&&conectadas.some(c=>c.id===contaSel)?contaSel:"";
   const per=igPeriodoDe(periodo);
   const atualizar=async()=>{
@@ -10033,8 +10049,8 @@ function IgRelatorios({contas,posts,metricas,contaSel,setContaSel,toast,isAdmin}
         até <input type="date" value={periodo.ate} min={periodo.de||undefined} onChange={e=>setPer({...periodo,ate:e.target.value})} style={inpD}/>
       </div>}
       <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-        {sel&&metricas.contas?.[sel]?.atualizadoEm&&<span style={{fontSize:11,color:"var(--text4)"}}>atualizado {new Date(metricas.contas[sel].atualizadoEm).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}</span>}
-        <Btn onClick={atualizar} v="ghost" sz="sm" disabled={atualizando}>{atualizando?"⏳ Atualizando…":"🔄 Atualizar números"}</Btn>
+        <span title="O robô atualiza os números sozinho a cada 3 horas" style={{fontSize:11,color:"var(--text4)",whiteSpace:"nowrap"}}>{autoAtualiz?"🔄 atualizando automaticamente…":ultimaAtualiz?"🔄 automático · "+new Date(ultimaAtualiz).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):""}</span>
+        <button onClick={atualizar} disabled={atualizando} title="Atualizar agora" style={{border:"1px solid var(--border2)",background:"var(--bg2)",borderRadius:8,padding:"4px 8px",cursor:"pointer",fontSize:12,color:"var(--text3)"}}>{atualizando?"⏳":"↻"}</button>
         {sel&&<Btn onClick={()=>pdfConta(sel)} v="ghost" sz="sm">📄 PDF interno</Btn>}
         <Btn onClick={()=>{if(!comDados.length){toast("⚠️ Ainda não há números. Clique em Atualizar números.","warn");return;}if(sel)pdfConta(sel,"cliente");else setPdfReq({ids:[],multi:false,per,versao:"cliente"});}} sz="sm" col="#4f46e5">👤 PDF para o cliente</Btn>
         <Btn onClick={()=>pdfTodas()} sz="sm" col="#e1306c">📄 PDF de todas as contas</Btn>

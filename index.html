@@ -3279,6 +3279,23 @@ function FBar({data,filters,setF,showMonth=true}){
 
 /* ===========================================
    TASK CARD  - with ✓ Quick Complete button */
+// Dia da semana das tarefas recorrentes (estilo calendário)
+const DOW_LONGO=["Domingo","Segunda-feira","Terça-feira","Quarta-feira","Quinta-feira","Sexta-feira","Sábado"];
+function DiaSemanaTag({t,done}){
+  const cor=done?"#94a3b8":t.color;
+  const longo=DOW_LONGO[["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"].indexOf(t.label)]||t.label;
+  const quando=!done&&(t.isToday?"hoje":t.isTomorrow?"amanhã":"");
+  return(<div title="Tarefa recorrente" style={{display:"flex",alignItems:"center",gap:9,marginBottom:9,marginRight:34}}>
+    <div style={{width:38,borderRadius:8,overflow:"hidden",border:"1px solid "+cor+"55",background:"var(--bg2)",flexShrink:0,textAlign:"center",boxShadow:"0 1px 3px rgba(15,23,42,.08)"}}>
+      <div style={{background:cor,color:"#fff",fontSize:9,fontWeight:900,letterSpacing:".08em",padding:"2px 0"}}>{t.label.toUpperCase()}</div>
+      <div style={{fontSize:15,fontWeight:900,color:done?"#94a3b8":"var(--text)",lineHeight:1.25,padding:"1px 0 2px"}}>{t.data.slice(0,2)}</div>
+    </div>
+    <div style={{minWidth:0,lineHeight:1.2}}>
+      <div style={{fontSize:12.5,fontWeight:800,color:cor}}>{longo}</div>
+      <div style={{fontSize:10.5,color:"var(--text3)",fontWeight:600}}>↻ recorrente{quando?<> · <b style={{color:t.isToday?"#d97706":"#6366f1"}}>{quando}</b></>:null}</div>
+    </div>
+  </div>);
+}
 function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isDragging,ghost,onPomodoro,onPin,onMoveTop,onDuplicate,onUrgent}){
   const cardRef=useRef(null);
   const assignees=data.collaborators.filter(c=>toArr(task.assignees).includes(c.id));
@@ -3381,14 +3398,7 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
       <div style={{flex:1,padding:"12px 14px",minWidth:0}}>
         <QCBtn status={task.status} onClick={()=>onComplete&&onComplete(task)} size={26} absolute={true}/>
 
-        {dowTag&&(
-          <div title="Dia da semana desta ocorrência" style={{display:"flex",alignItems:"center",gap:7,minWidth:0,marginBottom:9,marginRight:34,padding:"6px 11px",borderRadius:10,background:done?"#e2e8f0":dowTag.color,boxShadow:done?"none":`0 2px 8px ${dowTag.color}55`}}>
-            <span style={{fontSize:14,color:"#fff",lineHeight:1}}>↻</span>
-            <span style={{fontSize:14,fontWeight:900,color:done?"#64748b":"#fff",letterSpacing:".06em",lineHeight:1.1}}>{dowTag.nome}</span>
-            <span style={{fontSize:12,fontWeight:700,color:done?"#94a3b8":"rgba(255,255,255,.85)"}}>{dowTag.data}</span>
-            {(dowTag.isToday||dowTag.isTomorrow)&&!done&&<span style={{marginLeft:"auto",fontSize:9.5,fontWeight:900,color:dowTag.color,background:"#fff",borderRadius:20,padding:"2px 7px",whiteSpace:"nowrap",flexShrink:0}}>{dowTag.isToday?"HOJE":"AMANHÃ"}</span>}
-          </div>
-        )}
+        {dowTag&&<DiaSemanaTag t={dowTag} done={done}/>}
         {labels.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8,paddingRight:36}}>{labels.map(l=><Chip key={l.id} label={l.name} color={l.color}/>)}</div>}
 
         <div style={{fontSize:13,fontWeight:800,color:done?"#94a3b8":"#0f172a",marginBottom:6,lineHeight:1.4,paddingRight:36,textDecoration:done?"line-through":"none",display:"flex",alignItems:"flex-start",gap:5}}>

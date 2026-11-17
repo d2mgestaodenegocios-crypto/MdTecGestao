@@ -9200,7 +9200,7 @@ function IgBarras({itens,altura=150,destaque,valores}){
     <div style={{display:"flex",alignItems:"flex-end",gap:3,height:altura,padding:"0 2px",borderBottom:"1px solid var(--border2)"}}>
       {itens.map((it,i)=>(<div key={i} onMouseEnter={()=>setHov(i)} onMouseLeave={()=>setHov(null)} onClick={()=>it.link&&window.open(it.link,"_blank","noopener")}
         style={{flex:1,minWidth:4,height:"100%",display:"flex",flexDirection:"column",justifyContent:"flex-end",alignItems:"stretch",cursor:it.link?"pointer":"default"}}>
-        {valores&&(itens.length<=16||it.v===mx)&&<div style={{fontSize:9,fontWeight:800,color:"var(--text2)",textAlign:"center",lineHeight:1.1,marginBottom:1,whiteSpace:"nowrap",overflow:"visible"}}>{it.v>0?igFmtN(it.v):""}</div>}
+        {valores&&(itens.length<=16||it.v===mx)&&<div style={{fontSize:9,fontWeight:800,color:"var(--text2)",textAlign:"center",lineHeight:1.1,marginBottom:1,whiteSpace:"nowrap",overflow:"visible"}}>{it.txt!=null?it.txt:it.v>0?igFmtN(it.v):""}</div>}
         <div style={{width:"100%",height:Math.max(2,(it.v/mx)*(valores?82:100))+"%",background:destaque&&destaque(it)?"#e1306c":"#6366f1",borderRadius:"4px 4px 0 0",opacity:hov==null||hov===i?1:.55,transition:"opacity .1s"}}/>
       </div>))}
     </div>
@@ -9442,6 +9442,102 @@ function IgPDFCapa({titulo,sub,per,conta,mc,principal}){
   </div>);
 }
 
+// ── Relatório para o cliente: só números, gráficos e evolução mês a mês (sem dicas) ──
+const IG_MESES_CURTO=["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
+function igMeses(mc,fimMs,n=6){
+  if(!mc)return[];
+  const hist=(mc.historico||[]).slice().sort((a,b)=>a.d.localeCompare(b.d));
+  const midias=(mc.midias||[]).filter(m=>m.ts&&m.tipo!=="story");
+  const fimIso=new Date(fimMs-3*3600e3).toISOString().slice(0,10);
+  let y=+fimIso.slice(0,4),mo=+fimIso.slice(5,7);
+  const lista=[];
+  for(let i=0;i<n;i++){lista.unshift({y,mo});mo--;if(mo<1){mo=12;y--;}}
+  const segAte=(iso)=>{let v=null;for(const h of hist){if(h.d<=iso)v=h.seg;else break;}return v;};
+  const out=lista.map(({y,mo})=>{
+    const mm=String(mo).padStart(2,"0");const ini=y+"-"+mm+"-01";const fim=y+"-"+mm+"-"+String(new Date(y,mo,0).getDate()).padStart(2,"0");
+    const a=igDiaIniBR(ini),b=igDiaFimBR(fim);
+    const doMes=midias.filter(m=>{const t=Date.parse(m.ts);return t>=a&&t<=b;});
+    const inter=doMes.reduce((s,m)=>s+igInteracoes(m),0);
+    const views=igSomaNull(doMes,m=>m.views);
+    const temHistNoMes=hist.some(h=>h.d>=ini&&h.d<=fim);
+    const seg=temHistNoMes?segAte(fim):null;
+    return{rot:IG_MESES_CURTO[mo-1]+"/"+String(y).slice(2),nome:IG_MESES_CURTO[mo-1]+"/"+y,ini,fim,posts:doMes.length,inter,media:doMes.length?inter/doMes.length:null,views,seg};
+  });
+  out.forEach((m,i)=>{
+    const ant=out[i-1];
+    m.ganho=ant&&ant.seg!=null&&m.seg!=null?m.seg-ant.seg:null;
+    m.taxa=m.media!=null&&m.seg?(m.media/m.seg)*100:null;
+    m.varInter=ant&&ant.inter>0?((m.inter-ant.inter)/ant.inter)*100:null;
+  });
+  // sem nenhum dado nos primeiros meses? começa no 1º mês com dado
+  const prim=out.findIndex(m=>m.posts>0||m.seg!=null);
+  return prim>0?out.slice(prim):out;
+}
+function IgMesesTabela({meses}){
+  const th={padding:"5px 6px",fontSize:8.5,fontWeight:800,color:"var(--text3)",textTransform:"uppercase",textAlign:"right",background:"var(--bg3)",borderBottom:"1px solid var(--border2)",whiteSpace:"nowrap"};
+  const td={padding:"5px 6px",fontSize:10,borderTop:"1px solid var(--border2)",textAlign:"right",whiteSpace:"nowrap"};
+  const temViews=meses.some(m=>m.views!=null);
+  const cor=(v)=>v==null?"var(--text4)":v>0?"#15803d":v<0?"#b91c1c":"var(--text3)";
+  return(<table style={{width:"100%",borderCollapse:"collapse"}}>
+    <thead><tr><th style={{...th,textAlign:"left"}}>Mês</th><th style={th}>Seguidores</th><th style={th}>Crescimento</th><th style={th}>Posts</th>{temViews&&<th style={th}>Visualizações</th>}<th style={th}>Interações</th><th style={th}>Var. interações</th><th style={th}>Média/post</th><th style={th}>Engajamento</th></tr></thead>
+    <tbody>{meses.map((m,i)=>(<tr key={m.ini} style={{background:i===meses.length-1?"#fdf2f8":"transparent"}}>
+      <td style={{...td,textAlign:"left",fontWeight:800}}>{m.nome}</td>
+      <td style={{...td,fontWeight:700}}>{igFmtN(m.seg)}</td>
+      <td style={{...td,fontWeight:800,color:cor(m.ganho)}}>{m.ganho==null?"—":(m.ganho>0?"+":"")+igFmtN(m.ganho)}</td>
+      <td style={td}>{m.posts}</td>
+      {temViews&&<td style={td}>{igFmtN(m.views)}</td>}
+      <td style={td}>{igFmtN(m.inter)}</td>
+      <td style={{...td,fontWeight:800,color:cor(m.varInter)}}>{m.varInter==null?"—":igFmtPct(m.varInter)}</td>
+      <td style={td}>{m.media==null?"—":igFmtN(Math.round(m.media))}</td>
+      <td style={td}>{m.taxa==null?"—":m.taxa.toLocaleString("pt-BR",{maximumFractionDigits:2})+"%"}</td>
+    </tr>))}</tbody>
+  </table>);
+}
+function IgRelClienteView({conta,mc,c,per}){
+  const r=c.r;const card=igCardP,tit=igTitP;
+  const meses=igMeses(mc,per.fim,6);
+  const temViews=r.views!=null;
+  const dd=(m)=>new Date(m.ts).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"});
+  const mostraRot=c.cron.length<=12;
+  const barrasInt=c.cron.map(m=>({v:igInteracoes(m),rot:mostraRot?dd(m):""}));
+  const barrasViews=c.cron.filter(m=>m.views!=null).map(m=>({v:m.views,rot:mostraRot?dd(m):""}));
+  const mInter=meses.map(m=>({v:m.inter,rot:m.rot}));
+  const mTaxa=meses.map(m=>({v:m.taxa==null?0:Math.round(m.taxa*100)/100,rot:m.rot,txt:m.taxa==null?"":m.taxa.toLocaleString("pt-BR",{maximumFractionDigits:1})+"%"}));
+  const mViews=meses.map(m=>({v:m.views||0,rot:m.rot}));
+  const mSeg=meses.filter(m=>m.seg!=null);
+  const grid2={display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",gap:8};
+  const kpis=[
+    <IgKpi key="s" pdf rot="Seguidores" val={igFmtN(r.atual)} extra={r.ganho!=null?<span style={{fontSize:9,fontWeight:800,color:r.ganho>0?"#15803d":r.ganho<0?"#b91c1c":"var(--text3)"}}>{r.ganho>0?"▲ +":r.ganho<0?"▼ ":""}{igFmtN(r.ganho)}{r.ganhoPct!=null?" ("+igFmtPct(r.ganhoPct)+")":""}</span>:null}/>,
+    temViews?<IgKpi key="v" pdf rot="Visualizações" val={igFmtN(r.views)} extra={r.viewsVar!=null?<IgVar v={r.viewsVar} rot=" "/>:null}/>:null,
+    <IgKpi key="p" pdf rot="Posts" val={igFmtN(r.posts)} extra={r.postsVar!=null?<IgVar v={r.postsVar} rot=" "/>:null}/>,
+    <IgKpi key="i" pdf rot="Interações" val={igFmtN(r.interacoes)} extra={r.interacoesVar!=null?<IgVar v={r.interacoesVar} rot=" "/>:null}/>,
+    <IgKpi key="m" pdf rot="Média por post" val={igFmtN(Math.round(r.media))} extra={r.mediaVar!=null?<IgVar v={r.mediaVar} rot=" "/>:null}/>,
+    <IgKpi key="e" pdf rot="Engajamento" val={r.taxa!=null&&r.posts?r.taxa.toLocaleString("pt-BR",{maximumFractionDigits:2})+"%":"—"} extra={r.taxaAnt?<span style={{fontSize:9,color:"var(--text4)"}}>antes: {r.taxaAnt.toLocaleString("pt-BR",{maximumFractionDigits:2})}%</span>:null}/>,
+    r.alcance!=null?<IgKpi key="a" pdf rot="Alcance médio" val={igFmtN(Math.round(r.alcance))} extra={r.alcanceVar!=null?<IgVar v={r.alcanceVar} rot=" "/>:null}/>:null,
+  ].filter(Boolean);
+  return(<div style={{display:"flex",flexDirection:"column",gap:8}}>
+    <div style={{display:"grid",gridTemplateColumns:`repeat(${kpis.length},minmax(0,1fr))`,gap:6}}>{kpis}</div>
+    <div style={card}><div style={tit}>📆 Comparativo mês a mês</div><IgMesesTabela meses={meses}/></div>
+    <div style={grid2}>
+      <div style={card}><div style={tit}>❤️ Interações por mês</div><IgBarras itens={mInter} destaque={(it)=>it===mInter[mInter.length-1]} altura={80} valores/></div>
+      <div style={card}><div style={tit}>📈 Engajamento por mês (%)</div><IgBarras itens={mTaxa} destaque={(it)=>it===mTaxa[mTaxa.length-1]} altura={80} valores/></div>
+    </div>
+    <div style={grid2}>
+      <div style={card}><div style={tit}>👥 Seguidores</div>{mSeg.length>=2?<IgBarras itens={mSeg.map(m=>({v:m.seg,rot:m.rot}))} altura={80} valores/>:<IgLinha pontos={c.pontos} altura={95}/>}</div>
+      {temViews?<div style={card}><div style={tit}>👁 Visualizações por mês</div><IgBarras itens={mViews} destaque={(it)=>it===mViews[mViews.length-1]} altura={80} valores/></div>
+        :<div style={card}><div style={tit}>❤️ Interações por post · {per.rotulo}</div><IgBarras itens={barrasInt} altura={80} valores/></div>}
+    </div>
+    {temViews&&<div style={grid2}>
+      <div style={card}><div style={tit}>👁 Visualizações por post · {per.rotulo}</div><IgBarras itens={barrasViews} altura={75} valores/></div>
+      <div style={card}><div style={tit}>❤️ Interações por post · {per.rotulo}</div><IgBarras itens={barrasInt} altura={75} valores/></div>
+    </div>}
+    <div style={temViews?grid2:{display:"block"}}>
+      <div style={card}><div style={tit}>🏆 Posts com mais interações</div><IgListaPosts lista={c.virais.slice(0,3)} media={0} pdf/></div>
+      {temViews&&<div style={card}><div style={tit}>👁 Posts mais vistos</div><IgListaPosts lista={c.maisVistos.slice(0,3)} media={0} porViews pdf/></div>}
+    </div>
+  </div>);
+}
+
 // ── PDF gerado dentro do app (prévia + baixar + abrir no navegador) ──────────
 const IG_PDF_LIBS=["https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js","https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"];
 let igLibsPromise=null;
@@ -9505,9 +9601,12 @@ const igFmtTam=(b)=>b>1048576?(b/1048576).toLocaleString("pt-BR",{maximumFractio
 
 function IgPDFModal({req,onClose,contasOp,montar,toast,imprimir}){
   const [ids,setIds]=React.useState(req.ids);
+  const [versao,setVersao]=React.useState(req.versao||"interna");
+  const [cliId,setCliId]=React.useState(req.ids[0]);
+  const idsUsados=versao==="cliente"?[cliId]:ids;
   const [st,setSt]=React.useState({gerando:true,prog:0,url:"",erro:"",tam:0,imagens:[]});
   const [tentativa,setTentativa]=React.useState(0);
-  const m=React.useMemo(()=>montar(ids,req),[ids.join(","),req]);
+  const m=React.useMemo(()=>montar(idsUsados,{...req,versao}),[idsUsados.join(","),req,versao]);
   React.useEffect(()=>{
     let vivo=true;
     if(!m.paginas.length){setSt({gerando:false,prog:0,url:"",erro:"Nenhuma das contas escolhidas tem números no período.",tam:0,imagens:[]});return;}
@@ -9525,13 +9624,20 @@ function IgPDFModal({req,onClose,contasOp,montar,toast,imprimir}){
   const ca=igPdfCache.get(m.chave);
   const podeCompartilhar=!!(ca&&navigator.canShare&&(()=>{try{return navigator.canShare({files:[new File([ca.blob],m.nome,{type:"application/pdf"})]});}catch(e){return false;}})());
   const compartilhar=async()=>{try{await navigator.share({files:[new File([ca.blob],m.nome,{type:"application/pdf"})],title:m.titulo});}catch(e){}};
-  const alternar=(id)=>setIds(v=>v.includes(id)?(v.length>1?v.filter(x=>x!==id):v):[...v,id]);
+  const alternar=(id)=>versao==="cliente"?setCliId(id):setIds(v=>v.includes(id)?(v.length>1?v.filter(x=>x!==id):v):[...v,id]);
   const btn=(bg,fg,bd)=>({border:"1px solid "+bd,background:bg,color:fg,borderRadius:9,padding:"7px 13px",fontSize:12.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"});
   return(<Modal open onClose={onClose} title={"📄 "+m.titulo} width={1000}>
     <div style={{display:"flex",flexDirection:"column",gap:10}}>
-      {req.multi&&contasOp.length>1&&<div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-        <span style={{fontSize:11.5,fontWeight:800,color:"var(--text3)"}}>Contas no PDF:</span>
-        {contasOp.map(c=>{const on=ids.includes(c.id);return(<button key={c.id} onClick={()=>alternar(c.id)} disabled={st.gerando} style={{display:"flex",alignItems:"center",gap:5,padding:"4px 10px 4px 5px",borderRadius:20,border:"1.5px solid "+(on?"#e1306c":"var(--border2)"),background:on?"#fdf2f8":"var(--bg2)",color:on?"#be185d":"var(--text3)",fontWeight:800,fontSize:11.5,cursor:"pointer",fontFamily:"inherit",opacity:st.gerando?.6:1}}>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+        <span style={{fontSize:11.5,fontWeight:800,color:"var(--text3)"}}>Versão:</span>
+        <div style={{display:"flex",border:"1px solid var(--border2)",borderRadius:10,overflow:"hidden"}}>
+          {[["interna","🏢 Interna","com resumo, dicas e comparativo entre contas"],["cliente","👤 Para o cliente","só gráficos, números e evolução mês a mês — sem dicas"]].map(([k,l,d])=>(<button key={k} title={d} disabled={st.gerando} onClick={()=>setVersao(k)} style={{border:"none",padding:"6px 12px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit",background:versao===k?(k==="cliente"?"#4f46e5":"#e1306c"):"var(--bg2)",color:versao===k?"#fff":"var(--text3)"}}>{l}</button>))}
+        </div>
+        <span style={{fontSize:11,color:"var(--text4)"}}>{versao==="cliente"?"Um cliente por PDF · sem observações nem dados de outras contas":"Para uso da equipe"}</span>
+      </div>
+      {(req.multi||versao==="cliente")&&contasOp.length>1&&<div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+        <span style={{fontSize:11.5,fontWeight:800,color:"var(--text3)"}}>{versao==="cliente"?"Cliente:":"Contas no PDF:"}</span>
+        {contasOp.map(c=>{const on=idsUsados.includes(c.id);return(<button key={c.id} onClick={()=>alternar(c.id)} disabled={st.gerando} style={{display:"flex",alignItems:"center",gap:5,padding:"4px 10px 4px 5px",borderRadius:20,border:"1.5px solid "+(on?"#e1306c":"var(--border2)"),background:on?"#fdf2f8":"var(--bg2)",color:on?"#be185d":"var(--text3)",fontWeight:800,fontSize:11.5,cursor:"pointer",fontFamily:"inherit",opacity:st.gerando?.6:1}}>
           <IgAvatar conta={c} size={18}/>{on?"✓ ":""}@{(c.conexao?.username||c.usuario||c.nome).replace(/^@/,"")}</button>);})}
       </div>}
       <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
@@ -9595,6 +9701,12 @@ function IgRelatorios({contas,posts,metricas,contaSel,setContaSel,toast}){
     const itens=ids.map(id=>{const conta=contas.find(c=>c.id===id);const mc=metricas.contas?.[id];return{conta,mc,c:conta?igCalcConta(mc,p,posts,id):null};}).filter(x=>x.conta&&x.c);
     const userDe=(c)=>(c.conexao?.username||c.usuario||"").replace(/^@/,"");
     const paginas=[];
+    if(req.versao==="cliente"){
+      itens.forEach(({conta,mc,c})=>paginas.push(<div><IgPDFCapa principal titulo={"Relatório do Instagram · @"+userDe(conta)} sub={conta.nome||""} per={p} conta={conta} mc={mc}/><IgRelClienteView conta={conta} mc={mc} c={c} per={p}/></div>));
+      const titulo="Relatório Instagram @"+(itens[0]?userDe(itens[0].conta):"")+" — "+p.rotulo;
+      const chave=JSON.stringify(["cliente",ids,Math.floor(p.ini/864e5),Math.floor(p.fim/864e5),ids.map(id=>metricas.contas?.[id]?.atualizadoEm||"")]);
+      return{paginas,titulo,nome:nomeArq(titulo.replace(/\//g,"-")),chave};
+    }
     if(req.multi){
       const ls=itens.map(x=>({c:x.conta,mc:x.mc,r:igResumo(x.mc,p)})).sort((a,b)=>((b.r?.ganhoPct)??-1e9)-((a.r?.ganhoPct)??-1e9));
       paginas.push(<div><IgPDFCapa principal titulo={itens.length>1?"Relatório do Instagram · "+itens.length+" contas":"Relatório do Instagram"} sub={itens.map(x=>"@"+userDe(x.conta)).join(" · ")} per={p}/><IgRelComparativo linhas={ls} per={p} pdf/></div>);
@@ -9606,9 +9718,9 @@ function IgRelatorios({contas,posts,metricas,contaSel,setContaSel,toast}){
   };
   const imprimirPDF=(m)=>igGerarPDF(m.titulo,<div>{m.paginas.map((pg,i)=><div key={i} className={i?"quebra":""}>{pg}</div>)}</div>,toast);
   const comDados=conectadas.filter(c=>metricas.contas?.[c.id]);
-  const pdfConta=(id)=>{
+  const pdfConta=(id,versao)=>{
     if(!metricas.contas?.[id]){toast("⚠️ Ainda não há números desta conta. Clique em Atualizar números.","warn");return;}
-    setPdfReq({ids:[id],multi:false,per});
+    setPdfReq({ids:[id],multi:false,per,versao:versao||"interna"});
   };
   const pdfTodas=(perX)=>{
     if(!comDados.length){toast("⚠️ Ainda não há números. Clique em Atualizar números.","warn");return;}
@@ -9643,7 +9755,8 @@ function IgRelatorios({contas,posts,metricas,contaSel,setContaSel,toast}){
       <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
         {sel&&metricas.contas?.[sel]?.atualizadoEm&&<span style={{fontSize:11,color:"var(--text4)"}}>atualizado {new Date(metricas.contas[sel].atualizadoEm).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}</span>}
         <Btn onClick={atualizar} v="ghost" sz="sm" disabled={atualizando}>{atualizando?"⏳ Atualizando…":"🔄 Atualizar números"}</Btn>
-        {sel&&<Btn onClick={()=>pdfConta(sel)} v="ghost" sz="sm">📄 PDF desta conta</Btn>}
+        {sel&&<Btn onClick={()=>pdfConta(sel)} v="ghost" sz="sm">📄 PDF interno</Btn>}
+        {sel&&<Btn onClick={()=>pdfConta(sel,"cliente")} sz="sm" col="#4f46e5">👤 PDF para o cliente</Btn>}
         <Btn onClick={()=>pdfTodas()} sz="sm" col="#e1306c">📄 PDF de todas as contas</Btn>
       </div>
     </div>

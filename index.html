@@ -9836,14 +9836,14 @@ const igFmtTam=(b)=>b>1048576?(b/1048576).toLocaleString("pt-BR",{maximumFractio
 function IgPDFModal({req,onClose,contasOp,montar,toast,imprimir}){
   const [ids,setIds]=React.useState(req.ids);
   const [versao,setVersao]=React.useState(req.versao||"interna");
-  const [cliId,setCliId]=React.useState(req.ids[0]);
-  const idsUsados=versao==="cliente"?[cliId]:ids;
+  const [cliId,setCliId]=React.useState(req.ids[0]||"");
+  const idsUsados=versao==="cliente"?(cliId?[cliId]:[]):ids;
   const [st,setSt]=React.useState({gerando:true,prog:0,url:"",erro:"",tam:0,imagens:[]});
   const [tentativa,setTentativa]=React.useState(0);
   const m=React.useMemo(()=>montar(idsUsados,{...req,versao}),[idsUsados.join(","),req,versao]);
   React.useEffect(()=>{
     let vivo=true;
-    if(!idsUsados.length){setSt({gerando:false,prog:0,url:"",erro:"Marque pelo menos uma conta acima para gerar o PDF.",tam:0,imagens:[]});return;}
+    if(!idsUsados.length){setSt({gerando:false,prog:0,url:"",erro:versao==="cliente"?"Escolha o cliente acima para gerar o PDF.":"Marque as contas acima (ou clique em ☑ Marcar todas) para gerar o PDF.",tam:0,imagens:[]});return;}
     if(!m.paginas.length){setSt({gerando:false,prog:0,url:"",erro:"Nenhuma das contas escolhidas tem números no período.",tam:0,imagens:[]});return;}
     const ca=igPdfCache.get(m.chave);
     if(ca){setSt({gerando:false,prog:1,url:ca.url,erro:"",tam:ca.tam,imagens:ca.imagens||[]});return;}
@@ -9905,7 +9905,7 @@ function IgPDFModal({req,onClose,contasOp,montar,toast,imprimir}){
           <div style={{fontSize:11.5,color:"var(--text4)"}}>{m.paginas.length} página(s){!window.jspdf?" · na 1ª vez carrega o gerador":""}</div>
         </div>}
         {st.erro&&<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,background:"var(--bg3)",color:"var(--text2)",padding:20,textAlign:"center"}}>
-          <div style={{fontSize:30}}>⚠️</div><div style={{fontWeight:800}}>{st.erro}</div>
+          <div style={{fontSize:30}}>{idsUsados.length?"⚠️":"☝️"}</div><div style={{fontWeight:800}}>{st.erro}</div>
           <div style={{display:"flex",gap:8}}>
             {m.paginas.length>0&&idsUsados.length>0&&<button onClick={()=>setTentativa(t=>t+1)} style={btn("#e1306c","#fff","#e1306c")}>Tentar de novo</button>}
             {m.paginas.length>0&&idsUsados.length>0&&<button onClick={()=>imprimir(m)} style={btn("var(--bg2)","var(--text2)","var(--border2)")}>🖨 Abrir versão para imprimir</button>}
@@ -9946,7 +9946,7 @@ function IgRelatorios({contas,posts,metricas,contaSel,setContaSel,toast}){
     const paginas=[];
     if(req.versao==="cliente"){
       itens.forEach(({conta,mc,c})=>paginas.push(<div><IgPDFCapa principal titulo={"Relatório do Instagram · @"+userDe(conta)} sub={conta.nome||""} per={p} conta={conta} mc={mc}/><IgRelClienteView conta={conta} mc={mc} c={c} per={p}/></div>));
-      const titulo="Relatório Instagram @"+(itens[0]?userDe(itens[0].conta):"")+" — "+p.rotulo;
+      const titulo=itens[0]?"Relatório Instagram @"+userDe(itens[0].conta)+" — "+p.rotulo:"Relatório do Instagram para o cliente — "+p.rotulo;
       const chave=JSON.stringify(["cliente",ids,Math.floor(p.ini/864e5),Math.floor(p.fim/864e5),ids.map(id=>metricas.contas?.[id]?.atualizadoEm||"")]);
       return{paginas,titulo,nome:nomeArq(titulo.replace(/\//g,"-")),chave};
     }
@@ -9955,7 +9955,7 @@ function IgRelatorios({contas,posts,metricas,contaSel,setContaSel,toast}){
       paginas.push(<div><IgPDFCapa principal titulo={itens.length>1?"Relatório do Instagram · "+itens.length+" contas":"Relatório do Instagram"} sub={itens.map(x=>"@"+userDe(x.conta)).join(" · ")} per={p}/><IgRelComparativo linhas={ls} per={p} pdf/></div>);
     }
     itens.forEach(({conta,mc,c},i)=>paginas.push(<div><IgPDFCapa principal={!req.multi} titulo={(req.multi?"":"Relatório do Instagram · ")+"@"+userDe(conta)} sub={conta.nome||""} per={p} conta={conta} mc={mc}/><IgRelContaView conta={conta} mc={mc} c={c} per={p} pdf/></div>));
-    const titulo=req.multi?"Relatório Instagram — "+(itens.length===1?"@"+userDe(itens[0].conta):itens.length+" contas")+" — "+p.rotulo:"Relatório Instagram @"+(itens[0]?userDe(itens[0].conta):"")+" — "+p.rotulo;
+    const titulo=!itens.length?"Relatório do Instagram — "+p.rotulo:req.multi?"Relatório Instagram — "+(itens.length===1?"@"+userDe(itens[0].conta):itens.length+" contas")+" — "+p.rotulo:"Relatório Instagram @"+(itens[0]?userDe(itens[0].conta):"")+" — "+p.rotulo;
     const chave=JSON.stringify([req.multi,ids,Math.floor(p.ini/864e5),Math.floor(p.fim/864e5),ids.map(id=>metricas.contas?.[id]?.atualizadoEm||""),posts.length]);
     return{paginas,titulo,nome:nomeArq(titulo.replace(/\//g,"-")),chave};
   };
@@ -9967,7 +9967,7 @@ function IgRelatorios({contas,posts,metricas,contaSel,setContaSel,toast}){
   };
   const pdfTodas=(perX)=>{
     if(!comDados.length){toast("⚠️ Ainda não há números. Clique em Atualizar números.","warn");return;}
-    setPdfReq({ids:comDados.map(c=>c.id),multi:true,per:perX||per});
+    setPdfReq({ids:[],multi:true,per:perX||per}); // abre sem nenhuma marcada: escolha as contas (ou "Marcar todas")
   };
   const pdfModal=pdfReq&&<IgPDFModal req={pdfReq} onClose={()=>setPdfReq(null)} contasOp={comDados} montar={montarPDF} toast={toast} imprimir={imprimirPDF}/>;
   // lembrete do fechamento do mês (dias 1 a 7)
@@ -9999,7 +9999,7 @@ function IgRelatorios({contas,posts,metricas,contaSel,setContaSel,toast}){
         {sel&&metricas.contas?.[sel]?.atualizadoEm&&<span style={{fontSize:11,color:"var(--text4)"}}>atualizado {new Date(metricas.contas[sel].atualizadoEm).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}</span>}
         <Btn onClick={atualizar} v="ghost" sz="sm" disabled={atualizando}>{atualizando?"⏳ Atualizando…":"🔄 Atualizar números"}</Btn>
         {sel&&<Btn onClick={()=>pdfConta(sel)} v="ghost" sz="sm">📄 PDF interno</Btn>}
-        <Btn onClick={()=>{const id=sel||(comDados.find(c=>c.tipo!=="propria")||comDados[0])?.id;if(!id){toast("⚠️ Ainda não há números. Clique em Atualizar números.","warn");return;}pdfConta(id,"cliente");}} sz="sm" col="#4f46e5">👤 PDF para o cliente</Btn>
+        <Btn onClick={()=>{if(!comDados.length){toast("⚠️ Ainda não há números. Clique em Atualizar números.","warn");return;}if(sel)pdfConta(sel,"cliente");else setPdfReq({ids:[],multi:false,per,versao:"cliente"});}} sz="sm" col="#4f46e5">👤 PDF para o cliente</Btn>
         <Btn onClick={()=>pdfTodas()} sz="sm" col="#e1306c">📄 PDF de todas as contas</Btn>
       </div>
     </div>

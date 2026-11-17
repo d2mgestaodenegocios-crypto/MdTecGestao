@@ -2619,6 +2619,46 @@ function montarMsgTarefas(data,{pessoaId,periodo}){
   if(!achou)return "✅ Nenhuma tarefa pendente neste período. Equipe em dia!";
   return (t.trim()+"\n\n_Enviado pelo MDTec Gestão_").replace(/[ \t]+\n/g,"\n").replace(/\n{3,}/g,"\n\n");
 }
+// ── Resumo do dia (o que o colaborador fez) para mandar no WhatsApp ──
+const isoLocalHoje=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");};
+function montarResumoDia(data,{pessoaId,dia,incluirAndamento=true,incluirAmanha=false}){
+  const colabs=data.collaborators||[];const c=colabs.find(x=>x.id===pessoaId);
+  const nomeEmp=(t)=>{try{return taskCompanies(t).map(id=>(data.companies||[]).find(x=>x.id===id)?.name||"").filter(Boolean).join(", ");}catch(e){return "";}};
+  // a data de conclusão é gravada em UTC: depois das 21h (Brasília) ela já cai no dia seguinte
+  const diaUtcSeg=(()=>{const d=new Date(dia+"T12:00:00");d.setDate(d.getDate()+1);return d.toISOString().slice(0,10);})();
+  const ehMinha=(t)=>pessoaId?(t.completedBy?t.completedBy===pessoaId:toArr(t.assignees).includes(pessoaId)):true;
+  const tarefas=data.tasks||[];
+  const feitas=tarefas.filter(t=>t.status==="done"&&ehMinha(t)&&(t.completedAt===dia||(t.completedAt===diaUtcSeg&&dia===isoLocalHoje()&&new Date().getHours()>=21)));
+  const andamento=incluirAndamento?tarefas.filter(t=>(t.status==="doing"||t.status==="review")&&(!pessoaId||toArr(t.assignees).includes(pessoaId))):[];
+  const amanha=(()=>{const d=new Date(dia+"T12:00:00");d.setDate(d.getDate()+1);return d.toISOString().slice(0,10);})();
+  const prox=incluirAmanha?tarefas.filter(t=>t.status!=="done"&&t.status!=="archived"&&t.dueDate&&t.dueDate<=amanha&&(!pessoaId||toArr(t.assignees).includes(pessoaId))&&!andamento.includes(t)):[];
+  const stLbl={doing:"em andamento",review:"em revisão"};
+  const linha=(t,extra)=>{const e=nomeEmp(t);const ck=toArr(t.checklist);const ckTxt=ck.length?" ["+ck.filter(x=>x.done).length+"/"+ck.length+"]":"";return "• "+(t.title||"(sem título)")+(e?" — "+e:"")+ckTxt+(extra?" ("+extra+")":"")+"\n";};
+  const dt=new Date(dia+"T12:00:00").toLocaleDateString("pt-BR",{weekday:"long",day:"2-digit",month:"2-digit",year:"numeric"});
+  let s="✅ *Resumo do dia"+(c?" — "+c.name:"")+"*\n_"+dt+"_\n";
+  s+="\n*Concluídas ("+feitas.length+")*\n"+(feitas.length?feitas.map(t=>linha(t)).join(""):"• nenhuma tarefa concluída\n");
+  if(andamento.length)s+="\n*Em andamento ("+andamento.length+")*\n"+andamento.map(t=>linha(t,stLbl[t.status])).join("");
+  if(prox.length)s+="\n*Pendentes até amanhã ("+prox.length+")*\n"+prox.map(t=>linha(t,t.dueDate<dia?"atrasada":t.dueDate===dia?"vence hoje":"vence amanhã")).join("");
+  return (s+"\n_Enviado pelo MDTec Gestão_").replace(/\n{3,}/g,"\n\n");
+}
+function ResumoDiaModal({open,onClose,data,myCollabId,isAdmin}){
+  const [pessoa,setPessoa]=useState(myCollabId||"");
+  const [dia,setDia]=useState(isoLocalHoje());
+  const [andamento,setAndamento]=useState(true);
+  const [amanha,setAmanha]=useState(false);
+  const [texto,setTexto]=useState("");const [tel,setTel]=useState("");
+  useEffect(()=>{if(open){setPessoa(p=>p||myCollabId||"");}},[open]);// eslint-disable-line
+  useEffect(()=>{if(open)setTexto(montarResumoDia(data,{pessoaId:pessoa,dia,incluirAndamento:andamento,incluirAmanha:amanha}));},[open,pessoa,dia,andamento,amanha,data.tasks]);// eslint-disable-line
+  const ck=(v,set,l)=>(<label style={{display:"flex",alignItems:"center",gap:6,fontSize:12.5,fontWeight:600,color:"var(--text2)",cursor:"pointer"}}><input type="checkbox" checked={v} onChange={e=>set(e.target.checked)}/>{l}</label>);
+  return(<WhatsAppModal open={open} onClose={onClose} titulo="Resumo do dia" texto={texto} setTexto={setTexto} tel={tel} setTel={setTel}>
+    <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+      {(isAdmin||!myCollabId)&&<div style={{flex:"1 1 200px"}}><Sel label="De quem" value={pessoa} onChange={setPessoa} options={[{value:"",label:"👥 Equipe toda"},...(data.collaborators||[]).map(c=>({value:c.id,label:c.name}))]}/></div>}
+      <div style={{flex:"0 1 170px"}}><Inp label="Dia" type="date" value={dia} onChange={v=>setDia(v||isoLocalHoje())}/></div>
+    </div>
+    <div style={{display:"flex",gap:16,flexWrap:"wrap",marginTop:-4}}>{ck(andamento,setAndamento,"Incluir o que está em andamento")}{ck(amanha,setAmanha,"Incluir pendentes até amanhã")}</div>
+  </WhatsAppModal>);
+}
+
 function WhatsAppModal({open,onClose,titulo,texto,setTexto,tel,setTel,children}){
   const [copiado,setCopiado]=useState(false);
   useEffect(()=>{setCopiado(false);},[open,texto]);
@@ -3497,6 +3537,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusC
   const [collabFilter,setCollabFilter]=useState(""); // NEW: filter by specific collaborator
   // Lembrete por WhatsApp
   const [waOpen,setWaOpen]=useState(false);
+  const [resumoOpen,setResumoOpen]=useState(false);
   const [waPessoa,setWaPessoa]=useState("");      // "" = equipe toda
   const [waPeriodo,setWaPeriodo]=useState("semana");
   const [waTexto,setWaTexto]=useState("");
@@ -3567,6 +3608,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusC
 
   return(
     <div style={{position:"relative"}}>
+      <ResumoDiaModal open={resumoOpen} onClose={()=>setResumoOpen(false)} data={data} myCollabId={myCollabId} isAdmin={isAdmin}/>
       <WhatsAppModal open={waOpen} onClose={()=>setWaOpen(false)} titulo="Lembrete de tarefas pendentes" texto={waTexto} setTexto={setWaTexto} tel={waTel} setTel={setWaTel}>
         <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
           <div style={{flex:"1 1 200px"}}>
@@ -3600,6 +3642,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusC
           {mySectors.length>0&&<button style={btnStyle(ownerFilter==="sector","#14b8a6")} onClick={()=>{setOwnerFilter("sector");setCollabFilter("");}}>🏢 Meu setor</button>}
           <button style={btnStyle(ownerFilter==="unassigned","#94a3b8")} onClick={()=>{setOwnerFilter("unassigned");setCollabFilter("");}}>👤 Sem responsável</button>
           <span style={{fontSize:11,color:"#94a3b8",marginLeft:"auto"}}>⠿ Segure e arraste o card para mover</span>
+          <button onClick={()=>setResumoOpen(true)} title="Copiar as tarefas feitas no dia e mandar pelo WhatsApp" style={{background:"#16a34a",border:"1.5px solid #16a34a",borderRadius:7,padding:"3px 10px",fontSize:11,fontWeight:800,color:"#fff",cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:5,flexShrink:0}}>✅ Resumo do dia</button>
           <button onClick={()=>setWaOpen(true)} title="Enviar a lista de tarefas pendentes pelo WhatsApp" style={{background:"#f0fdf4",border:"1.5px solid #86efac",borderRadius:7,padding:"3px 10px",fontSize:11,fontWeight:800,color:"#15803d",cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:5,flexShrink:0}}>📲 WhatsApp</button>
           <button onClick={()=>{
             const allVisible=data.tasks.filter(t=>t.status!=="archived");

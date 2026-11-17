@@ -9000,21 +9000,23 @@ function IgPostEditor({open,post,novo,contas,collaborators,companies,posts,userN
     if(!exigirSemAlertas())return;
     salvar({status:"aprovacao"},false);setF(p=>({...p,status:"aprovacao"}));toast("📤 Enviado para aprovação.","ok");setAba("aprovacao");
   };
+  // Aprovar = vai direto para Agendado, salva e fecha (não precisa salvar de novo)
   const aprovar=(quemPadrao)=>{
     if(!exigirSemAlertas())return;
+    if(!f.data){toast("📅 Defina a data e a hora da postagem antes de aprovar — ao aprovar, o post já vai para a agenda.","warn",7000);setAba("conteudo");return;}
     const quem=window.prompt("Quem aprovou? (nome do cliente ou de quem aprovou)",quemPadrao||"");if(quem===null)return;
     const base={aprovadoPor:quem.trim()||"Aprovado",aprovadoEm:new Date().toISOString(),aprovadoRegistradoPor:userName||"",aprovadoAssinatura:igAssinatura(f)};
-    const podeAgendar=!!f.data&&conectada;
-    const extra={...base,status:podeAgendar?"agendado":"aprovacao",...(podeAgendar?{autoPublicar:true}:{})};
-    salvar(extra,false);setF(p=>({...p,...extra}));
-    toast(podeAgendar?"✅ Aprovado e 📅 agendado — o robô publica em "+igFmtData(f.data)+" às "+(f.hora||"09:00")+".":!conectada?"✅ Aprovado. Para agendar, conecte a conta ao Instagram (👤 Contas).":"✅ Aprovado. Defina a data e a hora e clique em 📅 Agendar.","ok",8000);
+    const extra={...base,status:"agendado",autoPublicar:true};
+    setF(p=>({...p,...extra}));
+    salvar(extra,true);
+    toast(conectada?"✅ Aprovado e 📅 agendado — o robô publica em "+igFmtData(f.data)+" às "+(f.hora||"09:00")+".":"✅ Aprovado e agendado para "+igFmtData(f.data)+". ⚠️ A conta não está conectada: conecte em 👤 Contas para o robô conseguir publicar.","ok",9000);
   };
   const agendar=()=>{
     if(!aprovadoValido){toast("⚠️ Só posts aprovados podem ser agendados.","warn");setAba("aprovacao");return;}
-    if(!conectada){toast("🔌 A conta não está conectada ao Instagram — conecte em 👤 Contas para o robô publicar.","warn",7000);return;}
-    if(!f.data){toast("📅 Defina a data e a hora.","warn");return;}
+    if(!f.data){toast("📅 Defina a data e a hora.","warn");setAba("conteudo");return;}
     if(!exigirSemAlertas())return;
-    const ex={status:"agendado",autoPublicar:true};salvar(ex,false);setF(p=>({...p,...ex}));toast("📅 Agendado — o robô publica em "+igFmtData(f.data)+" às "+(f.hora||"09:00")+".","ok",7000);
+    const ex={status:"agendado",autoPublicar:true};setF(p=>({...p,...ex}));salvar(ex,true);
+    toast(conectada?"📅 Agendado — o robô publica em "+igFmtData(f.data)+" às "+(f.hora||"09:00")+".":"📅 Agendado. ⚠️ Conecte a conta em 👤 Contas para o robô conseguir publicar.","ok",8000);
   };
   const desagendar=()=>{if(!window.confirm("Tirar da agenda e voltar para Produção? Vai precisar aprovar de novo."))return;
     const ex={status:"producao",aprovadoPor:"",aprovadoEm:"",aprovadoAssinatura:"",aprovadoRegistradoPor:""};salvar(ex,false);setF(p=>({...p,...ex}));};
@@ -10316,6 +10318,16 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
   const temAlerta=(p)=>p.status!=="publicado"&&(!!alertasMap[p.id]||!!p.alertasPendentes);
   React.useEffect(()=>{const f=()=>setEstreito(window.innerWidth<720);window.addEventListener("resize",f);return()=>window.removeEventListener("resize",f);},[]);
   const contas=ig.contas;const contaDe=(id)=>contas.find(c=>c.id===id);
+  // posts aprovados (e com data) que ficaram parados em "Aprovação" pela regra antiga → seguem para Agendado
+  const migrouAprov=React.useRef(false);
+  React.useEffect(()=>{
+    if(migrouAprov.current||!carregado||!(ig.posts||[]).length)return;
+    const parados=(ig.posts||[]).filter(p=>p.status==="aprovacao"&&p.data&&igAprovadoValido(p));
+    migrouAprov.current=true;
+    if(!parados.length)return;
+    const ids=new Set(parados.map(p=>p.id));
+    atualizar(d=>({...d,posts:d.posts.map(p=>ids.has(p.id)&&p.status==="aprovacao"&&igAprovadoValido(p)?{...p,status:"agendado",autoPublicar:true,avisado:false}:p)}));
+  },[ig.posts]);
   // avisa quando o robô termina de publicar
   const statusAnt=React.useRef(null);
   React.useEffect(()=>{
@@ -11856,6 +11868,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 94</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

@@ -2963,6 +2963,8 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
       </div>
 
       <Sel label="Recorrência" value={f.recurrence||""} onChange={v=>set("recurrence",v)} placeholder="Sem recorrência" options={data.recurrences.map(r=>({value:r.id,label:r.name}))} disabled={blocked}/>
+      {f.recurrence&&(()=>{const r=data.recurrences.find(x=>x.id===f.recurrence);if(!r)return null;const desc=r.interval==="custom_days"&&r.days?.length?"Toda "+[...r.days].sort().map(d=>WDAYS[d].s).join(", "):(RINTS.find(x=>x.value===r.interval)?.label||r.interval);
+        return(<div style={{marginTop:-6,marginBottom:10,fontSize:11.5,color:"#4338ca",background:"#eef2ff",borderRadius:8,padding:"6px 10px"}}>↻ {desc}{r.interval==="daily"?" (inclui sábado e domingo — para só dias úteis use “Dias úteis”)":""} · começa {f.dueDate?"em "+f.dueDate.split("-").reverse().join("/"):"hoje"} · a série se renova sozinha (sempre com as próximas semanas criadas).</div>);})()}
 
       <Fld label={`Responsáveis (máx. 2)${(f.assignees||[]).length>=2?" · limite":""}`}>
         {fC.length===0?<p style={{fontSize:12,color:"#94a3b8"}}>Nenhum colaborador cadastrado ainda.</p>:
@@ -6893,7 +6895,7 @@ function PainelRecorrencias({data,setData,onEdit,toast}){
   return(
     <div>
       <PH title="Painel de Recorrências" icon="⊹" badge={groups.length}/>
-      <p style={{fontSize:13,color:"#64748b",marginBottom:16}}>Visualize e gerencie todos os grupos de tarefas recorrentes. Pause ou reative séries inteiras.</p>
+      <p style={{fontSize:13,color:"#64748b",marginBottom:16}}>Visualize e gerencie todos os grupos de tarefas recorrentes. Pause ou reative séries inteiras.<br/><b style={{color:"#4338ca"}}>↻ As séries se renovam sozinhas:</b> o sistema mantém sempre as próximas 4 semanas criadas (3 meses nas mensais). Série pausada (arquivada) para de renovar.</p>
 
       {/* Filtros */}
       <div style={{display:"flex",gap:6,marginBottom:18,flexWrap:"wrap"}}>
@@ -10330,9 +10332,107 @@ function InstagramAvisos({addNotification,myCollabId,toast,onNavigate}){
 
 </script>
 <script type="text/babel" data-presets="react">
+
+// ── Recorrências que se renovam sozinhas ─────────────────────────────
+// Antes a série era criada só para as próximas 4 semanas (ou 3 meses) e depois parava.
+// Agora, toda vez que o sistema abre (e a cada hora), cada série ativa ganha as próximas
+// ocorrências que faltam. Série "pausada" (última ocorrência arquivada) não é renovada.
+const REC_PRESETS_EXTRA=[
+  {id:"rc_smqsx",name:"Seg, Qua e Sex",interval:"custom_days",days:[1,3,5]},
+  {id:"rc_sexta",name:"Toda Sexta",interval:"custom_days",days:[5]},
+  {id:"rc_uteis",name:"Dias úteis (seg a sex)",interval:"custom_days",days:[1,2,3,4,5]},
+];
+const recIsoLocal=(d)=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+const recDataLocal=(iso)=>{const [y,m,d]=iso.split("-").map(Number);return new Date(y,m-1,d);};
+function recHorizonte(rec,hoje){
+  const h=new Date(hoje);
+  if(["monthly","lastday"].includes(rec.interval))h.setMonth(h.getMonth()+3);
+  else if(rec.interval==="quarterly")h.setMonth(h.getMonth()+12);
+  else if(rec.interval==="yearly")h.setMonth(h.getMonth()+13);
+  else if(rec.interval==="biweekly")h.setDate(h.getDate()+42);
+  else h.setDate(h.getDate()+28);
+  return h;
+}
+// próximas datas de uma série depois de "ultima" até o horizonte
+function recProximasDatas(rec,ultimaIso,diaBase,hoje){
+  const fim=recHorizonte(rec,hoje);const out=[];
+  const ult=recDataLocal(ultimaIso);
+  const pushSe=(d)=>{if(d>=hoje&&d<=fim)out.push(recIsoLocal(d));};
+  if(rec.interval==="daily"||(rec.interval==="custom_days"&&Array.isArray(rec.days)&&rec.days.length)){
+    const d=new Date(ult);d.setDate(d.getDate()+1);
+    for(;d<=fim;d.setDate(d.getDate()+1)){if(rec.interval==="daily"||rec.days.includes(d.getDay()))pushSe(new Date(d));}
+  }else if(rec.interval==="weekly"||rec.interval==="biweekly"){
+    const passo=rec.interval==="weekly"?7:14;const d=new Date(ult);d.setDate(d.getDate()+passo);
+    for(;d<=fim;d.setDate(d.getDate()+passo))pushSe(new Date(d));
+  }else if(["monthly","quarterly","yearly","lastday"].includes(rec.interval)){
+    const passo=rec.interval==="quarterly"?3:rec.interval==="yearly"?12:1;
+    for(let k=1;k<=24;k++){
+      const m=ult.getMonth()+k*passo;
+      let d;
+      if(rec.interval==="lastday")d=new Date(ult.getFullYear(),m+1,0);
+      else{const ultDia=new Date(ult.getFullYear(),m+1,0).getDate();d=new Date(ult.getFullYear(),m,Math.min(diaBase,ultDia));}
+      if(d>fim)break;pushSe(d);
+    }
+  }
+  return out;
+}
+// devolve as novas tarefas que faltam (ou [] se nada a fazer)
+function recRenovarSeries(data){
+  const tarefas=data.tasks||[];const recs=data.recurrences||[];
+  const hoje=new Date();hoje.setHours(0,0,0,0);
+  const limiteAntigo=recIsoLocal(new Date(hoje.getTime()-60*864e5));
+  const grupos={};
+  tarefas.forEach(t=>{if(t._recGroup&&t._recurrenceId&&!t._serviceId&&t.dueDate)(grupos[t._recGroup]=grupos[t._recGroup]||[]).push(t);});
+  const novas=[];
+  Object.entries(grupos).forEach(([gid,lista])=>{
+    const rec=recs.find(r=>r.id===lista[0]._recurrenceId);if(!rec)return;
+    if(lista.some(t=>t._recFim))return; // série encerrada
+    lista.sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+    const ultima=lista[lista.length-1];
+    if(ultima.status==="archived")return;          // pausada
+    if(ultima.dueDate<limiteAntigo)return;          // parada há muito tempo: não ressuscita sozinha
+    const diaBase=Number((lista[0].dueDate||"").slice(8,10))||1;
+    const existentes=new Set(lista.map(t=>t.dueDate));
+    recProximasDatas(rec,ultima.dueDate,diaBase,hoje).forEach(ds=>{
+      if(existentes.has(ds))return;existentes.add(ds);
+      novas.push({...ultima,
+        id:"rec_"+gid+"_"+ds, // id fixo: dois computadores gerando ao mesmo tempo não duplicam
+        dueDate:ds,status:"todo",createdAt:todayStr(),completedAt:null,completedBy:null,completedByName:null,archivedAt:null,
+        comments:[],attachments:[],timeLogs:[],pinned:false,
+        checklist:(ultima.checklist||[]).map(c=>({...c,id:uid(),done:false})),
+      });
+    });
+  });
+  return novas;
+}
+
 function App(){
   const {user,loading:authLoading,signIn,signOut} = useAuth();
   const [data,setData,synced] = useSharedData();
+  // séries recorrentes sempre com as próximas semanas criadas (+ modelos Seg/Qua/Sex, Sexta e Dias úteis)
+  const dataRecRef=useRef(data);dataRecRef.current=data;
+  useEffect(()=>{
+    if(!synced)return;
+    const rodar=()=>{
+      const d0=dataRecRef.current;if(!d0||!Array.isArray(d0.tasks))return;
+      const sig=(r)=>r.interval+":"+[...(r.days||[])].sort().join(",");
+      const faltamPresets=REC_PRESETS_EXTRA.filter(p=>!(d0.recurrences||[]).some(r=>r.id===p.id||sig(r)===sig(p)));
+      const novas=recRenovarSeries(d0);
+      if(!faltamPresets.length&&!novas.length)return;
+      setData(d=>{
+        let nd=d;
+        const fp=REC_PRESETS_EXTRA.filter(p=>!(nd.recurrences||[]).some(r=>r.id===p.id||sig(r)===sig(p)));
+        if(fp.length)nd={...nd,recurrences:[...(nd.recurrences||[]),...fp]};
+        const ids=new Set((nd.tasks||[]).map(t=>t.id));
+        const chaves=new Set((nd.tasks||[]).filter(t=>t._recGroup).map(t=>t._recGroup+"|"+t.dueDate));
+        const add=recRenovarSeries(nd).filter(t=>!ids.has(t.id)&&!chaves.has(t._recGroup+"|"+t.dueDate));
+        if(add.length)nd={...nd,tasks:[...nd.tasks,...add]};
+        return nd;
+      });
+    };
+    const t0=setTimeout(rodar,3000);const iv=setInterval(rodar,3600e3);
+    return()=>{clearTimeout(t0);clearInterval(iv);};
+  },[synced]);
   const {acquire,forceAcquire,release,getLock} = useLocks();
   const {list:toasts,add:toast} = useToast();
   const {ask:askDelete, modal:deleteModal} = useConfirmDelete();
@@ -10810,6 +10910,8 @@ function App(){
     const tasks=[];
     const today=new Date();
     today.setHours(0,0,0,0);
+    // começa na data de início escolhida, se for no futuro
+    if(base.dueDate&&/^\d{4}-\d{2}-\d{2}$/.test(base.dueDate)){const ini=recDataLocal(base.dueDate);if(ini>today)today.setTime(ini.getTime());}
     const end=new Date(today);
     end.setDate(today.getDate()+28); // 4 semanas
 
@@ -10957,6 +11059,19 @@ function App(){
       }
     }
 
+    // Tarefa já existente que ganhou recorrência: vira o 1º item da série e cria as próximas
+    if(!isNew && base.recurrence && !base._recGroup){
+      const rec=data.recurrences.find(r=>r.id===base.recurrence);
+      if(rec){
+        const copias=generateRecurringTasks(base,rec).filter(t=>t.dueDate!==base.dueDate).map(t=>({...t,_recGroup:base.id,_recurrenceId:rec.id}));
+        const atual={...base,recurrence:"",_recGroup:base.id,_recurrenceId:rec.id};
+        setData(d=>({...d,tasks:[...d.tasks.map(t=>t.id===atual.id?atual:t),...copias.filter(c=>!d.tasks.some(t=>t._recGroup===atual.id&&t.dueDate===c.dueDate))]}));
+        if(taskModal.task) release(taskModal.task.id);
+        setTM(m=>({...m,open:false}));
+        toast("↻ Tarefa agora é recorrente ("+rec.name+") — "+copias.length+" próximas criadas, e a série se renova sozinha.","ok",6000);
+        return;
+      }
+    }
     // Se editar uma tarefa de série recorrente, perguntar se propaga
     if(!isNew && base._recGroup && !base.recurrence){
       const series=data.tasks.filter(t=>

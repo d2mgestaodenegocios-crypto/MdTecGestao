@@ -8393,6 +8393,7 @@ function IgConexaoBloco({conta,salva,estado,toast}){
     {cx.erro&&<span style={{color:"#b91c1c",fontWeight:700,flexBasis:"100%"}}>⚠️ {cx.erro}</span>}
     {teste&&<span style={{flexBasis:"100%",color:teste.ok?"#15803d":"#b91c1c",fontWeight:700}}>{teste.ok?`✔ Conexão funcionando · ${teste.usoHoje??0} de ${teste.limiteDia??100} publicações usadas nas últimas 24h`:"⚠️ "+teste.erro}</span>}
     <span style={{marginLeft:"auto",display:"flex",gap:6}}>
+      <button disabled={!!ocupado} title="Conectar de novo (use depois de mudar as permissões na Meta, como as estatísticas)" onClick={async()=>{const r=await gerarLink(1);if(r){window.open(r.url,"_blank","noopener");toast("🔄 Na janela da Meta, aceite as permissões. Depois volte aqui e clique em 🔄 Atualizar números nos Relatórios.","ok",9000);}}} style={btn("#fff","#be185d","#f9a8d4")}>{ocupado==="link"?"⏳":"🔄 Reconectar"}</button>
       <button disabled={!!ocupado} onClick={async()=>{setOcupado("t");const r=await igApi("testar",{contaId:conta.id});setOcupado("");setTeste(r);}} style={btn("#fff","#15803d","#86efac")}>{ocupado==="t"?"⏳":"🔎 Testar"}</button>
       <button disabled={!!ocupado} onClick={async()=>{if(!window.confirm("Desconectar @"+cx.username+"? Os posts automáticos desta conta deixam de sair sozinhos."))return;setOcupado("d");const r=await igApi("desconectar",{contaId:conta.id});setOcupado("");toast(r.ok?"🔌 Conta desconectada":"⚠️ "+(r.erro||"Erro"),r.ok?"ok":"err");}} style={btn("#fff","#b91c1c","#fca5a5")}>{ocupado==="d"?"⏳":"Desconectar"}</button>
     </span>

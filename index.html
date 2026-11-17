@@ -9756,7 +9756,7 @@ function IgRelatorios({contas,posts,metricas,contaSel,setContaSel,toast}){
         {sel&&metricas.contas?.[sel]?.atualizadoEm&&<span style={{fontSize:11,color:"var(--text4)"}}>atualizado {new Date(metricas.contas[sel].atualizadoEm).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}</span>}
         <Btn onClick={atualizar} v="ghost" sz="sm" disabled={atualizando}>{atualizando?"⏳ Atualizando…":"🔄 Atualizar números"}</Btn>
         {sel&&<Btn onClick={()=>pdfConta(sel)} v="ghost" sz="sm">📄 PDF interno</Btn>}
-        {sel&&<Btn onClick={()=>pdfConta(sel,"cliente")} sz="sm" col="#4f46e5">👤 PDF para o cliente</Btn>}
+        <Btn onClick={()=>{const id=sel||(comDados.find(c=>c.tipo!=="propria")||comDados[0])?.id;if(!id){toast("⚠️ Ainda não há números. Clique em Atualizar números.","warn");return;}pdfConta(id,"cliente");}} sz="sm" col="#4f46e5">👤 PDF para o cliente</Btn>
         <Btn onClick={()=>pdfTodas()} sz="sm" col="#e1306c">📄 PDF de todas as contas</Btn>
       </div>
     </div>

@@ -11930,11 +11930,17 @@ function App(){
       // só pergunta se mudou algo que vale para a série (checklist, comentários e etapa são de cada ocorrência)
       const ant=data.tasks.find(t=>t.id===base.id)||{};
       const igual=(a,b)=>JSON.stringify(a??null)===JSON.stringify(b??null);
-      const camposSerie=[["title","título"],["dueTime","horário"],["description","descrição"],["priority","prioridade"],["sector","setor"],["assignees","responsáveis"],["labels","etiquetas"]];
-      const mudou=camposSerie.filter(([k])=>!igual(k==="assignees"||k==="labels"?toArr(ant[k]):ant[k],k==="assignees"||k==="labels"?toArr(base[k]):base[k]));
+      const camposSerie=[["title","título"],["dueTime","horário"],["description","descrição"],["priority","prioridade"],["sector","setor"],["assignees","responsáveis"],["labels","etiquetas"],["companies","empresas"]];
+      const ehLista=(k)=>k==="assignees"||k==="labels"||k==="companies";
+      const valDe=(o,k)=>k==="companies"?taskCompanies(o):ehLista(k)?toArr(o[k]):o[k];
+      const mudou=camposSerie.filter(([k])=>!igual(valDe(ant,k),valDe(base,k)));
+      // estrutura do checklist (itens, empresa e responsável de cada item) — a marcação ✔ continua individual
+      const estrCk=(o)=>toArr(o.checklist).map(c=>[c.text||"",c.company||null,c.assignee||null]);
+      const ckMudou=!igual(estrCk(ant),estrCk(base));
+      if(ckMudou)mudou.push(["checklist","itens do checklist (empresas/responsáveis)"]);
       if(series.length>0&&mudou.length>0){
         const propagate=window.confirm(
-          `Esta tarefa pertence a uma série recorrente com ${series.length} ocorrência${series.length>1?"s":""} futura${series.length>1?"s":""}.\n\nVocê alterou: ${mudou.map(x=>x[1]).join(", ")}.\nDeseja aplicar ESSAS alterações a toda a série?\n\n(O checklist, os comentários e a etapa continuam individuais de cada tarefa.)`
+          `Esta tarefa pertence a uma série recorrente com ${series.length} ocorrência${series.length>1?"s":""} futura${series.length>1?"s":""}.\n\nVocê alterou: ${mudou.map(x=>x[1]).join(", ")}.\nDeseja aplicar ESSAS alterações a toda a série?\n\n(O que já foi marcado ✔ no checklist, os comentários e a etapa continuam individuais de cada tarefa.)`
         );
         if(propagate){
           setData(d=>({...d,tasks:d.tasks.map(t=>{
@@ -11942,7 +11948,26 @@ function App(){
             if((t.dueDate||"")<todayStr()) return t; // não altera passadas
             // aplica só o que foi alterado; o checklist de cada ocorrência não é tocado
             const nt={...t};
-            mudou.forEach(([k])=>{nt[k]=k==="assignees"||k==="labels"?[...toArr(base[k])]:base[k];});
+            mudou.forEach(([k])=>{
+              if(k==="checklist")return;
+              if(k==="companies"){nt.companies=[...taskCompanies(base)];nt.company=nt.companies[0]||"";return;}
+              nt[k]=ehLista(k)?[...toArr(base[k])]:base[k];
+            });
+            if(ckMudou){
+              // casa cada item pelo texto antigo; mantém o ✔ (e quem fez) de cada ocorrência
+              const antTxt={};toArr(ant.checklist).forEach(c=>{antTxt[c.id]=c.text;});
+              const removidos=new Set(toArr(ant.checklist).filter(c=>!toArr(base.checklist).some(b=>b.id===c.id)).map(c=>c.text));
+              const usados=new Set();const alvo=toArr(t.checklist);
+              const novo=toArr(base.checklist).map(b=>{
+                const orig=antTxt[b.id]!=null?antTxt[b.id]:b.text;
+                const ex=alvo.find(x=>!usados.has(x.id)&&x.text===orig)||alvo.find(x=>!usados.has(x.id)&&x.text===b.text);
+                if(ex){usados.add(ex.id);return{...ex,text:b.text,company:b.company||null,assignee:b.assignee||null};}
+                return{id:uid(),text:b.text,done:false,company:b.company||null,assignee:b.assignee||null,dueDate:null};
+              });
+              // itens que só existem naquela ocorrência (não foram removidos aqui) ficam
+              alvo.forEach(x=>{if(!usados.has(x.id)&&!removidos.has(x.text))novo.push(x);});
+              nt.checklist=novo;
+            }
             return nt;
           })}));
           toast(`↻ Série atualizada em ${series.length} tarefa${series.length>1?"s":""}.`,"ok");
@@ -12269,7 +12294,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 104</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 105</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

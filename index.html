@@ -8740,6 +8740,67 @@ function IgAvatar({conta,size=28}){
     </div>
   </div>);
 }
+// ── Story 9:16: a imagem é encaixada inteira numa tela 1080×1920 (sem cortar/zoom) ──
+const IG_STORY_FUNDOS=[["desfocado","🌫 Desfocado"],["branco","⬜ Branco"],["preto","⬛ Preto"],["marca","🎨 Cor da conta"]];
+const igEhStory916=(m)=>m&&m.w&&m.h&&Math.abs(m.w/m.h-9/16)<0.03;
+function igCarregarImg(src){return new Promise((ok,erro)=>{const i=new Image();i.onload=()=>ok(i);i.onerror=()=>erro(new Error("não consegui abrir a imagem"));i.src=src;});}
+async function igStoryVersao(m,fundo,cor){
+  const src=await igCarregarMidia(m);if(!src)throw new Error("Imagem não encontrada");
+  const img=await igCarregarImg(src);
+  const W=1080,H=1920;const cv=document.createElement("canvas");cv.width=W;cv.height=H;const cx=cv.getContext("2d");
+  if(fundo==="desfocado"){
+    const esc=Math.max(W/img.width,H/img.height);const w=img.width*esc,h=img.height*esc;
+    cx.filter="blur(40px) brightness(.8)";cx.drawImage(img,(W-w)/2,(H-h)/2,w,h);cx.filter="none";
+    cx.fillStyle="rgba(0,0,0,.12)";cx.fillRect(0,0,W,H);
+  }else{cx.fillStyle=fundo==="branco"?"#ffffff":fundo==="preto"?"#000000":(cor||"#6366f1");cx.fillRect(0,0,W,H);}
+  // área segura: deixa espaço em cima e embaixo para os elementos do Instagram
+  const mx=0,myTop=250,myBot=250;const maxW=W-mx*2,maxH=H-myTop-myBot;
+  const e=Math.min(maxW/img.width,maxH/img.height);const w=Math.round(img.width*e),h=Math.round(img.height*e);
+  const x=Math.round((W-w)/2),y=Math.round(myTop+(maxH-h)/2);
+  if(fundo==="desfocado"){cx.shadowColor="rgba(0,0,0,.35)";cx.shadowBlur=40;cx.shadowOffsetY=10;}
+  cx.drawImage(img,x,y,w,h);cx.shadowColor="transparent";
+  const dataUrl=cv.toDataURL("image/jpeg",0.9);
+  const thumb=await igThumbDeDataUrl(dataUrl);
+  const id=igNovoMidiaId();const nome=(m.nome||"imagem").replace(/\.[^.]+$/,"")+"-story.jpg";
+  const{error}=await sb.from("app_data").upsert({id,payload:{tipo:"ig-midia",mime:"image/jpeg",nome,data:dataUrl,em:Date.now()}});
+  if(error)throw error;
+  igMidiaCache.set(id,dataUrl);
+  return{id,tipo:"img",thumb,nome,w:W,h:H,storyFundo:fundo,original:m.original||m};
+}
+function IgStoryAjuste({f,setF,conta,publicado,toast}){
+  const [ocupado,setOcupado]=React.useState(false);
+  const [fundo,setFundo]=React.useState(()=>{try{return localStorage.getItem("mdtec_ig_story_fundo")||"desfocado";}catch(e){return"desfocado";}});
+  const imgs=(f.midias||[]).filter(m=>m.tipo!=="video");
+  const pendentes=imgs.filter(m=>!m.storyFundo&&!m.storyOriginal&&!igEhStory916(m));
+  const ajustar=async(fd,lista)=>{
+    if(ocupado||!lista.length)return;setOcupado(true);
+    try{
+      const novos={};
+      for(const m of lista){const base=m.original||m;novos[m.id]=await igStoryVersao(base,fd,conta?.cor);}
+      setF(p=>({...p,midias:(p.midias||[]).map(m=>novos[m.id]||m)}));
+    }catch(e){toast("⚠️ Não foi possível ajustar para o Story: "+(e.message||e),"err");}
+    setOcupado(false);
+  };
+  // automático: imagem fora do formato 9:16 num Story é ajustada sozinha
+  React.useEffect(()=>{if(f.tipo==="story"&&!publicado&&pendentes.length&&!ocupado)ajustar(fundo,pendentes);},[f.tipo,pendentes.map(m=>m.id).join(",")]);
+  // deixou de ser Story: volta para as imagens originais
+  React.useEffect(()=>{if(f.tipo!=="story"&&!publicado&&(f.midias||[]).some(m=>m.storyFundo&&m.original))setF(p=>({...p,midias:(p.midias||[]).map(m=>m.storyFundo&&m.original?m.original:m)}));},[f.tipo]);
+  if(f.tipo!=="story"||!imgs.length)return null;
+  const ajustadas=imgs.filter(m=>m.storyFundo);
+  const trocarFundo=(fd)=>{setFundo(fd);try{localStorage.setItem("mdtec_ig_story_fundo",fd);}catch(e){}ajustar(fd,ajustadas.length?ajustadas:pendentes);};
+  const desfazer=()=>setF(p=>({...p,midias:(p.midias||[]).map(m=>m.original?{...m.original,storyOriginal:true}:m)}));
+  return(<div style={{border:"1px solid #c7d2fe",borderRadius:12,padding:"9px 12px",background:"#eef2ff",display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+    <span style={{fontSize:18}}>📱</span>
+    <div style={{flex:1,minWidth:200,fontSize:12,color:"#3730a3",lineHeight:1.4}}>
+      <b>Story 9:16</b> — {ocupado?"⏳ ajustando a imagem…":ajustadas.length?"a imagem foi encaixada inteira na tela do Story (sem cortar nem dar zoom).":"a imagem já está no formato do Story."}
+    </div>
+    {!publicado&&ajustadas.length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+      {IG_STORY_FUNDOS.map(([k,l])=><button key={k} disabled={ocupado} onClick={()=>trocarFundo(k)} style={{border:"1.5px solid "+(fundo===k?"#4f46e5":"#c7d2fe"),background:fundo===k?"#4f46e5":"#fff",color:fundo===k?"#fff":"#4338ca",borderRadius:8,padding:"3px 8px",fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>)}
+      <button disabled={ocupado} onClick={desfazer} title="Usar a imagem original (o Instagram vai cortar/dar zoom)" style={{border:"1px solid #c7d2fe",background:"#fff",color:"#64748b",borderRadius:8,padding:"3px 8px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>↩ original</button>
+    </div>}
+  </div>);
+}
+
 // ── Capa de vídeo (Reels): um quadro do próprio vídeo ou uma imagem enviada ──
 function IgCapaVideo({f,setF,publicado,toast}){
   const video=(f.midias||[]).find(m=>m.tipo==="video");
@@ -8916,7 +8977,51 @@ function IgEtapas({post}){
   </div>);
 }
 
-function IgPostEditor({open,post,novo,contas,collaborators,companies,posts,userName,myCollabId,onClose,onSalvar,onExcluir,onPostar,onTentar,toast}){
+// ── Republicar: cria um novo post com o mesmo conteúdo (o original publicado não muda) ──
+function IgRepublicarModal({post,contas,onClose,onCriar}){
+  const temVideo=(post.midias||[]).some(m=>m.tipo==="video");
+  const [tipo,setTipo]=React.useState(post.tipo==="story"?"story":post.tipo);
+  const [contaId,setContaId]=React.useState(post.contaId);
+  const [data,setData]=React.useState("");const [hora,setHora]=React.useState(post.hora||"09:00");
+  const opcoes=IG_TIPOS.filter(t=>t.k!=="carrossel"||(post.midias||[]).length>1).filter(t=>temVideo?true:t.k!=="reels");
+  const criar=()=>{
+    const novo={...post,id:uid(),tipo,contaId,data,hora,status:"producao",
+      aprovadoPor:"",aprovadoEm:"",aprovadoAssinatura:"",aprovadoRegistradoPor:"",alertasOk:"",alertas:[],alertasPendentes:false,
+      robo:{},link:"",publicadoEm:"",publicadoPor:"",autoPublicar:false,avisado:false,quando:null,
+      criadoEm:"",criadoPor:"",editadoEm:"",editadoPor:"",republicadoDe:post.id,
+      midias:(post.midias||[]).map(m=>m.storyFundo&&m.original&&tipo!=="story"?m.original:m)};
+    onCriar(novo);
+  };
+  const inp={width:"100%",padding:"8px 10px",borderRadius:9,border:"1.5px solid var(--border3)",fontSize:13,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",boxSizing:"border-box"};
+  const lbl={fontSize:11,fontWeight:800,color:"var(--text3)",marginBottom:4,display:"block",textTransform:"uppercase"};
+  return(<Modal open onClose={onClose} title="🔁 Republicar" width={520}>
+    <div style={{display:"flex",flexDirection:"column",gap:12}}>
+      <div style={{display:"flex",gap:10,alignItems:"center",padding:"8px 10px",background:"var(--bg3)",borderRadius:10}}>
+        <IgThumb post={post} size={46}/>
+        <div style={{fontSize:12.5,color:"var(--text2)",minWidth:0}}><b>Post publicado{post.publicadoEm?" em "+new Date(post.publicadoEm).toLocaleDateString("pt-BR"):""}</b><div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"var(--text3)"}}>{post.legenda||"(sem legenda)"}</div></div>
+      </div>
+      <div style={{fontSize:12,color:"var(--text3)",lineHeight:1.45}}>Cria um <b>novo post</b> com o mesmo conteúdo e as mesmas mídias. Ele entra em <b>Produção</b> e segue o caminho normal (aprovação → agendado → publicado pelo robô). O post original não muda.</div>
+      <div><span style={lbl}>Publicar como</span>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{opcoes.map(t=><button key={t.k} onClick={()=>setTipo(t.k)} style={{border:"1.5px solid "+(tipo===t.k?"#7c3aed":"var(--border2)"),background:tipo===t.k?"#f5f3ff":"var(--bg2)",color:tipo===t.k?"#6d28d9":"var(--text2)",borderRadius:9,padding:"6px 12px",fontSize:12.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>{t.ic} {t.l}</button>)}</div>
+        {tipo==="story"&&post.tipo!=="story"&&<div style={{fontSize:11.5,color:"#4338ca",marginTop:6}}>📱 A imagem será ajustada automaticamente para o formato do Story (9:16).</div>}
+      </div>
+      <div><span style={lbl}>Conta</span>
+        <select value={contaId} onChange={e=>setContaId(e.target.value)} style={inp}>{contas.filter(c=>c.ativa!==false).map(c=><option key={c.id} value={c.id}>@{(c.usuario||c.nome).replace(/^@/,"")} — {c.nome}</option>)}</select>
+        {contaId!==post.contaId&&<div style={{fontSize:11.5,color:"#b45309",marginTop:4}}>⚠️ Outra conta: o sistema vai conferir se o conteúdo não cita a conta original.</div>}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+        <div><span style={lbl}>Nova data (opcional)</span><input type="date" min="2020-01-01" max="2099-12-31" value={data} onChange={e=>setData(e.target.value)} style={inp}/></div>
+        <div><span style={lbl}>Hora</span><input type="time" value={hora} onChange={e=>setHora(e.target.value)} style={inp}/></div>
+      </div>
+      <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
+        <Btn onClick={onClose} v="ghost" sz="sm">Cancelar</Btn>
+        <Btn onClick={criar} sz="sm" col="#7c3aed">🔁 Criar republicação</Btn>
+      </div>
+    </div>
+  </Modal>);
+}
+
+function IgPostEditor({open,post,novo,contas,collaborators,companies,posts,userName,myCollabId,onClose,onSalvar,onExcluir,onPostar,onTentar,toast,onRepublicar}){
   const [f,setF]=React.useState(null);
   const [enviando,setEnviando]=React.useState(0);
   const [aba,setAba]=React.useState("conteudo");
@@ -9123,6 +9228,7 @@ function IgPostEditor({open,post,novo,contas,collaborators,companies,posts,userN
                 {(f.midias||[]).length===0&&enviando===0&&<span style={{fontSize:11,color:"#94a3b8"}}>Arraste aqui ou clique em Adicionar. Imagens são convertidas para JPEG automaticamente.</span>}
               </div>
               <div style={{marginTop:8}}><IgCapaVideo f={f} setF={setF} publicado={publicado} toast={toast}/></div>
+              <div style={{marginTop:8}}><IgStoryAjuste f={f} setF={setF} conta={conta} publicado={publicado} toast={toast}/></div>
             </div>
             <div>
               <span style={lbl}>Legenda {f.tipo==="story"&&<span style={{textTransform:"none",fontWeight:600}}>(Story não tem legenda — use como texto de apoio)</span>}</span>
@@ -9180,6 +9286,7 @@ function IgPostEditor({open,post,novo,contas,collaborators,companies,posts,userN
           {!publicado&&etapa==="producao"&&<Btn onClick={voltarRascunho} v="ghost" sz="sm">↩ Voltar p/ rascunho</Btn>}
           {!publicado&&<Btn onClick={()=>salvar()} v="ghost" sz="sm">{etapa==="rascunho"?"📝 Salvar rascunho":"💾 Salvar"}</Btn>}
           {publicado&&<Btn onClick={()=>salvar()} v="ghost" sz="sm">💾 Salvar notas</Btn>}
+          {publicado&&onRepublicar&&<Btn onClick={()=>onRepublicar(f)} sz="sm" col="#7c3aed">🔁 Republicar</Btn>}
           {proximo}
         </div>
       </div>
@@ -10295,7 +10402,8 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
   const [fEspecial,setFEspecial]=React.useState(""); // hoje | atrasados | aprovacao | meus
   const [mesRef,setMesRef]=React.useState(()=>{const d=new Date();return{y:d.getFullYear(),m:d.getMonth()};});
   const [editor,setEditor]=React.useState(null); // post
-  const [postar,setPostar]=React.useState(null); // post
+  const [postar,setPostar]=React.useState(null);
+  const [repub,setRepub]=React.useState(null); // post
   const [contasOpen,setContasOpen]=React.useState(false);
   const [arrastando,setArrastando]=React.useState(null);
   const [estreito,setEstreito]=React.useState(()=>typeof window!=="undefined"&&window.innerWidth<720);
@@ -10370,13 +10478,14 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
     // se mudou data/hora/status, o aviso volta a valer
     if(antigo&&(antigo.data!==next.data||antigo.hora!==next.hora||antigo.status!==next.status))next.avisado=false;
     // mídias removidas no editor → apaga do banco
-    if(antigo){const ids=new Set((next.midias||[]).map(m=>m.id));(antigo.midias||[]).filter(m=>!ids.has(m.id)).forEach(igApagarMidia);}
+    if(antigo){const ids=new Set((next.midias||[]).flatMap(m=>[m.id,m.original&&m.original.id].filter(Boolean)));(antigo.midias||[]).filter(m=>!ids.has(m.id)&&!usadaEmOutro(m.id,next.id)).forEach(igApagarMidia);}
     const ok=await atualizar(d=>({...d,posts:d.posts.some(x=>x.id===next.id)?d.posts.map(x=>x.id===next.id?next:x):[...d.posts,next]}));
     if(ok&&fechar){toast("💾 Post salvo","ok");setEditor(null);}
   };
+  const usadaEmOutro=(mid,postId)=>ig.posts.some(x=>x.id!==postId&&(x.midias||[]).some(m=>m.id===mid||(m.original&&m.original.id===mid))||(x.id!==postId&&x.capa&&x.capa.midia&&x.capa.midia.id===mid));
   const excluirPost=async(p)=>{
     const antigo=ig.posts.find(x=>x.id===p.id)||p;
-    (antigo.midias||[]).forEach(igApagarMidia);(p.midias||[]).forEach(igApagarMidia);
+    [...(antigo.midias||[]),...(p.midias||[])].filter(m=>!usadaEmOutro(m.id,p.id)).forEach(igApagarMidia);
     await atualizar(d=>({...d,posts:d.posts.filter(x=>x.id!==p.id)}));
     toast("🗑 Post excluído","ok");setEditor(null);
   };
@@ -10467,7 +10576,8 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
             {temAlerta(p)&&<span title={(alertasMap[p.id]||p.alertas||[]).join(" · ")} style={{fontSize:10,fontWeight:800,color:"#b91c1c",background:"#fee2e2",border:"1px solid #fca5a5",borderRadius:20,padding:"1px 7px"}}>🛡 conta errada?</span>}
             {p.status==="agendado"&&!c?.conexao&&<span style={{fontSize:10,fontWeight:800,color:"#9a3412",background:"#fff7ed",borderRadius:20,padding:"1px 7px"}}>🔌 conta desconectada</span>}
             {p.status==="agendado"&&c?.conexao&&(p.midias||[]).length>0&&<button onClick={e=>{e.stopPropagation();setPostar(p);}} style={{marginLeft:"auto",border:"none",background:"#4f46e5",color:"#fff",borderRadius:7,padding:"3px 9px",fontSize:10.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>🚀 Publicar</button>}
-            {p.status==="publicado"&&p.link&&<a href={p.link} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} style={{marginLeft:"auto",fontSize:10.5,fontWeight:800,color:"#be185d"}}>ver post ↗</a>}
+            {p.status==="publicado"&&<button onClick={e=>{e.stopPropagation();setRepub(p);}} title="Republicar (cria um novo post com o mesmo conteúdo)" style={{marginLeft:"auto",border:"none",background:"#f5f3ff",color:"#6d28d9",borderRadius:6,padding:"1px 7px",fontSize:10.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>🔁 Republicar</button>}
+            {p.status==="publicado"&&p.link&&<a href={p.link} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:10.5,fontWeight:800,color:"#be185d"}}>ver post ↗</a>}
           </div>
         </>}
       </div>
@@ -10628,7 +10738,8 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
         :view==="calendario"?renderCalendario():view==="kanban"?renderKanban():renderLista()}
 
       <IgPostEditor open={!!editor} post={(editor&&ig.posts.find(x=>x.id===editor.id))||editor||{}} novo={!!editor&&!ig.posts.some(x=>x.id===editor.id)} posts={ig.posts} contas={contas} collaborators={collaborators} companies={companies} userName={userName} myCollabId={myId}
-        onClose={()=>setEditor(null)} onSalvar={salvarPost} onExcluir={excluirPost} onPostar={(p)=>setPostar(p)} onTentar={tentarDeNovo} toast={toast}/>
+        onClose={()=>setEditor(null)} onSalvar={salvarPost} onExcluir={excluirPost} onPostar={(p)=>setPostar(p)} onTentar={tentarDeNovo} toast={toast} onRepublicar={(p)=>setRepub(p)}/>
+      {repub&&<IgRepublicarModal post={repub} contas={contas} onClose={()=>setRepub(null)} onCriar={async(novo)=>{setRepub(null);setEditor(null);await salvarPost(novo,false);setEditor(novo);toast("🔁 Cópia criada — ajuste a data, aprove e agende. O post original continua igual.","ok",8000);}}/>}
       <IgPostarAgora open={!!postar} post={postar} postVivo={postar?ig.posts.find(x=>x.id===postar.id):null} conta={postar?contaDe(postar.contaId):null} onClose={()=>setPostar(null)} onPublicado={marcarPublicado} onPublicarSistema={publicarSistema} toast={toast}/>
       <IgContasModal isAdmin={isAdmin} open={contasOpen} onClose={()=>setContasOpen(false)} contas={contas} companies={companies} collaborators={collaborators} posts={ig.posts} onSalvar={salvarContas} toast={toast} metricas={metricas} onRelatorio={(id)=>{setContasOpen(false);setFConta(id);setView("relatorios");}}/>
     </div>
@@ -11868,7 +11979,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 94</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 96</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

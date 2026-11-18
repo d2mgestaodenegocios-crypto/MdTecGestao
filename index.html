@@ -11766,23 +11766,23 @@ function App(){
         t.status!=="done" && t.status!=="archived" &&
         (t.dueDate||"")>=(todayStr())
       );
-      if(series.length>0){
-        // Mostrar opção de propagar — usar um confirm simples por ora
+      // só pergunta se mudou algo que vale para a série (checklist, comentários e etapa são de cada ocorrência)
+      const ant=data.tasks.find(t=>t.id===base.id)||{};
+      const igual=(a,b)=>JSON.stringify(a??null)===JSON.stringify(b??null);
+      const camposSerie=[["title","título"],["description","descrição"],["priority","prioridade"],["sector","setor"],["assignees","responsáveis"],["labels","etiquetas"]];
+      const mudou=camposSerie.filter(([k])=>!igual(k==="assignees"||k==="labels"?toArr(ant[k]):ant[k],k==="assignees"||k==="labels"?toArr(base[k]):base[k]));
+      if(series.length>0&&mudou.length>0){
         const propagate=window.confirm(
-          `Esta tarefa pertence a uma série recorrente com ${series.length} ocorrência${series.length>1?"s":""}  futuras.\n\nDeseja aplicar as alterações de título, descrição, prioridade, setor e responsáveis a TODA A SÉRIE?`
+          `Esta tarefa pertence a uma série recorrente com ${series.length} ocorrência${series.length>1?"s":""} futura${series.length>1?"s":""}.\n\nVocê alterou: ${mudou.map(x=>x[1]).join(", ")}.\nDeseja aplicar ESSAS alterações a toda a série?\n\n(O checklist, os comentários e a etapa continuam individuais de cada tarefa.)`
         );
         if(propagate){
           setData(d=>({...d,tasks:d.tasks.map(t=>{
             if(t._recGroup!==base._recGroup||t.id===base.id||t.status==="done"||t.status==="archived") return t;
             if((t.dueDate||"")<todayStr()) return t; // não altera passadas
-            return {...t,
-              title:base.title,
-              description:base.description,
-              priority:base.priority,
-              sector:base.sector,
-              assignees:[...base.assignees],
-              labels:[...base.labels],
-            };
+            // aplica só o que foi alterado; o checklist de cada ocorrência não é tocado
+            const nt={...t};
+            mudou.forEach(([k])=>{nt[k]=k==="assignees"||k==="labels"?[...toArr(base[k])]:base[k];});
+            return nt;
           })}));
           toast(`↻ Série atualizada em ${series.length} tarefa${series.length>1?"s":""}.`,"ok");
         }
@@ -12108,7 +12108,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 98</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 99</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

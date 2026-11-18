@@ -11769,7 +11769,7 @@ function App(){
       // só pergunta se mudou algo que vale para a série (checklist, comentários e etapa são de cada ocorrência)
       const ant=data.tasks.find(t=>t.id===base.id)||{};
       const igual=(a,b)=>JSON.stringify(a??null)===JSON.stringify(b??null);
-      const camposSerie=[["title","título"],["description","descrição"],["priority","prioridade"],["sector","setor"],["assignees","responsáveis"],["labels","etiquetas"]];
+      const camposSerie=[["title","título"],["dueTime","horário"],["description","descrição"],["priority","prioridade"],["sector","setor"],["assignees","responsáveis"],["labels","etiquetas"]];
       const mudou=camposSerie.filter(([k])=>!igual(k==="assignees"||k==="labels"?toArr(ant[k]):ant[k],k==="assignees"||k==="labels"?toArr(base[k]):base[k]));
       if(series.length>0&&mudou.length>0){
         const propagate=window.confirm(
@@ -12108,7 +12108,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 99</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 100</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

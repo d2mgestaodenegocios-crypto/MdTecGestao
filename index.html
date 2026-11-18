@@ -11803,7 +11803,7 @@ function App(){
       const end=new Date(today); end.setDate(today.getDate()+28);
       const existingDates=new Set(grp.tasks.map(t=>t.dueDate||""));
       const cleanCk=(sample.checklist||[]).map(c=>({...c,id:uid(),done:false}));
-      const base={...sample,status:"todo",completedAt:null,archivedAt:null,checklist:cleanCk};
+      const base={...sample,status:"todo",completedAt:null,completedBy:null,completedByName:null,archivedAt:null,archivedBy:null,history:[],comments:[],checklist:cleanCk.map(c=>({...c,doneBy:null,doneAt:null}))};
       if(rec.interval==="daily"){
         for(let d=new Date(today);d<=end;d.setDate(d.getDate()+1)){
           const ds=d.toISOString().slice(0,10);
@@ -12536,7 +12536,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 113</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 114</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

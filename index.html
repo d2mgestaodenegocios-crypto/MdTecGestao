@@ -1612,6 +1612,7 @@ function ArchivedPage({data,setData,toast,isAdmin}){
   const [aberto,setAberto]=useState({});
   const iso=(d)=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
   const intervalo=useMemo(()=>{const h=new Date();
+    if(fl.per==="hoje")return[iso(h),iso(h)];
     if(fl.per==="mes")return[iso(new Date(h.getFullYear(),h.getMonth(),1)),iso(h)];
     if(fl.per==="mesant")return[iso(new Date(h.getFullYear(),h.getMonth()-1,1)),iso(new Date(h.getFullYear(),h.getMonth(),0))];
     if(fl.per==="30"||fl.per==="90"){const a=new Date(h);a.setDate(a.getDate()-Number(fl.per));return[iso(a),iso(h)];}
@@ -1621,15 +1622,22 @@ function ArchivedPage({data,setData,toast,isAdmin}){
   // ── execução por empresa: quando a empresa está nos itens do checklist, vale o que foi feito PARA ela ──
   const itensDe=(t,emp)=>{const ck=toArr(t.checklist);if(!emp)return ck;const doEmp=ck.filter(c=>c.company===emp);if(doEmp.length)return doEmp;
     return taskCompanies(t).includes(emp)?ck.filter(c=>!c.company):[];};
+  // quem EXECUTOU é quem entregou para revisão (quem aprova/conclui é o gestor)
+  const entrega=(t)=>{const h=toArr(t.history).filter(x=>/→\s*Em Revis/i.test(x.changes||"")).sort((a,b)=>String(a.at).localeCompare(String(b.at)));return h.length?h[h.length-1]:null;};
+  const nomesResp=(t)=>toArr(t.assignees).map(id=>(data.collaborators||[]).find(u=>u.id===id)?.name).filter(Boolean).join(", ");
   const execEm=(t,emp)=>{const its=emp?toArr(t.checklist).filter(c=>c.company===emp&&c.done&&c.doneAt):[];
     if(its.length)return its.map(c=>c.doneAt).sort().slice(-1)[0].slice(0,10);
+    const en=entrega(t);if(en&&en.at)return String(en.at).slice(0,10);
     return String(t.completedAt||t.archivedAt||"").slice(0,10);};
   const execPor=(t,emp)=>{const its=emp?toArr(t.checklist).filter(c=>c.company===emp&&c.done):[];
     const nomes=[...new Set([...its.map(c=>c.doneBy||(c.assignee?((data.collaborators||[]).find(u=>u.id===c.assignee)?.name):"")).filter(Boolean)])];
     if(nomes.length)return nomes.join(", ");
-    return t.completedByName||toArr(t.assignees).map(id=>(data.collaborators||[]).find(u=>u.id===id)?.name).filter(Boolean).join(", ");};
-  // feita para a empresa: tarefa da empresa concluída, ou (empresa só no checklist) pelo menos um item dela marcado
-  const feitaPara=(t,emp)=>{if(!emp)return true;if(taskCompanies(t).includes(emp))return true;return toArr(t.checklist).some(c=>c.company===emp&&c.done);};
+    const en=entrega(t);if(en&&en.user)return en.user;
+    // concluiu direto (sem revisão): vale quem concluiu se for responsável; senão os responsáveis
+    if(t.completedBy&&toArr(t.assignees).includes(t.completedBy)&&t.completedByName)return t.completedByName;
+    return nomesResp(t)||t.completedByName||"";};
+  // feita para a empresa: tarefa da empresa, ou item dela marcado; se ninguém marcou nenhum item, a tarefa concluída vale para todas
+  const feitaPara=(t,emp)=>{if(!emp)return true;if(taskCompanies(t).includes(emp))return true;const ck=toArr(t.checklist);if(!ck.some(c=>c.done))return ck.some(c=>c.company===emp);return ck.some(c=>c.company===emp&&c.done);};
   const dataBase=(t)=>String((fl.base==="arquivamento"?t.archivedAt:fl.base==="prazo"?t.dueDate:execEm(t,fl.emp))||"").slice(0,10);
   const empNome=(id)=>(data.companies||[]).find(c=>c.id===id)?.name||"";
   const colNome=(id)=>(data.collaborators||[]).find(c=>c.id===id)?.name||"";
@@ -1653,7 +1661,7 @@ function ArchivedPage({data,setData,toast,isAdmin}){
   const restore=(task)=>{setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{...t,status:"done",archivedAt:null}:t)}));toast("↩ Tarefa restaurada para Concluído.","ok");};
   const delArchived=(id)=>{const t=archived.find(x=>x.id===id);askDel(`Tarefa: "${t?.title||""}"`,()=>{setData(d=>({...d,tasks:d.tasks.filter(t=>t.id!==id)}));toast("Tarefa excluída permanentemente.","warn");});};
   const mesNome=(k)=>{if(!/^\d{4}-\d{2}$/.test(k))return k;const [y,m]=k.split("-");return ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"][Number(m)-1]+"/"+y;};
-  const rotPer={tudo:"Todo o período",mes:"Este mês",mesant:"Mês passado","30":"Últimos 30 dias","90":"Últimos 90 dias",ano:"Este ano",custom:(fl.de?fmtDate(fl.de):"…")+" a "+(fl.ate?fmtDate(fl.ate):"…")}[fl.per];
+  const rotPer={tudo:"Todo o período",hoje:"Hoje ("+fmtDate(iso(new Date()))+")",mes:"Este mês",mesant:"Mês passado","30":"Últimos 30 dias","90":"Últimos 90 dias",ano:"Este ano",custom:(fl.de?fmtDate(fl.de):"…")+" a "+(fl.ate?fmtDate(fl.ate):"…")}[fl.per];
   const filtrosTxt=[rotPer,fl.emp&&"Empresa: "+empNome(fl.emp),fl.col&&"Colaborador: "+colNome(fl.col),fl.setor&&"Setor: "+((data.sectors||[]).find(s=>s.id===fl.setor)?.name||""),fl.etq&&"Etiqueta: "+((data.labels||[]).find(l=>l.id===fl.etq)?.name||""),fl.busca&&"Busca: "+fl.busca,fl.obs&&"Só com observações"].filter(Boolean).join(" · ");
   // exportar
   const csv=()=>{const esc=(v)=>'"'+String(v??"").replace(/"/g,'""').replace(/\r?\n/g," ")+'"';
@@ -1685,7 +1693,8 @@ function ArchivedPage({data,setData,toast,isAdmin}){
     // concluídas (ainda no Kanban) + arquivadas, com os mesmos filtros
     const fonte=(data.tasks||[]).filter(t=>(t.status==="done"||t.status==="archived")&&passa(t));
     const ativ=fonte.map(t=>{const its=itensDe(t,fl.emp);const viaCk=!taskCompanies(t).includes(fl.emp);
-      const feitos=viaCk?its.filter(c=>c.done):its;return{t,data:execEm(t,fl.emp),por:execPor(t,fl.emp),itens:feitos};})
+      const nenhumMarcado=!toArr(t.checklist).some(c=>c.done);
+      const feitos=viaCk&&!nenhumMarcado?its.filter(c=>c.done):its.map(c=>({...c,done:true}));return{t,data:execEm(t,fl.emp),por:execPor(t,fl.emp),itens:feitos};})
       .sort((a,b)=>a.data.localeCompare(b.data));
     const nItens=ativ.reduce((s,a)=>s+a.itens.filter(c=>c.done).length,0);
     const meses={};ativ.forEach(a=>{const k=(a.data||"").slice(0,7)||"—";meses[k]=(meses[k]||0)+1;});
@@ -1727,6 +1736,7 @@ function ArchivedPage({data,setData,toast,isAdmin}){
             {asg.length>0&&<span>👤 {asg.map(u=>u.name).join(", ")}</span>}
             {t.dueDate&&<span>📅 prazo {fmtDate(t.dueDate)}</span>}
             {(t.completedAt||ckEmp.some(c=>c.done))&&<span style={{color:"#15803d"}}>✅ executada {fmtDate(execEm(t,emp))}{execPor(t,emp)?" por "+execPor(t,emp):""}</span>}
+            {t.completedByName&&t.completedByName!==execPor(t,emp)&&<span style={{color:"#7c3aed"}}>👍 aprovada por {t.completedByName}</span>}
             {t.archivedAt&&<span>📦 arquivada {fmtDate(String(t.archivedAt).slice(0,10))}{t.archivedBy?" por "+t.archivedBy:""}</span>}
             {ck.length>0&&<span>☑ {ck.filter(c=>c.done).length}/{ck.length}</span>}
           </div>
@@ -1752,7 +1762,7 @@ function ArchivedPage({data,setData,toast,isAdmin}){
     <div style={{...card,display:"flex",flexDirection:"column",gap:10,marginBottom:12}}>
       <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
         <span style={{fontSize:12,fontWeight:800,color:"var(--text3)"}}>📅 Período:</span>
-        {[["tudo","Tudo"],["mes","Este mês"],["mesant","Mês passado"],["30","30 dias"],["90","90 dias"],["ano","Este ano"],["custom","Datas"]].map(([k,l])=><button key={k} onClick={()=>set("per",k)} style={chip(fl.per===k)}>{l}</button>)}
+        {[["tudo","Tudo"],["hoje","Hoje"],["mes","Este mês"],["mesant","Mês passado"],["30","30 dias"],["90","90 dias"],["ano","Este ano"],["custom","Datas"]].map(([k,l])=><button key={k} onClick={()=>set("per",k)} style={chip(fl.per===k)}>{l}</button>)}
         {fl.per==="custom"&&<><input type="date" value={fl.de} onChange={e=>set("de",e.target.value)} style={inp}/><span style={{fontSize:12,color:"var(--text3)"}}>até</span><input type="date" value={fl.ate} onChange={e=>set("ate",e.target.value)} style={inp}/></>}
         <select value={fl.base} onChange={e=>set("base",e.target.value)} style={{...inp,marginLeft:"auto"}} title="Qual data usar no filtro"><option value="conclusao">pela data de execução</option><option value="arquivamento">pela data de arquivamento</option><option value="prazo">pelo prazo</option></select>
       </div>
@@ -1780,6 +1790,7 @@ function ArchivedPage({data,setData,toast,isAdmin}){
       <span style={{fontSize:12,fontWeight:800,color:"var(--text3)"}}>Ver:</span>
       {[["lista","📄 Lista"],["empresa","🏢 Por empresa"],["colaborador","👤 Por colaborador"],["mes","📅 Por mês"]].map(([k,l])=><button key={k} onClick={()=>set("agrupar",k)} style={chip(fl.agrupar===k)}>{l}</button>)}
       <span style={{fontSize:12,color:"var(--text4)"}}>{lista.length} de {archived.length}</span>
+      {archived.length>lista.length&&<button onClick={()=>setFl(o=>{const n={...o,per:"tudo",de:"",ate:"",emp:"",col:"",setor:"",etq:"",busca:"",obs:false};try{localStorage.setItem(LS,JSON.stringify(n));}catch(e){}return n;})} title="Os filtros estão escondendo algumas arquivadas" style={{border:"none",background:"#fef3c7",color:"#92400e",borderRadius:20,padding:"3px 10px",fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>👁 {archived.length-lista.length} escondida(s) pelos filtros — ver todas</button>}
       <div style={{marginLeft:"auto",display:"flex",gap:6}}>
         <Btn onClick={csv} v="ghost" sz="sm">⬇ Excel (CSV)</Btn>
         <Btn onClick={imprimir} sz="sm" v="ghost">🖨 Relatório interno</Btn>
@@ -1927,8 +1938,11 @@ function RelatorioPage({data,isAdmin}){
                   </div>}
                   <div style={{display:"flex",gap:12,flexWrap:"wrap",fontSize:11,color:"#94a3b8",alignItems:"center"}}>
                     {t.dueDate&&<span style={{color:over?"#ef4444":"#64748b",fontWeight:700}}>📅 {fmtDate(t.dueDate)}{over?" ⚠ ATRASADA":""}</span>}
-                    {t.status==="done"&&t.completedByName
-                      ? <span style={{color:"#22c55e",fontWeight:700}}>✅ Concluído por: {t.completedByName}{t.completedAt?` em ${fmtDate(t.completedAt)}`:""}</span>
+                    {(t.status==="done"||t.status==="archived")&&t.completedByName
+                      ? (()=>{const h=toArr(t.history).filter(x=>/→\s*Em Revis/i.test(x.changes||"")).sort((x,y)=>String(x.at).localeCompare(String(y.at))).pop();
+                          return h&&h.user&&h.user!==t.completedByName
+                            ?<span style={{color:"#22c55e",fontWeight:700}}>✅ Executado por: {h.user} em {fmtDate(String(h.at).slice(0,10))} · aprovado por {t.completedByName}</span>
+                            :<span style={{color:"#22c55e",fontWeight:700}}>✅ Concluído por: {t.completedByName}{t.completedAt?` em ${fmtDate(t.completedAt)}`:""}</span>;})()
                       : t.status==="done"&&t.completedAt
                         ? <span style={{color:"#22c55e",fontWeight:700}}>✅ Concluído em {fmtDate(t.completedAt)}</span>
                         : asg.length>0
@@ -12149,7 +12163,7 @@ function App(){
     } else if(action==="status"){
       const barradas=data.tasks.filter(t=>ids.includes(t.id)&&checklistBloqueia(t,value)).map(t=>t.id);
       if(barradas.length){toast(`☑ ${barradas.length} tarefa(s) com checklist incompleto não foram movidas.`,"warn",6000);ids=ids.filter(id=>!barradas.includes(id));if(!ids.length)return;}
-      setData(d=>({...d,tasks:d.tasks.map(t=>ids.includes(t.id)?{...t,status:value,completedAt:value==="done"?(t.status==="done"&&t.completedAt?t.completedAt:isoLocalHoje()):null,completedBy:value==="done"?(t.status==="done"?t.completedBy:(myCollabId||null)):null,completedByName:value==="done"?(t.status==="done"?t.completedByName:(userName||null)):null}:t)}));
+      setData(d=>({...d,tasks:d.tasks.map(t=>ids.includes(t.id)?{...t,history:t.status!==value?[...toArr(t.history),{user:userName||"Usuário",at:new Date().toISOString(),changes:"Status: "+(STS.find(x=>x.id===t.status)?.l||t.status)+" → "+(STS.find(x=>x.id===value)?.l||value)}]:toArr(t.history),status:value,completedAt:value==="done"?(t.status==="done"&&t.completedAt?t.completedAt:isoLocalHoje()):null,completedBy:value==="done"?(t.status==="done"?t.completedBy:(myCollabId||null)):null,completedByName:value==="done"?(t.status==="done"?t.completedByName:(userName||null)):null}:t)}));
       toast(`✅ ${ids.length} tarefa(s) movidas para ${STS.find(s=>s.id===value)?.l||value}.`,"ok");
     } else if(action==="priority"){
       setData(d=>({...d,tasks:d.tasks.map(t=>ids.includes(t.id)?{...t,priority:value}:t)}));
@@ -12345,7 +12359,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 107</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 108</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

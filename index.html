@@ -2954,8 +2954,15 @@ function montarResumoDia(data,{pessoaId,dia,incluirAndamento=true,incluirAmanha=
   const fechada=(t)=>t.status==="done"||t.status==="archived";
   const concluiuHoje=(t)=>fechada(t)&&(dias.has(String(t.completedAt||"").slice(0,10))||toArr(t.history).some(h=>noDia(h.at)&&/→\s*Conclu/i.test(h.changes||"")));
   // entregou para revisão no dia e o gestor já aprovou/arquivou (mesmo que depois) → conta como concluída dele
-  const entregouHojeEFechou=(t)=>fechada(t)&&toArr(t.history).some(x=>noDia(x.at)&&/→\s*Em Revis/i.test(x.changes||"")&&(ehEle(x.user)||responsavel(t)));
-  const feitas=tarefas.filter(t=>(concluiuHoje(t)&&(responsavel(t)||t.completedBy===pessoaId||ehEle(t.completedByName)))||entregouHojeEFechou(t));
+  const entregouHojeEFechou=(t)=>fechada(t)&&toArr(t.history).some(x=>noDia(x.at)&&/→\s*Em Revis/i.test(x.changes||"")&&(pessoaId?ehEle(x.user):true));
+  // quem executou = quem entregou para revisão; só quando não houve revisão vale o responsável (ou quem concluiu, se não há responsável)
+  const entregador=(t)=>{const h=toArr(t.history).filter(x=>/→\s*Em Revis/i.test(x.changes||""));return h.length?h[h.length-1].user:null;};
+  const executou=(t)=>{if(!pessoaId)return true;const en=entregador(t);if(en)return ehEle(en);
+    if(toArr(t.assignees).length)return responsavel(t);return t.completedBy===pessoaId||ehEle(t.completedByName);};
+  const feitas=tarefas.filter(t=>(concluiuHoje(t)&&executou(t))||entregouHojeEFechou(t));
+  // o que a pessoa APROVOU no dia (tarefas executadas por outros)
+  const aprovadas=pessoaId?tarefas.filter(t=>fechada(t)&&!feitas.includes(t)&&(t.completedBy===pessoaId||ehEle(t.completedByName))&&concluiuHoje(t)):[];
+  const idsAprov=new Set(aprovadas.map(t=>t.id));
   const idsFeitas=new Set(feitas.map(t=>t.id));
   // entregues para revisão hoje (quem conclui é o gestor/administrador)
   const enviouRevisaoHoje=(t)=>toArr(t.history).some(x=>noDia(x.at)&&/→\s*Em Revis/i.test(x.changes||"")&&(ehEle(x.user)||responsavel(t)));
@@ -2965,7 +2972,7 @@ function montarResumoDia(data,{pessoaId,dia,incluirAndamento=true,incluirAmanha=
   // outras coisas que ele fez no dia: comentários e mudanças de etapa
   const outras=[];
   tarefas.forEach(t=>{
-    if(idsFeitas.has(t.id)||idsEntregues.has(t.id))return;
+    if(idsFeitas.has(t.id)||idsEntregues.has(t.id)||idsAprov.has(t.id))return;
     const coms=toArr(t.comments).filter(x=>noDia(x.createdAt)&&ehEle(x.author));
     const hs=toArr(t.history).filter(x=>noDia(x.at)&&ehEle(x.user));
     if(coms.length||hs.length){
@@ -2982,6 +2989,7 @@ function montarResumoDia(data,{pessoaId,dia,incluirAndamento=true,incluirAmanha=
   const dt=new Date(dia+"T12:00:00").toLocaleDateString("pt-BR",{weekday:"long",day:"2-digit",month:"2-digit",year:"numeric"});
   let s="✅ *Resumo do dia"+(c?" — "+c.name:"")+"*\n_"+dt+"_\n";
   s+="\n*Concluídas ("+feitas.length+")*\n"+(feitas.length?feitas.map(t=>linha(t,t.completedByName&&!ehEle(t.completedByName)?"aprovada por "+String(t.completedByName).split(" ")[0]:"")).join(""):"• nenhuma tarefa concluída hoje\n");
+  if(aprovadas.length)s+="\n*Aprovou ("+aprovadas.length+")*\n"+aprovadas.map(t=>{const en=entregador(t);return linha(t,en?"feita por "+String(en).split(" ")[0]:"");}).join("");
   if(entregues.length)s+="\n*Entregues para revisão ("+entregues.length+")*\n"+entregues.map(t=>linha(t,"aguardando aprovação")).join("");
   const outrasSemAnd=outras.filter(o=>!andamento.includes(o.t));
   if(andamento.length)s+="\n*Em andamento ("+andamento.length+")*\n"+andamento.map(t=>{const o=outras.find(x=>x.t===t);return linha(t,(t.status==="review"?"aguardando aprovação":stLbl[t.status])+(o&&/coment/.test(o.txt)?" · "+o.txt.split(" · ").filter(p=>/coment/.test(p)).join(""):""));}).join("");
@@ -11332,6 +11340,25 @@ function recProximasDatas(rec,ultimaIso,diaBase,hoje){
   }
   return out;
 }
+// Versões antigas copiavam o HISTÓRICO da ocorrência anterior para a próxima (ex.: a de amanhã
+// aparecia como "enviada para revisão hoje"). Remove de cada ocorrência o que é cópia de uma anterior.
+function recLimparHistCopiado(tasks){
+  const grupos={};let mudou=false;
+  (tasks||[]).forEach(t=>{if(t._recGroup&&t.dueDate&&toArr(t.history).length)(grupos[t._recGroup]=grupos[t._recGroup]||[]).push(t);});
+  const fix={};
+  Object.values(grupos).forEach(lista=>{
+    if(lista.length<2)return;
+    lista.sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+    const vistas=new Set();
+    lista.forEach(t=>{
+      const h=toArr(t.history);const k=(x)=>(x.at||"")+"|"+(x.user||"")+"|"+(x.changes||"");
+      const fica=h.filter(x=>!vistas.has(k(x)));
+      h.forEach(x=>vistas.add(k(x)));
+      if(fica.length!==h.length){fix[t.id]=fica;mudou=true;}
+    });
+  });
+  return mudou?fix:null;
+}
 // devolve as novas tarefas que faltam (ou [] se nada a fazer)
 function recRenovarSeries(data){
   const tarefas=data.tasks||[];const recs=data.recurrences||[];
@@ -11354,8 +11381,8 @@ function recRenovarSeries(data){
       novas.push({...ultima,
         id:"rec_"+gid+"_"+ds, // id fixo: dois computadores gerando ao mesmo tempo não duplicam
         dueDate:ds,status:"todo",createdAt:todayStr(),completedAt:null,completedBy:null,completedByName:null,archivedAt:null,
-        comments:[],attachments:[],timeLogs:[],pinned:false,
-        checklist:(ultima.checklist||[]).map(c=>({...c,id:uid(),done:false})),
+        comments:[],attachments:[],timeLogs:[],pinned:false,history:[],archivedBy:null,
+        checklist:(ultima.checklist||[]).map(c=>({...c,id:uid(),done:false,doneBy:null,doneAt:null})),
       });
     });
   });
@@ -11404,8 +11431,8 @@ function recAlterarSerie(tasks,grpId,rec,modelo){
     if(!recBateNaRegra(rec,d,ancora))continue;
     const ds=recIsoLocal(d);if(ocupadas.has(ds))continue;ocupadas.add(ds);
     novas.push({...base,id:"rec_"+grpId+"_"+ds,dueDate:ds,status:"todo",recurrence:"",_recGroup:grpId,_recurrenceId:rec.id,_recFim:false,
-      completedAt:null,completedBy:null,completedByName:null,archivedAt:null,comments:[],
-      checklist:toArr(base.checklist).map(c=>({...c,id:uid(),done:false}))});
+      completedAt:null,completedBy:null,completedByName:null,archivedAt:null,archivedBy:null,comments:[],history:[],
+      checklist:toArr(base.checklist).map(c=>({...c,id:uid(),done:false,doneBy:null,doneAt:null}))});
   }
   return{tasks:[...ficam,...novas],criadas:novas.length,removidas:tirar.size};
 }
@@ -11423,7 +11450,8 @@ function App(){
       const faltamPresets=REC_PRESETS_EXTRA.filter(p=>!(d0.recurrences||[]).some(r=>r.id===p.id||sig(r)===sig(p)));
       const novas=recRenovarSeries(d0);
       const copiasPresas=d0.tasks.some(t=>t._recGroup&&/\(cópia\)\s*$/.test(t.title||""));
-      if(!faltamPresets.length&&!novas.length&&!copiasPresas)return;
+      const histCopiado=recLimparHistCopiado(d0.tasks);
+      if(!faltamPresets.length&&!novas.length&&!copiasPresas&&!histCopiado)return;
       setData(d=>{
         let nd=d;
         const fp=REC_PRESETS_EXTRA.filter(p=>!(nd.recurrences||[]).some(r=>r.id===p.id||sig(r)===sig(p)));
@@ -11432,6 +11460,7 @@ function App(){
         const chaves=new Set((nd.tasks||[]).filter(t=>t._recGroup).map(t=>t._recGroup+"|"+t.dueDate));
         // cópias feitas antes da correção ficavam ligadas à série da original: solta essas cópias
         if(nd.tasks.some(t=>t._recGroup&&/\(cópia\)\s*$/.test(t.title||"")))nd={...nd,tasks:nd.tasks.map(t=>t._recGroup&&/\(cópia\)\s*$/.test(t.title||"")?{...t,_recGroup:null,_recurrenceId:null,_serviceId:null}:t)};
+        {const fx=recLimparHistCopiado(nd.tasks);if(fx)nd={...nd,tasks:nd.tasks.map(t=>fx[t.id]?{...t,history:fx[t.id]}:t)};}
         const add=recRenovarSeries(nd).filter(t=>!ids.has(t.id)&&!chaves.has(t._recGroup+"|"+t.dueDate));
         if(add.length)nd={...nd,tasks:[...nd.tasks,...add]};
         return nd;
@@ -12110,7 +12139,7 @@ function App(){
     if(!isNew && base.recurrence && !base._recGroup){
       const rec=data.recurrences.find(r=>r.id===base.recurrence);
       if(rec){
-        const copias=generateRecurringTasks(base,rec).filter(t=>t.dueDate!==base.dueDate).map(t=>({...t,_recGroup:base.id,_recurrenceId:rec.id}));
+        const copias=generateRecurringTasks(base,rec).filter(t=>t.dueDate!==base.dueDate).map(t=>({...t,history:[],comments:[],_recGroup:base.id,_recurrenceId:rec.id}));
         const atual={...base,recurrence:"",_recGroup:base.id,_recurrenceId:rec.id};
         setData(d=>({...d,tasks:[...d.tasks.map(t=>t.id===atual.id?atual:t),...copias.filter(c=>!d.tasks.some(t=>t._recGroup===atual.id&&t.dueDate===c.dueDate))]}));
         if(taskModal.task) release(taskModal.task.id);
@@ -12499,7 +12528,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 111</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 112</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

@@ -3712,9 +3712,14 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
         )}
         {(()=>{const ids=[...new Set(toArr(task.checklist).map(c=>c&&c.company).filter(x=>x&&x!==(company&&company.id)))];if(!ids.length)return null;
           const cs=ids.map(id=>data.companies.find(c=>c.id===id)).filter(Boolean);if(!cs.length)return null;
-          return(<div title="Empresas marcadas nos itens do checklist" style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap",marginTop:company?-4:0,marginBottom:8}}>
-            <span style={{fontSize:9.5,fontWeight:800,color:"#94a3b8",textTransform:"uppercase"}}>{company?"☑ também":"☑ Empresas"}</span>
-            {cs.map(c=><span key={c.id} style={{fontSize:10.5,fontWeight:800,padding:"1px 7px",borderRadius:10,background:c.color+"14",color:c.color,border:`1px solid ${c.color}30`,whiteSpace:"nowrap"}}>{c.name}</span>)}
+          const sig=(c)=>(c.logo&&String(c.logo).length<=3?c.logo:(c.name||"?").split(/\s+/).filter(Boolean).slice(0,2).map(w=>w[0]).join("")).toUpperCase();
+          const MAX=5;
+          return(<div title={(company?"Também: ":"Empresas: ")+cs.map(c=>c.name).join(", ")} style={{display:"flex",alignItems:"center",gap:3,marginTop:company?-4:0,marginBottom:8,overflow:"hidden",whiteSpace:"nowrap"}}>
+            <span style={{fontSize:9.5,fontWeight:800,color:"#94a3b8",textTransform:"uppercase",marginRight:2}}>☑ {cs.length===1?(company?"também":"empresa"):cs.length+" empresas"}</span>
+            {cs.length===1
+              ?<span style={{fontSize:10.5,fontWeight:800,padding:"1px 7px",borderRadius:10,background:cs[0].color+"14",color:cs[0].color,border:`1px solid ${cs[0].color}30`,overflow:"hidden",textOverflow:"ellipsis",minWidth:0}}>{cs[0].name}</span>
+              :<>{cs.slice(0,MAX).map(c=><span key={c.id} title={c.name} style={{flexShrink:0,minWidth:20,height:18,padding:"0 4px",borderRadius:6,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:900,background:(c.color||"#6366f1")+"18",color:c.color||"#6366f1",border:`1px solid ${(c.color||"#6366f1")}35`}}>{sig(c)}</span>)}
+                {cs.length>MAX&&<span style={{fontSize:10,fontWeight:800,color:"#94a3b8"}}>+{cs.length-MAX}</span>}</>}
           </div>);})()}
 
         {assignees.length>0&&(
@@ -12294,7 +12299,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 105</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 106</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

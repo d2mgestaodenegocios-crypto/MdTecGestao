@@ -1099,7 +1099,7 @@ function deq(a,b){
   return true;
 }
 const _isObj=(x)=>x!==null&&typeof x==="object"&&!Array.isArray(x);
-const _idKey=(x)=>x&&x.id;
+const _idKey=(x)=>x&&(x.id!=null?x.id:(x.at&&x.changes!=null?"h|"+x.at+"|"+(x.user||"")+"|"+x.changes:undefined)); // histórico não tem id: usa data+quem+mudança
 function merge3(base,local,remote,kf){
   if(deq(local,base))return remote===undefined?local:remote;   // não editei nada aqui → vale o servidor
   if(deq(local,remote))return local;
@@ -2951,8 +2951,11 @@ function montarResumoDia(data,{pessoaId,dia,incluirAndamento=true,incluirAmanha=
   const ehEle=(quem)=>{if(!pessoaId)return true;const q=norm(quem);return !!q&&nomes.some(n=>q===n||q.split(" ")[0]===n);};
   const responsavel=(t)=>!pessoaId||toArr(t.assignees).includes(pessoaId);
   const tarefas=data.tasks||[];
-  const concluiuHoje=(t)=>t.status==="done"&&(dias.has(String(t.completedAt||"").slice(0,10))||toArr(t.history).some(h=>noDia(h.at)&&/→\s*Conclu/i.test(h.changes||"")));
-  const feitas=tarefas.filter(t=>concluiuHoje(t)&&(responsavel(t)||t.completedBy===pessoaId||ehEle(t.completedByName)));
+  const fechada=(t)=>t.status==="done"||t.status==="archived";
+  const concluiuHoje=(t)=>fechada(t)&&(dias.has(String(t.completedAt||"").slice(0,10))||toArr(t.history).some(h=>noDia(h.at)&&/→\s*Conclu/i.test(h.changes||"")));
+  // entregou para revisão no dia e o gestor já aprovou/arquivou (mesmo que depois) → conta como concluída dele
+  const entregouHojeEFechou=(t)=>fechada(t)&&toArr(t.history).some(x=>noDia(x.at)&&/→\s*Em Revis/i.test(x.changes||"")&&(ehEle(x.user)||responsavel(t)));
+  const feitas=tarefas.filter(t=>(concluiuHoje(t)&&(responsavel(t)||t.completedBy===pessoaId||ehEle(t.completedByName)))||entregouHojeEFechou(t));
   const idsFeitas=new Set(feitas.map(t=>t.id));
   // entregues para revisão hoje (quem conclui é o gestor/administrador)
   const enviouRevisaoHoje=(t)=>toArr(t.history).some(x=>noDia(x.at)&&/→\s*Em Revis/i.test(x.changes||"")&&(ehEle(x.user)||responsavel(t)));
@@ -2975,7 +2978,7 @@ function montarResumoDia(data,{pessoaId,dia,incluirAndamento=true,incluirAmanha=
   const amanha=(()=>{const d=new Date(dia+"T12:00:00");d.setDate(d.getDate()+1);return d.toISOString().slice(0,10);})();
   const prox=incluirAmanha?tarefas.filter(t=>t.status!=="done"&&t.status!=="archived"&&t.dueDate&&t.dueDate<=amanha&&responsavel(t)&&!andamento.includes(t)):[];
   const stLbl={doing:"em andamento",review:"em revisão"};
-  const linha=(t,extra)=>{const e=nomeEmp(t);const ck=toArr(t.checklist);const ckTxt=ck.length?" ["+ck.filter(x=>x.done).length+"/"+ck.length+"]":"";return "• "+(t.title||"(sem título)")+(e?" — "+e:"")+ckTxt+(extra?" ("+extra+")":"")+"\n";};
+  const linha=(t,extra)=>{const e=nomeEmp(t);const ck=toArr(t.checklist);const ckTxt=ck.length?" ["+ck.filter(x=>x.done).length+"/"+ck.length+"]":"";const venc=t.dueDate&&t.dueDate!==dia?" · venc. "+t.dueDate.slice(8,10)+"/"+t.dueDate.slice(5,7):"";return "• "+(t.title||"(sem título)")+(e?" — "+e:"")+ckTxt+venc+(extra?" ("+extra+")":"")+"\n";};
   const dt=new Date(dia+"T12:00:00").toLocaleDateString("pt-BR",{weekday:"long",day:"2-digit",month:"2-digit",year:"numeric"});
   let s="✅ *Resumo do dia"+(c?" — "+c.name:"")+"*\n_"+dt+"_\n";
   s+="\n*Concluídas ("+feitas.length+")*\n"+(feitas.length?feitas.map(t=>linha(t,t.completedByName&&!ehEle(t.completedByName)?"aprovada por "+String(t.completedByName).split(" ")[0]:"")).join(""):"• nenhuma tarefa concluída hoje\n");
@@ -3347,7 +3350,7 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
           <CompanySelect
             companies={data.companies}
             selected={toArr(f.companies||[]).length>0?toArr(f.companies):(f.company?[f.company]:[])}
-            onChange={(next)=>{set("companies",next);set("company",next[0]||"");set("sector","");set("assignees",[]);}}
+            onChange={(next)=>{set("companies",next);set("company",next[0]||"");}}
             disabled={blocked}
           />
           {(()=>{const ce=[...new Set(f.checklist.map(c=>c.company).filter(Boolean))].map(id=>(data.companies||[]).find(c=>c.id===id)).filter(Boolean);
@@ -3355,7 +3358,7 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
               ?<div style={{fontSize:11,color:"#4f46e5",marginTop:4,fontWeight:700}}>☑ Pelo checklist: {ce.map(c=>c.name).join(", ")}</div>
               :!taskCompanies(f).length&&<div style={{fontSize:11,color:"#94a3b8",marginTop:4}}>Várias empresas? Deixe em branco e marque a empresa em cada item do checklist.</div>;})()}
         </Fld>
-        <Sel label="Setor" value={f.sector} onChange={v=>{set("sector",v);set("assignees",[]);}} placeholder="Selecionar..." options={fS.map(s=>({value:s.id,label:s.name}))} disabled={blocked}/>
+        <Sel label="Setor" value={f.sector} onChange={v=>{set("sector",v);}} placeholder="Selecionar..." options={fS.map(s=>({value:s.id,label:s.name}))} disabled={blocked}/>
       </div>
 
       {f._recGroup&&!f._serviceId
@@ -12125,7 +12128,7 @@ function App(){
         (t.dueDate||"")>=(todayStr())
       );
       // só pergunta se mudou algo que vale para a série (checklist, comentários e etapa são de cada ocorrência)
-      const ant=data.tasks.find(t=>t.id===base.id)||{};
+      const ant=(taskModal.task&&taskModal.task.id===base.id?taskModal.task:null)||data.tasks.find(t=>t.id===base.id)||{};
       const igual=(a,b)=>JSON.stringify(a??null)===JSON.stringify(b??null);
       const camposSerie=[["title","título"],["dueTime","horário"],["description","descrição"],["priority","prioridade"],["sector","setor"],["assignees","responsáveis"],["labels","etiquetas"],["companies","empresas"]];
       const ehLista=(k)=>k==="assignees"||k==="labels"||k==="companies";
@@ -12175,7 +12178,8 @@ function App(){
     // Build history entry for edits
     let taskWithHistory=base;
     if(!isNew){
-      const prev=data.tasks.find(t=>t.id===base.id);
+      // compara com a tarefa como estava quando o formulário abriu (só o que EU mudei)
+      const prev=(taskModal.task&&taskModal.task.id===base.id?taskModal.task:null)||data.tasks.find(t=>t.id===base.id);
       if(prev){
         const diffs=[];
         if(prev.title!==base.title) diffs.push(`Título: "${prev.title}" → "${base.title}"`);
@@ -12191,7 +12195,11 @@ function App(){
     }
     setData(d=>{
       const ex=d.tasks.find(t=>t.id===taskWithHistory.id);
-      return {...d,tasks:ex?d.tasks.map(t=>t.id===taskWithHistory.id?taskWithHistory:t):[...d.tasks,taskWithHistory]};
+      // aplica SÓ o que eu mudei no formulário sobre a versão atual da tarefa:
+      // se outra pessoa mudou a etapa, o responsável etc. enquanto o formulário estava aberto, isso não se perde
+      const orig=taskModal.task&&taskModal.task.id===taskWithHistory.id?taskModal.task:null;
+      const juntar=(atual)=>{if(!orig)return taskWithHistory;try{const m=merge3(orig,taskWithHistory,atual);return m&&m.id?m:taskWithHistory;}catch(e){return taskWithHistory;}};
+      return {...d,tasks:ex?d.tasks.map(t=>t.id===taskWithHistory.id?juntar(t):t):[...d.tasks,taskWithHistory]};
     });
     if(taskModal.task) release(taskModal.task.id);
     setTM(m=>({...m,open:false}));
@@ -12491,7 +12499,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 110</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 111</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

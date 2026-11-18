@@ -2974,7 +2974,15 @@ function montarResumoDia(data,{pessoaId,dia,incluirAndamento=true,incluirAmanha=
   tarefas.forEach(t=>{
     if(idsFeitas.has(t.id)||idsEntregues.has(t.id)||idsAprov.has(t.id))return;
     const coms=toArr(t.comments).filter(x=>noDia(x.createdAt)&&ehEle(x.author));
-    const hs=toArr(t.history).filter(x=>noDia(x.at)&&ehEle(x.user));
+    // mudança de etapa só conta se a tarefa ainda está na etapa para onde foi movida
+    // (ex.: "→ Em Revisão" numa tarefa que hoje está em "A Fazer" foi desfeita ou veio copiada de outra ocorrência)
+    const nrm=(x)=>String(x||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();
+    const stHist=toArr(t.history).filter(x=>/^Status:|→/.test(x.changes||"")&&/Status:/.test(x.changes||""));
+    const ultSt=stHist.length?stHist[stHist.length-1]:null;
+    const destino=ultSt?nrm(String(ultSt.changes).split("→").pop()):"";
+    const lblAtual=nrm((STS.find(x=>x.id===t.status)||{}).l||t.status);
+    const coerente=!ultSt||destino.startsWith(lblAtual)||lblAtual.startsWith(destino)||(t.status==="archived"&&/conclu/.test(destino));
+    const hs=toArr(t.history).filter(x=>noDia(x.at)&&ehEle(x.user)&&(coerente||!/Status:/.test(x.changes||"")));
     if(coms.length||hs.length){
       const partes=[];
       if(hs.length)partes.push(hs[hs.length-1].changes.replace(/^Status: /,"etapa: "));
@@ -12528,7 +12536,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 112</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 113</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

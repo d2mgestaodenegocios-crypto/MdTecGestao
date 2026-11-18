@@ -1618,24 +1618,35 @@ function ArchivedPage({data,setData,toast,isAdmin}){
     if(fl.per==="ano")return[h.getFullYear()+"-01-01",iso(h)];
     if(fl.per==="custom")return[fl.de||"0000",fl.ate||"9999"];
     return["0000","9999"];},[fl.per,fl.de,fl.ate]);
-  const dataBase=(t)=>String((fl.base==="arquivamento"?t.archivedAt:fl.base==="prazo"?t.dueDate:(t.completedAt||t.archivedAt))||"").slice(0,10);
+  // ── execução por empresa: quando a empresa está nos itens do checklist, vale o que foi feito PARA ela ──
+  const itensDe=(t,emp)=>{const ck=toArr(t.checklist);if(!emp)return ck;const doEmp=ck.filter(c=>c.company===emp);if(doEmp.length)return doEmp;
+    return taskCompanies(t).includes(emp)?ck.filter(c=>!c.company):[];};
+  const execEm=(t,emp)=>{const its=emp?toArr(t.checklist).filter(c=>c.company===emp&&c.done&&c.doneAt):[];
+    if(its.length)return its.map(c=>c.doneAt).sort().slice(-1)[0].slice(0,10);
+    return String(t.completedAt||t.archivedAt||"").slice(0,10);};
+  const execPor=(t,emp)=>{const its=emp?toArr(t.checklist).filter(c=>c.company===emp&&c.done):[];
+    const nomes=[...new Set([...its.map(c=>c.doneBy||(c.assignee?((data.collaborators||[]).find(u=>u.id===c.assignee)?.name):"")).filter(Boolean)])];
+    if(nomes.length)return nomes.join(", ");
+    return t.completedByName||toArr(t.assignees).map(id=>(data.collaborators||[]).find(u=>u.id===id)?.name).filter(Boolean).join(", ");};
+  // feita para a empresa: tarefa da empresa concluída, ou (empresa só no checklist) pelo menos um item dela marcado
+  const feitaPara=(t,emp)=>{if(!emp)return true;if(taskCompanies(t).includes(emp))return true;return toArr(t.checklist).some(c=>c.company===emp&&c.done);};
+  const dataBase=(t)=>String((fl.base==="arquivamento"?t.archivedAt:fl.base==="prazo"?t.dueDate:execEm(t,fl.emp))||"").slice(0,10);
   const empNome=(id)=>(data.companies||[]).find(c=>c.id===id)?.name||"";
   const colNome=(id)=>(data.collaborators||[]).find(c=>c.id===id)?.name||"";
   const obsDe=(t)=>[...(t.description?[{tipo:"Descrição",txt:t.description}]:[]),...toArr(t.comments).map(c=>({tipo:"💬 "+(c.author||""),txt:c.text,quando:c.createdAt})),...(isAdmin&&t.internalNote?[{tipo:"🔒 Obs. interna",txt:t.internalNote}]:[])];
-  const lista=useMemo(()=>{const b=fl.busca.trim().toLowerCase();
-    return archived.filter(t=>{const d=dataBase(t);if(fl.per!=="tudo"&&(!d||d<intervalo[0]||d>intervalo[1]))return false;
-      if(fl.emp&&!taskCompaniesAll(t).includes(fl.emp))return false;
+  const passa=(t)=>{const b=fl.busca.trim().toLowerCase();{const d=dataBase(t);if(fl.per!=="tudo"&&(!d||d<intervalo[0]||d>intervalo[1]))return false;
+      if(fl.emp&&(!taskCompaniesAll(t).includes(fl.emp)||!feitaPara(t,fl.emp)))return false;
       if(fl.col&&!taskColabsAll(t).includes(fl.col)&&t.completedBy!==fl.col)return false;
       if(fl.setor&&t.sector!==fl.setor)return false;
       if(fl.etq&&!toArr(t.labels).includes(fl.etq))return false;
       if(fl.obs&&!obsDe(t).length)return false;
       if(b){const txt=[t.title,t.description,t.internalNote,...toArr(t.comments).map(c=>c.text+" "+c.author),...taskCompaniesAll(t).map(empNome),...taskColabsAll(t).map(colNome),...toArr(t.checklist).map(c=>c.text||"")].join(" ").toLowerCase();if(!txt.includes(b))return false;}
-      return true;}).sort((a,b)=>dataBase(b).localeCompare(dataBase(a)));
-  },[archived,fl,intervalo,isAdmin]);
+      return true;}};
+  const lista=useMemo(()=>archived.filter(passa).sort((a,b)=>dataBase(b).localeCompare(dataBase(a))),[archived,fl,intervalo,isAdmin]);
   // resumos
   const contar=(fn)=>{const m={};lista.forEach(t=>fn(t).forEach(k=>{if(k)m[k]=(m[k]||0)+1;}));return Object.entries(m).sort((a,b)=>b[1]-a[1]);};
-  const porEmp=contar(t=>taskCompaniesAll(t).map(empNome).filter(Boolean).length?taskCompaniesAll(t).map(empNome):["(sem empresa)"]);
-  const porCol=contar(t=>taskColabsAll(t).map(colNome).filter(Boolean).length?taskColabsAll(t).map(colNome):["(sem responsável)"]);
+  const porEmp=fl.emp?[[empNome(fl.emp),lista.length]]:contar(t=>taskCompaniesAll(t).map(empNome).filter(Boolean).length?taskCompaniesAll(t).map(empNome):["(sem empresa)"]);
+  const porCol=fl.emp?contar(t=>{const n=execPor(t,fl.emp);return n?n.split(", "):["(sem responsável)"];}):contar(t=>taskColabsAll(t).map(colNome).filter(Boolean).length?taskColabsAll(t).map(colNome):["(sem responsável)"]);
   const porMes=contar(t=>{const d=dataBase(t);return[d?d.slice(0,7):"(sem data)"];}).sort((a,b)=>a[0].localeCompare(b[0]));
   const comObs=lista.filter(t=>obsDe(t).length).length;
   const noPrazo=lista.filter(t=>t.dueDate&&t.completedAt&&String(t.completedAt).slice(0,10)<=t.dueDate).length;
@@ -1646,12 +1657,12 @@ function ArchivedPage({data,setData,toast,isAdmin}){
   const filtrosTxt=[rotPer,fl.emp&&"Empresa: "+empNome(fl.emp),fl.col&&"Colaborador: "+colNome(fl.col),fl.setor&&"Setor: "+((data.sectors||[]).find(s=>s.id===fl.setor)?.name||""),fl.etq&&"Etiqueta: "+((data.labels||[]).find(l=>l.id===fl.etq)?.name||""),fl.busca&&"Busca: "+fl.busca,fl.obs&&"Só com observações"].filter(Boolean).join(" · ");
   // exportar
   const csv=()=>{const esc=(v)=>'"'+String(v??"").replace(/"/g,'""').replace(/\r?\n/g," ")+'"';
-    const linhas=[["Tarefa","Empresa(s)","Responsável(is)","Setor","Prazo","Concluída em","Concluída por","Arquivada em","Checklist","Descrição","Comentários","Obs. interna"].map(esc).join(";")];
-    lista.forEach(t=>{const ck=toArr(t.checklist);linhas.push([t.title,taskCompaniesAll(t).map(empNome).join(", "),toArr(t.assignees).map(colNome).join(", "),(data.sectors||[]).find(s=>s.id===t.sector)?.name||"",fmtDate(t.dueDate),fmtDate(String(t.completedAt||"").slice(0,10)),t.completedByName||colNome(t.completedBy)||"",fmtDate(String(t.archivedAt||"").slice(0,10)),ck.length?ck.filter(c=>c.done).length+"/"+ck.length+" — "+ck.map(c=>ckRotulo(c,data)).join(" | "):"",t.description||"",toArr(t.comments).map(c=>(c.author||"")+": "+c.text).join(" | "),isAdmin?(t.internalNote||""):""].map(esc).join(";"));});
+    const linhas=[["Tarefa","Empresa(s)","Responsável(is)","Setor","Prazo","Executada em","Executada por","Arquivada em","Checklist","Descrição","Comentários","Obs. interna"].map(esc).join(";")];
+    lista.forEach(t=>{const ck=itensDe(t,fl.emp);linhas.push([t.title,fl.emp?empNome(fl.emp):taskCompaniesAll(t).map(empNome).join(", "),toArr(t.assignees).map(colNome).join(", "),(data.sectors||[]).find(s=>s.id===t.sector)?.name||"",fmtDate(t.dueDate),fmtDate(execEm(t,fl.emp)),execPor(t,fl.emp)||colNome(t.completedBy)||"",fmtDate(String(t.archivedAt||"").slice(0,10)),ck.length?ck.filter(c=>c.done).length+"/"+ck.length+" — "+ck.map(c=>ckRotulo(c,data)).join(" | "):"",t.description||"",toArr(t.comments).map(c=>(c.author||"")+": "+c.text).join(" | "),isAdmin?(t.internalNote||""):""].map(esc).join(";"));});
     const blob=new Blob(["﻿"+linhas.join("\r\n")],{type:"text/csv;charset=utf-8"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="arquivadas-"+iso(new Date())+".csv";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),4000);};
   const imprimir=()=>{const w=window.open("","_blank");if(!w){toast("⚠️ Permita pop-ups para gerar o PDF.","warn");return;}
     const e=(s)=>String(s??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
-    const linhas=lista.map(t=>`<tr><td><b>${e(t.title)}</b>${obsDe(t).length?`<div class="obs">${obsDe(t).map(o=>`<div><i>${e(o.tipo)}:</i> ${e(o.txt)}</div>`).join("")}</div>`:""}${toArr(t.checklist).some(c=>c.company||c.assignee)?`<div class="obs"><i>Checklist:</i> ${toArr(t.checklist).filter(c=>!fl.emp||c.company===fl.emp||!c.company).map(c=>e(ckRotulo(c,data))).join(" · ")}</div>`:""}</td><td>${e(taskCompaniesAll(t).map(empNome).join(", "))}</td><td>${e(toArr(t.assignees).map(colNome).join(", "))}</td><td>${e(fmtDate(t.dueDate))}</td><td>${e(fmtDate(String(t.completedAt||"").slice(0,10)))}</td><td>${e(fmtDate(String(t.archivedAt||"").slice(0,10)))}</td></tr>`).join("");
+    const linhas=lista.map(t=>`<tr><td><b>${e(t.title)}</b>${obsDe(t).length?`<div class="obs">${obsDe(t).map(o=>`<div><i>${e(o.tipo)}:</i> ${e(o.txt)}</div>`).join("")}</div>`:""}${itensDe(t,fl.emp).length?`<div class="obs"><i>Checklist:</i> ${itensDe(t,fl.emp).map(c=>e((c.done?"✔ ":"☐ ")+c.text)).join(" · ")}</div>`:""}</td><td>${e(fl.emp?empNome(fl.emp):taskCompaniesAll(t).map(empNome).join(", "))}</td><td>${e(toArr(t.assignees).map(colNome).join(", "))}</td><td>${e(fmtDate(t.dueDate))}</td><td>${e(fmtDate(execEm(t,fl.emp)))}</td><td>${e(fmtDate(String(t.archivedAt||"").slice(0,10)))}</td></tr>`).join("");
     const tab=(tit,arr)=>`<div class="box"><h3>${tit}</h3>${arr.slice(0,12).map(([k,v])=>`<div class="lin"><span>${e(k)}</span><b>${v}</b></div>`).join("")}</div>`;
     w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Relatório de tarefas arquivadas</title><style>
       body{font-family:system-ui,'Segoe UI',Roboto,sans-serif;color:#0f172a;margin:24px;font-size:12px}h1{font-size:20px;margin:0}h3{font-size:12px;margin:0 0 6px;text-transform:uppercase;color:#475569}
@@ -1660,10 +1671,44 @@ function ArchivedPage({data,setData,toast,isAdmin}){
       table{width:100%;border-collapse:collapse}th{background:#f1f5f9;text-align:left;font-size:10px;text-transform:uppercase;padding:6px}td{border-top:1px solid #e2e8f0;padding:6px;vertical-align:top}.obs{color:#475569;font-size:11px;margin-top:3px}
       tr{break-inside:avoid}@page{size:A4;margin:12mm}@media print{.nao{display:none}}</style></head><body>
       <button class="nao" onclick="print()" style="float:right;padding:8px 14px;border:none;background:#4f46e5;color:#fff;border-radius:8px;font-weight:700;cursor:pointer">Salvar PDF / Imprimir</button>
-      <h1>📦 Relatório de tarefas arquivadas</h1><div class="sub">${e(filtrosTxt)} · base: ${fl.base==="arquivamento"?"data de arquivamento":fl.base==="prazo"?"prazo":"data de conclusão"} · gerado em ${new Date().toLocaleString("pt-BR")}</div>
+      <h1>📦 Relatório de tarefas arquivadas</h1><div class="sub">${e(filtrosTxt)} · base: ${fl.base==="arquivamento"?"data de arquivamento":fl.base==="prazo"?"prazo":"data de execução"} · gerado em ${new Date().toLocaleString("pt-BR")}</div>
       <div class="kpis"><div class="kpi">Tarefas<b>${lista.length}</b></div><div class="kpi">Concluídas no prazo<b>${lista.length?Math.round(noPrazo/lista.length*100):0}%</b></div><div class="kpi">Com observações<b>${comObs}</b></div><div class="kpi">Empresas<b>${porEmp.filter(x=>x[0]!=="(sem empresa)").length}</b></div></div>
       <div class="grid">${tab("Por empresa",porEmp)}${tab("Por colaborador",porCol)}${tab("Por mês",porMes.map(([k,v])=>[mesNome(k),v]))}</div>
-      <table><thead><tr><th>Tarefa / observações</th><th>Empresa</th><th>Responsável</th><th>Prazo</th><th>Concluída</th><th>Arquivada</th></tr></thead><tbody>${linhas}</tbody></table>
+      <table><thead><tr><th>Tarefa / observações</th><th>Empresa</th><th>Responsável</th><th>Prazo</th><th>Executada</th><th>Arquivada</th></tr></thead><tbody>${linhas}</tbody></table>
+      <script>setTimeout(()=>print(),600)<\/script></body></html>`);w.document.close();};
+  // ── Relatório PARA O CLIENTE: só a empresa escolhida, só o que foi executado para ela ──
+  const relCliente=()=>{
+    if(!fl.emp){toast("🏢 Escolha a empresa no filtro para gerar o relatório do cliente.","warn",6000);return;}
+    const emp=(data.companies||[]).find(c=>c.id===fl.emp)||{name:empNome(fl.emp)};
+    const w=window.open("","_blank");if(!w){toast("⚠️ Permita pop-ups para gerar o PDF.","warn");return;}
+    const e=(x)=>String(x??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+    // concluídas (ainda no Kanban) + arquivadas, com os mesmos filtros
+    const fonte=(data.tasks||[]).filter(t=>(t.status==="done"||t.status==="archived")&&passa(t));
+    const ativ=fonte.map(t=>{const its=itensDe(t,fl.emp);const viaCk=!taskCompanies(t).includes(fl.emp);
+      const feitos=viaCk?its.filter(c=>c.done):its;return{t,data:execEm(t,fl.emp),por:execPor(t,fl.emp),itens:feitos};})
+      .sort((a,b)=>a.data.localeCompare(b.data));
+    const nItens=ativ.reduce((s,a)=>s+a.itens.filter(c=>c.done).length,0);
+    const meses={};ativ.forEach(a=>{const k=(a.data||"").slice(0,7)||"—";meses[k]=(meses[k]||0)+1;});
+    const mx=Math.max(1,...Object.values(meses));
+    const barras=Object.entries(meses).sort().map(([k,v])=>`<div class="bar"><span>${e(mesNome(k))}</span><div><i style="width:${v/mx*100}%"></i></div><b>${v}</b></div>`).join("");
+    const linhas=ativ.map(a=>`<tr><td class="dt">${e(fmtDate(a.data))}</td><td><b>${e(a.t.title)}</b>${a.itens.length?`<ul>${a.itens.map(c=>`<li>${c.done?"✔":"•"} ${e(c.text)}</li>`).join("")}</ul>`:""}</td><td>${e(a.por)}</td></tr>`).join("");
+    const cor=emp.color||"#4f46e5";
+    w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Atividades executadas — ${e(emp.name)}</title><style>
+      body{font-family:system-ui,'Segoe UI',Roboto,sans-serif;color:#0f172a;margin:28px;font-size:12.5px}
+      .top{border-bottom:3px solid ${cor};padding-bottom:12px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:flex-end;gap:12px}
+      h1{font-size:21px;margin:0}.emp{font-size:15px;font-weight:800;color:${cor};margin-top:3px}.sub{color:#64748b;font-size:11.5px;text-align:right}
+      .kpis{display:flex;gap:10px;margin-bottom:14px}.kpi{border:1px solid #e2e8f0;border-radius:10px;padding:9px 13px;flex:1;color:#64748b;font-size:11px;text-transform:uppercase;font-weight:700}.kpi b{font-size:22px;display:block;color:#0f172a;text-transform:none}
+      .box{border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;margin-bottom:14px}.box h3{margin:0 0 8px;font-size:11px;text-transform:uppercase;color:#475569}
+      .bar{display:flex;align-items:center;gap:8px;margin:3px 0}.bar span{width:70px}.bar div{flex:1;height:9px;background:#f1f5f9;border-radius:5px;overflow:hidden}.bar i{display:block;height:100%;background:${cor};border-radius:5px}.bar b{width:24px;text-align:right}
+      table{width:100%;border-collapse:collapse}th{background:#f8fafc;text-align:left;font-size:10px;text-transform:uppercase;color:#475569;padding:7px;border-bottom:1px solid #e2e8f0}td{border-bottom:1px solid #f1f5f9;padding:7px;vertical-align:top}td.dt{white-space:nowrap;width:80px;color:#475569}
+      ul{margin:4px 0 0;padding-left:4px;list-style:none;color:#334155}li{margin:1px 0}tr{break-inside:avoid}
+      .rod{margin-top:18px;color:#94a3b8;font-size:10.5px;text-align:center}@page{size:A4;margin:12mm}@media print{.nao{display:none}}</style></head><body>
+      <button class="nao" onclick="print()" style="position:fixed;right:18px;bottom:18px;box-shadow:0 4px 14px rgba(0,0,0,.18);padding:10px 16px;border:none;background:${cor};color:#fff;border-radius:8px;font-weight:700;cursor:pointer">Salvar PDF / Imprimir</button>
+      <div class="top"><div><h1>Relatório de atividades executadas</h1><div class="emp">${e(emp.name)}</div></div><div class="sub">${e(rotPer)}<br>emitido em ${new Date().toLocaleDateString("pt-BR")}</div></div>
+      <div class="kpis"><div class="kpi">Atividades executadas<b>${ativ.length}</b></div>${nItens?`<div class="kpi">Etapas concluídas<b>${nItens}</b></div>`:""}<div class="kpi">Meses<b>${Object.keys(meses).length}</b></div></div>
+      ${Object.keys(meses).length>1?`<div class="box"><h3>Atividades por mês</h3>${barras}</div>`:""}
+      ${ativ.length?`<table><thead><tr><th>Data</th><th>Atividade</th><th>Executado por</th></tr></thead><tbody>${linhas}</tbody></table>`:`<p style="color:#64748b">Nenhuma atividade executada no período.</p>`}
+      <div class="rod">MD Tec · relatório gerado pelo MdTec Gestão</div>
       <script>setTimeout(()=>print(),600)<\/script></body></html>`);w.document.close();};
   const inp={padding:"7px 10px",borderRadius:9,border:"1.5px solid var(--border)",fontSize:12.5,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)"};
   const chip=(on)=>({padding:"5px 11px",borderRadius:20,border:"1.5px solid "+(on?"#6366f1":"var(--border)"),background:on?"#6366f1":"var(--bg2)",color:on?"#fff":"var(--text3)",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"});
@@ -1672,7 +1717,7 @@ function ArchivedPage({data,setData,toast,isAdmin}){
     <div style={{flex:1,height:9,background:"var(--bg3,#f1f5f9)",borderRadius:5,overflow:"hidden"}}><div style={{width:(v/mx*100)+"%",height:"100%",background:cor,borderRadius:5}}/></div>
     <b style={{width:28,textAlign:"right"}}>{v}</b></div>))}{!itens.length&&<span style={{fontSize:12,color:"var(--text4)"}}>—</span>}</div>);};
   const card={background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:14,padding:"12px 14px"};
-  const Linha=({t})=>{const co=taskCompaniesAll(t).map(empNome).filter(Boolean);const asg=(data.collaborators||[]).filter(c=>toArr(t.assignees).includes(c.id));const ob=obsDe(t);const ab=aberto[t.id];const ck=toArr(t.checklist);const ckTag=ck.filter(c=>c.company||c.assignee);const ckEmp=fl.emp?ck.filter(c=>c.company===fl.emp):[];const podeAbrir=ob.length>0||ckTag.length>0;
+  const Linha=({t,emp})=>{emp=emp||fl.emp;const co=emp?[empNome(emp)]:taskCompaniesAll(t).map(empNome).filter(Boolean);const asg=(data.collaborators||[]).filter(c=>toArr(t.assignees).includes(c.id));const ob=obsDe(t);const ab=aberto[t.id];const ck=itensDe(t,emp);const ckTag=ck.filter(c=>c.company||c.assignee);const ckEmp=emp?toArr(t.checklist).filter(c=>c.company===emp):[];const podeAbrir=ob.length>0||ckTag.length>0;
     return(<div style={{...card,padding:"10px 14px"}}>
       <div style={{display:"flex",alignItems:"center",gap:10}}>
         <div style={{flex:1,minWidth:0}}>
@@ -1681,11 +1726,11 @@ function ArchivedPage({data,setData,toast,isAdmin}){
             {co.length>0&&<span style={{fontWeight:700,color:"#4f46e5"}}>🏢 {co.join(", ")}</span>}
             {asg.length>0&&<span>👤 {asg.map(u=>u.name).join(", ")}</span>}
             {t.dueDate&&<span>📅 prazo {fmtDate(t.dueDate)}</span>}
-            {t.completedAt&&<span style={{color:"#15803d"}}>✅ concluída {fmtDate(String(t.completedAt).slice(0,10))}{t.completedByName?" por "+t.completedByName:""}</span>}
+            {(t.completedAt||ckEmp.some(c=>c.done))&&<span style={{color:"#15803d"}}>✅ executada {fmtDate(execEm(t,emp))}{execPor(t,emp)?" por "+execPor(t,emp):""}</span>}
             {t.archivedAt&&<span>📦 arquivada {fmtDate(String(t.archivedAt).slice(0,10))}{t.archivedBy?" por "+t.archivedBy:""}</span>}
             {ck.length>0&&<span>☑ {ck.filter(c=>c.done).length}/{ck.length}</span>}
           </div>
-          {ckEmp.length>0&&<div style={{marginTop:4,fontSize:11.5,color:"#4f46e5"}}>☑ Para {empNome(fl.emp)}: {ckEmp.map(c=>(c.done?"✔ ":"☐ ")+c.text+(c.assignee?" ("+colNome(c.assignee)+")":"")).join(" · ")}</div>}
+          {ckEmp.length>0&&<div style={{marginTop:4,fontSize:11.5,color:"#4f46e5"}}>☑ {ckEmp.map(c=>(c.done?"✔ ":"☐ ")+c.text+(c.assignee?" ("+colNome(c.assignee)+")":"")).join(" · ")}</div>}
         </div>
         {ob.length>0&&<button onClick={()=>setAberto(o=>({...o,[t.id]:!o[t.id]}))} style={{...chip(ab),padding:"4px 10px"}}>💬 {ob.length} obs.</button>}
         {ob.length===0&&ckTag.length>0&&<button onClick={()=>setAberto(o=>({...o,[t.id]:!o[t.id]}))} style={{...chip(ab),padding:"4px 10px"}}>☑ itens</button>}
@@ -1694,10 +1739,10 @@ function ArchivedPage({data,setData,toast,isAdmin}){
       </div>
       {ab&&<div style={{marginTop:8,display:"flex",flexDirection:"column",gap:5,borderTop:"1px dashed var(--border)",paddingTop:8}}>
         {ob.map((o,i)=><div key={i} style={{fontSize:12.5,color:"var(--text2)",whiteSpace:"pre-wrap",lineHeight:1.45}}><b style={{color:"var(--text3)"}}>{o.tipo}{o.quando?" · "+new Date(o.quando).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):""}:</b> {o.txt}</div>)}
-        {ck.length>0&&<div style={{fontSize:12,color:"var(--text3)"}}><b>Checklist:</b> {ck.map(c=>ckRotulo(c,data)+(c.done&&c.doneBy?" — feito por "+c.doneBy:"")).join(" · ")}</div>}
+        {ck.length>0&&<div style={{fontSize:12,color:"var(--text3)"}}><b>Checklist:</b> {ck.map(c=>(emp?(c.done?"✔ ":"☐ ")+c.text:ckRotulo(c,data))+(c.done&&c.doneBy?" — feito por "+c.doneBy:"")).join(" · ")}</div>}
       </div>}
     </div>);};
-  const grupos=fl.agrupar==="empresa"?(()=>{const g={};lista.forEach(t=>{const ks=taskCompaniesAll(t).map(empNome).filter(Boolean);(ks.length?ks:["(sem empresa)"]).forEach(k=>(g[k]=g[k]||[]).push(t));});return Object.entries(g).sort((a,b)=>b[1].length-a[1].length);})()
+  const grupos=fl.agrupar==="empresa"?(()=>{const g={};lista.forEach(t=>{const ks=(fl.emp?[fl.emp]:taskCompaniesAll(t)).filter(id=>empNome(id)&&feitaPara(t,id));(ks.length?ks:["_sem"]).forEach(k=>(g[k]=g[k]||[]).push(t));});return Object.entries(g).sort((a,b)=>b[1].length-a[1].length).map(([k,ts])=>[k==="_sem"?"(sem empresa)":empNome(k),ts,k==="_sem"?"":k]);})()
     :fl.agrupar==="colaborador"?(()=>{const g={};lista.forEach(t=>{const ks=taskColabsAll(t).map(colNome).filter(Boolean);(ks.length?ks:["(sem responsável)"]).forEach(k=>(g[k]=g[k]||[]).push(t));});return Object.entries(g).sort((a,b)=>b[1].length-a[1].length);})()
     :fl.agrupar==="mes"?(()=>{const g={};lista.forEach(t=>{const k=mesNome(dataBase(t).slice(0,7)||"(sem data)");(g[k]=g[k]||[]).push(t);});return Object.entries(g);})():null;
   return(<div>
@@ -1709,7 +1754,7 @@ function ArchivedPage({data,setData,toast,isAdmin}){
         <span style={{fontSize:12,fontWeight:800,color:"var(--text3)"}}>📅 Período:</span>
         {[["tudo","Tudo"],["mes","Este mês"],["mesant","Mês passado"],["30","30 dias"],["90","90 dias"],["ano","Este ano"],["custom","Datas"]].map(([k,l])=><button key={k} onClick={()=>set("per",k)} style={chip(fl.per===k)}>{l}</button>)}
         {fl.per==="custom"&&<><input type="date" value={fl.de} onChange={e=>set("de",e.target.value)} style={inp}/><span style={{fontSize:12,color:"var(--text3)"}}>até</span><input type="date" value={fl.ate} onChange={e=>set("ate",e.target.value)} style={inp}/></>}
-        <select value={fl.base} onChange={e=>set("base",e.target.value)} style={{...inp,marginLeft:"auto"}} title="Qual data usar no filtro"><option value="conclusao">pela data de conclusão</option><option value="arquivamento">pela data de arquivamento</option><option value="prazo">pelo prazo</option></select>
+        <select value={fl.base} onChange={e=>set("base",e.target.value)} style={{...inp,marginLeft:"auto"}} title="Qual data usar no filtro"><option value="conclusao">pela data de execução</option><option value="arquivamento">pela data de arquivamento</option><option value="prazo">pelo prazo</option></select>
       </div>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
         <select value={fl.emp} onChange={e=>set("emp",e.target.value)} style={inp}><option value="">🏢 Todas as empresas</option>{(data.companies||[]).slice().sort((a,b)=>(a.name||"").localeCompare(b.name||"")).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>
@@ -1737,14 +1782,15 @@ function ArchivedPage({data,setData,toast,isAdmin}){
       <span style={{fontSize:12,color:"var(--text4)"}}>{lista.length} de {archived.length}</span>
       <div style={{marginLeft:"auto",display:"flex",gap:6}}>
         <Btn onClick={csv} v="ghost" sz="sm">⬇ Excel (CSV)</Btn>
-        <Btn onClick={imprimir} sz="sm">🖨 Relatório em PDF</Btn>
+        <Btn onClick={imprimir} sz="sm" v="ghost">🖨 Relatório interno</Btn>
+        <Btn onClick={relCliente} sz="sm" xs={{background:"linear-gradient(135deg,#0ea5e9,#6366f1)",color:"#fff",border:"none"}} title={fl.emp?"Só "+empNome(fl.emp)+", só o que foi executado, sem observações internas":"Escolha uma empresa no filtro"}>📄 Relatório para o cliente</Btn>
       </div>
     </div>
     {lista.length===0&&<div style={{...card,textAlign:"center",color:"var(--text4)",fontSize:13}}>Nenhuma tarefa com esses filtros.</div>}
     {!grupos&&<div style={{display:"flex",flexDirection:"column",gap:8}}>{lista.map(t=><Linha key={t.id} t={t}/>)}</div>}
-    {grupos&&grupos.map(([k,ts])=>(<div key={k} style={{marginBottom:14}}>
+    {grupos&&grupos.map(([k,ts,gEmp])=>(<div key={k} style={{marginBottom:14}}>
       <div style={{fontSize:13,fontWeight:900,margin:"6px 0",display:"flex",gap:8,alignItems:"center"}}>{k}<span style={{fontSize:11,background:"var(--bg3,#f1f5f9)",borderRadius:10,padding:"1px 8px",color:"var(--text3)"}}>{ts.length}</span></div>
-      <div style={{display:"flex",flexDirection:"column",gap:6}}>{ts.map(t=><Linha key={k+t.id} t={t}/>)}</div>
+      <div style={{display:"flex",flexDirection:"column",gap:6}}>{ts.map(t=><Linha key={k+t.id} t={t} emp={fl.agrupar==="empresa"?gEmp:""}/>)}</div>
     </div>))}
     </>)}
     {delModal}
@@ -12299,7 +12345,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 106</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 107</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

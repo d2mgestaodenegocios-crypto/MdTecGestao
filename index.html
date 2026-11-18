@@ -1595,63 +1595,150 @@ function useConfirmDelete(){
 }
 
 
-function ArchivedPage({data,setData,toast}){
-  const archived=data.tasks.filter(t=>t.status==="archived");
+function ArchivedPage({data,setData,toast,isAdmin}){
+  const archived=useMemo(()=>(data.tasks||[]).filter(t=>t.status==="archived"),[data.tasks]);
   const {ask:askDel,modal:delModal}=useConfirmDelete();
-
-  const restore=(task)=>{
-    setData(d=>({
-      ...d,
-      tasks:d.tasks.map(t=>t.id===task.id?{...t,status:"todo",archivedAt:null}:t)
-    }));
-    toast("↩ Tarefa restaurada!","ok");
-  };
-
-  const delArchived=(id)=>{
-    const t=archived.find(x=>x.id===id);
-    askDel(`Tarefa: "${t?.title||""}"`,()=>{
-      setData(d=>({...d,tasks:d.tasks.filter(t=>t.id!==id)}));
-      toast("Tarefa excluída permanentemente.","warn");
-    });
-  };
-
-  return(
-    <div>
-      <PH title="Arquivadas" icon="📦" badge={archived.length}/>
-      {archived.length===0?(
-        <div style={{textAlign:"center",padding:"60px 20px",color:"#94a3b8"}}>
-          <div style={{fontSize:48,marginBottom:12}}>📦</div>
-          <div style={{fontSize:16,fontWeight:700,marginBottom:6}}>Nenhuma tarefa arquivada</div>
-          <div style={{fontSize:13}}>Tarefas concluídas há mais de {data.archiveDays||7} dias aparecerão aqui automaticamente.</div>
+  const LS="mdtec_arq_filtros";
+  const [fl,setFl]=useState(()=>{try{return {per:"tudo",de:"",ate:"",base:"conclusao",emp:"",col:"",setor:"",etq:"",busca:"",obs:false,agrupar:"lista",...JSON.parse(localStorage.getItem(LS)||"{}")};}catch(e){return {per:"tudo",de:"",ate:"",base:"conclusao",emp:"",col:"",setor:"",etq:"",busca:"",obs:false,agrupar:"lista"};}});
+  const set=(k,v)=>setFl(o=>{const n={...o,[k]:v};try{localStorage.setItem(LS,JSON.stringify(n));}catch(e){}return n;});
+  const [aberto,setAberto]=useState({});
+  const iso=(d)=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+  const intervalo=useMemo(()=>{const h=new Date();
+    if(fl.per==="mes")return[iso(new Date(h.getFullYear(),h.getMonth(),1)),iso(h)];
+    if(fl.per==="mesant")return[iso(new Date(h.getFullYear(),h.getMonth()-1,1)),iso(new Date(h.getFullYear(),h.getMonth(),0))];
+    if(fl.per==="30"||fl.per==="90"){const a=new Date(h);a.setDate(a.getDate()-Number(fl.per));return[iso(a),iso(h)];}
+    if(fl.per==="ano")return[h.getFullYear()+"-01-01",iso(h)];
+    if(fl.per==="custom")return[fl.de||"0000",fl.ate||"9999"];
+    return["0000","9999"];},[fl.per,fl.de,fl.ate]);
+  const dataBase=(t)=>String((fl.base==="arquivamento"?t.archivedAt:fl.base==="prazo"?t.dueDate:(t.completedAt||t.archivedAt))||"").slice(0,10);
+  const empNome=(id)=>(data.companies||[]).find(c=>c.id===id)?.name||"";
+  const colNome=(id)=>(data.collaborators||[]).find(c=>c.id===id)?.name||"";
+  const obsDe=(t)=>[...(t.description?[{tipo:"Descrição",txt:t.description}]:[]),...toArr(t.comments).map(c=>({tipo:"💬 "+(c.author||""),txt:c.text,quando:c.createdAt})),...(isAdmin&&t.internalNote?[{tipo:"🔒 Obs. interna",txt:t.internalNote}]:[])];
+  const lista=useMemo(()=>{const b=fl.busca.trim().toLowerCase();
+    return archived.filter(t=>{const d=dataBase(t);if(fl.per!=="tudo"&&(!d||d<intervalo[0]||d>intervalo[1]))return false;
+      if(fl.emp&&!taskCompanies(t).includes(fl.emp))return false;
+      if(fl.col&&!toArr(t.assignees).includes(fl.col)&&t.completedBy!==fl.col)return false;
+      if(fl.setor&&t.sector!==fl.setor)return false;
+      if(fl.etq&&!toArr(t.labels).includes(fl.etq))return false;
+      if(fl.obs&&!obsDe(t).length)return false;
+      if(b){const txt=[t.title,t.description,t.internalNote,...toArr(t.comments).map(c=>c.text+" "+c.author),...taskCompanies(t).map(empNome),...toArr(t.assignees).map(colNome)].join(" ").toLowerCase();if(!txt.includes(b))return false;}
+      return true;}).sort((a,b)=>dataBase(b).localeCompare(dataBase(a)));
+  },[archived,fl,intervalo,isAdmin]);
+  // resumos
+  const contar=(fn)=>{const m={};lista.forEach(t=>fn(t).forEach(k=>{if(k)m[k]=(m[k]||0)+1;}));return Object.entries(m).sort((a,b)=>b[1]-a[1]);};
+  const porEmp=contar(t=>taskCompanies(t).map(empNome).filter(Boolean).length?taskCompanies(t).map(empNome):["(sem empresa)"]);
+  const porCol=contar(t=>toArr(t.assignees).map(colNome).filter(Boolean).length?toArr(t.assignees).map(colNome):["(sem responsável)"]);
+  const porMes=contar(t=>{const d=dataBase(t);return[d?d.slice(0,7):"(sem data)"];}).sort((a,b)=>a[0].localeCompare(b[0]));
+  const comObs=lista.filter(t=>obsDe(t).length).length;
+  const noPrazo=lista.filter(t=>t.dueDate&&t.completedAt&&String(t.completedAt).slice(0,10)<=t.dueDate).length;
+  const restore=(task)=>{setData(d=>({...d,tasks:d.tasks.map(t=>t.id===task.id?{...t,status:"done",archivedAt:null}:t)}));toast("↩ Tarefa restaurada para Concluído.","ok");};
+  const delArchived=(id)=>{const t=archived.find(x=>x.id===id);askDel(`Tarefa: "${t?.title||""}"`,()=>{setData(d=>({...d,tasks:d.tasks.filter(t=>t.id!==id)}));toast("Tarefa excluída permanentemente.","warn");});};
+  const mesNome=(k)=>{if(!/^\d{4}-\d{2}$/.test(k))return k;const [y,m]=k.split("-");return ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"][Number(m)-1]+"/"+y;};
+  const rotPer={tudo:"Todo o período",mes:"Este mês",mesant:"Mês passado","30":"Últimos 30 dias","90":"Últimos 90 dias",ano:"Este ano",custom:(fl.de?fmtDate(fl.de):"…")+" a "+(fl.ate?fmtDate(fl.ate):"…")}[fl.per];
+  const filtrosTxt=[rotPer,fl.emp&&"Empresa: "+empNome(fl.emp),fl.col&&"Colaborador: "+colNome(fl.col),fl.setor&&"Setor: "+((data.sectors||[]).find(s=>s.id===fl.setor)?.name||""),fl.etq&&"Etiqueta: "+((data.labels||[]).find(l=>l.id===fl.etq)?.name||""),fl.busca&&"Busca: "+fl.busca,fl.obs&&"Só com observações"].filter(Boolean).join(" · ");
+  // exportar
+  const csv=()=>{const esc=(v)=>'"'+String(v??"").replace(/"/g,'""').replace(/\r?\n/g," ")+'"';
+    const linhas=[["Tarefa","Empresa(s)","Responsável(is)","Setor","Prazo","Concluída em","Concluída por","Arquivada em","Checklist","Descrição","Comentários","Obs. interna"].map(esc).join(";")];
+    lista.forEach(t=>{const ck=toArr(t.checklist);linhas.push([t.title,taskCompanies(t).map(empNome).join(", "),toArr(t.assignees).map(colNome).join(", "),(data.sectors||[]).find(s=>s.id===t.sector)?.name||"",fmtDate(t.dueDate),fmtDate(String(t.completedAt||"").slice(0,10)),t.completedByName||colNome(t.completedBy)||"",fmtDate(String(t.archivedAt||"").slice(0,10)),ck.length?ck.filter(c=>c.done).length+"/"+ck.length:"",t.description||"",toArr(t.comments).map(c=>(c.author||"")+": "+c.text).join(" | "),isAdmin?(t.internalNote||""):""].map(esc).join(";"));});
+    const blob=new Blob(["﻿"+linhas.join("\r\n")],{type:"text/csv;charset=utf-8"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="arquivadas-"+iso(new Date())+".csv";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),4000);};
+  const imprimir=()=>{const w=window.open("","_blank");if(!w){toast("⚠️ Permita pop-ups para gerar o PDF.","warn");return;}
+    const e=(s)=>String(s??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+    const linhas=lista.map(t=>`<tr><td><b>${e(t.title)}</b>${obsDe(t).length?`<div class="obs">${obsDe(t).map(o=>`<div><i>${e(o.tipo)}:</i> ${e(o.txt)}</div>`).join("")}</div>`:""}</td><td>${e(taskCompanies(t).map(empNome).join(", "))}</td><td>${e(toArr(t.assignees).map(colNome).join(", "))}</td><td>${e(fmtDate(t.dueDate))}</td><td>${e(fmtDate(String(t.completedAt||"").slice(0,10)))}</td><td>${e(fmtDate(String(t.archivedAt||"").slice(0,10)))}</td></tr>`).join("");
+    const tab=(tit,arr)=>`<div class="box"><h3>${tit}</h3>${arr.slice(0,12).map(([k,v])=>`<div class="lin"><span>${e(k)}</span><b>${v}</b></div>`).join("")}</div>`;
+    w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Relatório de tarefas arquivadas</title><style>
+      body{font-family:system-ui,'Segoe UI',Roboto,sans-serif;color:#0f172a;margin:24px;font-size:12px}h1{font-size:20px;margin:0}h3{font-size:12px;margin:0 0 6px;text-transform:uppercase;color:#475569}
+      .sub{color:#64748b;margin:4px 0 14px}.kpis{display:flex;gap:10px;margin-bottom:12px}.kpi{border:1px solid #e2e8f0;border-radius:10px;padding:8px 12px;flex:1}.kpi b{font-size:20px;display:block}
+      .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}.box{border:1px solid #e2e8f0;border-radius:10px;padding:8px 10px}.lin{display:flex;justify-content:space-between;border-top:1px solid #f1f5f9;padding:2px 0}
+      table{width:100%;border-collapse:collapse}th{background:#f1f5f9;text-align:left;font-size:10px;text-transform:uppercase;padding:6px}td{border-top:1px solid #e2e8f0;padding:6px;vertical-align:top}.obs{color:#475569;font-size:11px;margin-top:3px}
+      tr{break-inside:avoid}@page{size:A4;margin:12mm}@media print{.nao{display:none}}</style></head><body>
+      <button class="nao" onclick="print()" style="float:right;padding:8px 14px;border:none;background:#4f46e5;color:#fff;border-radius:8px;font-weight:700;cursor:pointer">Salvar PDF / Imprimir</button>
+      <h1>📦 Relatório de tarefas arquivadas</h1><div class="sub">${e(filtrosTxt)} · base: ${fl.base==="arquivamento"?"data de arquivamento":fl.base==="prazo"?"prazo":"data de conclusão"} · gerado em ${new Date().toLocaleString("pt-BR")}</div>
+      <div class="kpis"><div class="kpi">Tarefas<b>${lista.length}</b></div><div class="kpi">Concluídas no prazo<b>${lista.length?Math.round(noPrazo/lista.length*100):0}%</b></div><div class="kpi">Com observações<b>${comObs}</b></div><div class="kpi">Empresas<b>${porEmp.filter(x=>x[0]!=="(sem empresa)").length}</b></div></div>
+      <div class="grid">${tab("Por empresa",porEmp)}${tab("Por colaborador",porCol)}${tab("Por mês",porMes.map(([k,v])=>[mesNome(k),v]))}</div>
+      <table><thead><tr><th>Tarefa / observações</th><th>Empresa</th><th>Responsável</th><th>Prazo</th><th>Concluída</th><th>Arquivada</th></tr></thead><tbody>${linhas}</tbody></table>
+      <script>setTimeout(()=>print(),600)<\/script></body></html>`);w.document.close();};
+  const inp={padding:"7px 10px",borderRadius:9,border:"1.5px solid var(--border)",fontSize:12.5,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)"};
+  const chip=(on)=>({padding:"5px 11px",borderRadius:20,border:"1.5px solid "+(on?"#6366f1":"var(--border)"),background:on?"#6366f1":"var(--bg2)",color:on?"#fff":"var(--text3)",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"});
+  const Barra=({itens,cor})=>{const mx=Math.max(1,...itens.map(x=>x[1]));return(<div style={{display:"flex",flexDirection:"column",gap:5}}>{itens.slice(0,8).map(([k,v])=>(<div key={k} style={{display:"flex",alignItems:"center",gap:8,fontSize:12}}>
+    <span style={{width:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"var(--text2)"}} title={k}>{k}</span>
+    <div style={{flex:1,height:9,background:"var(--bg3,#f1f5f9)",borderRadius:5,overflow:"hidden"}}><div style={{width:(v/mx*100)+"%",height:"100%",background:cor,borderRadius:5}}/></div>
+    <b style={{width:28,textAlign:"right"}}>{v}</b></div>))}{!itens.length&&<span style={{fontSize:12,color:"var(--text4)"}}>—</span>}</div>);};
+  const card={background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:14,padding:"12px 14px"};
+  const Linha=({t})=>{const co=taskCompanies(t).map(empNome).filter(Boolean);const asg=(data.collaborators||[]).filter(c=>toArr(t.assignees).includes(c.id));const ob=obsDe(t);const ab=aberto[t.id];const ck=toArr(t.checklist);
+    return(<div style={{...card,padding:"10px 14px"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div onClick={()=>ob.length&&setAberto(o=>({...o,[t.id]:!o[t.id]}))} style={{fontSize:13.5,fontWeight:800,color:"var(--text)",cursor:ob.length?"pointer":"default"}}>{t.title}</div>
+          <div style={{display:"flex",gap:10,marginTop:3,flexWrap:"wrap",fontSize:11.5,color:"var(--text3)"}}>
+            {co.length>0&&<span style={{fontWeight:700,color:"#4f46e5"}}>🏢 {co.join(", ")}</span>}
+            {asg.length>0&&<span>👤 {asg.map(u=>u.name).join(", ")}</span>}
+            {t.dueDate&&<span>📅 prazo {fmtDate(t.dueDate)}</span>}
+            {t.completedAt&&<span style={{color:"#15803d"}}>✅ concluída {fmtDate(String(t.completedAt).slice(0,10))}{t.completedByName?" por "+t.completedByName:""}</span>}
+            {t.archivedAt&&<span>📦 arquivada {fmtDate(String(t.archivedAt).slice(0,10))}{t.archivedBy?" por "+t.archivedBy:""}</span>}
+            {ck.length>0&&<span>☑ {ck.filter(c=>c.done).length}/{ck.length}</span>}
+          </div>
         </div>
-      ):(
-        <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          {archived.map(t=>{
-            const co=(taskCompanies(t).map(id=>data.companies.find(c=>c.id===id)).filter(Boolean))[0]||null;
-            const asg=data.collaborators.filter(c=>t.assignees?.includes(c.id));
-            return(
-              <div key={t.id} style={{background:"var(--bg2)",borderRadius:12,padding:"12px 16px",border:"1px solid var(--border)",display:"flex",alignItems:"center",gap:12,opacity:0.85}}>
-                <div style={{width:8,height:8,borderRadius:"50%",background:"#94a3b8",flexShrink:0}}/>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:13,fontWeight:700,color:"#64748b",textDecoration:"line-through",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</div>
-                  <div style={{display:"flex",gap:8,marginTop:3,flexWrap:"wrap"}}>
-                    {co&&<span style={{fontSize:11,color:co.color,fontWeight:700}}>{co.logo}</span>}
-                    {t.archivedAt&&<span style={{fontSize:11,color:"#94a3b8"}}>Arquivado em {fmtDate(t.archivedAt)}</span>}
-                    {asg.slice(0,3).map((u,i)=><Av key={u.id} initials={u.initials} color={u.color} size={18} title={u.name}/>)}
-                  </div>
-                </div>
-                <div style={{display:"flex",gap:6,flexShrink:0}}>
-                  <Btn onClick={()=>restore(t)} v="success" sz="sm">↩ Restaurar</Btn>
-                  <Btn onClick={()=>delArchived(t.id)} v="danger" sz="sm">🗑</Btn>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-      {delModal}
+        {ob.length>0&&<button onClick={()=>setAberto(o=>({...o,[t.id]:!o[t.id]}))} style={{...chip(ab),padding:"4px 10px"}}>💬 {ob.length} obs.</button>}
+        {isAdmin&&<Btn onClick={()=>restore(t)} v="success" sz="sm">↩ Restaurar</Btn>}
+        {isAdmin&&<Btn onClick={()=>delArchived(t.id)} v="danger" sz="sm">🗑</Btn>}
+      </div>
+      {ab&&<div style={{marginTop:8,display:"flex",flexDirection:"column",gap:5,borderTop:"1px dashed var(--border)",paddingTop:8}}>
+        {ob.map((o,i)=><div key={i} style={{fontSize:12.5,color:"var(--text2)",whiteSpace:"pre-wrap",lineHeight:1.45}}><b style={{color:"var(--text3)"}}>{o.tipo}{o.quando?" · "+new Date(o.quando).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):""}:</b> {o.txt}</div>)}
+        {ck.length>0&&<div style={{fontSize:12,color:"var(--text3)"}}><b>Checklist:</b> {ck.map(c=>(c.done?"✔ ":"✗ ")+c.text).join(" · ")}</div>}
+      </div>}
+    </div>);};
+  const grupos=fl.agrupar==="empresa"?(()=>{const g={};lista.forEach(t=>{const ks=taskCompanies(t).map(empNome).filter(Boolean);(ks.length?ks:["(sem empresa)"]).forEach(k=>(g[k]=g[k]||[]).push(t));});return Object.entries(g).sort((a,b)=>b[1].length-a[1].length);})()
+    :fl.agrupar==="colaborador"?(()=>{const g={};lista.forEach(t=>{const ks=toArr(t.assignees).map(colNome).filter(Boolean);(ks.length?ks:["(sem responsável)"]).forEach(k=>(g[k]=g[k]||[]).push(t));});return Object.entries(g).sort((a,b)=>b[1].length-a[1].length);})()
+    :fl.agrupar==="mes"?(()=>{const g={};lista.forEach(t=>{const k=mesNome(dataBase(t).slice(0,7)||"(sem data)");(g[k]=g[k]||[]).push(t);});return Object.entries(g);})():null;
+  return(<div>
+    <PH title="Arquivadas" icon="📦" badge={archived.length}/>
+    {archived.length===0?(<div style={{textAlign:"center",padding:"60px 20px",color:"#94a3b8"}}><div style={{fontSize:48,marginBottom:12}}>📦</div><div style={{fontSize:16,fontWeight:700,marginBottom:6}}>Nenhuma tarefa arquivada</div><div style={{fontSize:13}}>O administrador arquiva as concluídas pelo botão “📦 Arquivar todas” na coluna Concluído do Kanban.</div></div>):(<>
+    {/* filtros */}
+    <div style={{...card,display:"flex",flexDirection:"column",gap:10,marginBottom:12}}>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+        <span style={{fontSize:12,fontWeight:800,color:"var(--text3)"}}>📅 Período:</span>
+        {[["tudo","Tudo"],["mes","Este mês"],["mesant","Mês passado"],["30","30 dias"],["90","90 dias"],["ano","Este ano"],["custom","Datas"]].map(([k,l])=><button key={k} onClick={()=>set("per",k)} style={chip(fl.per===k)}>{l}</button>)}
+        {fl.per==="custom"&&<><input type="date" value={fl.de} onChange={e=>set("de",e.target.value)} style={inp}/><span style={{fontSize:12,color:"var(--text3)"}}>até</span><input type="date" value={fl.ate} onChange={e=>set("ate",e.target.value)} style={inp}/></>}
+        <select value={fl.base} onChange={e=>set("base",e.target.value)} style={{...inp,marginLeft:"auto"}} title="Qual data usar no filtro"><option value="conclusao">pela data de conclusão</option><option value="arquivamento">pela data de arquivamento</option><option value="prazo">pelo prazo</option></select>
+      </div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+        <select value={fl.emp} onChange={e=>set("emp",e.target.value)} style={inp}><option value="">🏢 Todas as empresas</option>{(data.companies||[]).slice().sort((a,b)=>(a.name||"").localeCompare(b.name||"")).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>
+        <select value={fl.col} onChange={e=>set("col",e.target.value)} style={inp}><option value="">👤 Todos os colaboradores</option>{(data.collaborators||[]).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>
+        {(data.sectors||[]).length>0&&<select value={fl.setor} onChange={e=>set("setor",e.target.value)} style={inp}><option value="">🏷 Todos os setores</option>{data.sectors.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select>}
+        {(data.labels||[]).length>0&&<select value={fl.etq} onChange={e=>set("etq",e.target.value)} style={inp}><option value="">🔖 Todas as etiquetas</option>{data.labels.map(l=><option key={l.id} value={l.id}>{l.name}</option>)}</select>}
+        <input value={fl.busca} onChange={e=>set("busca",e.target.value)} placeholder="🔍 Buscar em título, observações, comentários…" style={{...inp,flex:"1 1 220px"}}/>
+        <label style={{display:"flex",alignItems:"center",gap:5,fontSize:12,fontWeight:700,color:"var(--text2)",cursor:"pointer"}}><input type="checkbox" checked={fl.obs} onChange={e=>set("obs",e.target.checked)}/>só com observações</label>
+        <button onClick={()=>setFl(o=>{const n={...o,per:"tudo",de:"",ate:"",emp:"",col:"",setor:"",etq:"",busca:"",obs:false};try{localStorage.setItem(LS,JSON.stringify(n));}catch(e){}return n;})} style={{...chip(false),padding:"5px 10px"}}>✕ limpar</button>
+      </div>
     </div>
-  );
+    {/* resumo */}
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10,marginBottom:12}}>
+      {[["Tarefas",lista.length,"#4f46e5"],["Concluídas no prazo",(lista.length?Math.round(noPrazo/lista.length*100):0)+"%","#16a34a"],["Com observações",comObs,"#d97706"],["Empresas atendidas",porEmp.filter(x=>x[0]!=="(sem empresa)").length,"#0891b2"]].map(([l,v,c])=>(<div key={l} style={card}><div style={{fontSize:11,fontWeight:800,color:"var(--text3)",textTransform:"uppercase"}}>{l}</div><div style={{fontSize:24,fontWeight:900,color:c}}>{v}</div></div>))}
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:10,marginBottom:12}}>
+      <div style={card}><div style={{fontSize:12,fontWeight:900,marginBottom:8}}>🏢 Por empresa</div><Barra itens={porEmp} cor="#6366f1"/></div>
+      <div style={card}><div style={{fontSize:12,fontWeight:900,marginBottom:8}}>👤 Por colaborador</div><Barra itens={porCol} cor="#16a34a"/></div>
+      <div style={card}><div style={{fontSize:12,fontWeight:900,marginBottom:8}}>📅 Por mês</div><Barra itens={porMes.map(([k,v])=>[mesNome(k),v])} cor="#f59e0b"/></div>
+    </div>
+    {/* lista */}
+    <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",marginBottom:8}}>
+      <span style={{fontSize:12,fontWeight:800,color:"var(--text3)"}}>Ver:</span>
+      {[["lista","📄 Lista"],["empresa","🏢 Por empresa"],["colaborador","👤 Por colaborador"],["mes","📅 Por mês"]].map(([k,l])=><button key={k} onClick={()=>set("agrupar",k)} style={chip(fl.agrupar===k)}>{l}</button>)}
+      <span style={{fontSize:12,color:"var(--text4)"}}>{lista.length} de {archived.length}</span>
+      <div style={{marginLeft:"auto",display:"flex",gap:6}}>
+        <Btn onClick={csv} v="ghost" sz="sm">⬇ Excel (CSV)</Btn>
+        <Btn onClick={imprimir} sz="sm">🖨 Relatório em PDF</Btn>
+      </div>
+    </div>
+    {lista.length===0&&<div style={{...card,textAlign:"center",color:"var(--text4)",fontSize:13}}>Nenhuma tarefa com esses filtros.</div>}
+    {!grupos&&<div style={{display:"flex",flexDirection:"column",gap:8}}>{lista.map(t=><Linha key={t.id} t={t}/>)}</div>}
+    {grupos&&grupos.map(([k,ts])=>(<div key={k} style={{marginBottom:14}}>
+      <div style={{fontSize:13,fontWeight:900,margin:"6px 0",display:"flex",gap:8,alignItems:"center"}}>{k}<span style={{fontSize:11,background:"var(--bg3,#f1f5f9)",borderRadius:10,padding:"1px 8px",color:"var(--text3)"}}>{ts.length}</span></div>
+      <div style={{display:"flex",flexDirection:"column",gap:6}}>{ts.map(t=><Linha key={k+t.id} t={t}/>)}</div>
+    </div>))}
+    </>)}
+    {delModal}
+  </div>);
 }
 
 
@@ -1824,7 +1911,7 @@ function ConfigPage({data,setData,toast,deduplicateTasks,isAdmin,featureFlags,sa
       tasks:prev.tasks.map(t=>{
         if(t.status!=="done") return t;
         const dt=new Date((t.completedAt||t.dueDate||t.createdAt||"2000-01-01")+"T12:00:00");
-        if(dt<cutoff){ count++; return {...t,status:"archived",archivedAt:todayStr()}; }
+        if(dt<cutoff){ count++; return {...t,status:"archived",archivedAt:isoLocalHoje()}; }
         return t;
       })
     }));
@@ -1867,8 +1954,13 @@ function ConfigPage({data,setData,toast,deduplicateTasks,isAdmin,featureFlags,sa
             <Btn onClick={runArchive} v="ghost">📦 Arquivar agora</Btn>
           </div>
         </div>
+        <label style={{display:"flex",alignItems:"center",gap:8,marginTop:14,fontSize:13,fontWeight:700,color:"var(--text2)",cursor:"pointer"}}>
+          <input type="checkbox" checked={!!data.archiveAuto} onChange={e=>setData(d=>({...d,archiveAuto:e.target.checked}))}/>
+          Arquivar automaticamente as concluídas há mais de {data.archiveDays||7} dias (quando um administrador abrir o sistema)
+        </label>
+        <div style={{fontSize:12,color:"#64748b",marginTop:4}}>Desligado: só o administrador arquiva, pelo botão <b>📦 Arquivar todas</b> na coluna Concluído do Kanban ou pelo 📦 de cada card.</div>
         <div style={{marginTop:16,padding:"10px 14px",borderRadius:9,background:"var(--bg3)",border:"1px solid var(--border)",fontSize:12,color:"#64748b"}}>
-          Configuração atual: tarefas concluídas há mais de <strong>{data.archiveDays||7} dias</strong> são arquivadas automaticamente ao abrir o sistema.
+          {data.archiveAuto?<>Configuração atual: tarefas concluídas há mais de <strong>{data.archiveDays||7} dias</strong> são arquivadas automaticamente quando um administrador abre o sistema.</>:<>Arquivamento automático <strong>desligado</strong> — o administrador arquiva manualmente.</>}
           {archived>0&&<span style={{marginLeft:8,color:"#6366f1",fontWeight:700}}>{archived} tarefa{archived!==1?"s":""} arquivada{archived!==1?"s":""}.</span>}
         </div>
       </div>
@@ -3707,7 +3799,7 @@ function QuickCreateBar({data,onAdd}){
   );
 }
 
-function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusChange,myCollabId,myCollab,isAdmin,onArchive,onPomodoro,onPin,onMoveTop,onUrgent}){
+function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusChange,myCollabId,myCollab,isAdmin,onArchive,onPomodoro,onPin,onMoveTop,onUrgent,onArquivarConcluidas}){
   const [kanbanFilter,setKanbanFilter]=useState("week");
   const [ownerFilter,setOwnerFilter]=useState("all");
   const [collabFilter,setCollabFilter]=useState(""); // NEW: filter by specific collaborator
@@ -3913,6 +4005,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusC
                       </div>
                     );
                   })()}
+                  {st.id==="done"&&onArquivarConcluidas&&tasks.length>0&&<button onClick={onArquivarConcluidas} title="Arquivar todas as tarefas concluídas (só administrador)" style={{background:"#f1f5f9",border:"1px solid #cbd5e1",borderRadius:7,height:24,padding:"0 8px",cursor:"pointer",color:"#475569",fontSize:11,fontWeight:800,whiteSpace:"nowrap",fontFamily:"inherit"}}>📦 Arquivar todas</button>}
                   <button onClick={()=>onAdd(st.id)} style={{background:st.c+"20",border:"none",borderRadius:7,width:24,height:24,cursor:"pointer",color:st.c,fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
                 </div>
               </div>
@@ -11243,7 +11336,8 @@ function App(){
   // Auto-archive: tarefas concluídas há mais de archiveDays (padrão 7) dias
   // DEVE ficar ANTES dos early returns (regra dos hooks React)
   useEffect(()=>{
-    if(!synced) return;
+    // só o administrador arquiva — e só se o arquivamento automático estiver ligado em Configurações
+    if(!synced||!isAdmin||!data.archiveAuto) return;
     const days=data.archiveDays||7;
     const cutoff=new Date();
     cutoff.setDate(cutoff.getDate()-days);
@@ -11335,9 +11429,19 @@ function App(){
 
   // Arquivar tarefa manualmente
   const archiveTask=(id)=>{
-    if(!isAdmin&&!myPerms.canArchive){toast("🔒 Você não tem permissão para arquivar tarefas.","err");return;}
-    setData(d=>({...d,tasks:d.tasks.map(t=>t.id===id?{...t,status:"archived",archivedAt:todayStr()}:t)}));
+    if(!isAdmin){toast("🔒 Só o administrador pode arquivar tarefas.","err");return;}
+    setData(d=>({...d,tasks:d.tasks.map(t=>t.id===id?{...t,status:"archived",archivedAt:isoLocalHoje(),archivedBy:userName||""}:t)}));
     toast("📦 Tarefa arquivada.","ok");
+  };
+  // arquiva de uma vez tudo o que está em Concluído
+  const arquivarConcluidas=()=>{
+    if(!isAdmin){toast("🔒 Só o administrador pode arquivar tarefas.","err");return;}
+    const ids=data.tasks.filter(t=>t.status==="done").map(t=>t.id);
+    if(!ids.length){toast("Nenhuma tarefa em Concluído.","ok");return;}
+    if(!window.confirm(`Arquivar as ${ids.length} tarefa(s) que estão em Concluído?\n\nElas saem do Kanban e ficam em 📦 Arquivadas (com relatórios). Dá para restaurar depois.`))return;
+    const hoje=isoLocalHoje();const set=new Set(ids);
+    setData(d=>({...d,tasks:d.tasks.map(t=>set.has(t.id)&&t.status==="done"?{...t,status:"archived",archivedAt:hoje,archivedBy:userName||""}:t)}));
+    toast(`📦 ${ids.length} tarefa(s) arquivada(s).`,"ok");
   };
 
   // Alertar tarefas atrasadas via sino ao carregar
@@ -12108,7 +12212,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 100</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 101</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>
@@ -12200,7 +12304,7 @@ function App(){
               </div>
             </div>
           )}
-          <KanbanView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onAdd={openNew} onDuplicate={duplicateTask} onComplete={quickComplete} onStatusChange={dragStatusChange} myCollabId={myCollabId} myCollab={myCollab} isAdmin={isAdmin} onArchive={archiveTask} onPomodoro={t=>setPomodoroTask({task:t,n:Date.now()})}
+          <KanbanView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onAdd={openNew} onDuplicate={duplicateTask} onComplete={quickComplete} onStatusChange={dragStatusChange} myCollabId={myCollabId} myCollab={myCollab} isAdmin={isAdmin} onArchive={isAdmin?archiveTask:null} onArquivarConcluidas={isAdmin?arquivarConcluidas:null} onPomodoro={t=>setPomodoroTask({task:t,n:Date.now()})}
             onPin={(id,val)=>{setData(d=>({...d,tasks:d.tasks.map(t=>t.id===id?{...t,pinned:val}:t)}));toast(val?"📌 Tarefa fixada no topo!":"📍 Tarefa desafixada.","ok");}}
             onMoveTop={(id,colId)=>{
               setData(d=>{
@@ -12241,7 +12345,7 @@ function App(){
         {page==="marcadores"    && <LabelsPage data={data} setData={setData}/>}
         {page==="recorrencias"  && <RecurrencesPage data={data} setData={setData}/>}
         {page==="painel-rec"    && <PainelRecorrencias data={data} setData={setData} onEdit={openEdit} toast={toast}/>}
-        {page==="arquivadas"    && <ArchivedPage data={data} setData={setData} toast={toast}/>}
+        {page==="arquivadas"    && <ArchivedPage data={isAdmin?data:dataForUser} setData={setData} toast={toast} isAdmin={isAdmin}/>}
         {page==="configuracoes" && <ConfigPage data={data} setData={setData} toast={toast} deduplicateTasks={deduplicateTasks} isAdmin={isAdmin} featureFlags={featureFlags} saveFeatureFlags={saveFeatureFlags} DEFAULT_FEATURE_FLAGS={DEFAULT_FEATURE_FLAGS}/>}
         {page==="auditoria"     && <AuditoriaPage data={data} setData={setData}/>}
         {page==="contabil"      && <ContabilPage toast={toast} data={data} isAdmin={isAdmin} myCollab={myCollab} featureFlags={featureFlags}/>}

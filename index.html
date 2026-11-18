@@ -1671,15 +1671,15 @@ function ArchivedPage({data,setData,toast,isAdmin}){
     const linhas=[["Tarefa","Empresa(s)","Responsável(is)","Setor","Prazo","Executada em","Executada por","Arquivada em","Checklist","Descrição","Comentários","Obs. interna"].map(esc).join(";")];
     lista.forEach(t=>{const ck=itensDe(t,fl.emp);linhas.push([t.title,fl.emp?empNome(fl.emp):taskCompaniesAll(t).map(empNome).join(", "),toArr(t.assignees).map(colNome).join(", "),(data.sectors||[]).find(s=>s.id===t.sector)?.name||"",fmtDate(t.dueDate),fmtDate(execEm(t,fl.emp)),execPor(t,fl.emp)||colNome(t.completedBy)||"",fmtDate(String(t.archivedAt||"").slice(0,10)),ck.length?ck.filter(c=>c.done).length+"/"+ck.length+" — "+ck.map(c=>ckRotulo(c,data)).join(" | "):"",t.description||"",toArr(t.comments).map(c=>(c.author||"")+": "+c.text).join(" | "),isAdmin?(t.internalNote||""):""].map(esc).join(";"));});
     const blob=new Blob(["﻿"+linhas.join("\r\n")],{type:"text/csv;charset=utf-8"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="arquivadas-"+iso(new Date())+".csv";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),4000);};
-  const imprimir=()=>{const w=window.open("","_blank");if(!w){toast("⚠️ Permita pop-ups para gerar o PDF.","warn");return;}
+  const imprimir=()=>{
     const e=(s)=>String(s??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
     const linhas=lista.map(t=>`<tr><td><b>${e(t.title)}</b>${obsDe(t).length?`<div class="obs">${obsDe(t).map(o=>`<div><i>${e(o.tipo)}:</i> ${e(o.txt)}</div>`).join("")}</div>`:""}${itensDe(t,fl.emp).length?`<div class="obs"><i>Checklist:</i> ${itensDe(t,fl.emp).map(c=>e((c.done?"✔ ":"☐ ")+c.text)).join(" · ")}</div>`:""}</td><td>${e(fl.emp?empNome(fl.emp):taskCompaniesAll(t).map(empNome).join(", "))}</td><td>${e(toArr(t.assignees).map(colNome).join(", "))}</td><td>${e(fmtDate(t.dueDate))}</td><td>${e(fmtDate(execEm(t,fl.emp)))}</td><td>${e(fmtDate(String(t.archivedAt||"").slice(0,10)))}</td></tr>`).join("");
     const tab=(tit,arr)=>`<div class="box"><h3>${tit}</h3>${arr.slice(0,12).map(([k,v])=>`<div class="lin"><span>${e(k)}</span><b>${v}</b></div>`).join("")}</div>`;
-    w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Relatório de tarefas arquivadas</title><style>
+    abrirRelatorioPDF({titulo:"Relatório interno de tarefas arquivadas",nome:"relatorio-interno-"+iso(new Date()),html:`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Relatório de tarefas arquivadas</title><style>
       body{font-family:system-ui,'Segoe UI',Roboto,sans-serif;color:#0f172a;margin:24px;font-size:12px}h1{font-size:20px;margin:0}h3{font-size:12px;margin:0 0 6px;text-transform:uppercase;color:#475569}
       .sub{color:#64748b;margin:4px 0 14px}.kpis{display:flex;gap:10px;margin-bottom:12px}.kpi{border:1px solid #e2e8f0;border-radius:10px;padding:8px 12px;flex:1}.kpi b{font-size:20px;display:block}
       .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}.box{border:1px solid #e2e8f0;border-radius:10px;padding:8px 10px}.lin{display:flex;justify-content:space-between;border-top:1px solid #f1f5f9;padding:2px 0}
-      table{width:100%;border-collapse:collapse}th{background:#f1f5f9;text-align:left;font-size:10px;text-transform:uppercase;padding:6px}td{border-top:1px solid #e2e8f0;padding:6px;vertical-align:top}.obs{color:#475569;font-size:11px;margin-top:3px}
+      table{width:100%;border-collapse:collapse}th{background:#f1f5f9;text-align:left;font-size:10px;text-transform:uppercase;padding:6px}td{border-top:1px solid #e2e8f0;padding:6px;vertical-align:top}.obs{color:#475569;font-size:11px;margin-top:3px;overflow-wrap:anywhere;word-break:break-word}td{overflow-wrap:anywhere}table{table-layout:fixed}
       tr{break-inside:avoid}@page{size:A4;margin:12mm}@media print{.nao{display:none}}</style></head><body>
       <button class="nao" onclick="print()" style="position:fixed;right:18px;bottom:18px;box-shadow:0 4px 14px rgba(0,0,0,.18);padding:10px 16px;border:none;background:${COR_REL_AZUL};color:#fff;border-radius:8px;font-weight:700;cursor:pointer">Salvar PDF / Imprimir</button>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><img src="${LOGO_REL}" alt="logo" style="height:40px"><div style="text-align:right;font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:700">Relatório interno</div></div>
@@ -1687,13 +1687,12 @@ function ArchivedPage({data,setData,toast,isAdmin}){
       <h1 style="color:${COR_REL_AZUL}">Relatório de tarefas arquivadas</h1><div class="sub">${e(filtrosTxt)} · base: ${fl.base==="arquivamento"?"data de arquivamento":fl.base==="prazo"?"prazo":"data de execução"} · gerado em ${new Date().toLocaleString("pt-BR")}</div>
       <div class="kpis"><div class="kpi">Tarefas<b>${lista.length}</b></div><div class="kpi">Concluídas no prazo<b>${lista.length?Math.round(noPrazo/lista.length*100):0}%</b></div><div class="kpi">Com observações<b>${comObs}</b></div><div class="kpi">Empresas<b>${porEmp.filter(x=>x[0]!=="(sem empresa)").length}</b></div></div>
       <div class="grid">${tab("Por empresa",porEmp)}${tab("Por colaborador",porCol)}${tab("Por mês",porMes.map(([k,v])=>[mesNome(k),v]))}</div>
-      <table><thead><tr><th>Tarefa / observações</th><th>Empresa</th><th>Responsável</th><th>Prazo</th><th>Executada</th><th>Arquivada</th></tr></thead><tbody>${linhas}</tbody></table>
-      <script>setTimeout(()=>print(),600)<\/script></body></html>`);w.document.close();};
+      <table><thead><tr><th style="width:38%">Tarefa / observações</th><th style="width:15%">Empresa</th><th style="width:14%">Responsável</th><th style="width:11%">Prazo</th><th style="width:11%">Executada</th><th style="width:11%">Arquivada</th></tr></thead><tbody>${linhas}</tbody></table>
+      </body></html>`},toast);};
   // ── Relatório PARA O CLIENTE: só a empresa escolhida, só o que foi executado para ela ──
   const relCliente=()=>{
     if(!fl.emp){toast("🏢 Escolha a empresa no filtro para gerar o relatório do cliente.","warn",6000);return;}
     const emp=(data.companies||[]).find(c=>c.id===fl.emp)||{name:empNome(fl.emp)};
-    const w=window.open("","_blank");if(!w){toast("⚠️ Permita pop-ups para gerar o PDF.","warn");return;}
     const e=(x)=>String(x??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
     // concluídas (ainda no Kanban) + arquivadas, com os mesmos filtros
     const fonte=(data.tasks||[]).filter(t=>(t.status==="done"||t.status==="archived")&&passa(t));
@@ -1707,7 +1706,7 @@ function ArchivedPage({data,setData,toast,isAdmin}){
     const barras=Object.entries(meses).sort().map(([k,v])=>`<div class="bar"><span>${e(mesNome(k))}</span><div><i style="width:${v/mx*100}%"></i></div><b>${v}</b></div>`).join("");
     const linhas=ativ.map(a=>`<tr><td class="dt">${e(fmtDate(a.data))}</td><td><b>${e(a.t.title)}</b>${a.itens.length?`<ul>${a.itens.map(c=>`<li>${e(c.text)}</li>`).join("")}</ul>`:""}</td><td class="por">${e(a.por)}</td></tr>`).join("");
     const cor=COR_REL_AZUL,cor2=COR_REL_LARANJA;
-    w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Atividades executadas — ${e(emp.name)}</title><style>
+    abrirRelatorioPDF({titulo:"Relatório para o cliente — "+emp.name,nome:"atividades-"+String(emp.name||"cliente").toLowerCase().replace(/[^a-z0-9]+/gi,"-")+"-"+iso(new Date()),html:`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Atividades executadas — ${e(emp.name)}</title><style>
       *{box-sizing:border-box}body{font-family:'Segoe UI',system-ui,Roboto,Arial,sans-serif;color:#1e293b;margin:0;padding:30px 34px;font-size:12.5px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
       .cab{display:flex;justify-content:space-between;align-items:center;gap:20px}
       .cab img{height:46px}.cab .ttl{text-align:right}.cab h1{font-size:19px;margin:0;color:${cor};letter-spacing:-.2px}.cab .tp{font-size:10.5px;color:#64748b;text-transform:uppercase;letter-spacing:1.2px;font-weight:700}
@@ -1729,9 +1728,9 @@ function ArchivedPage({data,setData,toast,isAdmin}){
       <div class="kpis"><div class="kpi"><div class="l">Atividades executadas</div><b>${ativ.length}</b></div>${nItens?`<div class="kpi"><div class="l">Etapas concluídas</div><b>${nItens}</b></div>`:""}<div class="kpi"><div class="l">Meses no período</div><b>${Object.keys(meses).length}</b></div></div>
       ${Object.keys(meses).length>1?`<div class="box"><h3>Atividades por mês</h3>${barras}</div>`:""}
       <h2>Detalhamento</h2>
-      ${ativ.length?`<table><thead><tr><th>Data</th><th>Atividade</th><th>Executado por</th></tr></thead><tbody>${linhas}</tbody></table>`:`<p style="color:#64748b">Nenhuma atividade executada no período.</p>`}
+      ${ativ.length?`<table><thead><tr><th style="width:96px">Data</th><th>Atividade</th><th style="width:160px">Executado por</th></tr></thead><tbody>${linhas}</tbody></table>`:`<p style="color:#64748b">Nenhuma atividade executada no período.</p>`}
       <div class="rod"><span>${e(emp.name)} · ${e(rotPer)}</span><span>Emitido em ${new Date().toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"})}</span></div>
-      <script>setTimeout(()=>print(),700)<\/script></body></html>`);w.document.close();};
+      </body></html>`},toast);};
   const inp={padding:"7px 10px",borderRadius:9,border:"1.5px solid var(--border)",fontSize:12.5,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)"};
   const chip=(on)=>({padding:"5px 11px",borderRadius:20,border:"1.5px solid "+(on?"#6366f1":"var(--border)"),background:on?"#6366f1":"var(--bg2)",color:on?"#fff":"var(--text3)",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"});
   const Barra=({itens,cor})=>{const mx=Math.max(1,...itens.map(x=>x[1]));return(<div style={{display:"flex",flexDirection:"column",gap:5}}>{itens.slice(0,8).map(([k,v])=>(<div key={k} style={{display:"flex",alignItems:"center",gap:8,fontSize:12}}>
@@ -1881,7 +1880,11 @@ function RelatorioPage({data,isAdmin}){
         <label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,fontWeight:700,color:"#64748b",cursor:"pointer"}}>
           <input type="checkbox" checked={showArq} onChange={e=>setShowArq(e.target.checked)} style={{accentColor:"#64748b"}}/> Arquivadas
         </label>
-        <Btn onClick={()=>window.print()} xs={{marginLeft:"auto",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",border:"none"}}>🖨 Imprimir / PDF</Btn>
+        <Btn onClick={()=>{const el=document.querySelector(".print-page");if(!el)return;
+          const vars=":root{--bg:#fff;--bg2:#fff;--bg3:#f8fafc;--bg4:#f9fafb;--text:#0f172a;--text2:#374151;--text3:#64748b;--text4:#94a3b8;--border:#f1f5f9;--border2:#e2e8f0;--border3:#e5e7eb}";
+          abrirRelatorioPDF({titulo:"Relatório — "+company.name,nome:"relatorio-"+String(company.name||"empresa").toLowerCase().replace(/[^a-z0-9]+/gi,"-"),
+            html:`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><style>${vars}body{font-family:'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif;color:#0f172a}.print-page{box-shadow:none!important;border:none!important;max-width:none!important;border-radius:0!important}.print-page>div{padding-left:4px!important;padding-right:4px!important}</style></head><body>${el.outerHTML}</body></html>`});}}
+          xs={{marginLeft:"auto",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",border:"none"}}>📄 Gerar PDF</Btn>
       </div>
 
       <div className="print-page" style={{background:"#fff",borderRadius:16,border:"1px solid var(--border)",boxShadow:"0 2px 12px rgba(0,0,0,.08)",overflow:"hidden",maxWidth:900}}>
@@ -10607,6 +10610,121 @@ function IgPDFModal({req,onClose,contasOp,montar,toast,imprimir}){
   </Modal>);
 }
 
+// ── PDF dos relatórios (tarefas, empresas, contábil) gerado DENTRO do app ──────────
+// Recebe o HTML do relatório, desenha numa página A4 escondida, quebra as páginas
+// entre linhas/blocos (nunca no meio de uma linha) e monta o PDF com prévia.
+const REL_PDF_CSS=`html,body{margin:0!important;background:#fff!important}
+body{width:794px!important;padding:0 30px!important;box-sizing:border-box!important;overflow:visible!important}
+.nao,.naoimprime,.no-print,script{display:none!important}
+*{word-break:normal;overflow-wrap:anywhere}
+table{table-layout:fixed;width:100%!important}td,th{overflow-wrap:anywhere;word-break:break-word}
+img{max-width:100%}`;
+async function relMontarPDF(html,onProg){
+  await igCarregarLibsPDF();
+  const limpo=String(html).replace(/<script[\s\S]*?<\/script>/gi,"").replace("</head>","<style>"+REL_PDF_CSS+"</style></head>");
+  const fr=document.createElement("iframe");
+  fr.setAttribute("aria-hidden","true");
+  fr.style.cssText="position:fixed;left:-12000px;top:0;width:794px;height:60px;border:0;background:#fff";
+  document.body.appendChild(fr);
+  try{
+    await new Promise((ok)=>{fr.onload=()=>ok();fr.srcdoc=limpo;setTimeout(ok,4000);});
+    const doc=fr.contentDocument;
+    try{await Promise.all([...doc.images].map(im=>im.complete?0:new Promise(r=>{im.onload=im.onerror=r;})));}catch(e){}
+    try{if(doc.fonts&&doc.fonts.ready)await doc.fonts.ready;}catch(e){}
+    await new Promise(r=>setTimeout(r,80));
+    const W=794,H=Math.max(60,Math.ceil(Math.max(doc.body.scrollHeight,doc.body.getBoundingClientRect().height)));
+    fr.style.height=H+"px";
+    await new Promise(r=>setTimeout(r,30));
+    onProg&&onProg(0.15);
+    const ESC=2;
+    const cv=await window.html2canvas(doc.body,{scale:ESC,width:W,windowWidth:W,height:H,windowHeight:H,backgroundColor:"#ffffff",useCORS:true,logging:false,imageTimeout:4000});
+    onProg&&onProg(0.6);
+    // pontos onde pode quebrar a página (fim de linhas e blocos)
+    const sel="tr,li,p,h1,h2,h3,h4,.box,.kpis,.kpi,.cli,.cab,.faixa,.grid,.rod,.sub,.lin,.bar,[data-bloco],body>div,table";
+    const cortes=[...new Set([...doc.querySelectorAll(sel)].map(el=>Math.round(el.getBoundingClientRect().bottom)))].sort((a,b)=>a-b);
+    const TOPO=34,BASE=40,PAG=1123,AREA=PAG-TOPO-BASE;
+    const fatias=[];let y=0;
+    while(y<H-4){
+      let fim=Math.min(H,y+AREA);
+      if(fim<H){const ok=cortes.filter(c=>c>y+120&&c<=y+AREA);if(ok.length)fim=ok[ok.length-1];}
+      fatias.push([y,fim]);y=fim;
+    }
+    const {jsPDF}=window.jspdf;
+    const pdf=new jsPDF({unit:"mm",format:"a4",compress:true});
+    const mm=210/W;const imagens=[];
+    fatias.forEach(([a,b],i)=>{
+      if(i)pdf.addPage();
+      const pc=document.createElement("canvas");pc.width=W*ESC;pc.height=PAG*ESC;
+      const cx=pc.getContext("2d");cx.fillStyle="#fff";cx.fillRect(0,0,pc.width,pc.height);
+      cx.drawImage(cv,0,a*ESC,W*ESC,(b-a)*ESC,0,TOPO*ESC,W*ESC,(b-a)*ESC);
+      const url=pc.toDataURL("image/jpeg",0.88);
+      pdf.addImage(url,"JPEG",0,0,210,297,undefined,"FAST");
+      pdf.setFontSize(7.5);pdf.setTextColor(148,163,184);
+      pdf.text("página "+(i+1)+" de "+fatias.length,210-10,297-6,{align:"right"});
+      imagens.push({src:url,w:W,h:PAG});
+      onProg&&onProg(0.6+0.4*(i+1)/fatias.length);
+    });
+    return{blob:pdf.output("blob"),imagens};
+  }finally{fr.remove();}
+}
+function RelPDFModal({req,onClose,toast}){
+  const [st,setSt]=React.useState({gerando:true,prog:0,url:"",erro:"",tam:0,imagens:[],blob:null});
+  const [tentativa,setTentativa]=React.useState(0);
+  React.useEffect(()=>{let vivo=true;
+    setSt({gerando:true,prog:0,url:"",erro:"",tam:0,imagens:[],blob:null});
+    const t=setTimeout(()=>relMontarPDF(req.html,(p)=>{if(vivo)setSt(s=>({...s,prog:p}));})
+      .then(({blob,imagens})=>{if(!vivo)return;setSt({gerando:false,prog:1,url:URL.createObjectURL(blob),erro:"",tam:blob.size,imagens,blob});})
+      .catch(e=>{if(vivo)setSt(s=>({...s,gerando:false,erro:(e&&e.message)||String(e)}));}),60);
+    return()=>{vivo=false;clearTimeout(t);};
+  },[req,tentativa]);
+  React.useEffect(()=>()=>{try{st.url&&URL.revokeObjectURL(st.url);}catch(e){}},[st.url]);
+  const nome=(req.nome||"relatorio")+".pdf";
+  const baixar=()=>{if(!st.url)return;const a=document.createElement("a");a.href=st.url;a.download=nome;document.body.appendChild(a);a.click();a.remove();toast&&toast("⬇️ Baixando "+nome,"ok");};
+  const abrir=()=>{if(!st.url)return;const w=window.open(st.url,"_blank");if(!w)toast&&toast("⚠️ O navegador bloqueou a nova aba. Use ⬇ Baixar.","warn",7000);};
+  const podeCompartilhar=!!(st.blob&&navigator.canShare&&(()=>{try{return navigator.canShare({files:[new File([st.blob],nome,{type:"application/pdf"})]});}catch(e){return false;}})());
+  const compartilhar=async()=>{try{await navigator.share({files:[new File([st.blob],nome,{type:"application/pdf"})],title:req.titulo});}catch(e){}};
+  const btn=(bg,fg,bd)=>({border:"1px solid "+bd,background:bg,color:fg,borderRadius:9,padding:"7px 13px",fontSize:12.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"});
+  const AZ=COR_REL_AZUL;
+  return(<Modal open onClose={onClose} title={"📄 "+(req.titulo||"Relatório")} width={1000}>
+    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+        <span style={{fontSize:12,color:"var(--text3)"}}>{st.gerando?"Gerando…":st.url?<>✅ Pronto · {st.imagens.length} página(s) · {igFmtTam(st.tam)}</>:""}</span>
+        <div style={{marginLeft:"auto",display:"flex",gap:8,flexWrap:"wrap"}}>
+          {podeCompartilhar&&<button onClick={compartilhar} style={btn("var(--bg2)","#15803d","#86efac")}>📤 Compartilhar</button>}
+          <button onClick={abrir} disabled={!st.url} style={{...btn("var(--bg2)","#4338ca","#c7d2fe"),opacity:st.url?1:.5}}>↗ Abrir no navegador</button>
+          <button onClick={baixar} disabled={!st.url} style={{...btn(AZ,"#fff",AZ),opacity:st.url?1:.5}}>⬇ Baixar PDF</button>
+        </div>
+      </div>
+      <div style={{height:"min(70vh,900px)",borderRadius:12,border:"1px solid var(--border2)",background:"#e2e8f0",overflow:"hidden",position:"relative"}}>
+        {st.url&&<div data-previa-pdf style={{height:"100%",overflowY:"auto",padding:"16px 12px",display:"flex",flexDirection:"column",alignItems:"center",gap:14}}>
+          {st.imagens.map((im,i)=>(<div key={i} style={{width:"100%",maxWidth:780,position:"relative"}}>
+            <img src={im.src} alt={"Página "+(i+1)} style={{width:"100%",display:"block",background:"#fff",borderRadius:4,boxShadow:"0 4px 18px rgba(15,23,42,.18)",aspectRatio:im.w+"/"+im.h}}/>
+            <div style={{position:"absolute",top:8,right:8,background:"rgba(15,23,42,.65)",color:"#fff",fontSize:10.5,fontWeight:700,borderRadius:10,padding:"2px 8px"}}>{i+1}/{st.imagens.length}</div>
+          </div>))}
+        </div>}
+        {st.gerando&&<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,background:"var(--bg3)",color:"var(--text2)"}}>
+          <div style={{fontSize:34}}>📄</div>
+          <div style={{fontWeight:800,fontSize:14}}>Montando o PDF… {Math.round(st.prog*100)}%</div>
+          <div style={{width:260,height:8,borderRadius:5,background:"var(--border2)",overflow:"hidden"}}><div style={{height:"100%",width:Math.max(4,st.prog*100)+"%",background:AZ,transition:"width .25s"}}/></div>
+          {!window.jspdf&&<div style={{fontSize:11.5,color:"var(--text4)"}}>na 1ª vez carrega o gerador</div>}
+        </div>}
+        {st.erro&&<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,background:"var(--bg3)",color:"var(--text2)",padding:20,textAlign:"center"}}>
+          <div style={{fontSize:30}}>⚠️</div><div style={{fontWeight:800}}>{st.erro}</div>
+          <button onClick={()=>setTentativa(t=>t+1)} style={btn(AZ,"#fff",AZ)}>Tentar de novo</button>
+        </div>}
+      </div>
+      <div style={{fontSize:11,color:"var(--text4)"}}>Esta é a prévia do PDF. Use <b>⬇ Baixar PDF</b> para salvar o arquivo ou <b>↗ Abrir no navegador</b> para imprimir pelo leitor de PDF.</div>
+    </div>
+  </Modal>);
+}
+// abre a prévia do PDF por cima de qualquer tela
+function abrirRelatorioPDF(req,toast){
+  const host=document.createElement("div");document.body.appendChild(host);
+  const root=ReactDOM.createRoot(host);
+  const fechar=()=>{try{root.unmount();}catch(e){}host.remove();};
+  root.render(<RelPDFModal req={req} onClose={fechar} toast={toast}/>);
+}
+
 // Tela de relatórios
 function IgRelatorios({contas,posts,metricas,contaSel,setContaSel,toast,isAdmin}){
   const [periodo,setPeriodo]=React.useState(()=>{try{const v=JSON.parse(localStorage.getItem("mdtec_ig_rel_per")||"null");if(v&&v.modo)return v;}catch(e){}return{modo:"30",de:"",ate:""};});
@@ -12373,7 +12491,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 109</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 110</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>
@@ -18427,11 +18545,8 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
       </div>
       ${linhasHtml}
       <div style="margin-top:26px;font-size:9px;color:#94a3b8;text-align:center;">Relatório gerado pelo MDTec Gestão.</div>
-      <script>window.onload=function(){setTimeout(function(){window.print();},250);};<\/script>
       </body></html>`;
-    const w=window.open("","_blank");
-    if(!w){toast("⚠️ O navegador bloqueou a janela de impressão. Permita pop-ups para exportar em PDF.","err");return;}
-    w.document.open();w.document.write(html);w.document.close();
+    abrirRelatorioPDF({titulo:"Gestão por grupos e empresas — "+competencia,nome:"grupos-empresas-"+String(competencia).replace(/[^0-9a-z]+/gi,"-"),html},toast);
     logAudit(`${userName||"Usuário"} exportou o relatório em PDF (${alvo.length} empresa(s), competência ${competencia}).`);
   };
 

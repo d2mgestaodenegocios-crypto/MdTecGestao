@@ -3273,6 +3273,10 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
             onChange={(next)=>{set("companies",next);set("company",next[0]||"");set("sector","");set("assignees",[]);}}
             disabled={blocked}
           />
+          {(()=>{const ce=[...new Set(f.checklist.map(c=>c.company).filter(Boolean))].map(id=>(data.companies||[]).find(c=>c.id===id)).filter(Boolean);
+            return ce.length>0
+              ?<div style={{fontSize:11,color:"#4f46e5",marginTop:4,fontWeight:700}}>☑ Pelo checklist: {ce.map(c=>c.name).join(", ")}</div>
+              :!taskCompanies(f).length&&<div style={{fontSize:11,color:"#94a3b8",marginTop:4}}>Várias empresas? Deixe em branco e marque a empresa em cada item do checklist.</div>;})()}
         </Fld>
         <Sel label="Setor" value={f.sector} onChange={v=>{set("sector",v);set("assignees",[]);}} placeholder="Selecionar..." options={fS.map(s=>({value:s.id,label:s.name}))} disabled={blocked}/>
       </div>
@@ -3706,10 +3710,10 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
             {sector&&<span style={{fontSize:10,fontWeight:700,padding:"1px 7px",borderRadius:10,background:sector.color+"22",color:sector.color,whiteSpace:"nowrap"}}>{sector.name}</span>}
           </div>
         )}
-        {(()=>{const ids=[...new Set(toArr(task.checklist).map(c=>c&&c.company).filter(x=>x&&x!==task.company))];if(!ids.length)return null;
+        {(()=>{const ids=[...new Set(toArr(task.checklist).map(c=>c&&c.company).filter(x=>x&&x!==(company&&company.id)))];if(!ids.length)return null;
           const cs=ids.map(id=>data.companies.find(c=>c.id===id)).filter(Boolean);if(!cs.length)return null;
-          return(<div title="Empresas marcadas nos itens do checklist" style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap",marginTop:-4,marginBottom:8}}>
-            <span style={{fontSize:9.5,fontWeight:800,color:"#94a3b8",textTransform:"uppercase"}}>☑ também</span>
+          return(<div title="Empresas marcadas nos itens do checklist" style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap",marginTop:company?-4:0,marginBottom:8}}>
+            <span style={{fontSize:9.5,fontWeight:800,color:"#94a3b8",textTransform:"uppercase"}}>{company?"☑ também":"☑ Empresas"}</span>
             {cs.map(c=><span key={c.id} style={{fontSize:10.5,fontWeight:800,padding:"1px 7px",borderRadius:10,background:c.color+"14",color:c.color,border:`1px solid ${c.color}30`,whiteSpace:"nowrap"}}>{c.name}</span>)}
           </div>);})()}
 
@@ -11642,8 +11646,8 @@ function App(){
     ? data.tasks
     : data.tasks.filter(t=>{
         const assignees=toArr(t.assignees);
-        // Sem responsável OU inclui o usuário atual
-        return assignees.length===0 || assignees.includes(myCollabId);
+        // Sem responsável OU inclui o usuário atual (também quando ele está marcado num item do checklist)
+        return assignees.length===0 || assignees.includes(myCollabId) || toArr(t.checklist).some(c=>c&&c.assignee===myCollabId);
       });
   const dataForUser = isAdmin ? data : {...data, tasks: visibleTasks};
   // Painéis de totais (Dashboard) — usuário comum só deve ver os PRÓPRIOS números, não a empresa toda
@@ -12265,7 +12269,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 103</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 104</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

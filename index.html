@@ -2973,6 +2973,8 @@ function montarResumoDia(data,{pessoaId,dia,incluirAndamento=true,incluirAmanha=
   const outras=[];
   tarefas.forEach(t=>{
     if(idsFeitas.has(t.id)||idsEntregues.has(t.id)||idsAprov.has(t.id))return;
+    // "Também trabalhou em" = só tarefas que ESTÃO em andamento/revisão agora (A Fazer não entra, mesmo que tenha saído e voltado)
+    if(t.status!=="doing"&&t.status!=="review")return;
     const coms=toArr(t.comments).filter(x=>noDia(x.createdAt)&&ehEle(x.author));
     // mudança de etapa só conta se a tarefa ainda está na etapa para onde foi movida
     // (ex.: "→ Em Revisão" numa tarefa que hoje está em "A Fazer" foi desfeita ou veio copiada de outra ocorrência)
@@ -3038,7 +3040,7 @@ function WhatsAppModal({open,onClose,titulo,texto,setTexto,tel,setTel,children})
           <Txt value={texto} onChange={setTexto} rows={12}/>
         </Fld>
         <Inp label="WhatsApp de quem vai receber" value={tel} onChange={setTel} placeholder="(61) 99999-9999 — opcional"/>
-        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá.</div>
+        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v115</span></div>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
           <Btn v="ghost" onClick={onClose}>Fechar</Btn>
           <Btn v="ghost" onClick={copiar}>{copiado?"✓ Copiado":"📋 Copiar texto"}</Btn>
@@ -12536,7 +12538,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 114</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 115</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

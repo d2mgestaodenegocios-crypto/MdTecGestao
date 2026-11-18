@@ -814,6 +814,13 @@ function taskCompanies(task){
 function taskHasCompany(task,coId){
   return taskCompanies(task).includes(coId);
 }
+// Empresas/colaboradores marcados nos itens do checklist também contam como atividade
+// (ex.: "Fazer posts" com itens Yasmim Lanches e Dutra → atividade para as duas empresas)
+function taskCompaniesAll(task){const s=new Set(taskCompanies(task));toArr(task&&task.checklist).forEach(c=>{if(c&&c.company)s.add(c.company);});return [...s];}
+function taskHasCompanyAll(task,coId){return taskCompaniesAll(task).includes(coId);}
+function taskColabsAll(task){const s=new Set(toArr(task&&task.assignees));toArr(task&&task.checklist).forEach(c=>{if(c&&c.assignee)s.add(c.assignee);});return [...s];}
+function ckDaEmpresa(task,coId){return toArr(task&&task.checklist).filter(c=>c&&c.company===coId);}
+function ckRotulo(c,data){const e=c.company?(data.companies||[]).find(x=>x.id===c.company)?.name:"";const u=c.assignee?(data.collaborators||[]).find(x=>x.id===c.assignee)?.name:"";return (c.done?"✔ ":"☐ ")+c.text+(e||u?" ["+[e,u].filter(Boolean).join(" · ")+"]":"");}
 // Normalize a task to use .companies array
 function normalizeTaskCompanies(task){
   if(Array.isArray(task.companies)) return task;
@@ -1617,18 +1624,18 @@ function ArchivedPage({data,setData,toast,isAdmin}){
   const obsDe=(t)=>[...(t.description?[{tipo:"Descrição",txt:t.description}]:[]),...toArr(t.comments).map(c=>({tipo:"💬 "+(c.author||""),txt:c.text,quando:c.createdAt})),...(isAdmin&&t.internalNote?[{tipo:"🔒 Obs. interna",txt:t.internalNote}]:[])];
   const lista=useMemo(()=>{const b=fl.busca.trim().toLowerCase();
     return archived.filter(t=>{const d=dataBase(t);if(fl.per!=="tudo"&&(!d||d<intervalo[0]||d>intervalo[1]))return false;
-      if(fl.emp&&!taskCompanies(t).includes(fl.emp))return false;
-      if(fl.col&&!toArr(t.assignees).includes(fl.col)&&t.completedBy!==fl.col)return false;
+      if(fl.emp&&!taskCompaniesAll(t).includes(fl.emp))return false;
+      if(fl.col&&!taskColabsAll(t).includes(fl.col)&&t.completedBy!==fl.col)return false;
       if(fl.setor&&t.sector!==fl.setor)return false;
       if(fl.etq&&!toArr(t.labels).includes(fl.etq))return false;
       if(fl.obs&&!obsDe(t).length)return false;
-      if(b){const txt=[t.title,t.description,t.internalNote,...toArr(t.comments).map(c=>c.text+" "+c.author),...taskCompanies(t).map(empNome),...toArr(t.assignees).map(colNome)].join(" ").toLowerCase();if(!txt.includes(b))return false;}
+      if(b){const txt=[t.title,t.description,t.internalNote,...toArr(t.comments).map(c=>c.text+" "+c.author),...taskCompaniesAll(t).map(empNome),...taskColabsAll(t).map(colNome),...toArr(t.checklist).map(c=>c.text||"")].join(" ").toLowerCase();if(!txt.includes(b))return false;}
       return true;}).sort((a,b)=>dataBase(b).localeCompare(dataBase(a)));
   },[archived,fl,intervalo,isAdmin]);
   // resumos
   const contar=(fn)=>{const m={};lista.forEach(t=>fn(t).forEach(k=>{if(k)m[k]=(m[k]||0)+1;}));return Object.entries(m).sort((a,b)=>b[1]-a[1]);};
-  const porEmp=contar(t=>taskCompanies(t).map(empNome).filter(Boolean).length?taskCompanies(t).map(empNome):["(sem empresa)"]);
-  const porCol=contar(t=>toArr(t.assignees).map(colNome).filter(Boolean).length?toArr(t.assignees).map(colNome):["(sem responsável)"]);
+  const porEmp=contar(t=>taskCompaniesAll(t).map(empNome).filter(Boolean).length?taskCompaniesAll(t).map(empNome):["(sem empresa)"]);
+  const porCol=contar(t=>taskColabsAll(t).map(colNome).filter(Boolean).length?taskColabsAll(t).map(colNome):["(sem responsável)"]);
   const porMes=contar(t=>{const d=dataBase(t);return[d?d.slice(0,7):"(sem data)"];}).sort((a,b)=>a[0].localeCompare(b[0]));
   const comObs=lista.filter(t=>obsDe(t).length).length;
   const noPrazo=lista.filter(t=>t.dueDate&&t.completedAt&&String(t.completedAt).slice(0,10)<=t.dueDate).length;
@@ -1640,11 +1647,11 @@ function ArchivedPage({data,setData,toast,isAdmin}){
   // exportar
   const csv=()=>{const esc=(v)=>'"'+String(v??"").replace(/"/g,'""').replace(/\r?\n/g," ")+'"';
     const linhas=[["Tarefa","Empresa(s)","Responsável(is)","Setor","Prazo","Concluída em","Concluída por","Arquivada em","Checklist","Descrição","Comentários","Obs. interna"].map(esc).join(";")];
-    lista.forEach(t=>{const ck=toArr(t.checklist);linhas.push([t.title,taskCompanies(t).map(empNome).join(", "),toArr(t.assignees).map(colNome).join(", "),(data.sectors||[]).find(s=>s.id===t.sector)?.name||"",fmtDate(t.dueDate),fmtDate(String(t.completedAt||"").slice(0,10)),t.completedByName||colNome(t.completedBy)||"",fmtDate(String(t.archivedAt||"").slice(0,10)),ck.length?ck.filter(c=>c.done).length+"/"+ck.length:"",t.description||"",toArr(t.comments).map(c=>(c.author||"")+": "+c.text).join(" | "),isAdmin?(t.internalNote||""):""].map(esc).join(";"));});
+    lista.forEach(t=>{const ck=toArr(t.checklist);linhas.push([t.title,taskCompaniesAll(t).map(empNome).join(", "),toArr(t.assignees).map(colNome).join(", "),(data.sectors||[]).find(s=>s.id===t.sector)?.name||"",fmtDate(t.dueDate),fmtDate(String(t.completedAt||"").slice(0,10)),t.completedByName||colNome(t.completedBy)||"",fmtDate(String(t.archivedAt||"").slice(0,10)),ck.length?ck.filter(c=>c.done).length+"/"+ck.length+" — "+ck.map(c=>ckRotulo(c,data)).join(" | "):"",t.description||"",toArr(t.comments).map(c=>(c.author||"")+": "+c.text).join(" | "),isAdmin?(t.internalNote||""):""].map(esc).join(";"));});
     const blob=new Blob(["﻿"+linhas.join("\r\n")],{type:"text/csv;charset=utf-8"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="arquivadas-"+iso(new Date())+".csv";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),4000);};
   const imprimir=()=>{const w=window.open("","_blank");if(!w){toast("⚠️ Permita pop-ups para gerar o PDF.","warn");return;}
     const e=(s)=>String(s??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
-    const linhas=lista.map(t=>`<tr><td><b>${e(t.title)}</b>${obsDe(t).length?`<div class="obs">${obsDe(t).map(o=>`<div><i>${e(o.tipo)}:</i> ${e(o.txt)}</div>`).join("")}</div>`:""}</td><td>${e(taskCompanies(t).map(empNome).join(", "))}</td><td>${e(toArr(t.assignees).map(colNome).join(", "))}</td><td>${e(fmtDate(t.dueDate))}</td><td>${e(fmtDate(String(t.completedAt||"").slice(0,10)))}</td><td>${e(fmtDate(String(t.archivedAt||"").slice(0,10)))}</td></tr>`).join("");
+    const linhas=lista.map(t=>`<tr><td><b>${e(t.title)}</b>${obsDe(t).length?`<div class="obs">${obsDe(t).map(o=>`<div><i>${e(o.tipo)}:</i> ${e(o.txt)}</div>`).join("")}</div>`:""}${toArr(t.checklist).some(c=>c.company||c.assignee)?`<div class="obs"><i>Checklist:</i> ${toArr(t.checklist).filter(c=>!fl.emp||c.company===fl.emp||!c.company).map(c=>e(ckRotulo(c,data))).join(" · ")}</div>`:""}</td><td>${e(taskCompaniesAll(t).map(empNome).join(", "))}</td><td>${e(toArr(t.assignees).map(colNome).join(", "))}</td><td>${e(fmtDate(t.dueDate))}</td><td>${e(fmtDate(String(t.completedAt||"").slice(0,10)))}</td><td>${e(fmtDate(String(t.archivedAt||"").slice(0,10)))}</td></tr>`).join("");
     const tab=(tit,arr)=>`<div class="box"><h3>${tit}</h3>${arr.slice(0,12).map(([k,v])=>`<div class="lin"><span>${e(k)}</span><b>${v}</b></div>`).join("")}</div>`;
     w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Relatório de tarefas arquivadas</title><style>
       body{font-family:system-ui,'Segoe UI',Roboto,sans-serif;color:#0f172a;margin:24px;font-size:12px}h1{font-size:20px;margin:0}h3{font-size:12px;margin:0 0 6px;text-transform:uppercase;color:#475569}
@@ -1665,11 +1672,11 @@ function ArchivedPage({data,setData,toast,isAdmin}){
     <div style={{flex:1,height:9,background:"var(--bg3,#f1f5f9)",borderRadius:5,overflow:"hidden"}}><div style={{width:(v/mx*100)+"%",height:"100%",background:cor,borderRadius:5}}/></div>
     <b style={{width:28,textAlign:"right"}}>{v}</b></div>))}{!itens.length&&<span style={{fontSize:12,color:"var(--text4)"}}>—</span>}</div>);};
   const card={background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:14,padding:"12px 14px"};
-  const Linha=({t})=>{const co=taskCompanies(t).map(empNome).filter(Boolean);const asg=(data.collaborators||[]).filter(c=>toArr(t.assignees).includes(c.id));const ob=obsDe(t);const ab=aberto[t.id];const ck=toArr(t.checklist);
+  const Linha=({t})=>{const co=taskCompaniesAll(t).map(empNome).filter(Boolean);const asg=(data.collaborators||[]).filter(c=>toArr(t.assignees).includes(c.id));const ob=obsDe(t);const ab=aberto[t.id];const ck=toArr(t.checklist);const ckTag=ck.filter(c=>c.company||c.assignee);const ckEmp=fl.emp?ck.filter(c=>c.company===fl.emp):[];const podeAbrir=ob.length>0||ckTag.length>0;
     return(<div style={{...card,padding:"10px 14px"}}>
       <div style={{display:"flex",alignItems:"center",gap:10}}>
         <div style={{flex:1,minWidth:0}}>
-          <div onClick={()=>ob.length&&setAberto(o=>({...o,[t.id]:!o[t.id]}))} style={{fontSize:13.5,fontWeight:800,color:"var(--text)",cursor:ob.length?"pointer":"default"}}>{t.title}</div>
+          <div onClick={()=>podeAbrir&&setAberto(o=>({...o,[t.id]:!o[t.id]}))} style={{fontSize:13.5,fontWeight:800,color:"var(--text)",cursor:podeAbrir?"pointer":"default"}}>{t.title}</div>
           <div style={{display:"flex",gap:10,marginTop:3,flexWrap:"wrap",fontSize:11.5,color:"var(--text3)"}}>
             {co.length>0&&<span style={{fontWeight:700,color:"#4f46e5"}}>🏢 {co.join(", ")}</span>}
             {asg.length>0&&<span>👤 {asg.map(u=>u.name).join(", ")}</span>}
@@ -1678,18 +1685,20 @@ function ArchivedPage({data,setData,toast,isAdmin}){
             {t.archivedAt&&<span>📦 arquivada {fmtDate(String(t.archivedAt).slice(0,10))}{t.archivedBy?" por "+t.archivedBy:""}</span>}
             {ck.length>0&&<span>☑ {ck.filter(c=>c.done).length}/{ck.length}</span>}
           </div>
+          {ckEmp.length>0&&<div style={{marginTop:4,fontSize:11.5,color:"#4f46e5"}}>☑ Para {empNome(fl.emp)}: {ckEmp.map(c=>(c.done?"✔ ":"☐ ")+c.text+(c.assignee?" ("+colNome(c.assignee)+")":"")).join(" · ")}</div>}
         </div>
         {ob.length>0&&<button onClick={()=>setAberto(o=>({...o,[t.id]:!o[t.id]}))} style={{...chip(ab),padding:"4px 10px"}}>💬 {ob.length} obs.</button>}
+        {ob.length===0&&ckTag.length>0&&<button onClick={()=>setAberto(o=>({...o,[t.id]:!o[t.id]}))} style={{...chip(ab),padding:"4px 10px"}}>☑ itens</button>}
         {isAdmin&&<Btn onClick={()=>restore(t)} v="success" sz="sm">↩ Restaurar</Btn>}
         {isAdmin&&<Btn onClick={()=>delArchived(t.id)} v="danger" sz="sm">🗑</Btn>}
       </div>
       {ab&&<div style={{marginTop:8,display:"flex",flexDirection:"column",gap:5,borderTop:"1px dashed var(--border)",paddingTop:8}}>
         {ob.map((o,i)=><div key={i} style={{fontSize:12.5,color:"var(--text2)",whiteSpace:"pre-wrap",lineHeight:1.45}}><b style={{color:"var(--text3)"}}>{o.tipo}{o.quando?" · "+new Date(o.quando).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):""}:</b> {o.txt}</div>)}
-        {ck.length>0&&<div style={{fontSize:12,color:"var(--text3)"}}><b>Checklist:</b> {ck.map(c=>(c.done?"✔ ":"✗ ")+c.text).join(" · ")}</div>}
+        {ck.length>0&&<div style={{fontSize:12,color:"var(--text3)"}}><b>Checklist:</b> {ck.map(c=>ckRotulo(c,data)+(c.done&&c.doneBy?" — feito por "+c.doneBy:"")).join(" · ")}</div>}
       </div>}
     </div>);};
-  const grupos=fl.agrupar==="empresa"?(()=>{const g={};lista.forEach(t=>{const ks=taskCompanies(t).map(empNome).filter(Boolean);(ks.length?ks:["(sem empresa)"]).forEach(k=>(g[k]=g[k]||[]).push(t));});return Object.entries(g).sort((a,b)=>b[1].length-a[1].length);})()
-    :fl.agrupar==="colaborador"?(()=>{const g={};lista.forEach(t=>{const ks=toArr(t.assignees).map(colNome).filter(Boolean);(ks.length?ks:["(sem responsável)"]).forEach(k=>(g[k]=g[k]||[]).push(t));});return Object.entries(g).sort((a,b)=>b[1].length-a[1].length);})()
+  const grupos=fl.agrupar==="empresa"?(()=>{const g={};lista.forEach(t=>{const ks=taskCompaniesAll(t).map(empNome).filter(Boolean);(ks.length?ks:["(sem empresa)"]).forEach(k=>(g[k]=g[k]||[]).push(t));});return Object.entries(g).sort((a,b)=>b[1].length-a[1].length);})()
+    :fl.agrupar==="colaborador"?(()=>{const g={};lista.forEach(t=>{const ks=taskColabsAll(t).map(colNome).filter(Boolean);(ks.length?ks:["(sem responsável)"]).forEach(k=>(g[k]=g[k]||[]).push(t));});return Object.entries(g).sort((a,b)=>b[1].length-a[1].length);})()
     :fl.agrupar==="mes"?(()=>{const g={};lista.forEach(t=>{const k=mesNome(dataBase(t).slice(0,7)||"(sem data)");(g[k]=g[k]||[]).push(t);});return Object.entries(g);})():null;
   return(<div>
     <PH title="Arquivadas" icon="📦" badge={archived.length}/>
@@ -1750,15 +1759,18 @@ function RelatorioPage({data,isAdmin}){
   const [period,setPeriod]=useState("all");
   const [showDone,setShowDone]=useState(true);
   const [showOpen,setShowOpen]=useState(true);
+  const [showArq,setShowArq]=useState(true);
+  // feita para esta empresa: tarefa concluída/arquivada, ou (quando a empresa só está nos itens do checklist) todos os itens dela marcados
+  const feito=(t)=>t.status==="done"||t.status==="archived"||(!taskHasCompany(t,selCompany)&&ckDaEmpresa(t,selCompany).length>0&&ckDaEmpresa(t,selCompany).every(c=>c.done));
   const today=todayStr();
   const now=new Date();
 
   const company=data.companies.find(c=>c.id===selCompany);
 
   const tasks=useMemo(()=>{
-    let ts=data.tasks.filter(t=>t.status!=="archived"&&taskHasCompany(t,selCompany));
-    if(!showDone) ts=ts.filter(t=>t.status!=="done");
-    if(!showOpen) ts=ts.filter(t=>t.status==="done");
+    let ts=data.tasks.filter(t=>(showArq||t.status!=="archived")&&taskHasCompanyAll(t,selCompany));
+    if(!showDone) ts=ts.filter(t=>!feito(t));
+    if(!showOpen) ts=ts.filter(t=>feito(t));
     if(period==="month") ts=ts.filter(t=>{
       const d=new Date((t.dueDate||t.createdAt||"")+"T12:00:00");
       return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear();
@@ -1768,13 +1780,13 @@ function RelatorioPage({data,isAdmin}){
       return d.getFullYear()===now.getFullYear();
     });
     return ts.sort((a,b)=>{const po={critica:0,alta:1,media:2,baixa:3};return (po[a.priority]||2)-(po[b.priority]||2);});
-  },[data.tasks,selCompany,period,showDone,showOpen]);
+  },[data.tasks,selCompany,period,showDone,showOpen,showArq]);
 
   const totalValor=tasks.filter(t=>t.valor).reduce((a,t)=>a+Number(t.valor||0),0);
-  const faturado=tasks.filter(t=>t.status==="done"&&t.valor).reduce((a,t)=>a+Number(t.valor||0),0);
-  const aReceber=tasks.filter(t=>t.status!=="done"&&t.valor).reduce((a,t)=>a+Number(t.valor||0),0);
-  const overdueCount=tasks.filter(t=>isLate(t)).length;
-  const doneCount=tasks.filter(t=>t.status==="done").length;
+  const faturado=tasks.filter(t=>feito(t)&&t.valor).reduce((a,t)=>a+Number(t.valor||0),0);
+  const aReceber=tasks.filter(t=>!feito(t)&&t.valor).reduce((a,t)=>a+Number(t.valor||0),0);
+  const overdueCount=tasks.filter(t=>!feito(t)&&isLate(t)).length;
+  const doneCount=tasks.filter(t=>feito(t)).length;
 
   if(!company) return <div style={{padding:40,textAlign:"center",color:"#94a3b8"}}>Selecione uma empresa.</div>;
 
@@ -1795,6 +1807,9 @@ function RelatorioPage({data,isAdmin}){
         </label>
         <label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,fontWeight:700,color:"#64748b",cursor:"pointer"}}>
           <input type="checkbox" checked={showDone} onChange={e=>setShowDone(e.target.checked)} style={{accentColor:"#22c55e"}}/> Concluídas
+        </label>
+        <label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,fontWeight:700,color:"#64748b",cursor:"pointer"}}>
+          <input type="checkbox" checked={showArq} onChange={e=>setShowArq(e.target.checked)} style={{accentColor:"#64748b"}}/> Arquivadas
         </label>
         <Btn onClick={()=>window.print()} xs={{marginLeft:"auto",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",color:"#fff",border:"none"}}>🖨 Imprimir / PDF</Btn>
       </div>
@@ -1841,22 +1856,29 @@ function RelatorioPage({data,isAdmin}){
           {tasks.length===0&&<p style={{color:"#94a3b8",textAlign:"center",padding:"30px 0",fontSize:13}}>Nenhuma tarefa no período.</p>}
           {tasks.map((t,i)=>{
             const p=PRI[t.priority]||PRI.media;
-            const st=STS.find(s=>s.id===t.status)||STS[0];
+            const ok=feito(t);
+            const viaCk=!taskHasCompany(t,selCompany);
+            const itensEmp=ckDaEmpresa(t,selCompany);
+            const st=t.status==="archived"?{l:"Concluída · arquivada",c:"#64748b"}:viaCk&&ok?{l:"Itens concluídos",c:"#22c55e"}:(STS.find(s=>s.id===t.status)||STS[0]);
             const asg=data.collaborators.filter(u=>toArr(t.assignees).includes(u.id));
             const ckDone=toArr(t.checklist).filter(c=>c.done).length;
             const ckTot=toArr(t.checklist).length;
-            const over=isLate(t);
+            const over=!ok&&isLate(t);
             return(
               <div key={t.id} style={{padding:"12px 0",borderBottom:i<tasks.length-1?"1px solid #f1f5f9":"none",display:"flex",gap:12,alignItems:"flex-start"}}>
-                <div style={{width:4,borderRadius:2,alignSelf:"stretch",background:over?"#ef4444":t.status==="done"?"#22c55e":p.d,flexShrink:0,minHeight:24}}/>
+                <div style={{width:4,borderRadius:2,alignSelf:"stretch",background:over?"#ef4444":ok?"#22c55e":p.d,flexShrink:0,minHeight:24}}/>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:4}}>
                     {t.pinned&&<span style={{fontSize:11}}>📌</span>}
-                    <span style={{fontSize:14,fontWeight:800,color:t.status==="done"?"#94a3b8":"#0f172a",textDecoration:t.status==="done"?"line-through":"none",flex:1}}>{t.title}</span>
+                    <span style={{fontSize:14,fontWeight:800,color:ok?"#94a3b8":"#0f172a",textDecoration:ok?"line-through":"none",flex:1}}>{t.title}</span>
                     <span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:p.bg,color:p.t,fontWeight:700,border:`1px solid ${p.border}`}}>{p.l}</span>
                     <span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:st.c+"18",color:st.c,fontWeight:700}}>{st.l}</span>
                   </div>
                   {t.description&&<p style={{fontSize:11,color:"#64748b",margin:"2px 0 5px",lineHeight:1.5}}>{t.description}</p>}
+                  {itensEmp.length>0&&<div style={{margin:"3px 0 6px",padding:"6px 10px",borderRadius:8,background:"#eef2ff",border:"1px solid #c7d2fe",fontSize:11.5,color:"#3730a3",display:"flex",flexDirection:"column",gap:2}}>
+                    <b style={{fontSize:10,textTransform:"uppercase",letterSpacing:.3,color:"#4f46e5"}}>☑ Itens do checklist para {company.name}</b>
+                    {itensEmp.map(c=>{const u=data.collaborators.find(x=>x.id===c.assignee);return(<span key={c.id} style={{color:c.done?"#15803d":"#3730a3"}}>{c.done?"✔":"☐"} {c.text}{u?" · 👤 "+u.name:""}{c.done&&c.doneBy?" · feito por "+c.doneBy+(c.doneAt?" em "+new Date(c.doneAt).toLocaleDateString("pt-BR"):""):""}</span>);})}
+                  </div>}
                   <div style={{display:"flex",gap:12,flexWrap:"wrap",fontSize:11,color:"#94a3b8",alignItems:"center"}}>
                     {t.dueDate&&<span style={{color:over?"#ef4444":"#64748b",fontWeight:700}}>📅 {fmtDate(t.dueDate)}{over?" ⚠ ATRASADA":""}</span>}
                     {t.status==="done"&&t.completedByName
@@ -2799,7 +2821,7 @@ function montarMsgTarefas(data,{pessoaId,periodo}){
   const dias=(d)=>Math.round((new Date(d+"T12:00:00")-d0)/86400000);
   const ordPri={critica:0,alta:1,media:2,baixa:3};
   const colabs=data.collaborators||[];
-  const nomeEmp=(t)=>{try{return taskCompanies(t).map(id=>(data.companies||[]).find(c=>c.id===id)?.name||"").filter(Boolean).join(", ");}catch(e){return "";}};
+  const nomeEmp=(t)=>{try{return taskCompaniesAll(t).map(id=>(data.companies||[]).find(c=>c.id===id)?.name||"").filter(Boolean).join(", ");}catch(e){return "";}};
   const noPeriodo=(t)=>{
     if(periodo==="todas")return true;
     const d=t.dueDate;if(!d)return false;
@@ -2842,7 +2864,7 @@ function montarMsgTarefas(data,{pessoaId,periodo}){
 const isoLocalHoje=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");};
 function montarResumoDia(data,{pessoaId,dia,incluirAndamento=true,incluirAmanha=false}){
   const colabs=data.collaborators||[];const c=colabs.find(x=>x.id===pessoaId);
-  const nomeEmp=(t)=>{try{return taskCompanies(t).map(id=>(data.companies||[]).find(x=>x.id===id)?.name||"").filter(Boolean).join(", ");}catch(e){return "";}};
+  const nomeEmp=(t)=>{try{return taskCompaniesAll(t).map(id=>(data.companies||[]).find(x=>x.id===id)?.name||"").filter(Boolean).join(", ");}catch(e){return "";}};
   // datas que contam como "o dia": local e UTC (versões antigas gravavam a conclusão em UTC)
   const dias=new Set([dia]);
   if(dia===isoLocalHoje()){dias.add(new Date().toISOString().slice(0,10));}
@@ -3176,6 +3198,8 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
   const [f,sf]=useState(task?{...sanitizeTask(task),comments:task.comments||[]}:blank);
   const [ckTxt,sCk]=useState("");
   const [ckDueDate,setCkDueDate]=useState("");
+  const [ckEmp,setCkEmp]=useState("");
+  const [ckCol,setCkCol]=useState("");
   const [ckEditing,setCkEditing]=useState(null); // id of checklist item being edited
   const [ckEditTxt,setCkEditTxt]=useState("");
   const [commentTxt,setCommentTxt]=useState("");
@@ -3183,7 +3207,10 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
   const tog=(k,id)=>set(k,f[k].includes(id)?f[k].filter(x=>x!==id):[...f[k],id]);
   const fC=data.collaborators.filter(c=>{if(!f.company) return true;const cos=toArr(c.companies).length>0?toArr(c.companies):(c.company?[c.company]:[]);return cos.length===0||cos.includes(f.company);});
   const fS=data.sectors.filter(s=>{if(!f.company) return true;const cos=toArr(s.companies).length>0?toArr(s.companies):(s.company?[s.company]:[]);return cos.length===0||cos.includes(f.company);});
-  const addCk=()=>{if(!ckTxt.trim())return;set("checklist",[...f.checklist,{id:uid(),text:ckTxt.trim(),done:false,dueDate:ckDueDate||null}]);sCk("");setCkDueDate("");};
+  const addCk=()=>{if(!ckTxt.trim())return;set("checklist",[...f.checklist,{id:uid(),text:ckTxt.trim(),done:false,dueDate:ckDueDate||null,company:ckEmp||null,assignee:ckCol||null}]);sCk("");setCkDueDate("");};
+  // empresas da tarefa primeiro na lista do checklist
+  const ckEmpOps=(()=>{const da=taskCompanies(f);const cs=data.companies||[];return [...cs.filter(c=>da.includes(c.id)),...cs.filter(c=>!da.includes(c.id))];})();
+  const ckSelSt={fontSize:11,borderRadius:6,border:"1px solid #e2e8f0",padding:"2px 5px",background:"var(--bg2)",color:"#64748b",fontFamily:"inherit",maxWidth:130};
   const addComment=()=>{
     if(!commentTxt.trim())return;
     const comment={id:uid(),text:commentTxt.trim(),author:currentUser||"Usuário",createdAt:new Date().toISOString()};
@@ -3298,8 +3325,14 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
           );
         })()}
         <div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap"}}>
-          <input value={ckTxt} onChange={e=>sCk(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!blocked&&addCk()} disabled={blocked} placeholder="Novo item (Enter para adicionar)..." style={{flex:1,minWidth:160,padding:"7px 12px",borderRadius:9,fontSize:13,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",opacity:blocked?.6:1}}/>
+          <input value={ckTxt} onChange={e=>sCk(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!blocked&&addCk()} disabled={blocked} placeholder="Novo item (Enter para adicionar)..." style={{flex:"1 1 100%",minWidth:160,padding:"7px 12px",borderRadius:9,fontSize:13,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",opacity:blocked?.6:1}}/>
           <input value={ckDueDate} onChange={e=>setCkDueDate(e.target.value)} type="date" disabled={blocked} title="Prazo do item" style={{padding:"7px 10px",borderRadius:9,fontSize:12,border:"2px solid #e5e7eb",outline:"none",fontFamily:"inherit",color:"#64748b",background:"var(--input-bg)",opacity:blocked?.6:1,maxWidth:150}}/>
+          <select value={ckEmp} onChange={e=>setCkEmp(e.target.value)} disabled={blocked} title="Empresa deste item (opcional) — conta como atividade da empresa" style={{padding:"7px 8px",borderRadius:9,fontSize:12,border:"2px solid #e5e7eb",fontFamily:"inherit",color:ckEmp?"#4f46e5":"#64748b",background:"var(--input-bg)",maxWidth:150}}>
+            <option value="">🏢 empresa (opcional)</option>{ckEmpOps.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <select value={ckCol} onChange={e=>setCkCol(e.target.value)} disabled={blocked} title="Colaborador deste item (opcional)" style={{padding:"7px 8px",borderRadius:9,fontSize:12,border:"2px solid #e5e7eb",fontFamily:"inherit",color:ckCol?"#4f46e5":"#64748b",background:"var(--input-bg)",maxWidth:140}}>
+            <option value="">👤 colaborador (opcional)</option>{data.collaborators.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
+          </select>
           <Btn onClick={addCk} sz="sm" disabled={blocked}>+ Add</Btn>
         </div>
         <div style={{display:"flex",flexDirection:"column",gap:4}}>
@@ -3317,7 +3350,7 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
               }}
               style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",borderRadius:8,background:ck.done?"#f0fdf4":"#f9fafb",border:"1px solid #f3f4f6",flexWrap:"wrap",cursor:!blocked?"default":"default"}}>
               {!blocked&&<span title="Arrastar" draggable onDragStart={e=>{e.stopPropagation();e.dataTransfer.setData("ckIdx",ckIdx);}} style={{cursor:"grab",color:"#cbd5e1",fontSize:14,flexShrink:0,userSelect:"none"}}>⠿</span>}
-              <input type="checkbox" checked={ck.done} disabled={blocked} onChange={()=>!blocked&&set("checklist",f.checklist.map(x=>x.id===ck.id?{...x,done:!x.done}:x))} style={{accentColor:"#22c55e",width:15,height:15,flexShrink:0,cursor:blocked?"not-allowed":"pointer"}}/>
+              <input type="checkbox" checked={ck.done} disabled={blocked} onChange={()=>!blocked&&set("checklist",f.checklist.map(x=>x.id===ck.id?{...x,done:!x.done,doneAt:!x.done?new Date().toISOString():null,doneBy:!x.done?(currentUser||null):null}:x))} style={{accentColor:"#22c55e",width:15,height:15,flexShrink:0,cursor:blocked?"not-allowed":"pointer"}}/>
               {ckEditing===ck.id&&!blocked
                 ?(
                   <input autoFocus value={ckEditTxt} onChange={e=>setCkEditTxt(e.target.value)}
@@ -3341,6 +3374,14 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
                   </span>
                 )
               }
+              {(()=>{const ce=(data.companies||[]).find(c=>c.id===ck.company);
+                return !blocked
+                  ?<select value={ck.company||""} onChange={e=>set("checklist",f.checklist.map(x=>x.id===ck.id?{...x,company:e.target.value||null}:x))} title="Empresa deste item (conta como atividade da empresa)"
+                     style={{...ckSelSt,color:ce?"#4f46e5":"#64748b",fontWeight:ce?700:400,borderColor:ce?"#c7d2fe":"#e2e8f0",background:ce?"#eef2ff":"var(--bg2)"}}>
+                     <option value="">— empresa</option>{ckEmpOps.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                   </select>
+                  :ce&&<span style={{fontSize:10.5,padding:"2px 7px",borderRadius:5,background:"#eef2ff",color:"#4f46e5",fontWeight:700,border:"1px solid #c7d2fe"}}>🏢 {ce.name}</span>;})()}
+              {ck.done&&ck.doneBy&&<span title={ck.doneAt?new Date(ck.doneAt).toLocaleString("pt-BR"):""} style={{fontSize:10,color:"#16a34a"}}>✔ {ck.doneBy}</span>}
               {!blocked&&<select value={ck.assignee||""} onChange={e=>set("checklist",f.checklist.map(x=>x.id===ck.id?{...x,assignee:e.target.value||null}:x))}
                 style={{fontSize:11,borderRadius:6,border:"1px solid #e2e8f0",padding:"2px 5px",background:"var(--bg2)",color:"#64748b",fontFamily:"inherit",maxWidth:110}}>
                 <option value="">— responsável</option>
@@ -3665,6 +3706,12 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
             {sector&&<span style={{fontSize:10,fontWeight:700,padding:"1px 7px",borderRadius:10,background:sector.color+"22",color:sector.color,whiteSpace:"nowrap"}}>{sector.name}</span>}
           </div>
         )}
+        {(()=>{const ids=[...new Set(toArr(task.checklist).map(c=>c&&c.company).filter(x=>x&&x!==task.company))];if(!ids.length)return null;
+          const cs=ids.map(id=>data.companies.find(c=>c.id===id)).filter(Boolean);if(!cs.length)return null;
+          return(<div title="Empresas marcadas nos itens do checklist" style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap",marginTop:-4,marginBottom:8}}>
+            <span style={{fontSize:9.5,fontWeight:800,color:"#94a3b8",textTransform:"uppercase"}}>☑ também</span>
+            {cs.map(c=><span key={c.id} style={{fontSize:10.5,fontWeight:800,padding:"1px 7px",borderRadius:10,background:c.color+"14",color:c.color,border:`1px solid ${c.color}30`,whiteSpace:"nowrap"}}>{c.name}</span>)}
+          </div>);})()}
 
         {assignees.length>0&&(
           <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,flexWrap:"wrap"}}>
@@ -12218,7 +12265,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 102</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 103</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

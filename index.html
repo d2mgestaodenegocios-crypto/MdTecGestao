@@ -994,13 +994,32 @@ async function conferirSenhaUsuario(senha){
   }catch(e){return false;}
 }
 
+// ── Função "usuarios" no Supabase: login seguro dos colaboradores ─────────
+// devolve {ok,...}; {naoInstalada:true} quando a função ainda não foi publicada
+async function usuariosFn(acao,dados={}){
+  let jwt="";try{const{data}=await sb.auth.getSession();jwt=data?.session?.access_token||"";}catch(e){}
+  try{
+    const ctrl=new AbortController();const lim=setTimeout(()=>ctrl.abort(),20000);
+    const r=await fetch(SUPABASE_URL+"/functions/v1/usuarios",{method:"POST",signal:ctrl.signal,
+      headers:{"Content-Type":"application/json",apikey:SUPABASE_KEY,Authorization:"Bearer "+(jwt||SUPABASE_KEY)},
+      body:JSON.stringify({acao,...dados})});
+    clearTimeout(lim);
+    if(r.status===404)return{ok:false,naoInstalada:true};
+    const j=await r.json().catch(()=>null);
+    if(!j||typeof j.ok!=="boolean")return{ok:false,naoInstalada:true,_status:r.status};
+    return {...j,_status:r.status};
+  }catch(e){return{ok:false,naoInstalada:true,erro:String(e&&e.message||e)};}
+}
+
 function useAuth() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const LOCAL_KEY = "mdtec_local_session";
 
   useEffect(() => {
-    // 1. Verificar sessão local (colaborador)
+    let vivo=true;
+    // 1. Sessão antiga de colaborador (login próprio). Quando o login seguro já está instalado,
+    //    pede para entrar de novo UMA vez — assim a senha passa para o Supabase e sai dos dados.
     const local = localStorage.getItem(LOCAL_KEY);
     if(local){
       try{
@@ -1008,11 +1027,14 @@ function useAuth() {
         if(sess && sess.email){
           setUser(sess);
           setLoading(false);
-          return;
+          usuariosFn("status").then(r=>{
+            if(vivo&&r&&r.ok){localStorage.removeItem(LOCAL_KEY);try{sessionStorage.setItem("mdtec_aviso_login","1");}catch(e){}setUser(null);}
+          });
+          return ()=>{vivo=false;};
         }
       }catch(e){}
     }
-    // 2. Verificar sessão Supabase Auth (admin)
+    // 2. Sessão do Supabase Auth (administrador e colaboradores com login seguro)
     sb.auth.getSession().then(({ data: { session } }) => {
       if(session?.user) setUser({...session.user, _supabaseAuth: true});
       setLoading(false);
@@ -1022,50 +1044,48 @@ function useAuth() {
         setUser(session?.user ? {...session.user, _supabaseAuth: true} : null);
       }
     });
-    return () => subscription.unsubscribe();
+    return () => {vivo=false;subscription.unsubscribe();};
   }, []);
 
-  // Login: lê a lista de colaboradores com a chave pública (a mesma que o sistema já usa)
+  // Login antigo (senha guardada nos dados) — só enquanto a função "usuarios" não estiver publicada
+  const loginAntigo = async (email, password) => {
+    const{data:row,error}=await sb.from("app_data").select("payload").eq("id",1).maybeSingle();
+    if(error)return false;
+    const collabs = row?.payload?.collaborators || [];
+    const collab = collabs.find(c => c.email && c.email.toLowerCase() === email.toLowerCase());
+    if(!collab || !collab._pwdHash) return false;
+    const hash = await hashPwd(password);
+    if(hash !== collab._pwdHash) throw new Error("Email ou senha incorretos.");
+    const sess = { id: collab.id, email: collab.email, user_metadata: {name: collab.name}, _localAuth: true, _collabId: collab.id };
+    localStorage.setItem(LOCAL_KEY, JSON.stringify(sess));
+    setUser(sess);
+    return true;
+  };
+
   const signIn = async (email, password) => {
-    // 1. Verificar hash local PRIMEIRO (colaboradores)
-    try {
-      const res = await fetch(
-        `${SUPABASE_URL}/rest/v1/app_data?select=payload&id=eq.1`,
-        { headers: {
-          "apikey": SUPABASE_KEY,
-          "Authorization": "Bearer " + SUPABASE_KEY,
-          "Content-Type": "application/json"
-        }}
-      );
-      if(res.ok){
-        const rows = await res.json();
-        const collabs = rows?.[0]?.payload?.collaborators || [];
-        const collab = collabs.find(c => c.email && c.email.toLowerCase() === email.toLowerCase());
-        if(collab && collab._pwdHash){
-          const hash = await hashPwd(password);
-          if(hash === collab._pwdHash){
-            const sess = {
-              id: collab.id, email: collab.email,
-              user_metadata: {name: collab.name},
-              _localAuth: true, _collabId: collab.id
-            };
-            localStorage.setItem(LOCAL_KEY, JSON.stringify(sess));
-            setUser(sess);
-            return;
-          } else {
-            throw new Error("Email ou senha incorretos.");
-          }
-        }
-      }
-    } catch(e){
-      if(e.message === "Email ou senha incorretos.") throw e;
-      // Erro de rede ou outro problema - propaga para o usuário
-      console.warn("Erro ao buscar colaboradores:", e.message);
+    email=String(email||"").trim();
+    const entrarSupabase=async()=>{
+      const { data, error } = await sb.auth.signInWithPassword({ email, password });
+      if(error||!data?.session)return false;
+      localStorage.removeItem(LOCAL_KEY);
+      setUser({...data.session.user,_supabaseAuth:true});
+      return true;
+    };
+    // 1. login seguro (Supabase Auth)
+    if(await entrarSupabase())return;
+    // 2. 1º login de um colaborador: a função confere a senha antiga e cria o acesso seguro
+    const r=await usuariosFn("entrar",{email,senha:password});
+    if(r.ok){
+      if(await entrarSupabase())return;
+      throw new Error("Acesso criado, mas não consegui entrar. Tente de novo em alguns segundos.");
     }
-    // 2. Fallback Supabase Auth (admin sem collab cadastrado)
-    const { error } = await sb.auth.signInWithPassword({ email, password });
-    if(error) throw new Error("Email ou senha incorretos.");
-  }
+    if(r.motivo==="senha")throw new Error("Email ou senha incorretos.");
+    // 3. função ainda não publicada (ou conta especial): login antigo
+    if(r.naoInstalada||r.motivo==="conta_existente"||r.motivo==="erro"){
+      if(await loginAntigo(email,password))return;
+    }
+    throw new Error("Email ou senha incorretos.");
+  };
 
   const signOut = () => {
     localStorage.removeItem(LOCAL_KEY);
@@ -1485,6 +1505,7 @@ function LoginScreen({ onLogin }) {
     setLoading(true); setError("");
     try {
       await onLogin(email, password);
+      try{sessionStorage.removeItem("mdtec_aviso_login");}catch(e){}
     } catch(e) {
       setError(e.message || "Email ou senha incorretos.");
     }
@@ -1505,6 +1526,7 @@ function LoginScreen({ onLogin }) {
         </div>
         <div style={{background:"var(--bg2)",borderRadius:20,padding:"28px 24px",boxShadow:"0 32px 80px rgba(0,0,0,.4)"}}>
           <div style={{display:"flex",flexDirection:"column",gap:16}}>
+            {(()=>{let v=false;try{v=sessionStorage.getItem("mdtec_aviso_login")==="1";}catch(e){}return v;})()&&<div style={{background:"#eff6ff",border:"1px solid #bfdbfe",color:"#1e40af",borderRadius:10,padding:"9px 12px",fontSize:12.5,lineHeight:1.45}}>🔒 <b>Login seguro ativado.</b> Entre de novo com seu email e a mesma senha de sempre — é só desta vez.</div>}
             <div>
               <label style={{fontSize:12,fontWeight:700,color:"#374151",display:"block",marginBottom:6}}>Email</label>
               <input type="email" value={email} onChange={e=>setEmail(e.target.value)}
@@ -3037,7 +3059,7 @@ function WhatsAppModal({open,onClose,titulo,texto,setTexto,tel,setTel,children})
           <Txt value={texto} onChange={setTexto} rows={12}/>
         </Fld>
         <Inp label="WhatsApp de quem vai receber" value={tel} onChange={setTel} placeholder="(61) 99999-9999 — opcional"/>
-        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v116</span></div>
+        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v117</span></div>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
           <Btn v="ghost" onClick={onClose}>Fechar</Btn>
           <Btn v="ghost" onClick={copiar}>{copiado?"✓ Copiado":"📋 Copiar texto"}</Btn>
@@ -5527,30 +5549,37 @@ function CollaboratorsPage({ data, setData, toast=()=>{} }) {
     setSaveErr("");
     const initials=form.initials||form.name.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2);
     if(editing){
-      // Ao editar: atualizar dados + senha se preenchida
-      let newHash = editing._pwdHash||"";
+      // Ao editar: atualizar dados + senha se preenchida (senha vai para o login seguro do Supabase)
+      let newHash = editing._pwdHash||"";let seguro=!!editing._authSupabase;
       if(form.password&&form.password.length>=6){
-        newHash = await hashPwd(form.password);
+        if(!form.email){setSaveErr("Informe o email para definir a senha.");return;}
+        setSavingUser(true);
+        const r=await usuariosFn("definir_senha",{collabId:editing.id,email:form.email,nome:form.name,senha:form.password});
+        setSavingUser(false);
+        if(r.ok){newHash="";seguro=true;}
+        else if(r.naoInstalada||r.motivo==="conta_existente"){newHash=await hashPwd(form.password);}
+        else{setSaveErr("Não consegui salvar a senha: "+(r.motivo==="so_admin"?"só o administrador pode trocar senhas.":(r.erro||r.motivo||"erro")));return;}
       }
-      setData(d=>({...d,collaborators:d.collaborators.map(u=>u.id===editing.id?{...u,...form,initials,password:"",accessLevel:form.accessLevel||"user",permissions:{...PERM_DEFAULTS,...(form.permissions||{})},_pwdHash:newHash}:u)}));
+      setData(d=>({...d,collaborators:d.collaborators.map(u=>u.id===editing.id?{...u,...form,initials,password:"",accessLevel:form.accessLevel||"user",permissions:{...PERM_DEFAULTS,...(form.permissions||{})},_pwdHash:newHash,_authSupabase:seguro}:u)}));
       setOpen(false);
-      toast("💾 Colaborador atualizado!","ok");
+      toast("💾 Colaborador atualizado!"+(form.password&&seguro?" Senha salva no login seguro.":""),"ok");
     } else {
       // Novo colaborador: criar usuário no Supabase Auth
       if(!form.email){setSaveErr("Email obrigatório para criar acesso.");return;}
       if(!form.password||form.password.length<6){setSaveErr("Senha obrigatória (mín. 6 caracteres).");return;}
       setSavingUser(true);
       try{
-        // 1. Tentar criar o usuário
-        // Gerar hash da senha e salvar no colaborador (sem Supabase Auth)
-        const pwdHash = await hashPwd(form.password);
-        setSavingUser(false);
+        // cria o acesso no login seguro (Supabase); se a função ainda não estiver publicada, usa o login antigo
         const newCollabId=uid();
+        const r=await usuariosFn("definir_senha",{collabId:newCollabId,email:form.email,nome:form.name,senha:form.password});
+        if(!r.ok&&!r.naoInstalada&&r.motivo!=="conta_existente"){setSavingUser(false);setSaveErr("Não consegui criar o acesso: "+(r.motivo==="so_admin"?"só o administrador pode criar acessos.":(r.erro||r.motivo||"erro")));return;}
+        const pwdHash = r.ok?"":await hashPwd(form.password);
+        setSavingUser(false);
         setData(d=>({...d,collaborators:[...d.collaborators,{
           id:newCollabId,...form,initials,password:"",
           accessLevel:form.accessLevel||"user",
           permissions:{...PERM_DEFAULTS,...(form.permissions||{})},
-          _pwdHash:pwdHash
+          _pwdHash:pwdHash,_authSupabase:!!r.ok
         }]}));
         setOpen(false);
         // Mostrar credenciais para admin copiar/enviar
@@ -5559,7 +5588,7 @@ function CollaboratorsPage({ data, setData, toast=()=>{} }) {
     }
   };
   const {ask:askDel,modal:delModal}=useConfirmDelete();
-  const del=(id)=>{const item=data.collaborators.find(x=>x.id===id);askDel(`Colaborador: "${item?.name||""}"`,()=>setData(d=>({...d,collaborators:d.collaborators.filter(u=>u.id!==id)})));};
+  const del=(id)=>{const item=data.collaborators.find(x=>x.id===id);askDel(`Colaborador: "${item?.name||""}"`,()=>{setData(d=>({...d,collaborators:d.collaborators.filter(u=>u.id!==id)}));if(item?.email)usuariosFn("remover",{email:item.email});});};
 
   return (
     <div>
@@ -11713,10 +11742,12 @@ function App(){
     c.email && c.email.toLowerCase()===(user?.email||"").toLowerCase()
   );
   // isAdmin: tem accessLevel admin OU é Supabase Auth (dono) OU não achou collab E é Supabase Auth
+  // colaborador com login seguro (Supabase) tem user_metadata.collabId: só é admin se o cadastro disser
+  const ehColabSupabase=!!(user?._supabaseAuth&&user?.user_metadata?.collabId);
   const isAdmin = user?._supabaseAuth
-    ? (!myCollab || myCollab.accessLevel==="admin")
+    ? (ehColabSupabase ? myCollab?.accessLevel==="admin" : (!myCollab || myCollab.accessLevel==="admin"))
     : (myCollab?.accessLevel==="admin");
-  const myCollabId = myCollab?.id || user?._collabId || null;
+  const myCollabId = myCollab?.id || user?._collabId || user?.user_metadata?.collabId || null;
 
   // Helper de permissões — admin sempre pode tudo
   const myPerms=isAdmin
@@ -12538,7 +12569,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 116</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 117</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

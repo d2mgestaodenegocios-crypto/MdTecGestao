@@ -179,6 +179,13 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
   .drag-handle{cursor:grab!important;pointer-events:all!important;}
   .drag-handle:active{cursor:grabbing!important;}
 .kb-arq-todas:hover{border-style:solid!important;filter:brightness(.97);box-shadow:0 2px 8px rgba(34,197,94,.18)}
+.modal-fechar{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px 0 10px;border-radius:9px;border:1.5px solid var(--border2,#e2e8f0);background:var(--bg2,#fff);color:var(--text2,#475569);font-size:12.5px;font-weight:800;font-family:inherit;cursor:pointer;flex-shrink:0;margin-left:12px;transition:all .15s;box-shadow:0 1px 2px rgba(15,23,42,.06)}
+.modal-fechar .mf-x{font-size:13px;line-height:1}
+.modal-fechar:hover{background:#fef2f2;border-color:#fca5a5;color:#b91c1c}
+.modal-fechar:focus-visible{outline:2px solid #6366f1;outline-offset:2px}
+@media (max-width:520px){.modal-fechar .mf-txt{display:none}.modal-fechar{padding:0 10px}}
+.modal-fechar.escuro{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.35);color:#fff;box-shadow:none}
+.modal-fechar.escuro:hover{background:rgba(255,255,255,.95);border-color:#fff;color:#b91c1c}
 </style>
 </head>
 <body>
@@ -1581,7 +1588,7 @@ function ConfirmDelete({open,onClose,onConfirm,title,requireTyping=false}){
             <div style={{fontSize:15,fontWeight:900,color:"#991b1b"}}>Confirmar exclusão</div>
             <div style={{fontSize:12,color:"#ef4444",marginTop:2,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{title}</div>
           </div>
-          <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:"#fca5a5",fontSize:20,lineHeight:1,padding:"2px 6px",borderRadius:6,flexShrink:0}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#fca5a5"}>×</button>
+          <button className="modal-fechar escuro" onClick={onClose} title="Fechar esta janela" aria-label="Fechar"><span className="mf-x">✕</span><span className="mf-txt">Fechar</span></button>
         </div>
         <div style={{padding:"20px 24px"}}>
           {requireTyping?(
@@ -2877,8 +2884,8 @@ function Modal({open,onClose,title,children,width=630,fecharFora=true}){
     <div className="modal-backdrop" onClick={e=>fecharFora&&e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(3px)"}}>
       <div className="modal-box" style={{background:"var(--bg2)",borderRadius:18,width:"100%",maxWidth:width,maxHeight:"92dvh",overflow:"auto",boxShadow:"0 32px 80px rgba(0,0,0,.22)",animation:"popIn .22s cubic-bezier(.34,1.56,.64,1)"}}>
         <div style={{padding:"15px 20px",borderBottom:"1px solid #f3f4f6",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,background:"var(--bg2)",zIndex:1,borderRadius:"18px 18px 0 0"}}>
-          <h3 style={{fontSize:15,fontWeight:800,color:"#0f172a"}}>{title}</h3>
-          <button onClick={onClose} style={{background:"#f1f5f9",border:"none",borderRadius:"50%",width:30,height:30,fontSize:18,cursor:"pointer",color:"#64748b",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>×</button>
+          <h3 style={{fontSize:15,fontWeight:800,color:"var(--text)",minWidth:0}}>{title}</h3>
+          <button className="modal-fechar" onClick={onClose} title="Fechar esta janela" aria-label="Fechar"><span className="mf-x">✕</span><span className="mf-txt">Fechar</span></button>
         </div>
         <div style={{padding:"18px 20px"}}>{children}</div>
       </div>
@@ -3301,7 +3308,7 @@ function WhatsAppModal({open,onClose,titulo,texto,setTexto,tel,setTel,children})
           <Txt value={texto} onChange={setTexto} rows={12}/>
         </Fld>
         <Inp label="WhatsApp de quem vai receber" value={tel} onChange={setTel} placeholder="(61) 99999-9999 — opcional"/>
-        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v120</span></div>
+        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v121</span></div>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
           <Btn v="ghost" onClick={onClose}>Fechar</Btn>
           <Btn v="ghost" onClick={copiar}>{copiado?"✓ Copiado":"📋 Copiar texto"}</Btn>
@@ -3657,7 +3664,7 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
         </div>
         {(f._recFeriado||"manter")!=="manter"&&<label style={{display:"flex",alignItems:"flex-start",gap:7,marginTop:8,fontSize:12,color:"var(--text2)",cursor:"pointer",lineHeight:1.4}}>
           <input type="checkbox" disabled={blocked} checked={!!f._recAcumular} onChange={e=>set("_recAcumular",e.target.checked)} style={{marginTop:2}}/>
-          <span><b>Acumular</b> — se o novo dia já tiver tarefa desta série, ficam as duas (fazer as duas vezes). Sem marcar, fica só uma.</span>
+          <span><b>Acumular</b> — se o novo dia já tiver tarefa desta série, ela fica com um <b>checklist com os dias</b> (“Referente a qui 19/11”, “Referente a sex 20/11”) para fazer os dois. Sem marcar, fica só a do dia, sem repetir.</span>
         </label>}
         {f._recDataOrig&&f._recDataOrig!==f.dueDate&&<div style={{marginTop:6,fontSize:11.5,color:"#b45309",fontWeight:700}}>{f.dueDate<f._recDataOrig?"⏪ Antecipada":"⏩ Adiada"} de {rotCurta(f._recDataOrig)} ({diaFechado(f._recDataOrig,data.diasFechados)||"dia fechado"})</div>}
         <div style={{marginTop:6,fontSize:10.5,color:"var(--text4)"}}>Os dias fechados ficam em ⚙️ Configurações → calendário. Sábado e domingo da própria série não mudam.</div>
@@ -6420,7 +6427,7 @@ function ServicosPage({ data, setData }) {
           <div style={{marginTop:20,background:"var(--bg2)",borderRadius:14,padding:20,border:"1px solid var(--border)",boxShadow:"0 2px 8px rgba(0,0,0,.06)"}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
               <h3 style={{fontSize:14,fontWeight:900,color:"var(--text)",margin:0}}>📋 Tarefas ativas — {viewSvc.name}</h3>
-              <button onClick={()=>setViewSvc(null)} style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:18,lineHeight:1}}>✕</button>
+              <button className="modal-fechar" onClick={()=>setViewSvc(null)} title="Fechar esta janela" aria-label="Fechar"><span className="mf-x">✕</span><span className="mf-txt">Fechar</span></button>
             </div>
             <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
               {Object.entries(byStatus).map(([st,ts])=>{
@@ -11697,7 +11704,7 @@ function recAjustarFeriados(data){
   const orig=(t)=>t._recDataOrig||t.dueDate;
   const pend=(t)=>t.status==="todo"&&orig(t)>=hoje;
   const naoIniciada=(t)=>t.status==="todo"&&!toArr(t.checklist).some(c=>c.done)&&!toArr(t.comments).length;
-  const upd={};const remover=new Set();const novas=[];
+  const upd={};const remover=new Set();const novas=[];const addCk={};const tirarCk={};
   Object.entries(grupos).forEach(([gid,lista])=>{
     lista.sort((a,b)=>orig(a).localeCompare(orig(b)));
     const ref=lista[lista.length-1];
@@ -11707,8 +11714,18 @@ function recAjustarFeriados(data){
     const ocup=new Set(lista.filter(t=>!pend(t)||alvoDe.get(t.id)===orig(t)).map(t=>pend(t)?orig(t):t.dueDate));
     [...lista.filter(t=>pend(t)&&alvoDe.get(t.id)===orig(t)),...lista.filter(t=>pend(t)&&alvoDe.get(t.id)!==orig(t))].forEach(t=>{
       const o=orig(t);const alvo=alvoDe.get(t.id);
-      if(alvo!==o&&!t._recAcumular&&ocup.has(alvo)){
-        if(naoIniciada(t)){remover.add(t.id);supr[gid]=[...new Set([...(supr[gid]||[]),o])];mudouSupr=true;}
+      if(alvo!==o&&ocup.has(alvo)){
+        if(!naoIniciada(t))return;
+        if(t._recAcumular){
+          // acumular: junta na tarefa do novo dia, com um item no checklist para cada dia
+          const tg=lista.find(x=>x.id!==t.id&&x.dueDate===alvo&&x.status!=="done"&&x.status!=="archived"&&!remover.has(x.id));
+          if(!tg){ocup.add(alvo);if(t.dueDate!==alvo)upd[t.id]={dueDate:alvo,_recDataOrig:o};return;} // a do dia já foi feita: fica separada
+          const lst=addCk[tg.id]=addCk[tg.id]||[];
+          const motivo=diaFechado(o,marc)||"dia fechado";
+          lst.push({id:"acc_"+(tg._recDataOrig||tg.dueDate),text:"Referente a "+rotCurta(tg._recDataOrig||tg.dueDate),done:false,_accDe:tg._recDataOrig||tg.dueDate});
+          lst.push({id:"acc_"+o,text:"Referente a "+rotCurta(o)+" ("+motivo+")",done:false,_accDe:o});
+        }
+        remover.add(t.id);supr[gid]=[...new Set([...(supr[gid]||[]),o])];mudouSupr=true;
         return;
       }
       ocup.add(alvo);
@@ -11720,9 +11737,11 @@ function recAjustarFeriados(data){
       supr[gid].forEach(o=>{
         if(o<hoje)return;
         const alvo=recAlvoFeriado(o,regra,marc,hoje);
-        const precisa=alvo!==o&&!acum&&[...ocup].includes(alvo);
+        const precisa=alvo!==o&&ocup.has(alvo);
         if(precisa){fica.push(o);return;}
         if(lista.some(t=>orig(t)===o))return;
+        // tira o item "Referente a ..." que tinha ido para outra tarefa
+        lista.forEach(t=>{if(toArr(t.checklist).some(c=>c._accDe===o&&!c.done))(tirarCk[t.id]=tirarCk[t.id]||new Set()).add(o);});
         const id="rec_"+gid+"_"+o;
         if(tarefas.some(t=>t.id===id)){fica.push(o);return;}
         novas.push({...ref,id,dueDate:alvo,_recDataOrig:alvo===o?null:o,status:"todo",createdAt:todayStr(),completedAt:null,completedBy:null,completedByName:null,archivedAt:null,archivedBy:null,
@@ -11732,8 +11751,15 @@ function recAjustarFeriados(data){
       if(fica.length!==supr[gid].length){supr[gid]=fica;mudouSupr=true;}
     }
   });
-  if(!Object.keys(upd).length&&!remover.size&&!novas.length&&!mudouSupr)return null;
-  return{...data,recSuprimidas:supr,tasks:[...tarefas.filter(t=>!remover.has(t.id)).map(t=>upd[t.id]?{...t,...upd[t.id]}:t),...novas]};
+  if(!Object.keys(upd).length&&!remover.size&&!novas.length&&!mudouSupr&&!Object.keys(addCk).length&&!Object.keys(tirarCk).length)return null;
+  const ajCk=(t)=>{
+    let ck=toArr(t.checklist);
+    if(tirarCk[t.id]){ck=ck.filter(c=>!(c._accDe&&tirarCk[t.id].has(c._accDe)&&!c.done));
+      if(ck.filter(c=>c._accDe).length===1&&!ck.find(c=>c._accDe).done)ck=ck.filter(c=>!c._accDe);} // sobrou só o do próprio dia
+    if(addCk[t.id])addCk[t.id].forEach(it=>{if(!ck.some(c=>c.id===it.id))ck=[...ck,it];});
+    return ck;
+  };
+  return{...data,recSuprimidas:supr,tasks:[...tarefas.filter(t=>!remover.has(t.id)).map(t=>{let n=upd[t.id]?{...t,...upd[t.id]}:t;if(addCk[t.id]||tirarCk[t.id])n={...n,checklist:ajCk(n)};return n;}),...novas]};
 }
 // devolve as novas tarefas que faltam (ou [] se nada a fazer)
 function recRenovarSeries(data){
@@ -12919,7 +12945,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 120</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 121</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>
@@ -13113,7 +13139,7 @@ function App(){
                     <div style={{fontSize:15,fontWeight:900,color:"#991b1b"}}>Excluir tarefa recorrente</div>
                     <div style={{fontSize:12,color:"#ef4444",marginTop:2,fontWeight:600}}>↻ Série com {serie.length} ocorrência(s)</div>
                   </div>
-                  <button onClick={closeRecDeleteModal} style={{marginLeft:"auto",background:"none",border:"none",cursor:"pointer",color:"#fca5a5",fontSize:20,lineHeight:1,padding:"2px 6px",borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#fca5a5"}>×</button>
+                  <button className="modal-fechar escuro" onClick={closeRecDeleteModal} style={{marginLeft:"auto"}} title="Fechar esta janela" aria-label="Fechar"><span className="mf-x">✕</span><span className="mf-txt">Fechar</span></button>
                 </div>
                 <div style={{padding:"8px 12px",borderRadius:9,background:"rgba(239,68,68,.08)",border:"1px solid #fecaca"}}>
                   <span style={{fontSize:13,fontWeight:700,color:"#7f1d1d"}}>📋 "{title}"</span>
@@ -14515,7 +14541,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
                 <div style={{fontSize:15,fontWeight:900,color:"#fff"}}>🔗 Link de Acesso — {linkModal.grp.nome}</div>
                 <div style={{fontSize:12,color:"rgba(255,255,255,.75)",marginTop:2}}>Usuários sem senha poderão editar apenas este grupo</div>
               </div>
-              <button onClick={()=>setLinkModal(null)} style={{background:"rgba(255,255,255,.2)",border:"none",color:"#fff",fontSize:18,cursor:"pointer",borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+              <button className="modal-fechar escuro" onClick={()=>setLinkModal(null)} title="Fechar esta janela" aria-label="Fechar"><span className="mf-x">✕</span><span className="mf-txt">Fechar</span></button>
             </div>
             <div style={{padding:"20px"}}>
               <div style={{padding:"10px 14px",background:"var(--bg3)",border:"1.5px solid var(--border)",borderRadius:10,fontSize:12,fontFamily:"monospace",wordBreak:"break-all",color:"#374151",marginBottom:12,lineHeight:1.6}}>
@@ -14545,7 +14571,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
                   <div style={{fontSize:12,color:"rgba(255,255,255,.7)",marginTop:2}}>{cObs.filter(o=>!o.verificado).length} pend. / {cObs.length} · agrupado por grupo</div>
                 </div>
               </div>
-              <button onClick={()=>setObsResModal(false)} style={{background:"rgba(255,255,255,.15)",border:"none",color:"#fff",fontSize:18,cursor:"pointer",lineHeight:1,borderRadius:8,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+              <button className="modal-fechar escuro" onClick={()=>setObsResModal(false)} title="Fechar esta janela" aria-label="Fechar"><span className="mf-x">✕</span><span className="mf-txt">Fechar</span></button>
             </div>
             <div style={{display:"flex",gap:8,padding:"12px 22px 0",flexShrink:0}}>
               {[["pendentes","⏳ Pendentes"],["todas","☰ Todas"]].map(([v,l])=>(
@@ -14667,7 +14693,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
             <div style={{background:"linear-gradient(135deg,#7f1d1d,#991b1b)",padding:"20px 24px 16px",display:"flex",alignItems:"center",gap:14}}>
               <div style={{width:50,height:50,borderRadius:14,background:"rgba(255,255,255,.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,flexShrink:0}}>⚠️</div>
               <div><div style={{fontSize:16,fontWeight:900,color:"#fff"}}>Limpar todos os dados contábeis</div><div style={{fontSize:12,color:"rgba(255,255,255,.7)",marginTop:2}}>Esta ação não pode ser desfeita</div></div>
-              <button onClick={()=>setShowResetModal(false)} style={{marginLeft:"auto",background:"none",border:"none",cursor:"pointer",color:"rgba(255,255,255,.6)",fontSize:22}}>×</button>
+              <button className="modal-fechar escuro" onClick={()=>setShowResetModal(false)} style={{marginLeft:"auto"}} title="Fechar esta janela" aria-label="Fechar"><span className="mf-x">✕</span><span className="mf-txt">Fechar</span></button>
             </div>
             <div style={{padding:"22px 24px"}}>
               <div style={{padding:"14px 16px",borderRadius:12,background:"#fef2f2",border:"1.5px solid #fecaca",marginBottom:18}}>
@@ -14698,7 +14724,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
                 <div style={{fontSize:15,fontWeight:900,color:"#991b1b"}}>Confirmar exclusão</div>
                 <div style={{fontSize:12,color:"#ef4444",marginTop:2,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{deleteModal.title}</div>
               </div>
-              <button onClick={()=>setDeleteModal(null)} style={{background:"none",border:"none",cursor:"pointer",color:"#fca5a5",fontSize:20}} >×</button>
+              <button className="modal-fechar escuro" onClick={()=>setDeleteModal(null)} title="Fechar esta janela" aria-label="Fechar"><span className="mf-x">✕</span><span className="mf-txt">Fechar</span></button>
             </div>
             <div style={{padding:"20px 24px"}}>
               <div style={{padding:"14px 16px",borderRadius:12,background:"#fef2f2",border:"1.5px solid #fecaca",marginBottom:16}}>
@@ -14728,7 +14754,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
           <div style={{background:"var(--bg2)",borderRadius:18,width:"100%",maxWidth:860,maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:"0 32px 80px rgba(0,0,0,.3)",overflow:"hidden"}}>
             <div style={{background:"#f59e0b",padding:"16px 22px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
               <span style={{fontSize:15,fontWeight:900,color:"#fff"}}>📊 Relatório Geral das Empresas</span>
-              <button onClick={()=>setShowRelGeral(false)} style={{background:"none",border:"none",color:"#fff",fontSize:22,cursor:"pointer",lineHeight:1}}>×</button>
+              <button className="modal-fechar escuro" onClick={()=>setShowRelGeral(false)} title="Fechar esta janela" aria-label="Fechar"><span className="mf-x">✕</span><span className="mf-txt">Fechar</span></button>
             </div>
             <div style={{padding:"20px",overflowY:"auto",flex:1}}>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:10,marginBottom:20,padding:"14px",borderRadius:12,background:"#e0e7ff",border:"1px solid #c7d2fe"}}>
@@ -14812,7 +14838,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
           <div style={{background:"var(--bg2)",borderRadius:18,width:"100%",maxWidth:700,maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:"0 32px 80px rgba(0,0,0,.3)",overflow:"hidden"}}>
             <div style={{background:"#10b981",padding:"16px 22px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
               <span style={{fontSize:15,fontWeight:900,color:"#fff"}}>📤 Importar Empresas via CSV</span>
-              <button onClick={()=>setShowImportModal(false)} style={{background:"none",border:"none",color:"#fff",fontSize:22,cursor:"pointer",lineHeight:1}}>×</button>
+              <button className="modal-fechar escuro" onClick={()=>setShowImportModal(false)} title="Fechar esta janela" aria-label="Fechar"><span className="mf-x">✕</span><span className="mf-txt">Fechar</span></button>
             </div>
             <div style={{padding:"20px",overflowY:"auto",flex:1}}>
               <div style={{padding:"14px",borderRadius:10,background:"#fef3c7",marginBottom:16,fontSize:13,color:"#92400e",lineHeight:1.6}}>
@@ -14913,7 +14939,7 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
                 <div style={{fontSize:14,fontWeight:900,color:"#f1f5f9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{emp.nome}</div>
                 <div style={{fontSize:11,color:grpColor,fontWeight:700,marginTop:2}}>{getRegimeLbl(emp.regime)}</div>
               </div>
-              <button onClick={closeSidePanel} style={{background:"#1e293b",border:"none",color:"#64748b",fontSize:16,cursor:"pointer",borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>×</button>
+              <button className="modal-fechar escuro" onClick={closeSidePanel} title="Fechar esta janela" aria-label="Fechar"><span className="mf-x">✕</span><span className="mf-txt">Fechar</span></button>
             </div>
             {/* Tabs */}
             <div style={{display:"flex",borderBottom:"1px solid #1e293b",flexShrink:0,background:"#0a1628"}}>
@@ -15725,7 +15751,7 @@ function FolhaPage({toast, data}){
             <div style={{background:"linear-gradient(135deg,#fef2f2,#fff0f0)",padding:"20px 24px 16px",borderBottom:"1px solid #fecaca",display:"flex",alignItems:"center",gap:14}}>
               <div style={{width:46,height:46,borderRadius:13,background:"linear-gradient(135deg,#ef4444,#dc2626)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>🗑</div>
               <div><div style={{fontSize:15,fontWeight:900,color:"#991b1b"}}>Excluir empresa?</div><div style={{fontSize:12,color:"#ef4444",marginTop:2,fontWeight:600}}>{deleteModal.nome}</div></div>
-              <button onClick={()=>setDeleteModal(null)} style={{marginLeft:"auto",background:"none",border:"none",cursor:"pointer",color:"#fca5a5",fontSize:20}}>×</button>
+              <button className="modal-fechar escuro" onClick={()=>setDeleteModal(null)} style={{marginLeft:"auto"}} title="Fechar esta janela" aria-label="Fechar"><span className="mf-x">✕</span><span className="mf-txt">Fechar</span></button>
             </div>
             <div style={{padding:"20px 24px"}}>
               <p style={{fontSize:13,color:"#374151",marginBottom:10}}>Para confirmar, digite <strong style={{color:"#ef4444",fontFamily:"monospace",letterSpacing:2}}>EXCLUIR</strong>:</p>
@@ -16037,7 +16063,7 @@ function FiscalTributarioPage({toast,data}){
         <div style={{background:"var(--bg2)",borderRadius:18,width:"100%",maxWidth:620,maxHeight:"82vh",display:"flex",flexDirection:"column",boxShadow:"0 32px 80px rgba(0,0,0,.3)",overflow:"hidden"}}>
           <div style={{background:"#8b5cf6",padding:"16px 22px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
             <span style={{fontSize:15,fontWeight:900,color:"#fff"}}>📝 Observações — Fiscal Tributário</span>
-            <button onClick={()=>setShowObsModal(false)} style={{background:"none",border:"none",color:"#fff",fontSize:22,cursor:"pointer"}}>×</button>
+            <button className="modal-fechar escuro" onClick={()=>setShowObsModal(false)} title="Fechar esta janela" aria-label="Fechar"><span className="mf-x">✕</span><span className="mf-txt">Fechar</span></button>
           </div>
           <div style={{padding:"20px",overflowY:"auto",flex:1}}>
             {obs.length===0&&<div style={{textAlign:"center",padding:"40px",color:"#94a3b8"}}>Nenhuma observação</div>}

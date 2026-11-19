@@ -3333,7 +3333,7 @@ function WhatsAppModal({open,onClose,titulo,texto,setTexto,tel,setTel,children})
           <Txt value={texto} onChange={setTexto} rows={12}/>
         </Fld>
         <Inp label="WhatsApp de quem vai receber" value={tel} onChange={setTel} placeholder="(61) 99999-9999 — opcional"/>
-        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v129</span></div>
+        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v130</span></div>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
           <Btn v="ghost" onClick={onClose}>Fechar</Btn>
           <Btn v="ghost" onClick={copiar}>{copiado?"✓ Copiado":"📋 Copiar texto"}</Btn>
@@ -4000,14 +4000,14 @@ function DiaSemanaTag({t,done,movida,dueDate}){
   const cor=done?"#94a3b8":t.color;
   const longo=DOW_LONGO[["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"].indexOf(t.label)]||t.label;
   const quando=!done&&(t.isToday?"hoje":t.isTomorrow?"amanhã":"");
-  return(<div title="Tarefa recorrente" style={{display:"flex",alignItems:"center",gap:9,marginBottom:9,marginRight:34}}>
+  return(<div title={t.rec===false?"Prazo":"Tarefa recorrente"} style={{display:"flex",alignItems:"center",gap:9,marginBottom:9,marginRight:34}}>
     <div style={{width:38,borderRadius:8,overflow:"hidden",border:"1px solid "+cor+"55",background:"var(--bg2)",flexShrink:0,textAlign:"center",boxShadow:"0 1px 3px rgba(15,23,42,.08)"}}>
       <div style={{background:cor,color:"#fff",fontSize:9,fontWeight:900,letterSpacing:".08em",padding:"2px 0"}}>{t.label.toUpperCase()}</div>
       <div style={{fontSize:15,fontWeight:900,color:done?"#94a3b8":"var(--text)",lineHeight:1.25,padding:"1px 0 2px"}}>{t.data.slice(0,2)}</div>
     </div>
     <div style={{minWidth:0,lineHeight:1.2}}>
       <div style={{fontSize:12.5,fontWeight:800,color:cor}}>{longo}</div>
-      <div style={{fontSize:10.5,color:"var(--text3)",fontWeight:600}}>↻ recorrente{quando?<> · <b style={{color:t.isToday?"#d97706":"#6366f1"}}>{quando}</b></>:null}</div>
+      <div style={{fontSize:10.5,color:"var(--text3)",fontWeight:600}}>{t.rec===false?<>{t.data}{t.ano&&t.ano!==String(new Date().getFullYear())?"/"+t.ano:""}{t.hora?" · "+t.hora:""}</>:<>↻ recorrente</>}{quando?<> · <b style={{color:t.isToday?"#d97706":"#6366f1"}}>{quando}</b></>:null}</div>
       {movida&&<div title="Movida por causa de feriado/dia fechado" style={{fontSize:10,fontWeight:800,color:"#b45309"}}>{dueDate<movida?"⏪ antecipada":"⏩ adiada"} de {rotCurta(movida)}</div>}
     </div>
   </div>);
@@ -4020,13 +4020,13 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
   const DOW_NAMES=["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
   const DOW_COLORS=["#f59e0b","#6366f1","#14b8a6","#8b5cf6","#f97316","#22c55e","#ec4899"];
   const dowTag=(()=>{
-    if(!task._recGroup||!task.dueDate) return null;
+    if(!task.dueDate) return null; // toda tarefa com data mostra o dia no estilo calendário
     const d=new Date(task.dueDate+"T12:00:00");
     const dow=d.getDay();
     const hj=isoLocalHoje();const am=(()=>{const x=new Date();x.setDate(x.getDate()+1);return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0");})();
     const isToday=task.dueDate===hj;const isTomorrow=task.dueDate===am;
     const NOMES=["DOMINGO","SEGUNDA","TERÇA","QUARTA","QUINTA","SEXTA","SÁBADO"];
-    return {label:DOW_NAMES[dow],nome:NOMES[dow],data:task.dueDate.slice(8,10)+"/"+task.dueDate.slice(5,7),color:DOW_COLORS[dow],isToday,isTomorrow};
+    return {label:DOW_NAMES[dow],nome:NOMES[dow],data:task.dueDate.slice(8,10)+"/"+task.dueDate.slice(5,7),color:DOW_COLORS[dow],isToday,isTomorrow,rec:!!(task._recGroup||task.recurrence),hora:task.dueTime||"",ano:task.dueDate.slice(0,4)};
   })();
   const [,setTick]=useState(0);
   const [expandido,setExpandido]=useState(false); // card sempre abre compacto; ▾ mostra mais informações
@@ -12996,7 +12996,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 129</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 130</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

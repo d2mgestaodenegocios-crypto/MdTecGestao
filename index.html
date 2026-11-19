@@ -3333,7 +3333,7 @@ function WhatsAppModal({open,onClose,titulo,texto,setTexto,tel,setTel,children})
           <Txt value={texto} onChange={setTexto} rows={12}/>
         </Fld>
         <Inp label="WhatsApp de quem vai receber" value={tel} onChange={setTel} placeholder="(61) 99999-9999 — opcional"/>
-        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v130</span></div>
+        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v131</span></div>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
           <Btn v="ghost" onClick={onClose}>Fechar</Btn>
           <Btn v="ghost" onClick={copiar}>{copiado?"✓ Copiado":"📋 Copiar texto"}</Btn>
@@ -4875,6 +4875,8 @@ function CalView({data,onEdit,onReschedule}){
   const [y,sy]=useState(now.getFullYear());
   const [dragTask,setDragTask]=useState(null);
   const [dragOver,setDragOver]=useState(null);
+  const [diaAberto,setDiaAberto]=useState(null); // lista completa do dia
+  const MAXDIA=5;
   const wD=["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
   const dim=new Date(y,m+1,0).getDate(),fd=new Date(y,m,1).getDay();
   const tbd=useMemo(()=>{
@@ -4914,14 +4916,32 @@ function CalView({data,onEdit,onReschedule}){
         <h3 style={{fontSize:17,fontWeight:800,color:"#0f172a"}}>{MN[m]} {y}</h3>
         <button onClick={next} style={{background:"#f1f5f9",border:"none",borderRadius:9,width:38,height:38,cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3,marginBottom:4}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,minmax(0,1fr))",gap:3,marginBottom:4}}>
         {wD.map(d=><div key={d} style={{textAlign:"center",fontSize:10,fontWeight:800,color:"#94a3b8",padding:"4px 0"}}>{d}</div>)}
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3}}>
+      {diaAberto&&(()=>{const lista=(tbd[diaAberto]||[]).slice().sort((a,b)=>((a.status==="done")-(b.status==="done"))||(a.dueTime||"99").localeCompare(b.dueTime||"99")||(a.title||"").localeCompare(b.title||""));const iso=`${y}-${String(m+1).padStart(2,"0")}-${String(diaAberto).padStart(2,"0")}`;
+        return(<Modal open onClose={()=>setDiaAberto(null)} title={"📅 "+wD[new Date(y,m,diaAberto).getDay()]+", "+String(diaAberto).padStart(2,"0")+"/"+String(m+1).padStart(2,"0")+" — "+lista.length+" tarefa(s)"} width={620}>
+          <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:"65vh",overflowY:"auto"}}>
+            {lista.map(t=>{const st=STS.find(s=>s.id===t.status)||STS[0];const cos=taskCompaniesAll(t).map(id=>data.companies.find(x=>x.id===id)).filter(Boolean);
+              const asg=data.collaborators.filter(x=>toArr(t.assignees).includes(x.id));const over=isLate(t);
+              return(<div key={t.id+(t._recurring?"r":"")} onClick={()=>{setDiaAberto(null);onEdit(t);}} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderRadius:10,border:"1px solid "+(over?"#fca5a5":"var(--border2)"),borderLeft:"4px solid "+st.c,background:"var(--bg2)",cursor:"pointer"}}>
+                <div style={{minWidth:0,flex:1}}>
+                  <div style={{fontSize:13,fontWeight:800,color:t.status==="done"?"#94a3b8":over?"#b91c1c":"var(--text)",textDecoration:t.status==="done"?"line-through":"none"}}>{(t._recGroup||t.recurrence)?"↻ ":""}{t.title}</div>
+                  <div style={{fontSize:11.5,color:"var(--text3)",display:"flex",gap:8,flexWrap:"wrap",marginTop:2}}>
+                    <span style={{color:st.c,fontWeight:800}}>{st.l}</span>
+                    {t.dueTime&&<span>🕐 {t.dueTime}</span>}
+                    {cos.length>0&&<span style={{fontWeight:700}}>{cos.map(c=>c.name).join(", ")}</span>}
+                  </div>
+                </div>
+                <div style={{display:"flex"}}>{asg.slice(0,3).map((u,i)=><span key={u.id} title={u.name} style={{marginLeft:i?-6:0}}><Av initials={u.initials} color={u.color} size={24} photo={u.photo}/></span>)}</div>
+              </div>);})}
+          </div>
+        </Modal>);})()}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,minmax(0,1fr))",gap:3}}>
         {cells.map((day,i)=>{
           if(!day)return<div key={`e${i}`}/>;
           const isT=day===now.getDate()&&m===now.getMonth()&&y===now.getFullYear();
-          const tasks=tbd[day]||[];
+          const tasks=(tbd[day]||[]).slice().sort((a,b)=>((a.status==="done")-(b.status==="done"))||(a.dueTime||"99").localeCompare(b.dueTime||"99")||(a.title||"").localeCompare(b.title||""));
           return(
             <div key={day}
               onDragOver={e=>{e.preventDefault();setDragOver(day);}}
@@ -4933,40 +4953,35 @@ function CalView({data,onEdit,onReschedule}){
                 if(onReschedule) onReschedule(dragTask.id,newDate);
                 setDragTask(null);
               }}
-              style={{minHeight:78,padding:5,borderRadius:9,
-                background:dragOver===day?"#eef2ff":isT?"#f0f4ff":"#fafafa",
+              style={{minHeight:78,padding:5,borderRadius:9,minWidth:0,
+                background:dragOver===day?"#eef2ff":isT?"#f0f4ff":"var(--bg3)",
                 border:`1.5px solid ${dragOver===day?"#6366f1":isT?"#6366f1":"#f1f5f9"}`,
                 transition:"background .1s,border .1s"
               }}>
-              <div style={{fontSize:11,fontWeight:800,width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:"50%",background:isT?"#6366f1":"transparent",color:isT?"#fff":"#374151",marginBottom:3}}>{day}</div>
-              {tasks.slice(0,3).map(t=>{
+              <div onClick={()=>tasks.length&&setDiaAberto(day)} title={tasks.length?"Ver as "+tasks.length+" tarefa(s) do dia":""} style={{display:"flex",alignItems:"center",gap:5,marginBottom:3,cursor:tasks.length?"pointer":"default"}}><span style={{fontSize:11,fontWeight:800,width:22,height:22,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:"50%",background:isT?"#6366f1":"transparent",color:isT?"#fff":"var(--text2)"}}>{day}</span>{tasks.length>0&&<span style={{fontSize:9,fontWeight:800,color:"#94a3b8"}}>{tasks.length}</span>}</div>
+              {tasks.slice(0,MAXDIA).map(t=>{
                 const st=STS.find(s=>s.id===t.status)||STS[0];
-                const co=(taskCompanies(t).map(id=>data.companies.find(x=>x.id===id)).filter(Boolean))[0]||null;
-                const taskCos=taskCompanies(t).map(id=>data.companies.find(x=>x.id===id)).filter(Boolean);
-                const asg=data.collaborators.filter(x=>t.assignees.includes(x.id)).slice(0,2);
-                const lbs=data.labels.filter(x=>t.labels.includes(x.id)).slice(0,2);
-                const over=isLate(t);
+                const cos=taskCompaniesAll(t).map(id=>data.companies.find(x=>x.id===id)).filter(Boolean);
+                const sig=(c)=>(c.logo&&String(c.logo).length<=3?c.logo:(c.name||"?").slice(0,2)).toUpperCase();
+                const asg=data.collaborators.filter(x=>toArr(t.assignees).includes(x.id)).slice(0,2);
+                const over=isLate(t);const feito=t.status==="done";
                 return(
-                  <div key={t.id}
+                  <div key={t.id+(t._recurring?"r":"")}
                     draggable={!t._recurring}
                     onDragStart={e=>{setDragTask(t);e.dataTransfer.effectAllowed="move";}}
                     onDragEnd={()=>setDragTask(null)}
                     onClick={()=>onEdit(t)}
-                    style={{marginBottom:3,borderRadius:6,border:"1.5px solid "+st.c+"33",background:"var(--bg2)",cursor:t._recurring?"pointer":"grab",overflow:"hidden",opacity:dragTask?.id===t.id?.45:1,outline:over?"1.5px solid #ef444488":"none"}}>
-                    <div style={{background:st.c,height:2}}/>
-                    <div style={{padding:"2px 4px"}}>
-                      <div style={{fontSize:9,fontWeight:800,color:over?"#ef4444":"#0f172a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</div>
-                      {taskCos.length>0&&<div style={{display:"flex",gap:2,flexWrap:"wrap"}}>
-                    {taskCos.slice(0,3).map(cx=><span key={cx.id} style={{fontSize:8,color:cx.color,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cx.logo||cx.name.slice(0,2)}</span>)}
-                    {taskCos.length>3&&<span style={{fontSize:8,color:"#94a3b8"}}>+{taskCos.length-3}</span>}
-                  </div>}
-                      {asg.length>0&&<div style={{display:"flex",gap:2,marginTop:1}}>{asg.map(u=><span key={u.id} style={{fontSize:7,fontWeight:700,padding:"1px 4px",borderRadius:4,background:u.color+"22",color:u.color}}>{u.initials||u.name.slice(0,2)}</span>)}</div>}
-                      {lbs.length>0&&<div style={{display:"flex",gap:2,marginTop:1,flexWrap:"wrap"}}>{lbs.map(l=><span key={l.id} style={{fontSize:7,fontWeight:700,padding:"1px 4px",borderRadius:4,background:l.color+"22",color:l.color}}>{l.name}</span>)}</div>}
-                    </div>
+                    title={t.title+(cos.length?" — "+cos.map(c=>c.name).join(", "):"")+(asg.length?" · "+asg.map(u=>u.name).join(", "):"")}
+                    style={{display:"flex",alignItems:"center",gap:4,marginBottom:2,padding:"2px 4px",borderRadius:5,borderLeft:"3px solid "+(over?"#ef4444":st.c),background:over?"#fef2f2":"var(--bg2)",cursor:t._recurring?"pointer":"grab",opacity:dragTask?.id===t.id?.45:feito?.6:1,minWidth:0}}>
+                    {t.dueTime&&<span style={{fontSize:8.5,fontWeight:800,color:"#64748b",flexShrink:0}}>{t.dueTime}</span>}
+                    <span style={{fontSize:9.5,fontWeight:700,color:over?"#b91c1c":"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,minWidth:0,textDecoration:feito?"line-through":"none"}}>{t.title}</span>
+                    {cos.slice(0,2).map(cx=><span key={cx.id} style={{fontSize:7.5,fontWeight:900,color:cx.color,flexShrink:0}}>{sig(cx)}</span>)}
+                    {asg.slice(0,1).map(u=><span key={u.id} style={{width:12,height:12,borderRadius:"50%",background:u.color,color:"#fff",fontSize:6.5,fontWeight:900,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{(u.initials||u.name||"?").slice(0,1)}</span>)}
                   </div>
                 );
               })}
-              {tasks.length>2&&<div style={{fontSize:9,color:"#94a3b8"}}>+{tasks.length-2}</div>}
+              {tasks.length>MAXDIA&&<button onClick={()=>setDiaAberto(day)} style={{width:"100%",border:"1px dashed #c7d2fe",background:"#eef2ff",color:"#4338ca",borderRadius:5,padding:"2px 0",fontSize:9.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>+{tasks.length-MAXDIA} — ver todas</button>}
+
             </div>
           );
         })}
@@ -12996,7 +13011,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 130</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 131</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

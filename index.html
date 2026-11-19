@@ -2370,6 +2370,9 @@ function modkAplicar(data,payloads,inativas,alvo){
     const d=dadosDe[M.row];
     // automático: competência do mês; também segue criando a próxima etapa dos meses que já têm cards
     const meses=new Set([mesAuto]);
+    // automático: também os 3 meses anteriores que ainda têm etapa em aberto (ex.: SET vencido e esquecido)
+    const mesesAtras=new Set();
+    if(!alvo){const mp=mesAuto.split("/");for(let i=1;i<=3;i++){const dd=new Date(parseInt(mp[1]),parseInt(mp[0])-1-i,1);const m=String(dd.getMonth()+1).padStart(2,"0")+"/"+dd.getFullYear();meses.add(m);mesesAtras.add(m);}}
     if(!alvo)tarefas.forEach(t=>{if(t._modRef&&t._modRef.row===M.row)meses.add(t._modRef.mes);});
     meses.forEach(mes=>{
       const mi=mesIdxMA(mes);
@@ -2378,7 +2381,7 @@ function modkAplicar(data,payloads,inativas,alvo){
         if(!emp||emp.id==null)return;
         if(alvo&&alvo.eids&&!alvo.eids.includes(emp.id))return;
         // meses antigos: só continua a sequência de quem já tem card naquele mês
-        if(mes!==mesAuto&&!tarefas.some(t=>t._modRef&&t._modRef.row===M.row&&t._modRef.eid===emp.id&&t._modRef.mes===mes))return;
+        if(mes!==mesAuto&&!mesesAtras.has(mes)&&!tarefas.some(t=>t._modRef&&t._modRef.row===M.row&&t._modRef.eid===emp.id&&t._modRef.mes===mes))return;
         if(inativas&&inativas[canonEmpKeyGlobal(emp.cnpj,emp.nome)])return;
         const ini=mesIdxMA(emp.periodoInicial||"01/2025");if(ini!=null&&mi<ini)return;
         if(d[emp.id+"_"+mes+"__semmov"]===true||d[emp.id+"_"+mes+"__analisado"]===true)return;
@@ -3522,7 +3525,7 @@ function WhatsAppModal({open,onClose,titulo,texto,setTexto,tel,setTel,children})
           <Txt value={texto} onChange={setTexto} rows={12}/>
         </Fld>
         <Inp label="WhatsApp de quem vai receber" value={tel} onChange={setTel} placeholder="(61) 99999-9999 — opcional"/>
-        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v138</span></div>
+        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v139</span></div>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
           <Btn v="ghost" onClick={onClose}>Fechar</Btn>
           <Btn v="ghost" onClick={copiar}>{copiado?"✓ Copiado":"📋 Copiar texto"}</Btn>
@@ -12163,6 +12166,14 @@ function App(){
     };
     window.addEventListener("mdtec-modk-gerar",h);return()=>window.removeEventListener("mdtec-modk-gerar",h);
   },[]);// eslint-disable-line
+  // abrir um card a partir do módulo (botão “📋 … no Kanban”)
+  const openEditRef=useRef(null);
+  useEffect(()=>{
+    const h=(ev)=>{const id=(ev.detail||{}).id;const t=(modkDataRef.current.tasks||[]).find(x=>x.id===id);
+      if(!t){toast("Card não encontrado.","warn");return;}
+      if(openEditRef.current)openEditRef.current(t);};
+    window.addEventListener("mdtec-abrir-tarefa",h);return()=>window.removeEventListener("mdtec-abrir-tarefa",h);
+  },[]);// eslint-disable-line
   const {acquire,forceAcquire,release,getLock} = useLocks();
   const {list:toasts,add:toast} = useToast();
   const {ask:askDelete, modal:deleteModal} = useConfirmDelete();
@@ -12660,7 +12671,8 @@ function App(){
     } else {
       setTM({open:true,task:safeTask,defStatus:safeTask.status,lockInfo:null});
     }
-  };
+  };  openEditRef.current=openEdit;
+
 
   const closeTask=()=>{
     if(taskModal.task) release(taskModal.task.id);
@@ -13228,7 +13240,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 138</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 139</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>
@@ -17764,9 +17776,12 @@ function makePageComponent(PAGE_CFG){
                               <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:5,whiteSpace:"nowrap"}}>
                                 <span onClick={()=>abrirObs(emp.id,mes)} title={hasObs?(getObsTxt(emp.id,mes)+(obsVerif?" (verificado)":"")):"Adicionar observação"} style={{fontSize:14,cursor:"pointer",color:hasObs?(obsVerif?"#94a3b8":"#f59e0b"):"#cbd5e1",background:hasObs&&!obsVerif?"rgba(245,158,11,.12)":"transparent",borderRadius:6,padding:"2px 4px",border:hasObs&&!obsVerif?"1px solid #fcd34d":"1px solid transparent"}}>{hasObs&&obsVerif?"✔️":"📝"}</span>
                                 {!isGuestMode&&!analisado&&(()=>{const MK=MODK_MODULOS.find(x=>x.page===PAGE_ID);if(!MK)return null;
-                                  const nCards=(sysData?.tasks||[]).filter(t=>t._modRef&&t._modRef.row===MK.row&&t._modRef.eid===emp.id&&t._modRef.mes===mes&&t.status!=="archived").length;
-                                  return(<button onClick={()=>window.dispatchEvent(new CustomEvent("mdtec-modk-gerar",{detail:{row:MK.row,eids:[emp.id],mes}}))} title={nCards?nCards+" card(s) deste mês no Kanban — clique para criar o da etapa em aberto, se faltar":"Criar no Kanban o card da etapa em aberto deste mês"}
-                                    style={{background:nCards?"#eef2ff":"#fff",color:"#4338ca",border:"1px solid #c7d2fe",padding:"3px 8px",borderRadius:7,cursor:"pointer",fontSize:10.5,fontWeight:800,fontFamily:"inherit"}}>{nCards?"📋 "+nCards+" no Kanban":"📋 Gerar card"}</button>);})()}
+                                  const cardsMes=(sysData?.tasks||[]).filter(t=>t._modRef&&t._modRef.row===MK.row&&t._modRef.eid===emp.id&&t._modRef.mes===mes&&t.status!=="archived");
+                                  const aberto=cardsMes.find(t=>t.status!=="done");
+                                  const stNome=aberto?((getFullSTS(sysData?.customStatuses||[]).find(x=>x.id===aberto.status)||{}).l||aberto.status):"";
+                                  return(<button onClick={()=>{if(aberto)window.dispatchEvent(new CustomEvent("mdtec-abrir-tarefa",{detail:{id:aberto.id}}));else window.dispatchEvent(new CustomEvent("mdtec-modk-gerar",{detail:{row:MK.row,eids:[emp.id],mes}}));}}
+                                    title={aberto?"Card no Kanban: “"+(aberto._modRef.colLabel||"")+"” — "+stNome+(aberto.dueDate?" · vence "+aberto.dueDate.split("-").reverse().join("/"):"")+". Clique para abrir.":(cardsMes.length?cardsMes.length+" card(s) já concluído(s) — clique para criar o da próxima etapa, se faltar":"Criar no Kanban o card da etapa em aberto deste mês")}
+                                    style={{background:aberto?"#eef2ff":"#fff",color:"#4338ca",border:"1px solid #c7d2fe",padding:"3px 8px",borderRadius:7,cursor:"pointer",fontSize:10.5,fontWeight:800,fontFamily:"inherit",maxWidth:150,overflow:"hidden",textOverflow:"ellipsis"}}>{aberto?"📋 "+stNome:"📋 Gerar card"}</button>);})()}
                                 {analisado
                                   ?<><span style={{background:"#d1fae5",color:"#065f46",padding:"3px 9px",borderRadius:20,fontSize:10,fontWeight:800}}>✅ Analisado</span>{!isGuestMode&&<button onClick={()=>setRevertModal({eid:emp.id,mes})} title="Reverter análise" style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#f59e0b",padding:"2px 4px",borderRadius:4}}>↩</button>}</>
                                   :tudoOk

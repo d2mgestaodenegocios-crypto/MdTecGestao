@@ -2294,7 +2294,9 @@ function modkPrazoCol(p,mes,colKey,storage){
   const dia=(p.prazos||{})["COL_"+colKey+"_dia"];
   if(!dia)return modkBrIso(geral);
   const g=geral.split("/");
-  return modkBrIso(String(dia).padStart(2,"0")+"/"+g[1]+"/"+g[2]); // igual ao “até dia X” que aparece na coluna
+  // fim de semana/feriado → ANTECIPA para o dia útil anterior (contábil sempre antecipa), igual à coluna no módulo
+  const ult=new Date(parseInt(g[2]),parseInt(g[1]),0).getDate();
+  return modkBrIso(_calcV(String(Math.min(parseInt(dia)||1,ult)).padStart(2,"0"),g[1],g[2]));
 }
 const modkNrm=(s)=>String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]+/g," ").trim();
 function modkEmpresaSistema(emp,companies){
@@ -3525,7 +3527,7 @@ function WhatsAppModal({open,onClose,titulo,texto,setTexto,tel,setTel,children})
           <Txt value={texto} onChange={setTexto} rows={12}/>
         </Fld>
         <Inp label="WhatsApp de quem vai receber" value={tel} onChange={setTel} placeholder="(61) 99999-9999 — opcional"/>
-        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v139</span></div>
+        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v140</span></div>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
           <Btn v="ghost" onClick={onClose}>Fechar</Btn>
           <Btn v="ghost" onClick={copiar}>{copiado?"✓ Copiado":"📋 Copiar texto"}</Btn>
@@ -13240,7 +13242,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 139</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 140</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>
@@ -17132,19 +17134,21 @@ function makePageComponent(PAGE_CFG){
     const setColDia=(colKey,dia)=>setPrazos(prev=>{const n={...prev};if(dia)n["COL_"+colKey+"_dia"]=dia;else delete n["COL_"+colKey+"_dia"];return n;});
     // Prazo da coluna = "dia X" do mês do VENCIMENTO GERAL da competência
     // Ex: competência JUN/2026, vencimento geral 15/07/2026, coluna NF dia 3 → 03/07/2026
+    // contábil sempre ANTECIPA: dia da coluna em fim de semana/feriado vai para o dia útil anterior
+    const _antecipaCol=(dia,mm,yyyy)=>{const ult=new Date(parseInt(yyyy),parseInt(mm),0).getDate();return _calcV(String(Math.min(parseInt(dia)||1,ult)).padStart(2,"0"),mm,yyyy);};
     const getColPrazoStr=(colKey,mes)=>{
       const dia=getColDia(colKey);if(!dia)return"";
       // Pega o prazo geral da competência para saber em qual mês/ano calcular
       const prazoGeral=getPrazo(mes); // ex: "15/07/2026"
       if(prazoGeral){
         const pts=prazoGeral.split("/");
-        if(pts.length===3)return dia.padStart(2,"0")+"/"+pts[1]+"/"+pts[2]; // dia/mm-do-prazo/aaaa
+        if(pts.length===3)return _antecipaCol(dia,pts[1],pts[2]); // dia/mm-do-prazo/aaaa (fds/feriado → antecipa)
       }
       // Fallback: mês seguinte à competência
       const [cmm,caa]=mes.split("/");
       const d=new Date(parseInt(caa),parseInt(cmm)-1,1);
       d.setMonth(d.getMonth()+1);
-      return dia.padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear();
+      return _antecipaCol(dia,String(d.getMonth()+1).padStart(2,"0"),String(d.getFullYear()));
     };
     const _parseColDate=(p)=>{const pts=(p||"").split("/");return pts.length===3?new Date(parseInt(pts[2]),parseInt(pts[1])-1,parseInt(pts[0])):null;};
     const isColVencido=(colKey,mes)=>{const d=_parseColDate(getColPrazoStr(colKey,mes));return!!d&&d<new Date();};

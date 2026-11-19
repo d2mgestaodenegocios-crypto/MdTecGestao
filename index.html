@@ -2329,13 +2329,22 @@ function modkAplicar(data,payloads,inativas,alvo){
     Object.keys(criadas).forEach(k=>{if((mesIdxMA(k.split("|")[1])||0)>mc)delete criadas[k];});
     migr=true;mudou=true;
   }
+  // 0b) uma vez só (v141): cards concluídos no Kanban cujo Ok não chegou ao módulo → grava o Ok de novo
+  if(cfg.v141!==true){
+    tarefas.forEach(t=>{const r=t._modRef;if(!r||!t._modOk||(t.status!=="done"&&t.status!=="archived"))return;
+      if(/^marcado /.test(String(t.completedByName||"")))return;
+      const d=dadosDe[r.row];if(!d)return;const k=r.eid+"_"+r.mes+"_"+r.col;
+      if(d[k]!=="ok"&&d[k]!=="nao-aplica"){(escritas[r.row]=escritas[r.row]||{})[k]="ok";d[k]="ok";}});
+    mudou=true;
+  }
   // 1) ligar conclusões (todas as competências)
   tarefas=tarefas.map(t=>{
     const r=t._modRef;if(!r||t._modOk)return t;
     const d=dadosDe[r.row];if(!d)return t;
     const k=r.eid+"_"+r.mes+"_"+r.col;const cel=d[k];
     if(t.status==="done"||t.status==="archived"){
-      if(cel!=="ok"&&cel!=="nao-aplica"){(escritas[r.row]=escritas[r.row]||{})[k]="ok";d[k]="ok";}
+      // só dá a ligação por encerrada quando o Ok JÁ ESTÁ gravado no módulo; até lá, tenta de novo a cada rodada
+      if(cel!=="ok"&&cel!=="nao-aplica"){(escritas[r.row]=escritas[r.row]||{})[k]="ok";d[k]="ok";return t;}
       mudou=true;return{...t,_modOk:true};
     }
     if(cel==="ok"||cel==="nao-aplica"){
@@ -2412,9 +2421,9 @@ function modkAplicar(data,payloads,inativas,alvo){
   // guarda só as 4 competências mais recentes no controle
   const ks=Object.keys(criadas).sort((a,b)=>(mesIdxMA(b.split("|")[1])||0)-(mesIdxMA(a.split("|")[1])||0));
   const manter={};ks.forEach(k=>{const pg=k.split("|")[0];const n=Object.keys(manter).filter(x=>x.startsWith(pg+"|")).length;if(n<4)manter[k]=criadas[k];});
-  if(!mudou&&deq(manter,cfg.criadas||{}))return null;
+  if(!mudou&&!Object.keys(escritas).length&&deq(manter,cfg.criadas||{}))return null;
   const criadosN=tarefas.filter(t=>t._modRef&&!(data.tasks||[]).some(x=>x.id===t.id)).length;
-  return{data:{...data,tasks:tarefas,modKanban:{...cfg,criadas:manter,v138:true}},escritas,criadosN};
+  return{data:{...data,tasks:tarefas,modKanban:{...cfg,criadas:manter,v138:true,v141:true}},escritas,criadosN};
 }
 async function modkLerPayloads(){
   const out={};
@@ -2422,11 +2431,18 @@ async function modkLerPayloads(){
   let inativas={};try{const{data:r}=await sb.from("app_data").select("payload").eq("id",INATIVAS_ROW_ID).maybeSingle();inativas=(r?.payload&&r.payload.inativas)||{};}catch(e){}
   return{payloads:out,inativas};
 }
+// devolve {gravou:n, falhou:n}
 async function modkGravarOk(escritas){
+  let gravou=0,falhou=0;
   for(const [row,mud] of Object.entries(escritas||{})){
     if(!Object.keys(mud).length)continue;
-    try{await gravarMesclado(Number(row),(rem)=>({...(rem||{}),dados:{...((rem&&rem.dados)||{}),...mud}}));try{broadcastSync(Number(row));}catch(e){}}catch(e){console.warn("Kanban→módulo:",e);}
+    try{const fim=await gravarMesclado(Number(row),(rem)=>({...(rem||{}),dados:{...((rem&&rem.dados)||{}),...mud}}));
+      // confere se ficou mesmo gravado
+      const ok=Object.entries(mud).every(([k,v])=>fim&&fim.dados&&fim.dados[k]===v);
+      if(ok)gravou++;else falhou++;
+      try{broadcastSync(Number(row));}catch(e){}}catch(e){falhou++;console.warn("Kanban→módulo:",e);}
   }
+  return{gravou,falhou};
 }
 // Cadastro da empresa no módulo: responsáveis dos cards
 function ModkRespCadastro({emp,cols,cliente,collaborators,onMudar,doGrupo}){
@@ -3527,7 +3543,7 @@ function WhatsAppModal({open,onClose,titulo,texto,setTexto,tel,setTel,children})
           <Txt value={texto} onChange={setTexto} rows={12}/>
         </Fld>
         <Inp label="WhatsApp de quem vai receber" value={tel} onChange={setTel} placeholder="(61) 99999-9999 — opcional"/>
-        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v140</span></div>
+        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v141</span></div>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
           <Btn v="ghost" onClick={onClose}>Fechar</Btn>
           <Btn v="ghost" onClick={copiar}>{copiado?"✓ Copiado":"📋 Copiar texto"}</Btn>
@@ -12142,7 +12158,7 @@ function App(){
   },[rotAtiva,igResumo,rotTick,JSON.stringify(data.diasFechados||{}),JSON.stringify(rotConfig(data)),(data.collaborators||[]).length,(data.companies||[]).length]); // eslint-disable-line
   // ── Tributário/Folha → Kanban: cria os cards do mês e liga as conclusões ──
   const modkDataRef=useRef(data);modkDataRef.current=data;
-  const [modkTick,setModkTick]=useState(0);
+  const [modkTick,setModkTick]=useState(0);const modkAvisou=useRef(false);
   useEffect(()=>{const iv=setInterval(()=>setModkTick(x=>x+1),5*60000);return()=>clearInterval(iv);},[]);
   const modkConcluidas=(data.tasks||[]).filter(t=>t._modRef&&!t._modOk&&(t.status==="done"||t.status==="archived")).length;
   useEffect(()=>{
@@ -12152,7 +12168,9 @@ function App(){
       const {payloads,inativas}=await modkLerPayloads();if(!vivo)return;
       const r=modkAplicar(modkDataRef.current,payloads,inativas);if(!r)return;
       setData(d=>{const r2=modkAplicar(d,payloads,inativas);return r2?r2.data:d;});
-      await modkGravarOk(r.escritas);
+      const g=await modkGravarOk(r.escritas);
+      if(g.gravou&&vivo)setTimeout(()=>setModkTick(x=>x+1),2000); // confirma o Ok e cria o card da próxima etapa
+      if(g.falhou&&!modkAvisou.current){modkAvisou.current=true;toast("⚠️ Não consegui marcar ✓ Ok no Tributário/Folha para um card concluído — tento de novo em 5 min.","warn",7000);}
     },1500);
     return()=>{vivo=false;clearTimeout(t);};
   },[synced,modkTick,modkConcluidas,(data.modKanban||{}).ativo]); // eslint-disable-line
@@ -12163,7 +12181,7 @@ function App(){
       const r=modkAplicar(modkDataRef.current,payloads,inativas,a);
       const n=r?Math.max(0,r.criadosN||0):0;
       if(r)setData(d=>{const r2=modkAplicar(d,payloads,inativas,a);return r2?r2.data:d;});
-      if(r&&r.escritas)await modkGravarOk(r.escritas);
+      if(r&&r.escritas){const g=await modkGravarOk(r.escritas);if(g.gravou)setTimeout(()=>setModkTick(x=>x+1),2000);}
       toast(n?"📋 "+n+" card(s) criado(s) no Kanban — "+modkMesNome(a.mes)+".":"📋 Nada novo para criar em "+modkMesNome(a.mes)+": os cards já existem ou as etapas estão Ok/N/A.",n?"ok":"warn",6000);
     };
     window.addEventListener("mdtec-modk-gerar",h);return()=>window.removeEventListener("mdtec-modk-gerar",h);
@@ -13242,7 +13260,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 140</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 141</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

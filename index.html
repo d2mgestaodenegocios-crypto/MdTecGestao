@@ -750,9 +750,10 @@ function normalizeTask(t){
     internalNote: t.internalNote||"",
   };
 }
-const todayStr=()=>new Date().toISOString().slice(0,10);
+// data de HOJE no fuso do computador (antes usava UTC: depois das 21h já virava "amanhã")
+const todayStr=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");};
 const fmtDate=d=>d?new Date(d+"T12:00:00").toLocaleDateString("pt-BR"):"-";
-const isLate=t=>t.dueDate&&new Date(t.dueDate+"T23:59:59")<new Date()&&t.status!=="done";
+const isLate=t=>!!t.dueDate&&new Date(t.dueDate+"T23:59:59")<new Date()&&t.status!=="done"&&t.status!=="archived";
 
 const PALETTE=["#6366f1","#8b5cf6","#0ea5e9","#14b8a6","#22c55e","#84cc16","#f59e0b","#f97316","#f43f5e","#ec4899"];
 const TRIBS=["Simples Nacional","Lucro Presumido","Lucro Real","MEI","Lucro Arbitrado","Imune/Isento"];
@@ -934,16 +935,12 @@ function playSoundUrgent(){
    ⚠️  Substitua pelos seus valores do Supabase */
 const SUPABASE_URL = "https://mcnwrwjzxyhvdcvusurd.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1jbndyd2p6eHlodmRjdnVzdXJkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI0NTE3MDMsImV4cCI6MjA4ODAyNzcwM30.934IFBKMu3inYavz7-9bnQszOUg5DegUPKPKJJOHTNo";
-// Cole aqui a service_role key do Supabase (Settings → API → service_role)
-const SUPABASE_SERVICE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1jbndyd2p6eHlodmRjdnVzdXJkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjQ1MTcwMywiZXhwIjoyMDg4MDI3NzAzfQ.BbTsLKfe2HYcSP_y8IoUpIpa6mo8IRK1M97_Hwq6yJQ";
+// (a chave service_role NÃO fica mais no navegador — ela dava acesso total ao banco para qualquer um que abrisse o código da página)
 
 /* -- Cliente Supabase (via CDN) -- */
 const { createClient } = supabase;
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
-// Cliente admin (só usado para criar/gerenciar usuários)
-const sbAdmin = SUPABASE_SERVICE_KEY
-  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {auth:{autoRefreshToken:false,persistSession:false}})
-  : null;
+
 
 /* ===========================================
    AUTH HOOK */
@@ -1028,15 +1025,15 @@ function useAuth() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Login: usa service_role para buscar dados (ignora RLS)
+  // Login: lê a lista de colaboradores com a chave pública (a mesma que o sistema já usa)
   const signIn = async (email, password) => {
     // 1. Verificar hash local PRIMEIRO (colaboradores)
     try {
       const res = await fetch(
         `${SUPABASE_URL}/rest/v1/app_data?select=payload&id=eq.1`,
         { headers: {
-          "apikey": SUPABASE_SERVICE_KEY,
-          "Authorization": "Bearer " + SUPABASE_SERVICE_KEY,
+          "apikey": SUPABASE_KEY,
+          "Authorization": "Bearer " + SUPABASE_KEY,
           "Content-Type": "application/json"
         }}
       );
@@ -3040,7 +3037,7 @@ function WhatsAppModal({open,onClose,titulo,texto,setTexto,tel,setTel,children})
           <Txt value={texto} onChange={setTexto} rows={12}/>
         </Fld>
         <Inp label="WhatsApp de quem vai receber" value={tel} onChange={setTel} placeholder="(61) 99999-9999 — opcional"/>
-        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v115</span></div>
+        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v116</span></div>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
           <Btn v="ghost" onClick={onClose}>Fechar</Btn>
           <Btn v="ghost" onClick={copiar}>{copiado?"✓ Copiado":"📋 Copiar texto"}</Btn>
@@ -4104,6 +4101,9 @@ function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusC
               if(!inSector&&!isMine) return false;
             }
             if(kanbanFilter==="all") return true;
+            // Em Andamento e Em Revisão mostram TUDO o que está lá, qualquer que seja o prazo
+            // (ex.: tarefa da semana que vem adiantada pelo colaborador não pode ficar escondida do gestor)
+            if(st.id==="doing"||st.id==="review") return true;
             if(!t.dueDate) return kanbanFilter==="week";
             const due=new Date(t.dueDate+"T12:00:00");
             const isOverdue=due<now&&t.dueDate!==today;
@@ -12538,7 +12538,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 115</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 116</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

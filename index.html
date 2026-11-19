@@ -2274,8 +2274,8 @@ function RotinaPostagensConfig({data,setData,isAdmin}){
 // Marcar Ok/N/A lá conclui o card.
 // ════════════════════════════════════════════════════════════════════════
 const MODK_MODULOS=[
-  {row:4,page:"fiscal",nome:"Tributário",storage:"mdtec_fiscal_v2"},
-  {row:5,page:"folha-pagamento",nome:"Folha",storage:"mdtec_folha_pag_v2"},
+  {row:4,page:"fiscal",nome:"Tributário",storage:"mdtec_fiscal_v2",defaultCols:[{key:"nfe",label:"NF-e"},{key:"nfse",label:"NFS-e"},{key:"apuracao",label:"Apuração DAS"},{key:"guias",label:"Envio das Guias"},{key:"obrig",label:"DCTF WEB"}]},
+  {row:5,page:"folha-pagamento",nome:"Folha",storage:"mdtec_folha_pag_v2",defaultCols:[{key:"admissao",label:"Admissão"},{key:"demissao",label:"Demissão"},{key:"ferias",label:"Férias"},{key:"fgts",label:"FGTS"},{key:"folha",label:"EFD Reinf"}]},
 ];
 const MODK_MN={"01":"JAN","02":"FEV","03":"MAR","04":"ABR","05":"MAI","06":"JUN","07":"JUL","08":"AGO","09":"SET","10":"OUT","11":"NOV","12":"DEZ"};
 const modkMesNome=(m)=>{const p=String(m||"").split("/");return p.length===2?(MODK_MN[p[0]]||p[0])+"/"+p[1]:m;};
@@ -2293,7 +2293,7 @@ function modkPrazoCol(p,mes,colKey,storage){
   const dia=(p.prazos||{})["COL_"+colKey+"_dia"];
   if(!dia)return modkBrIso(geral);
   const g=geral.split("/");
-  return modkBrIso(_calcV(String(dia).padStart(2,"0"),g[1],g[2]));
+  return modkBrIso(String(dia).padStart(2,"0")+"/"+g[1]+"/"+g[2]); // igual ao “até dia X” que aparece na coluna
 }
 const modkNrm=(s)=>String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]+/g," ").trim();
 function modkEmpresaSistema(emp,companies){
@@ -2307,67 +2307,23 @@ function modkAplicar(data,payloads,inativas,alvo){
   // alvo = {row,eids:[...],mes} → gerar à mão (qualquer mês, mesmo com a automação desligada; recria os excluídos)
   const cfg=data.modKanban||{};
   if(cfg.ativo===false&&!alvo)return null;
-  const mes=alvo?alvo.mes:modkCompAtual();const mi=mesIdxMA(mes);
+  const mesAuto=alvo?alvo.mes:modkCompAtual();
   const criadas={...(cfg.criadas||{})};
   let tarefas=data.tasks||[];let mudou=false;const escritas={};
-  const porId=new Map(tarefas.map(t=>[t.id,t]));
   const hojeIso=todayStr();
-  MODK_MODULOS.forEach(M=>{
-    if(alvo&&alvo.row!==M.row)return;
-    const p=payloads[M.row];if(!p||!Array.isArray(p.empresas))return;
-    const dados=p.dados||{};const colsPad=Array.isArray(p.cols)?p.cols:[];
-    const chaveMes=M.page+"|"+mes;const lista=new Set(criadas[chaveMes]||[]);
-    // 1) criar
-    p.empresas.forEach(emp=>{
-      if(!emp||emp.id==null)return;
-      if(alvo&&alvo.eids&&!alvo.eids.includes(emp.id))return;
-      if(inativas&&inativas[canonEmpKeyGlobal(emp.cnpj,emp.nome)])return;
-      const ini=mesIdxMA(emp.periodoInicial||"01/2025");if(ini!=null&&mi<ini)return;
-      if(dados[emp.id+"_"+mes+"__semmov"]===true||dados[emp.id+"_"+mes+"__analisado"]===true)return;
-      const cols=(p.empColsOverride&&Array.isArray(p.empColsOverride[emp.id])&&p.empColsOverride[emp.id].length)?p.empColsOverride[emp.id]:colsPad;
-      const cl=(p.empCliente||{})[emp.id]||{};
-      const co=modkEmpresaSistema(emp,data.companies);
-      cols.forEach(col=>{
-        if(!col||!col.key||!colVigente(col,mes))return;
-        const st=dados[emp.id+"_"+mes+"_"+col.key];if(st==="ok"||st==="nao-aplica")return;
-        const k=emp.id+"_"+col.key;const id=modkTaskId(M.page,emp.id,mes,col.key);
-        if(porId.has(id)||(lista.has(k)&&!alvo))return; // já existe (ou foi criado e alguém excluiu)
-        // empresa (por etapa → lista) e, se a empresa não tiver, o grupo (e o grupo de cima)
-        const g1=(p.grupos||[]).find(g=>g&&g.id===emp.grupoId);const g2=g1&&g1.parentId?(p.grupos||[]).find(g=>g&&g.id===g1.parentId):null;
-        let resp=[];
-        for(const fonte of [cl,g1,g2]){if(!fonte)continue;if(fonte.respEtapa&&fonte.respEtapa[col.key]){resp=[fonte.respEtapa[col.key]];break;}if(toArr(fonte.respKanban).length){resp=toArr(fonte.respKanban).slice(0,3);break;}}
-        const due=modkPrazoCol(p,mes,col.key,M.storage);
-        const t={id,title:(col.icon?col.icon+" ":"")+col.label+" — "+emp.nome+" · "+modkMesNome(mes),
-          description:M.nome+" · competência "+modkMesNome(mes)+" · "+emp.nome+".\nAo concluir este card, a etapa “"+col.label+"” fica ✓ Ok no "+M.nome+".",
-          status:"todo",priority:"media",assignees:resp.filter(Boolean),labels:[],company:co?co.id:"",companies:co?[co.id]:[],sector:"",
-          dueDate:due||"",dueTime:"",checklist:[],dependencies:[],comments:[],history:[],attachments:[],createdAt:hojeIso,
-          _competencia:modkMesNome(mes)+" · "+M.nome,_modRef:{row:M.row,page:M.page,nome:M.nome,eid:emp.id,mes,col:col.key,colLabel:col.label}};
-        tarefas=[...tarefas,t];porId.set(id,t);lista.add(k);mudou=true;
-      });
-    });
-    criadas[chaveMes]=[...lista];
-  });
-  // 1b) coluna inativada/removida, empresa inativada ou mês "Sem mov." depois de o card existir:
-  //     o card some se ninguém começou (se já começou, fica)
-  const naoIniciado=(t)=>t.status==="todo"&&!toArr(t.comments).length&&!toArr(t.checklist).some(c=>c.done);
-  tarefas=tarefas.filter(t=>{
-    const r=t._modRef;if(!r||t._modOk||!naoIniciado(t))return true;
-    const p=payloads[r.row];if(!p||!Array.isArray(p.empresas))return true;
-    const emp=p.empresas.find(e=>e&&e.id===r.eid);
-    const colsE=(emp&&p.empColsOverride&&Array.isArray(p.empColsOverride[emp.id])&&p.empColsOverride[emp.id].length)?p.empColsOverride[emp.id]:(Array.isArray(p.cols)?p.cols:[]);
-    const col=colsE.find(c=>c&&c.key===r.col);
-    const d=p.dados||{};
-    const vale=emp&&!(inativas&&inativas[canonEmpKeyGlobal(emp.cnpj,emp.nome)])&&col&&colVigente(col,r.mes)&&d[r.eid+"_"+r.mes+"__semmov"]!==true;
-    if(vale)return true;
-    mudou=true;return false;
-  });
-  // 2) ligar conclusões (todas as competências)
+  // dados de cada módulo já com o que vamos gravar (para a próxima etapa sair na mesma rodada)
+  const payloadsRef=payloads;const dadosDe={};MODK_MODULOS.forEach(M=>{const p=payloads[M.row];if(p)dadosDe[M.row]={...(p.dados||{})};});
+  const colsDaEmp=(p,emp)=>(emp&&p.empColsOverride&&Array.isArray(p.empColsOverride[emp.id])&&p.empColsOverride[emp.id].length)?p.empColsOverride[emp.id]:(Array.isArray(p.cols)&&p.cols.length?p.cols:((MODK_MODULOS.find(M=>payloadsRef[M.row]===p)||{}).defaultCols||[]));
+  const fechada=(d,eid,mes,col)=>{const v=d[eid+"_"+mes+"_"+col.key];return v==="ok"||v==="nao-aplica"||!colVigente(col,mes);};
+  // etapa liberada = todas as anteriores Ok/N/A (igual ao módulo: só avança depois de concluir a anterior)
+  const liberada=(d,eid,mes,cols,colKey)=>{for(const c of cols){if(c.key===colKey)return true;if(!fechada(d,eid,mes,c))return false;}return false;};
+  // 1) ligar conclusões (todas as competências)
   tarefas=tarefas.map(t=>{
     const r=t._modRef;if(!r||t._modOk)return t;
-    const p=payloads[r.row];if(!p)return t;
-    const cel=(p.dados||{})[r.eid+"_"+r.mes+"_"+r.col];
+    const d=dadosDe[r.row];if(!d)return t;
+    const k=r.eid+"_"+r.mes+"_"+r.col;const cel=d[k];
     if(t.status==="done"||t.status==="archived"){
-      if(cel!=="ok"&&cel!=="nao-aplica"){(escritas[r.row]=escritas[r.row]||{})[r.eid+"_"+r.mes+"_"+r.col]="ok";}
+      if(cel!=="ok"&&cel!=="nao-aplica"){(escritas[r.row]=escritas[r.row]||{})[k]="ok";d[k]="ok";}
       mudou=true;return{...t,_modOk:true};
     }
     if(cel==="ok"||cel==="nao-aplica"){
@@ -2376,11 +2332,73 @@ function modkAplicar(data,payloads,inativas,alvo){
     }
     return t;
   });
+  // 2) cards que não valem mais (etapa ainda bloqueada, coluna inativada, empresa inativa, Sem mov.): somem se ninguém começou
+  const naoIniciado=(t)=>t.status==="todo"&&!toArr(t.comments).length&&!toArr(t.checklist).some(c=>c.done);
+  tarefas=tarefas.filter(t=>{
+    const r=t._modRef;if(!r||t._modOk||!naoIniciado(t))return true;
+    const p=payloads[r.row];const d=dadosDe[r.row];if(!p||!Array.isArray(p.empresas)||!d)return true;
+    const emp=p.empresas.find(e=>e&&e.id===r.eid);const cols=colsDaEmp(p,emp);const col=cols.find(c=>c&&c.key===r.col);
+    const vale=emp&&!(inativas&&inativas[canonEmpKeyGlobal(emp.cnpj,emp.nome)])&&col&&colVigente(col,r.mes)&&d[r.eid+"_"+r.mes+"__semmov"]!==true&&liberada(d,r.eid,r.mes,cols,r.col);
+    if(vale)return true;
+    mudou=true;return false;
+  });
+  // 3) prazo: se mudarem o "até dia X" da coluna (ou o vencimento do mês), o card acompanha — a não ser que alguém tenha mudado a data à mão
+  tarefas=tarefas.map(t=>{
+    const r=t._modRef;if(!r||t._modOk||t.status==="done"||t.status==="archived")return t;
+    const p=payloads[r.row];if(!p)return t;
+    const M=MODK_MODULOS.find(x=>x.row===r.row);const nd=modkPrazoCol(p,r.mes,r.col,M?M.storage:"");
+    if(!nd)return t;
+    const auto=!t._modDue||t._modDue===t.dueDate;
+    if(auto&&(t.dueDate!==nd||t._modDue!==nd)){mudou=true;return{...t,dueDate:nd,_modDue:nd};}
+    return t;
+  });
+  // 4) criar o card da PRÓXIMA etapa de cada empresa (uma por vez, na ordem das colunas)
+  const porId=new Map(tarefas.map(t=>[t.id,t]));
+  MODK_MODULOS.forEach(M=>{
+    if(alvo&&alvo.row!==M.row)return;
+    const p=payloads[M.row];if(!p||!Array.isArray(p.empresas))return;
+    const d=dadosDe[M.row];
+    // automático: competência do mês; também segue criando a próxima etapa dos meses que já têm cards
+    const meses=new Set([mesAuto]);
+    if(!alvo)tarefas.forEach(t=>{if(t._modRef&&t._modRef.row===M.row)meses.add(t._modRef.mes);});
+    meses.forEach(mes=>{
+      const mi=mesIdxMA(mes);
+      const chaveMes=M.page+"|"+mes;const lista=new Set(criadas[chaveMes]||[]);
+      p.empresas.forEach(emp=>{
+        if(!emp||emp.id==null)return;
+        if(alvo&&alvo.eids&&!alvo.eids.includes(emp.id))return;
+        // meses antigos: só continua a sequência de quem já tem card naquele mês
+        if(mes!==mesAuto&&!tarefas.some(t=>t._modRef&&t._modRef.row===M.row&&t._modRef.eid===emp.id&&t._modRef.mes===mes))return;
+        if(inativas&&inativas[canonEmpKeyGlobal(emp.cnpj,emp.nome)])return;
+        const ini=mesIdxMA(emp.periodoInicial||"01/2025");if(ini!=null&&mi<ini)return;
+        if(d[emp.id+"_"+mes+"__semmov"]===true||d[emp.id+"_"+mes+"__analisado"]===true)return;
+        const cols=colsDaEmp(p,emp);
+        const col=cols.find(c=>c&&c.key&&!fechada(d,emp.id,mes,c)); // a 1ª etapa em aberto
+        if(!col)return;
+        const k=emp.id+"_"+col.key;const id=modkTaskId(M.page,emp.id,mes,col.key);
+        if(porId.has(id)||(lista.has(k)&&!alvo))return;
+        const cl=(p.empCliente||{})[emp.id]||{};
+        const co=modkEmpresaSistema(emp,data.companies);
+        const g1=(p.grupos||[]).find(g=>g&&g.id===emp.grupoId);const g2=g1&&g1.parentId?(p.grupos||[]).find(g=>g&&g.id===g1.parentId):null;
+        let resp=[];
+        for(const fonte of [cl,g1,g2]){if(!fonte)continue;if(fonte.respEtapa&&fonte.respEtapa[col.key]){resp=[fonte.respEtapa[col.key]];break;}if(toArr(fonte.respKanban).length){resp=toArr(fonte.respKanban).slice(0,3);break;}}
+        const due=modkPrazoCol(p,mes,col.key,M.storage);
+        const idx=cols.filter(c=>colVigente(c,mes)).findIndex(c=>c.key===col.key)+1;const tot=cols.filter(c=>colVigente(c,mes)).length;
+        const t={id,title:(col.icon?col.icon+" ":"")+col.label+" — "+emp.nome+" · "+modkMesNome(mes),
+          description:M.nome+" · competência "+modkMesNome(mes)+" · "+emp.nome+" · etapa "+idx+" de "+tot+".\nAo concluir este card, a etapa “"+col.label+"” fica ✓ Ok no "+M.nome+" e o card da próxima etapa é criado.",
+          status:"todo",priority:"media",assignees:resp.filter(Boolean),labels:[],company:co?co.id:"",companies:co?[co.id]:[],sector:"",
+          dueDate:due||"",dueTime:"",checklist:[],dependencies:[],comments:[],history:[],attachments:[],createdAt:hojeIso,
+          _competencia:modkMesNome(mes)+" · "+M.nome+" · "+idx+"/"+tot,_modDue:due||"",_modRef:{row:M.row,page:M.page,nome:M.nome,eid:emp.id,mes,col:col.key,colLabel:col.label}};
+        tarefas=[...tarefas,t];porId.set(id,t);lista.add(k);mudou=true;
+      });
+      criadas[chaveMes]=[...lista];
+    });
+  });
   // guarda só as 4 competências mais recentes no controle
   const ks=Object.keys(criadas).sort((a,b)=>(mesIdxMA(b.split("|")[1])||0)-(mesIdxMA(a.split("|")[1])||0));
   const manter={};ks.forEach(k=>{const pg=k.split("|")[0];const n=Object.keys(manter).filter(x=>x.startsWith(pg+"|")).length;if(n<4)manter[k]=criadas[k];});
   if(!mudou&&deq(manter,cfg.criadas||{}))return null;
-  const criadosN=tarefas.length-(data.tasks||[]).length;
+  const criadosN=tarefas.filter(t=>t._modRef&&!(data.tasks||[]).some(x=>x.id===t.id)).length;
   return{data:{...data,tasks:tarefas,modKanban:{...cfg,criadas:manter}},escritas,criadosN};
 }
 async function modkLerPayloads(){
@@ -2416,7 +2434,7 @@ function ModkRespCadastro({emp,cols,cliente,collaborators,onMudar,doGrupo}){
         </select></label>))}
     </div>
     {(cols||[]).some(c=>!colVigente(c,modkCompAtual()))&&<div style={{fontSize:10.5,color:"#94a3b8",marginTop:8,lineHeight:1.45}}>⏸ Colunas inativas não geram card: {(cols||[]).filter(c=>!colVigente(c,modkCompAtual())).map(c=>c.label).join(", ")}.</div>}
-    <div style={{fontSize:10,color:"#64748b",marginTop:8,lineHeight:1.45}}>{doGrupo?"👥 Vale para todas as empresas deste grupo que não tiverem responsáveis próprios no Cadastro (a empresa sempre tem preferência).":"📋 Todo mês o sistema cria no Kanban um card por etapa desta empresa (competência do mês, vencendo no mês seguinte). Concluir o card marca ✓ Ok aqui. Sem ninguém aqui, valem os responsáveis do grupo."}</div>
+    <div style={{fontSize:10,color:"#64748b",marginTop:8,lineHeight:1.45}}>{doGrupo?"👥 Vale para todas as empresas deste grupo que não tiverem responsáveis próprios no Cadastro (a empresa sempre tem preferência).":"📋 Todo mês o sistema cria no Kanban o card da etapa em aberto desta empresa, uma de cada vez (competência do mês, prazo de cada coluna no mês seguinte). Concluir o card marca ✓ Ok aqui e cria o da próxima. Sem ninguém aqui, valem os responsáveis do grupo."}</div>
   </div>);
 }
 
@@ -2474,7 +2492,7 @@ function ConfigPage({data,setData,toast,deduplicateTasks,isAdmin,featureFlags,sa
 
       <div style={{background:"var(--bg2)",borderRadius:16,padding:24,border:"1px solid var(--border)",marginBottom:16,boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
         <h3 style={{fontSize:14,fontWeight:800,color:"var(--text)",marginBottom:4}}>📋 Tributário e Folha no Kanban</h3>
-        <p style={{fontSize:13,color:"#64748b",marginBottom:12,lineHeight:1.55}}>Todo mês o sistema cria no Kanban <b>um card por etapa</b> de cada empresa (NF/Relatório, Apuração, Envio de Guias…) da competência do mês, com o prazo de cada coluna no <b>mês seguinte</b>. Os responsáveis vêm do <b>Cadastro</b> da empresa no módulo. Concluir o card marca <b>✓ Ok</b> na etapa; marcar Ok/N/A no módulo conclui o card.</p>
+        <p style={{fontSize:13,color:"#64748b",marginBottom:12,lineHeight:1.55}}>Todo mês o sistema cria no Kanban o card da <b>etapa em aberto</b> de cada empresa (NF/Relatório → Apuração → Envio de Guias…, uma de cada vez, na ordem das colunas) da competência do mês, com o prazo de cada coluna no <b>mês seguinte</b>. Os responsáveis vêm do <b>Cadastro</b> da empresa no módulo. Concluir o card marca <b>✓ Ok</b> na etapa e já cria o card da próxima; marcar Ok/N/A no módulo conclui o card.</p>
         <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,fontWeight:700,color:"var(--text2)",cursor:isAdmin?"pointer":"default"}}>
           <input type="checkbox" disabled={!isAdmin} checked={(data.modKanban||{}).ativo!==false} onChange={e=>setData(d=>({...d,modKanban:{...(d.modKanban||{}),ativo:e.target.checked}}))}/> Gerar os cards automaticamente
         </label>
@@ -3494,7 +3512,7 @@ function WhatsAppModal({open,onClose,titulo,texto,setTexto,tel,setTel,children})
           <Txt value={texto} onChange={setTexto} rows={12}/>
         </Fld>
         <Inp label="WhatsApp de quem vai receber" value={tel} onChange={setTel} placeholder="(61) 99999-9999 — opcional"/>
-        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v136</span></div>
+        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v137</span></div>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
           <Btn v="ghost" onClick={onClose}>Fechar</Btn>
           <Btn v="ghost" onClick={copiar}>{copiado?"✓ Copiado":"📋 Copiar texto"}</Btn>
@@ -13200,7 +13218,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 136</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 137</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>
@@ -17736,7 +17754,7 @@ function makePageComponent(PAGE_CFG){
                                 <span onClick={()=>abrirObs(emp.id,mes)} title={hasObs?(getObsTxt(emp.id,mes)+(obsVerif?" (verificado)":"")):"Adicionar observação"} style={{fontSize:14,cursor:"pointer",color:hasObs?(obsVerif?"#94a3b8":"#f59e0b"):"#cbd5e1",background:hasObs&&!obsVerif?"rgba(245,158,11,.12)":"transparent",borderRadius:6,padding:"2px 4px",border:hasObs&&!obsVerif?"1px solid #fcd34d":"1px solid transparent"}}>{hasObs&&obsVerif?"✔️":"📝"}</span>
                                 {!isGuestMode&&!analisado&&(()=>{const MK=MODK_MODULOS.find(x=>x.page===PAGE_ID);if(!MK)return null;
                                   const nCards=(sysData?.tasks||[]).filter(t=>t._modRef&&t._modRef.row===MK.row&&t._modRef.eid===emp.id&&t._modRef.mes===mes&&t.status!=="archived").length;
-                                  return(<button onClick={()=>window.dispatchEvent(new CustomEvent("mdtec-modk-gerar",{detail:{row:MK.row,eids:[emp.id],mes}}))} title={nCards?nCards+" card(s) deste mês no Kanban — clique para criar os que faltam":"Criar no Kanban um card para cada etapa em aberto deste mês"}
+                                  return(<button onClick={()=>window.dispatchEvent(new CustomEvent("mdtec-modk-gerar",{detail:{row:MK.row,eids:[emp.id],mes}}))} title={nCards?nCards+" card(s) deste mês no Kanban — clique para criar o da etapa em aberto, se faltar":"Criar no Kanban o card da etapa em aberto deste mês"}
                                     style={{background:nCards?"#eef2ff":"#fff",color:"#4338ca",border:"1px solid #c7d2fe",padding:"3px 8px",borderRadius:7,cursor:"pointer",fontSize:10.5,fontWeight:800,fontFamily:"inherit"}}>📋{nCards?" "+nCards:""}</button>);})()}
                                 {analisado
                                   ?<><span style={{background:"#d1fae5",color:"#065f46",padding:"3px 9px",borderRadius:20,fontSize:10,fontWeight:800}}>✅ Analisado</span>{!isGuestMode&&<button onClick={()=>setRevertModal({eid:emp.id,mes})} title="Reverter análise" style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#f59e0b",padding:"2px 4px",borderRadius:4}}>↩</button>}</>
@@ -18072,7 +18090,7 @@ function makePageComponent(PAGE_CFG){
                 </>);})()}
                 {!isGuestMode&&<button onClick={e=>{e.stopPropagation();setLoteModal({titulo:"⚡ Lote por mês — "+grp.nome,empresas:allEmps.filter(x=>!isInativa(x))});}} title="Aplicar um status a várias empresas deste grupo de uma vez" style={{background:"#0ea5e9",border:"none",cursor:"pointer",color:"#fff",fontSize:11,padding:"4px 10px",borderRadius:8,fontWeight:800,fontFamily:"inherit"}}>⚡ Lote</button>}
                 {!isGuestMode&&MODK_MODULOS.some(x=>x.page===PAGE_ID)&&<button onClick={e=>{e.stopPropagation();const MK=MODK_MODULOS.find(x=>x.page===PAGE_ID);const mes=modkCompAtual();
-                  if(!window.confirm("Criar no Kanban os cards de "+modkMesNome(mes)+" para as "+allEmps.filter(x=>!isInativa(x)).length+" empresa(s) do grupo "+grp.nome+"?\n\nUm card por etapa em aberto; os que já existem não são repetidos."))return;
+                  if(!window.confirm("Criar no Kanban os cards de "+modkMesNome(mes)+" para as "+allEmps.filter(x=>!isInativa(x)).length+" empresa(s) do grupo "+grp.nome+"?\n\nUm card da etapa em aberto de cada empresa; os que já existem não são repetidos."))return;
                   window.dispatchEvent(new CustomEvent("mdtec-modk-gerar",{detail:{row:MK.row,eids:allEmps.filter(x=>!isInativa(x)).map(x=>x.id),mes}}));}} title={"Criar no Kanban os cards de "+modkMesNome(modkCompAtual())+" deste grupo"} style={{background:"#eef2ff",border:"1px solid #c7d2fe",cursor:"pointer",color:"#4338ca",fontSize:11,padding:"3px 9px",borderRadius:8,fontWeight:700}}>📋 Kanban</button>}
                 {!isGuestMode&&<button onClick={e=>{e.stopPropagation();setGrpRespModal(grp.id);}} title="Responsáveis dos cards do Kanban para as empresas deste grupo" style={{background:color+"22",border:`1px solid ${color}44`,cursor:"pointer",color,fontSize:11,padding:"3px 9px",borderRadius:8,fontWeight:700}}>👥 Resp.{(toArr(grp.respKanban).length||Object.keys(grp.respEtapa||{}).length)?" ✓":""}</button>}
                 {!isGuestMode&&<button onClick={e=>{e.stopPropagation();setLinkModal({grp});}} style={{background:color+"22",border:`1px solid ${color}44`,cursor:"pointer",color,fontSize:11,padding:"3px 9px",borderRadius:8,fontWeight:700}}>🔗 Link</button>}

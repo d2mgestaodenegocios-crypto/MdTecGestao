@@ -3494,7 +3494,7 @@ function WhatsAppModal({open,onClose,titulo,texto,setTexto,tel,setTel,children})
           <Txt value={texto} onChange={setTexto} rows={12}/>
         </Fld>
         <Inp label="WhatsApp de quem vai receber" value={tel} onChange={setTel} placeholder="(61) 99999-9999 — opcional"/>
-        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v135</span></div>
+        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v136</span></div>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
           <Btn v="ghost" onClick={onClose}>Fechar</Btn>
           <Btn v="ghost" onClick={copiar}>{copiado?"✓ Copiado":"📋 Copiar texto"}</Btn>
@@ -13200,7 +13200,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 135</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 136</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>
@@ -15485,7 +15485,7 @@ function EmpresaRow({emp,isLast,indent,getDadosEmp,getStatsEmp,calcProg,getProgC
           </div>
           {(()=>{
             const mesesAno=mesesEmp.filter(m=>m.endsWith("/"+abaAno)).slice().reverse(); // mais recente primeiro
-            const th={padding:"8px 8px",color:"#fff",fontSize:10.5,textAlign:"center",fontWeight:700,whiteSpace:"nowrap"};
+            const th={padding:"7px 4px",color:"#fff",fontSize:10,textAlign:"center",fontWeight:700,whiteSpace:"nowrap"};
             return(
               <div style={{padding:"12px 16px 16px"}}>
                 {!window.__isGuest&&<div style={{fontSize:10.5,color:"#94a3b8",marginBottom:8}}>💡 Clique numa etapa para avançar · <b>clique direito</b> (ou ▾) para escolher o status direto · <b>✓ Tudo</b> marca o mês inteiro como OK.</div>}
@@ -17660,12 +17660,12 @@ function makePageComponent(PAGE_CFG){
                 return(<div style={{padding:"12px 16px 16px"}}>
                   {!isGuestMode&&<div style={{fontSize:10.5,color:"#94a3b8",marginBottom:8}}>💡 Clique numa etapa para avançar · <b>clique direito</b> (ou ▾) para escolher o status direto · <b>✓ Tudo</b> marca o mês inteiro como OK · <b>∅ Sem mov.</b> marca o mês inteiro como sem movimento.</div>}
                   <div style={{overflowX:"auto",borderRadius:10,border:"1px solid var(--border)"}}>
-                    <table style={{width:"100%",borderCollapse:"collapse",minWidth:560+(colsT.length*96),fontSize:12,background:"var(--bg2)"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",minWidth:400+(colsT.length*74),fontSize:12,background:"var(--bg2)"}}>
                       <thead>
                         <tr style={{background:"#1e3a5f"}}>
                           <th style={{...th,textAlign:"left",padding:"8px 12px",position:"sticky",left:0,background:"#1e3a5f",zIndex:2}}>Competência</th>
                           <th style={th}>⏰ Vence</th>
-                          {colsT.map(col=>{const cDia=getColDia(col.key);const vig=textoVigencia(col);return(<th key={col.key} style={{...th,cursor:isGuestMode?"default":"pointer",opacity:col.inativaDesde?.7:1}} onClick={()=>!isGuestMode&&setEditColPrazosModal(true)} title={(vig?vig+" · ":"")+(cDia?"Prazo: dia "+cDia+" · clique para editar":"Clique para definir prazo por coluna")}>{col.icon} {col.label}{cDia&&<span style={{display:"block",fontSize:9,fontWeight:600,color:"#93c5fd",marginTop:1}}>até dia {cDia}</span>}{vig&&<span style={{display:"block",fontSize:9,fontWeight:700,color:col.inativaDesde?"#fca5a5":"#a5b4fc",marginTop:1}}>{col.inativaDesde?"⏸ ":"▶ "}{vig.toLowerCase()}</span>}</th>);})}
+                          {colsT.map(col=>{const cDia=getColDia(col.key);const vig=textoVigencia(col);return(<th key={col.key} style={{...th,cursor:isGuestMode?"default":"pointer",opacity:col.inativaDesde?.7:1,whiteSpace:"normal",lineHeight:1.2,maxWidth:col.inativaDesde?70:118,minWidth:col.inativaDesde?44:72}} onClick={()=>!isGuestMode&&setEditColPrazosModal(true)} title={(vig?vig+" · ":"")+(cDia?"Prazo: dia "+cDia+" · clique para editar":"Clique para definir prazo por coluna")}>{col.icon} {col.label}{cDia&&<span style={{display:"block",fontSize:9,fontWeight:600,color:"#93c5fd",marginTop:1}}>até dia {cDia}</span>}{vig&&<span title={vig} style={{display:"block",fontSize:9,fontWeight:700,color:col.inativaDesde?"#fca5a5":"#a5b4fc",marginTop:1}}>{col.inativaDesde?"⏸ inativa":"▶ "+vig.toLowerCase()}</span>}</th>);})}
                           <th style={th}>Progresso</th>
                           <th style={th}>Ações</th>
                         </tr>
@@ -17680,13 +17680,13 @@ function makePageComponent(PAGE_CFG){
                           const tudoOk=estaContab(emp.id,mes);
                           const rowBg=analisado?"rgba(34,197,94,.06)":vencido?"rgba(239,68,68,.05)":vencendo?"rgba(245,158,11,.08)":atual?"rgba(99,102,241,.05)":"var(--bg2)";
                           return(<tr key={mes} style={{borderTop:"1px solid var(--border)",background:rowBg,opacity:futuro?.6:1}}>
-                            <td style={{padding:"8px 12px",fontWeight:800,color:"var(--text)",whiteSpace:"nowrap",position:"sticky",left:0,background:"inherit",zIndex:1,boxShadow:atual?"inset 3px 0 0 #6366f1":"none"}}>
+                            <td style={{padding:"7px 10px",fontWeight:800,color:"var(--text)",whiteSpace:"nowrap",position:"sticky",left:0,background:"var(--bg2)",backgroundImage:`linear-gradient(${rowBg},${rowBg})`,zIndex:1,boxShadow:atual?"inset 3px 0 0 #6366f1":"none"}}>
                               <div style={{display:"flex",alignItems:"center",gap:6}}>
                                 {getMesNome(mes)}
                                 {atual&&<span style={{fontSize:9,fontWeight:800,color:"#6366f1",background:"#eef2ff",padding:"1px 6px",borderRadius:10}}>atual</span>}
                               </div>
                             </td>
-                            <td style={{padding:"8px 6px",textAlign:"center"}}>
+                            <td style={{padding:"6px 3px",textAlign:"center"}}>
                               <div onClick={()=>{if(isGuestMode)return;setPrazoVal(prazo);setPrazoModal({mes});}} style={{cursor:isGuestMode?"default":"pointer",display:"inline-flex",alignItems:"center",gap:4,padding:"2px 8px",borderRadius:8,fontSize:11,fontWeight:700,background:analisado?"transparent":vencido?"#fef2f2":vencendo?"#fffbeb":"transparent",color:analisado?"#94a3b8":vencido?"#dc2626":vencendo?"#d97706":"#94a3b8",border:analisado?"1px solid transparent":vencido?"1px solid #fca5a5":vencendo?"1px solid #fcd34d":"1px dashed #e2e8f0",whiteSpace:"nowrap"}} title="Clique para editar prazo">
                                 {!analisado&&vencido?"🔴 ":!analisado&&vencendo?"🟡 ":""}{prazo||"—"}
                               </div>
@@ -17695,9 +17695,9 @@ function makePageComponent(PAGE_CFG){
                               const colIdx=empCols.indexOf(col);
                               if(!colVigente(col,mes)){
                                 const raw=getCellRaw(emp.id,mes,col.key);
-                                return(<td key={col.key} style={{padding:"7px 5px",textAlign:"center"}} title={"⏸ Fora da vigência — "+textoVigencia(col).toLowerCase()+(raw!=="nao-iniciado"?" · histórico guardado (somente leitura): "+(SL[raw]||raw):" · sem registro")}>
+                                return(<td key={col.key} style={{padding:"6px 3px",textAlign:"center"}} title={"⏸ Fora da vigência — "+textoVigencia(col).toLowerCase()+(raw!=="nao-iniciado"?" · histórico guardado (somente leitura): "+(SL[raw]||raw):" · sem registro")}>
                                   {raw!=="nao-iniciado"
-                                    ?<span style={{...gst(raw),cursor:"default",display:"inline-block",minWidth:64,opacity:.55,borderStyle:"dashed"}}>⏸ {SL[raw]||raw}</span>
+                                    ?<span style={{...gst(raw),cursor:"default",display:"inline-block",minWidth:50,opacity:.55,borderStyle:"dashed"}}>⏸ {SL[raw]||raw}</span>
                                     :<span style={{color:"#cbd5e1",fontSize:13,fontWeight:900,letterSpacing:2}}>· ·</span>}
                                 </td>);
                               }
@@ -17709,12 +17709,12 @@ function makePageComponent(PAGE_CFG){
                               const colVencendo=!analisado&&st!=="ok"&&st!=="nao-aplica"&&!colVencido&&isColVencendo(col.key,mes);
                               const colPrazoLabel=getColPrazoStr(col.key,mes);
                               const cellStyle=bloqueada
-                                ?{padding:"4px 10px",borderRadius:20,fontSize:11,fontWeight:700,whiteSpace:"nowrap",background:"#f1f5f9",color:"#cbd5e1",border:"1.5px dashed #e2e8f0",cursor:"not-allowed",display:"inline-block",minWidth:64}
-                                :colVencido?{...gst(st),outline:"2px solid #ef4444",outlineOffset:"-2px",display:"inline-block",minWidth:64}
-                                :colVencendo?{...gst(st),outline:"2px solid #f59e0b",outlineOffset:"-2px",display:"inline-block",minWidth:64}
-                                :{...gst(st),cursor:analisado?"default":"pointer",display:"inline-block",minWidth:64,opacity:analisado?.8:1};
+                                ?{padding:"3px 7px",borderRadius:20,fontSize:10.5,fontWeight:700,whiteSpace:"nowrap",background:"#f1f5f9",color:"#cbd5e1",border:"1.5px dashed #e2e8f0",cursor:"not-allowed",display:"inline-block",minWidth:50}
+                                :colVencido?{...gst(st),outline:"2px solid #ef4444",outlineOffset:"-2px",display:"inline-block",minWidth:50}
+                                :colVencendo?{...gst(st),outline:"2px solid #f59e0b",outlineOffset:"-2px",display:"inline-block",minWidth:50}
+                                :{...gst(st),cursor:analisado?"default":"pointer",display:"inline-block",minWidth:50,opacity:analisado?.8:1};
                               if(semMovCel)Object.assign(cellStyle,{background:"#f5f3ff",color:"#6d28d9",border:"1.5px solid #ddd6fe",fontWeight:800});
-                              return(<td key={col.key} style={{padding:"7px 5px",textAlign:"center"}}>
+                              return(<td key={col.key} style={{padding:"6px 3px",textAlign:"center"}}>
                                 <div className="cell-wrap" style={{position:"relative",display:"inline-flex",alignItems:"center",gap:2}}>
                                   <div
                                     onClick={()=>!analisado&&cycleCell(emp.id,mes,col.key)}
@@ -17737,15 +17737,15 @@ function makePageComponent(PAGE_CFG){
                                 {!isGuestMode&&!analisado&&(()=>{const MK=MODK_MODULOS.find(x=>x.page===PAGE_ID);if(!MK)return null;
                                   const nCards=(sysData?.tasks||[]).filter(t=>t._modRef&&t._modRef.row===MK.row&&t._modRef.eid===emp.id&&t._modRef.mes===mes&&t.status!=="archived").length;
                                   return(<button onClick={()=>window.dispatchEvent(new CustomEvent("mdtec-modk-gerar",{detail:{row:MK.row,eids:[emp.id],mes}}))} title={nCards?nCards+" card(s) deste mês no Kanban — clique para criar os que faltam":"Criar no Kanban um card para cada etapa em aberto deste mês"}
-                                    style={{background:nCards?"#eef2ff":"#fff",color:"#4338ca",border:"1px solid #c7d2fe",padding:"3px 8px",borderRadius:7,cursor:"pointer",fontSize:10.5,fontWeight:800,fontFamily:"inherit"}}>📋 {nCards?nCards:"Kanban"}</button>);})()}
+                                    style={{background:nCards?"#eef2ff":"#fff",color:"#4338ca",border:"1px solid #c7d2fe",padding:"3px 8px",borderRadius:7,cursor:"pointer",fontSize:10.5,fontWeight:800,fontFamily:"inherit"}}>📋{nCards?" "+nCards:""}</button>);})()}
                                 {analisado
                                   ?<><span style={{background:"#d1fae5",color:"#065f46",padding:"3px 9px",borderRadius:20,fontSize:10,fontWeight:800}}>✅ Analisado</span>{!isGuestMode&&<button onClick={()=>setRevertModal({eid:emp.id,mes})} title="Reverter análise" style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#f59e0b",padding:"2px 4px",borderRadius:4}}>↩</button>}</>
                                   :tudoOk
                                     ?<button onClick={()=>analisarMes(emp.id,mes)} style={{background:"#f59e0b",color:"#fff",border:"none",padding:"4px 10px",borderRadius:7,cursor:"pointer",fontSize:10.5,fontWeight:800,fontFamily:"inherit"}}>🔍 Analisar</button>
-                                    :<button onClick={()=>marcarMesTodo(emp.id,mes)} title="Marcar todas as etapas deste mês como OK" style={{background:"#f0fdf4",color:"#15803d",border:"1px solid #86efac",padding:"3px 9px",borderRadius:7,cursor:"pointer",fontSize:10.5,fontWeight:800,fontFamily:"inherit"}}>✓ Tudo</button>}
+                                    :<button onClick={()=>marcarMesTodo(emp.id,mes)} title="Marcar todas as etapas deste mês como OK" style={{background:"#f0fdf4",color:"#15803d",border:"1px solid #86efac",padding:"3px 7px",borderRadius:7,cursor:"pointer",fontSize:10.5,fontWeight:800,fontFamily:"inherit"}}>✓ Tudo</button>}
                                 {!analisado&&!isGuestMode&&(ehSemMov(emp.id,mes)
-                                  ?<button onClick={()=>desfazerSemMov(emp.id,mes)} title="Desfazer sem movimento (volta as etapas para 'Não')" style={{background:"#f5f3ff",color:"#6d28d9",border:"1px solid #ddd6fe",padding:"3px 8px",borderRadius:7,cursor:"pointer",fontSize:10.5,fontWeight:800,fontFamily:"inherit"}}>↺ Sem mov.</button>
-                                  :<button onClick={()=>marcarSemMov(emp.id,mes)} title="Marcar todas as etapas deste mês como SEM MOVIMENTO" style={{background:empTemTagSemMov(emp)?"#6d28d9":"#f5f3ff",color:empTemTagSemMov(emp)?"#fff":"#6d28d9",border:"1px solid #c4b5fd",padding:"3px 9px",borderRadius:7,cursor:"pointer",fontSize:10.5,fontWeight:800,fontFamily:"inherit"}}>∅ Sem mov.</button>)}
+                                  ?<button onClick={()=>desfazerSemMov(emp.id,mes)} title="Desfazer sem movimento (volta as etapas para 'Não')" style={{background:"#f5f3ff",color:"#6d28d9",border:"1px solid #ddd6fe",padding:"3px 8px",borderRadius:7,cursor:"pointer",fontSize:10.5,fontWeight:800,fontFamily:"inherit"}}>↺ S/mov.</button>
+                                  :<button onClick={()=>marcarSemMov(emp.id,mes)} title="Marcar todas as etapas deste mês como SEM MOVIMENTO" style={{background:empTemTagSemMov(emp)?"#6d28d9":"#f5f3ff",color:empTemTagSemMov(emp)?"#fff":"#6d28d9",border:"1px solid #c4b5fd",padding:"3px 9px",borderRadius:7,cursor:"pointer",fontSize:10.5,fontWeight:800,fontFamily:"inherit"}}>∅ S/mov.</button>)}
                                 {analisado&&ehSemMov(emp.id,mes)&&<span title="Mês sem movimento" style={{background:"#f5f3ff",color:"#6d28d9",padding:"2px 7px",borderRadius:20,fontSize:9.5,fontWeight:800,border:"1px solid #ddd6fe"}}>∅ Sem mov.</span>}
                                 {!analisado&&!isGuestMode&&<button onClick={()=>{if(window.confirm("Resetar todas as etapas de "+getMesNome(mes)+" para 'Não'?"))resetarMes(emp.id,mes);}} title="Resetar mês (volta tudo para 'Não')" style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#cbd5e1",padding:"2px 4px",borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color="#cbd5e1"}>↺</button>}
                               </div>

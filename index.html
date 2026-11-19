@@ -3543,7 +3543,7 @@ function WhatsAppModal({open,onClose,titulo,texto,setTexto,tel,setTel,children})
           <Txt value={texto} onChange={setTexto} rows={12}/>
         </Fld>
         <Inp label="WhatsApp de quem vai receber" value={tel} onChange={setTel} placeholder="(61) 99999-9999 — opcional"/>
-        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v141</span></div>
+        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v142</span></div>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
           <Btn v="ghost" onClick={onClose}>Fechar</Btn>
           <Btn v="ghost" onClick={copiar}>{copiado?"✓ Copiado":"📋 Copiar texto"}</Btn>
@@ -4470,13 +4470,73 @@ function QuickCreateBar({data,onAdd,compacto}){
   );
 }
 
-function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusChange,myCollabId,myCollab,isAdmin,onArchive,onPomodoro,onPin,onMoveTop,onUrgent,onArquivarConcluidas}){
+// ── Kanban: dar baixa em tarefas atrasadas antigas (ex.: E-Social de março, já analisado na Folha) ──
+const BAIXA_DIAS=30;
+const baixaCandidatas=(tasks)=>{const lim=new Date();lim.setDate(lim.getDate()-BAIXA_DIAS);const limIso=lim.getFullYear()+"-"+String(lim.getMonth()+1).padStart(2,"0")+"-"+String(lim.getDate()).padStart(2,"0");
+  return (tasks||[]).filter(t=>t&&!t._modRef&&!t._recJuntada&&["todo","doing","review"].includes(t.status)&&t.dueDate&&t.dueDate<limIso);};
+function BaixaAntigasModal({data,onFechar,onConfirmar}){
+  const cand=React.useMemo(()=>baixaCandidatas(data.tasks).sort((a,b)=>a.dueDate<b.dueDate?-1:1),[data.tasks]);
+  const [info,setInfo]=React.useState(null); // {taskId:"Folha · analisado até OUT/2026"}
+  const [sel,setSel]=React.useState(new Set());
+  React.useEffect(()=>{let vivo=true;(async()=>{
+    const {payloads}=await modkLerPayloads();const out={};
+    cand.forEach(t=>{
+      const comp=(()=>{const p=t.dueDate.split("-");const d=new Date(parseInt(p[0]),parseInt(p[1])-2,1);return String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear();})(); // competência = mês anterior ao vencimento
+      const ids=toArr(t.companies).length?toArr(t.companies):(t.company?[t.company]:[]);if(!ids.length)return;
+      const achados=[];
+      MODK_MODULOS.forEach(M=>{const p=payloads[M.row];if(!p||!Array.isArray(p.empresas))return;
+        ids.forEach(cid=>{const co=(data.companies||[]).find(c=>c.id===cid);if(!co)return;
+          const emp=p.empresas.find(e=>{const s=modkEmpresaSistema(e,[co]);return !!s;});if(!emp)return;
+          const d=p.dados||{};let ult=null;Object.keys(d).forEach(k=>{const m=k.match(new RegExp("^"+emp.id+"_(\\d{2}/\\d{4})__(analisado|semmov)$"));if(m&&d[k]===true){const i=mesIdxMA(m[1]);if(ult==null||i>ult.i)ult={i,m:m[1]};}});
+          if(ult&&ult.i>=mesIdxMA(comp))achados.push(M.nome+" analisado até "+modkMesNome(ult.m));
+        });});
+      if(achados.length)out[t.id]=[...new Set(achados)].join(" · ");
+    });
+    if(!vivo)return;setInfo(out);setSel(new Set(Object.keys(out)));
+  })();return()=>{vivo=false;};},[]);// eslint-disable-line
+  const coNome=(t)=>{const ids=toArr(t.companies).length?toArr(t.companies):(t.company?[t.company]:[]);return ids.map(id=>((data.companies||[]).find(c=>c.id===id)||{}).name).filter(Boolean).join(", ")||"—";};
+  const dias=(iso)=>Math.round((new Date()-new Date(iso+"T12:00:00"))/86400000);
+  const alt=(id)=>setSel(s=>{const n=new Set(s);n.has(id)?n.delete(id):n.add(id);return n;});
+  return(<Modal open onClose={onFechar} title={"🧹 Tarefas atrasadas há mais de "+BAIXA_DIAS+" dias"} width={720}>
+    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+      <div style={{padding:"9px 12px",borderRadius:10,background:"#eef2ff",border:"1px solid #c7d2fe",fontSize:12,color:"#3730a3",lineHeight:1.5}}>
+        Já vêm marcadas as que a empresa <b>já tem o mês analisado</b> na Tributário ou na Folha. Dar baixa tira do Kanban <b>sem contar como feita</b> (não entra no Resumo nem nos relatórios para o cliente).
+      </div>
+      {!info&&<div style={{fontSize:12,color:"#94a3b8",padding:8}}>Conferindo Tributário e Folha…</div>}
+      <div style={{display:"flex",gap:8,fontSize:11.5}}>
+        <button type="button" onClick={()=>setSel(new Set(cand.map(t=>t.id)))} style={{background:"none",border:"1px solid var(--border)",borderRadius:7,padding:"3px 9px",cursor:"pointer",fontFamily:"inherit",fontWeight:700,color:"#64748b"}}>Marcar todas</button>
+        <button type="button" onClick={()=>setSel(new Set(Object.keys(info||{})))} style={{background:"none",border:"1px solid var(--border)",borderRadius:7,padding:"3px 9px",cursor:"pointer",fontFamily:"inherit",fontWeight:700,color:"#64748b"}}>Só as já analisadas</button>
+        <button type="button" onClick={()=>setSel(new Set())} style={{background:"none",border:"1px solid var(--border)",borderRadius:7,padding:"3px 9px",cursor:"pointer",fontFamily:"inherit",fontWeight:700,color:"#64748b"}}>Desmarcar</button>
+        <span style={{marginLeft:"auto",color:"#64748b",fontWeight:700,alignSelf:"center"}}>{sel.size} de {cand.length}</span>
+      </div>
+      <div style={{maxHeight:"52vh",overflowY:"auto",display:"flex",flexDirection:"column",gap:5}}>
+        {cand.map(t=>{const on=sel.has(t.id);const an=info&&info[t.id];return(
+          <label key={t.id} style={{display:"grid",gridTemplateColumns:"20px 1fr auto",gap:8,alignItems:"center",padding:"7px 10px",borderRadius:9,border:"1.5px solid "+(on?"#a5b4fc":"var(--border)"),background:on?"#eef2ff":"var(--bg2)",cursor:"pointer"}}>
+            <input type="checkbox" checked={on} onChange={()=>alt(t.id)}/>
+            <div style={{minWidth:0}}>
+              <div style={{fontSize:12.5,fontWeight:800,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}{t._recGroup?" ↻":""}</div>
+              <div style={{fontSize:11,color:"#64748b",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{coNome(t)}{an?<span style={{color:"#15803d",fontWeight:800}}> · ✓ {an}</span>:null}</div>
+            </div>
+            <span style={{fontSize:11,fontWeight:800,color:"#dc2626",whiteSpace:"nowrap"}}>{t.dueDate.split("-").reverse().join("/")} · {dias(t.dueDate)}d</span>
+          </label>);})}
+      </div>
+      <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+        <Btn onClick={onFechar} v="ghost">Cancelar</Btn>
+        <Btn disabled={!sel.size} onClick={()=>{if(!window.confirm("Dar baixa em "+sel.size+" tarefa(s)? Elas saem do Kanban sem contar como feitas."))return;onConfirmar([...sel].map(id=>({id,motivo:(info&&info[id])||"baixa manual"})));}} xs={{background:"#6366f1",color:"#fff",border:"none"}}>🧹 Dar baixa em {sel.size}</Btn>
+      </div>
+    </div>
+  </Modal>);
+}
+
+function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusChange,myCollabId,myCollab,isAdmin,onArchive,onPomodoro,onPin,onMoveTop,onUrgent,onArquivarConcluidas,onBaixaAntigas}){
   const [kanbanFilter,setKanbanFilter]=useState("week");
   const [ownerFilter,setOwnerFilter]=useState("all");
   const [collabFilter,setCollabFilter]=useState(""); // NEW: filter by specific collaborator
   // Lembrete por WhatsApp
   const [waOpen,setWaOpen]=useState(false);
   const [resumoOpen,setResumoOpen]=useState(false);
+  const [baixaOpen,setBaixaOpen]=useState(false);
+  const nAntigas=onBaixaAntigas?baixaCandidatas(data.tasks).length:0;
   const [waPessoa,setWaPessoa]=useState("");      // "" = equipe toda
   const [waPeriodo,setWaPeriodo]=useState("semana");
   const [waTexto,setWaTexto]=useState("");
@@ -4558,6 +4618,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusC
           </div>
         </div>
       </WhatsAppModal>
+{baixaOpen&&<BaixaAntigasModal data={data} onFechar={()=>setBaixaOpen(false)} onConfirmar={(lista)=>{onBaixaAntigas(lista);setBaixaOpen(false);}}/>}
       {/* ── Cabeçalho fixo do Kanban ─────────────────────────── */}
       <div className="kanban-sticky-header" style={{
         position:"sticky",top:"var(--topbar-h,86px)",zIndex:50,
@@ -4581,6 +4642,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusC
           {mySectors.length>0&&<button style={btnStyle(ownerFilter==="sector","#14b8a6")} onClick={()=>{setOwnerFilter("sector");setCollabFilter("");}}>🏢 Meu setor</button>}
           <button style={btnStyle(ownerFilter==="unassigned","#94a3b8")} onClick={()=>{setOwnerFilter("unassigned");setCollabFilter("");}}>Sem responsável</button>
           <div style={{marginLeft:"auto",display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>
+          {nAntigas>0&&<button onClick={()=>setBaixaOpen(true)} title={"Tarefas atrasadas há mais de "+BAIXA_DIAS+" dias — dar baixa nas que já foram analisadas na Tributário/Folha"} style={{background:"#fef2f2",border:"1.5px solid #fca5a5",borderRadius:7,padding:"3px 10px",fontSize:11,fontWeight:800,color:"#b91c1c",cursor:"pointer",fontFamily:"inherit"}}>🧹 Atrasadas antigas ({nAntigas})</button>}
           <button onClick={()=>setResumoOpen(true)} title="Copiar as tarefas feitas no dia e mandar pelo WhatsApp" style={{background:"#16a34a",border:"1.5px solid #16a34a",borderRadius:7,padding:"3px 10px",fontSize:11,fontWeight:800,color:"#fff",cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:5,flexShrink:0}}>✅ Resumo do dia</button>
           <button onClick={()=>setWaOpen(true)} title="Enviar a lista de tarefas pendentes pelo WhatsApp" style={{background:"#f0fdf4",border:"1.5px solid #86efac",borderRadius:7,padding:"3px 10px",fontSize:11,fontWeight:800,color:"#15803d",cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:5,flexShrink:0}}>📲 WhatsApp</button>
           <button onClick={()=>{
@@ -11995,7 +12057,7 @@ function recAjustarFeriados(data){
       if(alvo===o&&toArr(t.checklist).some(c=>c._accDe===o&&!c.done)&&toArr(t.checklist).filter(c=>c._accDe).length===1)(tirarCk[t.id]=tirarCk[t.id]||new Set()).add(o);
     });
     // tarefas juntadas que não precisam mais (feriado desmarcado, mudou a regra): voltam para o Kanban
-    lista.filter(t=>t._recJuntada&&t._recMotivo!=="fim"&&orig(t)>=hoje&&(!fim||orig(t)<=fim)).forEach(t=>{
+    lista.filter(t=>t._recJuntada&&t._recMotivo!=="fim"&&t._recMotivo!=="baixa"&&orig(t)>=hoje&&(!fim||orig(t)<=fim)).forEach(t=>{
       const o=orig(t);const alvo=recAlvoFeriado(o,t._recFeriado||"manter",marc,hoje);
       if(alvo!==o&&ocup.has(alvo))return; // continua juntada
       upd[t.id]={...(upd[t.id]||{}),status:"todo",archivedAt:null,_recJuntada:null,_recJuntadaEm:null,dueDate:alvo,_recDataOrig:alvo===o?null:o};ocup.add(alvo);
@@ -12447,6 +12509,12 @@ function App(){
     toast("📦 Tarefa arquivada.","ok");
   };
   // arquiva de uma vez tudo o que está em Concluído
+  // baixa em atrasadas antigas: arquiva escondido (não conta como feita, fora dos relatórios)
+  const baixaAntigas=(lista)=>{
+    if(!isAdmin)return;const hoje=isoLocalHoje();const mot=new Map(lista.map(x=>[x.id,x.motivo]));
+    setData(d=>({...d,tasks:d.tasks.map(t=>mot.has(t.id)&&t.status!=="done"&&t.status!=="archived"?{...t,status:"archived",archivedAt:hoje,archivedBy:userName||"",_recJuntada:true,_recMotivo:"baixa",_baixaMotivo:mot.get(t.id),_recDataOrig:t._recDataOrig||t.dueDate}:t)}));
+    toast("🧹 Baixa em "+lista.length+" tarefa(s).","ok");
+  };
   const arquivarConcluidas=()=>{
     if(!isAdmin){toast("🔒 Só o administrador pode arquivar tarefas.","err");return;}
     const ids=data.tasks.filter(t=>t.status==="done").map(t=>t.id);
@@ -13260,7 +13328,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 141</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 142</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>
@@ -13352,7 +13420,7 @@ function App(){
               </div>
             </div>
           )}
-          <KanbanView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onAdd={openNew} onDuplicate={duplicateTask} onComplete={quickComplete} onStatusChange={dragStatusChange} myCollabId={myCollabId} myCollab={myCollab} isAdmin={isAdmin} onArchive={isAdmin?archiveTask:null} onArquivarConcluidas={isAdmin?arquivarConcluidas:null} onPomodoro={t=>setPomodoroTask({task:t,n:Date.now()})}
+          <KanbanView data={dataForUser} onEdit={openEdit} onDelete={deleteTask} onAdd={openNew} onDuplicate={duplicateTask} onComplete={quickComplete} onStatusChange={dragStatusChange} myCollabId={myCollabId} myCollab={myCollab} isAdmin={isAdmin} onArchive={isAdmin?archiveTask:null} onArquivarConcluidas={isAdmin?arquivarConcluidas:null} onBaixaAntigas={isAdmin?baixaAntigas:null} onPomodoro={t=>setPomodoroTask({task:t,n:Date.now()})}
             onPin={(id,val)=>{setData(d=>({...d,tasks:d.tasks.map(t=>t.id===id?{...t,pinned:val}:t)}));toast(val?"📌 Tarefa fixada no topo!":"📍 Tarefa desafixada.","ok");}}
             onMoveTop={(id,colId)=>{
               setData(d=>{

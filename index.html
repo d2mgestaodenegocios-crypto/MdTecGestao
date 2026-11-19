@@ -3301,7 +3301,7 @@ function WhatsAppModal({open,onClose,titulo,texto,setTexto,tel,setTel,children})
           <Txt value={texto} onChange={setTexto} rows={12}/>
         </Fld>
         <Inp label="WhatsApp de quem vai receber" value={tel} onChange={setTel} placeholder="(61) 99999-9999 — opcional"/>
-        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v118</span></div>
+        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v119</span></div>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
           <Btn v="ghost" onClick={onClose}>Fechar</Btn>
           <Btn v="ghost" onClick={copiar}>{copiado?"✓ Copiado":"📋 Copiar texto"}</Btn>
@@ -10178,7 +10178,9 @@ function IgKitPainel({conta,toast}){
 
 function IgContasModal({open,onClose,contas,companies,collaborators,posts,onSalvar,toast,abaInicial,metricas,onRelatorio,isAdmin}){
   const [lista,setLista]=React.useState([]);
-  const [verInativas,setVerInativas]=React.useState(false);
+  const [filtroAt,setFiltroAt]=React.useState("ativas");
+  const [mexidas,setMexidas]=React.useState(()=>new Set()); // contas inativadas/reativadas agora: continuam na tela até trocar o filtro
+  const mudarFiltro=(f)=>{setFiltroAt(f);setMexidas(new Set());};
   const [aba,setAba]=React.useState("contas");
   const [estado,setEstado]=React.useState(null);
   const [verificando,setVerificando]=React.useState(false);
@@ -10194,23 +10196,23 @@ function IgContasModal({open,onClose,contas,companies,collaborators,posts,onSalv
   };
   const inp={padding:"7px 9px",borderRadius:8,border:"1.5px solid var(--border3)",fontSize:12.5,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)",outline:"none",boxSizing:"border-box",width:"100%"};
   const lbl={fontSize:10,fontWeight:800,color:"var(--text3)",textTransform:"uppercase",marginBottom:3,display:"block"};
-  const visiveis=lista.filter(c=>verInativas||c.ativa!==false);
+  const visiveis=igFiltrarAtivas(lista,filtroAt,mexidas);
   return(
     <Modal open={open} onClose={onClose} fecharFora={false} title="👤 Contas do Instagram" width={860}>
       <div style={{display:"flex",gap:2,borderBottom:"1px solid var(--border2)",marginBottom:12}}>
         {[["relacao","📋 Relação"],["contas","✏️ Cadastro"],["robo","🤖 Robô de publicação"]].map(([k,l])=><button key={k} onClick={()=>setAba(k)} style={{padding:"7px 12px",border:"none",borderBottom:aba===k?"2.5px solid #e1306c":"2.5px solid transparent",background:"none",color:aba===k?"#e1306c":"var(--text3)",fontWeight:800,fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>{l}{k==="robo"&&estado&&<span style={{marginLeft:5}}>{estado.ok&&estado.metaConfigurado&&estado.tabela&&estado.cronSecret?"🟢":estado.ok?"🟡":"🔴"}</span>}</button>)}
       </div>
       {aba==="relacao"&&<IgRelacao contas={contas} posts={posts} metricas={metricas||{contas:{}}} collaborators={collaborators||[]}
-        onEditar={(id)=>{setAba("contas");setVerInativas(true);setTimeout(()=>{const el=document.getElementById("ig-conta-"+id);if(el){el.scrollIntoView({behavior:"smooth",block:"center"});el.style.boxShadow="0 0 0 3px #e1306c55";setTimeout(()=>{el.style.boxShadow="";},1600);}},120);}}
+        onEditar={(id)=>{setAba("contas");mudarFiltro("todas");setTimeout(()=>{const el=document.getElementById("ig-conta-"+id);if(el){el.scrollIntoView({behavior:"smooth",block:"center"});el.style.boxShadow="0 0 0 3px #e1306c55";setTimeout(()=>{el.style.boxShadow="";},1600);}},120);}}
         onRelatorio={(id)=>onRelatorio&&onRelatorio(id)}/>}
       {aba==="robo"&&<div style={{maxHeight:"64vh",overflowY:"auto",paddingRight:4}}><IgRoboSetup estado={estado} onRecarregar={verificar} carregando={verificando} toast={toast}/></div>}
       {aba==="contas"&&<div style={{display:"flex",flexDirection:"column",gap:10}}>
         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
           <Btn onClick={()=>nova("propria")} sz="sm" col="#e1306c">＋ Conta da MD</Btn>
           <Btn onClick={()=>nova("cliente")} sz="sm" col="#6366f1">＋ Conta de cliente</Btn>
-          <label style={{marginLeft:"auto",fontSize:12,color:"var(--text3)",display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}><input type="checkbox" checked={verInativas} onChange={e=>setVerInativas(e.target.checked)}/> mostrar inativas</label>
+          <div style={{marginLeft:"auto"}}><IgFiltroAtivas valor={filtroAt} onMudar={mudarFiltro} contas={lista}/></div>
         </div>
-        {visiveis.length===0&&<div style={{padding:24,textAlign:"center",color:"#94a3b8",fontSize:13}}>Nenhuma conta ainda. Comece pela conta da MD e depois adicione as dos clientes.</div>}
+        {visiveis.length===0&&<div style={{padding:24,textAlign:"center",color:"#94a3b8",fontSize:13}}>{filtroAt==="inativas"?"Nenhuma conta inativa.":lista.length?"Nenhuma conta ativa — veja em ⏸ Inativas.":"Nenhuma conta ainda. Comece pela conta da MD e depois adicione as dos clientes."}</div>}
         <div style={{display:"flex",flexDirection:"column",gap:10,maxHeight:"58vh",overflowY:"auto"}}>
           {visiveis.map(c=>(<div key={c.id} id={"ig-conta-"+c.id} style={{transition:"box-shadow .3s",border:"1px solid var(--border2)",borderLeft:"4px solid "+(c.cor||"#6366f1"),borderRadius:12,padding:12,background:c.ativa===false?"var(--bg3)":"var(--bg2)",opacity:c.ativa===false?.7:1}}>
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
@@ -10221,8 +10223,8 @@ function IgContasModal({open,onClose,contas,companies,collaborators,posts,onSalv
               {c.ativa===false&&<span style={{fontSize:10.5,fontWeight:800,color:"#64748b"}}>⏸ inativa</span>}
               <div style={{marginLeft:"auto",display:"flex",gap:6,alignItems:"center"}}>
                 <div style={{display:"flex",gap:3}}>{IG_CORES.map(cor=><span key={cor} onClick={()=>upd(c.id,"cor",cor)} style={{width:14,height:14,borderRadius:"50%",background:cor,cursor:"pointer",outline:c.cor===cor?"2px solid var(--text)":"none",outlineOffset:1}}/>)}</div>
-                {c.ativa===false?<button onClick={()=>upd(c.id,"ativa",true)} style={{border:"1px solid #86efac",background:"#dcfce7",color:"#15803d",borderRadius:7,padding:"3px 8px",fontSize:11,fontWeight:800,cursor:"pointer"}}>▶ Reativar</button>
-                  :<button onClick={()=>upd(c.id,"ativa",false)} style={{border:"1px solid var(--border3)",background:"var(--bg3)",color:"#64748b",borderRadius:7,padding:"3px 8px",fontSize:11,fontWeight:800,cursor:"pointer"}}>⏸ Inativar</button>}
+                {c.ativa===false?<button onClick={()=>{setMexidas(m=>new Set([...m,c.id]));upd(c.id,"ativa",true);toast("▶ "+(c.nome||"Conta")+" reativada. Clique em Salvar contas.","ok");}} style={{border:"1px solid #86efac",background:"#dcfce7",color:"#15803d",borderRadius:7,padding:"3px 8px",fontSize:11,fontWeight:800,cursor:"pointer"}}>▶ Reativar</button>
+                  :<button onClick={()=>{setMexidas(m=>new Set([...m,c.id]));upd(c.id,"ativa",false);toast("⏸ "+(c.nome||"Conta")+" inativada — ela fica em “⏸ Inativas”. Clique em Salvar contas.","ok",6000);}} style={{border:"1px solid var(--border3)",background:"var(--bg3)",color:"#64748b",borderRadius:7,padding:"3px 8px",fontSize:11,fontWeight:800,cursor:"pointer"}}>⏸ Inativar</button>}
                 <button onClick={()=>remover(c)} title="Excluir" style={{border:"none",background:"none",color:"#ef4444",cursor:"pointer",fontSize:14}}>🗑</button>
               </div>
             </div>
@@ -10390,22 +10392,31 @@ function IgBarras({itens,altura=150,destaque,valores}){
   </div>);
 }
 
+// filtro de contas: Ativas | Inativas | Todas
+function IgFiltroAtivas({valor,onMudar,contas}){
+  const nA=contas.filter(c=>c.ativa!==false).length,nI=contas.length-nA;
+  const ops=[["ativas","Ativas",nA,"#15803d","#dcfce7"],["inativas","⏸ Inativas",nI,"#64748b","#e2e8f0"],["todas","Todas",contas.length,"#4338ca","#eef2ff"]];
+  return(<div style={{display:"flex",border:"1px solid var(--border2)",borderRadius:20,overflow:"hidden"}}>
+    {ops.map(([k,l,n,cor,bg])=>{const on=valor===k;return(<button key={k} onClick={()=>onMudar(k)} style={{border:"none",padding:"4px 11px",fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit",background:on?bg:"var(--bg2)",color:on?cor:"var(--text4)"}}>{l} <span style={{opacity:.75}}>({n})</span></button>);})}
+  </div>);
+}
+const igFiltrarAtivas=(contas,f,manter)=>contas.filter(c=>f==="todas"||(manter&&manter.has(c.id))||(f==="inativas"?c.ativa===false:c.ativa!==false));
 // Relação simples das contas (1ª aba do cadastro)
 function IgRelacao({contas,posts,metricas,collaborators,onEditar,onRelatorio}){
-  const [verInativas,setVerInativas]=React.useState(false);
-  const lista=contas.filter(c=>verInativas||c.ativa!==false);
+  const [filtroAt,setFiltroAt]=React.useState("ativas");
+  const lista=igFiltrarAtivas(contas,filtroAt);
   const th={padding:"8px 10px",fontSize:10.5,fontWeight:800,color:"var(--text3)",textTransform:"uppercase",textAlign:"left",background:"var(--bg3)",borderBottom:"1px solid var(--border2)",whiteSpace:"nowrap"};
   const td={padding:"8px 10px",fontSize:12.5,borderTop:"1px solid var(--border2)",whiteSpace:"nowrap"};
   return(<div style={{display:"flex",flexDirection:"column",gap:8}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
       <span style={{fontSize:12,color:"var(--text3)"}}>{lista.length} conta(s) · clique numa linha para editar</span>
-      <label style={{fontSize:12,color:"var(--text3)",display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}><input type="checkbox" checked={verInativas} onChange={e=>setVerInativas(e.target.checked)}/> mostrar inativas</label>
+      <IgFiltroAtivas valor={filtroAt} onMudar={setFiltroAt} contas={contas}/>
     </div>
     <div style={{overflowX:"auto",border:"1px solid var(--border2)",borderRadius:12,maxHeight:"58vh",overflowY:"auto"}}>
       <table style={{width:"100%",borderCollapse:"collapse",minWidth:720}}>
         <thead><tr><th style={th}>Conta</th><th style={th}>Tipo</th><th style={th}>Responsável</th><th style={th}>Instagram</th><th style={{...th,textAlign:"right"}}>Seguidores</th><th style={{...th,textAlign:"right"}}>Posts a fazer</th><th style={th}>Último publicado</th><th style={th}></th></tr></thead>
         <tbody>
-          {lista.length===0&&<tr><td colSpan={8} style={{padding:24,textAlign:"center",color:"var(--text4)"}}>Nenhuma conta cadastrada.</td></tr>}
+          {lista.length===0&&<tr><td colSpan={8} style={{padding:24,textAlign:"center",color:"var(--text4)"}}>{filtroAt==="inativas"?"Nenhuma conta inativa.":"Nenhuma conta cadastrada."}</td></tr>}
           {lista.map(c=>{const mc=metricas.contas?.[c.id];const pend=posts.filter(p=>p.contaId===c.id&&p.status!=="publicado").length;const at=posts.filter(p=>p.contaId===c.id&&igAtrasado(p)).length;
             const ult=posts.filter(p=>p.contaId===c.id&&p.status==="publicado"&&p.publicadoEm).sort((a,b)=>b.publicadoEm.localeCompare(a.publicadoEm))[0];
             return(<tr key={c.id} onClick={()=>onEditar(c.id)} style={{cursor:"pointer",opacity:c.ativa===false?.55:1}}>
@@ -12832,7 +12843,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 118</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 119</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

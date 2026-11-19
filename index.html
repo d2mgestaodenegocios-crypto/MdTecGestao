@@ -193,6 +193,7 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 .tc-acoes{max-height:0;opacity:0;overflow:hidden;transition:max-height .18s,opacity .15s,margin .15s}
 .tc-corpo:hover .tc-acoes,.tc-corpo:focus-within .tc-acoes{max-height:30px;opacity:1;margin-top:2px}
 @media (hover:none){.tc-acoes{max-height:30px;opacity:1}}
+.tc-acoes.tc-acoes-on{max-height:30px;opacity:1}
 </style>
 </head>
 <body>
@@ -3332,7 +3333,7 @@ function WhatsAppModal({open,onClose,titulo,texto,setTexto,tel,setTel,children})
           <Txt value={texto} onChange={setTexto} rows={12}/>
         </Fld>
         <Inp label="WhatsApp de quem vai receber" value={tel} onChange={setTel} placeholder="(61) 99999-9999 — opcional"/>
-        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v128</span></div>
+        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v129</span></div>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
           <Btn v="ghost" onClick={onClose}>Fechar</Btn>
           <Btn v="ghost" onClick={copiar}>{copiado?"✓ Copiado":"📋 Copiar texto"}</Btn>
@@ -4028,6 +4029,7 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
     return {label:DOW_NAMES[dow],nome:NOMES[dow],data:task.dueDate.slice(8,10)+"/"+task.dueDate.slice(5,7),color:DOW_COLORS[dow],isToday,isTomorrow};
   })();
   const [,setTick]=useState(0);
+  const [expandido,setExpandido]=useState(false); // card sempre abre compacto; ▾ mostra mais informações
   useEffect(()=>{if(!task.dueTime||task.dueDate!==isoLocalHoje()||task.status==="done"||task.status==="archived")return;const iv=setInterval(()=>setTick(x=>x+1),60000);return()=>clearInterval(iv);},[task.dueTime,task.dueDate,task.status]);
   const venceHoje=task.status!=="done"&&task.status!=="archived"&&task.dueDate===isoLocalHoje();
   const sector=task.sector?data.sectors.find(s=>s.id===task.sector):null;
@@ -4117,19 +4119,12 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
       <div className="tc-corpo" style={{flex:1,padding:"9px 11px 7px",minWidth:0}}>
         <QCBtn status={task.status} onClick={()=>onComplete&&onComplete(task)} size={24} absolute={true}/>
 
-        {/* linha 1: situação + dia (compacto) */}
-        {(()=>{const late=over&&!done&&task.status!=="review";const movida=task._recDataOrig&&task._recDataOrig!==task.dueDate;
-          if(!late&&!venceHoje&&!dowTag&&!task.pinned)return null;
-          return(<div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap",marginBottom:5,marginRight:30}}>
-            {late?<span title={"Prazo: "+fmtDate(task.dueDate)+(task.dueTime?" "+task.dueTime:"")} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 8px",borderRadius:20,background:"#ef4444",color:"#fff",fontSize:10.5,fontWeight:900,letterSpacing:".03em",whiteSpace:"nowrap",boxShadow:"0 2px 6px rgba(239,68,68,.3)"}}>⚠ ATRASADA <span style={{fontWeight:700,opacity:.92}}>· {atrasoTexto(task)}</span></span>
-              :venceHoje?<span style={{display:"inline-flex",alignItems:"center",gap:4,color:"#ea580c",fontSize:10.5,fontWeight:900,letterSpacing:".05em",whiteSpace:"nowrap"}}><span style={{width:7,height:7,borderRadius:"50%",background:"#f97316",boxShadow:"0 0 0 3px rgba(249,115,22,.2)"}}/>HOJE{task.dueTime?" · "+task.dueTime:""}</span>:null}
-            {dowTag&&<span title={"Recorrente — "+(DOW_LONGO[["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"].indexOf(dowTag.label)]||dowTag.label)} style={{display:"inline-flex",alignItems:"center",borderRadius:6,overflow:"hidden",border:"1px solid "+(done?"#cbd5e1":dowTag.color)+"66",fontSize:9.5,fontWeight:900,lineHeight:1}}>
-              <span style={{background:done?"#94a3b8":dowTag.color,color:"#fff",padding:"3px 5px",letterSpacing:".05em"}}>{dowTag.label.toUpperCase()}</span>
-              <span style={{background:"var(--bg2)",color:done?"#94a3b8":"var(--text)",padding:"3px 5px"}}>{dowTag.data.slice(0,2)}</span>
-            </span>}
-            {dowTag&&!done&&!venceHoje&&!late&&dowTag.isTomorrow&&<span style={{fontSize:10,fontWeight:800,color:"#6366f1"}}>amanhã</span>}
-            {movida&&<span title="Movida por feriado/dia fechado" style={{fontSize:10,fontWeight:800,color:"#b45309",whiteSpace:"nowrap"}}>{task.dueDate<task._recDataOrig?"⏪":"⏩"} de {rotCurta(task._recDataOrig)}</span>}
-          </div>);})()}
+        {/* linha 1: situação */}
+        {over&&!done&&task.status!=="review"
+          ?<div title={"Prazo: "+fmtDate(task.dueDate)+(task.dueTime?" "+task.dueTime:"")} style={{display:"inline-flex",alignItems:"center",gap:4,marginBottom:6,marginRight:30,padding:"2px 8px",borderRadius:20,background:"#ef4444",color:"#fff",fontSize:10.5,fontWeight:900,letterSpacing:".03em",whiteSpace:"nowrap",boxShadow:"0 2px 6px rgba(239,68,68,.3)"}}>⚠ ATRASADA <span style={{fontWeight:700,opacity:.92}}>· {atrasoTexto(task)}</span></div>
+          :venceHoje&&<div style={{display:"flex",alignItems:"center",gap:4,marginBottom:6,marginRight:30,color:"#ea580c",fontSize:10.5,fontWeight:900,letterSpacing:".05em",whiteSpace:"nowrap"}}><span style={{width:7,height:7,borderRadius:"50%",background:"#f97316",boxShadow:"0 0 0 3px rgba(249,115,22,.2)"}}/>HOJE{task.dueTime?" · "+task.dueTime:""}</div>}
+        {/* dia da semana (estilo calendário, como antes) */}
+        {dowTag&&<DiaSemanaTag t={dowTag} done={done} movida={task._recDataOrig&&task._recDataOrig!==task.dueDate?task._recDataOrig:null} dueDate={task.dueDate}/>}
         {labels.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:3,marginBottom:5,paddingRight:30}}>{labels.map(l=><Chip key={l.id} label={l.name} color={l.color}/>)}</div>}
 
         {/* título (a descrição aparece ao passar o mouse) */}
@@ -4177,16 +4172,37 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
           {slaUrgent&&<span style={{fontSize:9.5,padding:"1px 6px",borderRadius:20,background:"#fef3c7",color:"#b45309",fontWeight:800,animation:"pulse 1.5s infinite"}}>⏱ SLA</span>}
           {task.dependencies?.length>0&&<span title="Dependências" style={{fontSize:10.5,color:"#f59e0b",fontWeight:700}}>⬡ {task.dependencies.length}</span>}
           {task._competencia&&<span style={{fontSize:10,padding:"1px 7px",borderRadius:20,background:"#f5f3ff",color:"#7c3aed",fontWeight:800,border:"1px solid #ddd6fe"}}>🏷 {task._competencia}</span>}
-          <span style={{marginLeft:"auto",display:"inline-flex",alignItems:"center",flexShrink:0}}>
+          <span style={{marginLeft:"auto",display:"inline-flex",alignItems:"center",flexShrink:0,gap:6}}>
+            {!ghost&&<button onClick={e=>{e.stopPropagation();setExpandido(v=>!v);}} title={expandido?"Recolher":"Ver mais informações"} style={{border:"1px solid var(--border2)",background:expandido?"#eef2ff":"var(--bg2)",color:expandido?"#4338ca":"#94a3b8",borderRadius:6,width:22,height:20,fontSize:10,cursor:"pointer",display:"inline-flex",alignItems:"center",justifyContent:"center",padding:0,fontFamily:"inherit"}}>{expandido?"▴":"▾"}</button>}
+            <span style={{display:"inline-flex",alignItems:"center"}}>
             {assignees.slice(0,3).map((u,i)=><span key={u.id} title={"Responsável: "+u.name} style={{marginLeft:i?-6:0,borderRadius:"50%",boxShadow:"0 0 0 2px var(--bg2)"}}><Av initials={u.initials} color={u.color} size={22} photo={u.photo}/></span>)}
             {assignees.length>3&&<span style={{fontSize:10,color:"#94a3b8",fontWeight:700,marginLeft:3}}>+{assignees.length-3}</span>}
             {toArr(task.assignees).length===0&&!done&&<span title="Sem responsável" style={{fontSize:10,padding:"1px 6px",borderRadius:20,background:"#f1f5f9",color:"#94a3b8",fontWeight:700,border:"1px dashed #cbd5e1"}}>👤 —</span>}
+            </span>
           </span>
         </div>
         {prog!==null&&<div style={{height:3,borderRadius:3,background:"#f1f5f9",overflow:"hidden",marginBottom:4}}><div style={{width:`${prog}%`,height:"100%",background:prog===100?"#22c55e":ckOverdue>0&&!done?"#ef4444":"#6366f1",borderRadius:3,transition:"width .4s"}}/></div>}
+        {expandido&&!ghost&&<div onClick={e=>e.stopPropagation()} style={{marginTop:4,marginBottom:4,paddingTop:7,borderTop:"1px dashed var(--border2)",display:"flex",flexDirection:"column",gap:6,fontSize:11.5,color:"var(--text2)",cursor:"default"}}>
+          {task.description&&<div style={{whiteSpace:"pre-wrap",lineHeight:1.45,color:"var(--text3)"}}>{task.description}</div>}
+          {(company||sector)&&<div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+            {company&&<span style={{fontWeight:800,color:company.color}}>🏢 {company.name}</span>}
+            {sector&&<span style={{fontSize:10.5,fontWeight:700,padding:"1px 7px",borderRadius:10,background:sector.color+"22",color:sector.color}}>{sector.name}</span>}
+          </div>}
+          {assignees.length>0&&<div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
+            <span style={{fontSize:10,fontWeight:700,color:"#94a3b8",textTransform:"uppercase"}}>Resp.</span>
+            {assignees.map(u=><span key={u.id} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"1px 8px 1px 2px",borderRadius:20,background:u.color+"15",border:`1px solid ${u.color}40`,fontWeight:700,color:u.color}}><Av initials={u.initials} color={u.color} size={16} photo={u.photo}/>{u.name}</span>)}
+          </div>}
+          {ckTot>0&&<div style={{display:"flex",flexDirection:"column",gap:2}}>
+            <span style={{fontSize:10,fontWeight:700,color:"#94a3b8",textTransform:"uppercase"}}>Checklist {ckDone}/{ckTot}</span>
+            {toArr(task.checklist).slice(0,10).map(c=><span key={c.id} style={{color:c.done?"#16a34a":"var(--text2)",textDecoration:c.done?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.done?"✔":"☐"} {c.text}</span>)}
+            {ckTot>10&&<span style={{color:"#94a3b8"}}>+{ckTot-10} itens</span>}
+          </div>}
+          {rec&&<span style={{color:"#14b8a6",fontWeight:700}}>↻ {rec.name}</span>}
+          {toArr(task.comments).length>0&&(()=>{const u=toArr(task.comments).slice(-1)[0];return<div style={{color:"var(--text3)"}}><b style={{color:"#4338ca"}}>💬 {u.author}:</b> {String(u.text||"").slice(0,140)}</div>;})()}
+        </div>}
 
         {!ghost&&(
-          <div className="tc-acoes" style={{display:"flex",justifyContent:"flex-end",alignItems:"center",gap:4}}>
+          <div className={"tc-acoes"+(expandido?" tc-acoes-on":"")} style={{display:"flex",justifyContent:"flex-end",alignItems:"center",gap:4}}>
             {/* Urgente toggle */}
             {onComplete&&<button onClick={e=>{e.stopPropagation();if(onUrgent)onUrgent(task.id,task.priority!=="critica");}} title={task.priority==="critica"?"Remover urgência":"Marcar como urgente"} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:task.priority==="critica"?"#ef4444":"#e2e8f0",padding:"2px 4px",borderRadius:5,transition:"color .15s"}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color=task.priority==="critica"?"#ef4444":"#e2e8f0"}>🔴</button>}
             {/* Copiar link */}
@@ -12980,7 +12996,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 128</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 129</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

@@ -186,6 +186,9 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 @media (max-width:520px){.modal-fechar .mf-txt{display:none}.modal-fechar{padding:0 10px}}
 .modal-fechar.escuro{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.35);color:#fff;box-shadow:none}
 .modal-fechar.escuro:hover{background:rgba(255,255,255,.95);border-color:#fff;color:#b91c1c}
+.lst-acao{width:28px;height:28px;border-radius:8px;border:1px solid var(--border2,#e2e8f0);background:var(--bg2,#fff);color:var(--text3,#64748b);cursor:pointer;font-size:13px;display:inline-flex;align-items:center;justify-content:center;transition:all .12s;padding:0}
+.lst-acao:hover{background:#eef2ff;border-color:#c7d2fe;color:#4338ca}
+.lst-del:hover{background:#fef2f2;border-color:#fecaca;color:#b91c1c}
 </style>
 </head>
 <body>
@@ -3308,7 +3311,7 @@ function WhatsAppModal({open,onClose,titulo,texto,setTexto,tel,setTel,children})
           <Txt value={texto} onChange={setTexto} rows={12}/>
         </Fld>
         <Inp label="WhatsApp de quem vai receber" value={tel} onChange={setTel} placeholder="(61) 99999-9999 — opcional"/>
-        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v121</span></div>
+        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v122</span></div>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
           <Btn v="ghost" onClick={onClose}>Fechar</Btn>
           <Btn v="ghost" onClick={copiar}>{copiado?"✓ Copiado":"📋 Copiar texto"}</Btn>
@@ -4561,7 +4564,7 @@ function ListView({data,onEdit,onDelete,onComplete,onBulkUpdate}){
     return "#6366f1";
   };
 
-  const COL="28px 12px minmax(180px,2.5fr) minmax(100px,120px) minmax(80px,95px) minmax(110px,1.2fr) minmax(90px,1fr) minmax(90px,1fr) minmax(70px,85px) 52px";
+  const COL="24px 28px minmax(200px,2.6fr) minmax(100px,120px) minmax(80px,95px) minmax(110px,1.2fr) minmax(90px,1fr) minmax(80px,.8fr) minmax(84px,92px) 64px";
   const cellSt={overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0};
   return(
     <div>
@@ -4640,9 +4643,10 @@ function ListView({data,onEdit,onDelete,onComplete,onBulkUpdate}){
                     <div onClick={e=>e.stopPropagation()}><input type="checkbox" style={{accentColor:"#6366f1",cursor:"pointer",width:14,height:14}} checked={isSel} onChange={e=>{const n=new Set(selected);e.target.checked?n.add(t.id):n.delete(t.id);setSelected(n);}}/></div>
                     <div onClick={e=>e.stopPropagation()}><QCBtn status={t.status} onClick={()=>onComplete(t)} size={24} absolute={false}/></div>
                     <div style={{minWidth:0}}>
-                      <div style={{fontSize:13,fontWeight:700,color:done?"#94a3b8":"#0f172a",textDecoration:done?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4}}>
-                        {hasRec&&<span title="Recorrente" style={{fontSize:11,color:"#6366f1"}}>↻</span>}
-                        {t.title}
+                      <div style={{fontSize:13,fontWeight:700,color:done?"#94a3b8":"var(--text)",textDecoration:done?"line-through":"none",display:"flex",alignItems:"center",gap:5,minWidth:0}}>
+                        {hasRec&&<span title="Recorrente" style={{fontSize:12,color:"#6366f1",flexShrink:0}}>↻</span>}
+                        <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{t.title}</span>
+                        {t._recDataOrig&&t._recDataOrig!==t.dueDate&&<span title="Movida por feriado/dia fechado" style={{fontSize:10,fontWeight:800,color:"#b45309",flexShrink:0}}>{t.dueDate<t._recDataOrig?"⏪":"⏩"} {rotCurta(t._recDataOrig)}</span>}
                       </div>
                       <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:2}}>{data.labels.filter(l=>toArr(t.labels).includes(l.id)).map(l=><Chip key={l.id} label={l.name} color={l.color}/>)}</div>
                     </div>
@@ -4656,8 +4660,8 @@ function ListView({data,onEdit,onDelete,onComplete,onBulkUpdate}){
                     </div>
                     <div style={cellSt}><span style={{fontSize:12,color:over?"#ef4444":"#64748b",fontWeight:over?700:400}}>{t.dueDate?fmtDate(t.dueDate):"-"}</span></div>
                     <div style={{display:"flex",gap:3,justifyContent:"flex-end"}} onClick={e=>e.stopPropagation()}>
-                      <Btn onClick={()=>onEdit(t)} v="ghost" sz="sm">e</Btn>
-                      <Btn onClick={()=>onDelete(t.id)} v="danger" sz="sm">x</Btn>
+                      <button onClick={()=>onEdit(t)} title="Editar" className="lst-acao">✎</button>
+                      <button onClick={()=>onDelete(t.id)} title="Excluir" className="lst-acao lst-del">🗑</button>
                     </div>
                   </div>
                 );
@@ -11719,17 +11723,24 @@ function recAjustarFeriados(data){
         if(t._recAcumular){
           // acumular: junta na tarefa do novo dia, com um item no checklist para cada dia
           const tg=lista.find(x=>x.id!==t.id&&x.dueDate===alvo&&x.status!=="done"&&x.status!=="archived"&&!remover.has(x.id));
-          if(!tg){ocup.add(alvo);if(t.dueDate!==alvo)upd[t.id]={dueDate:alvo,_recDataOrig:o};return;} // a do dia já foi feita: fica separada
+          if(!tg){ocup.add(alvo);if(t.dueDate!==alvo)upd[t.id]={dueDate:alvo,_recDataOrig:o};
+            if(!toArr(t.checklist).some(c=>c.id==="acc_"+o))(addCk[t.id]=addCk[t.id]||[]).push({id:"acc_"+o,text:"Referente a "+rotCurta(o)+" ("+(diaFechado(o,marc)||"dia fechado")+")",done:false,_accDe:o});return;} // a do dia já foi feita: fica separada, com o item do dia
           const lst=addCk[tg.id]=addCk[tg.id]||[];
-          const motivo=diaFechado(o,marc)||"dia fechado";
-          lst.push({id:"acc_"+(tg._recDataOrig||tg.dueDate),text:"Referente a "+rotCurta(tg._recDataOrig||tg.dueDate),done:false,_accDe:tg._recDataOrig||tg.dueDate});
-          lst.push({id:"acc_"+o,text:"Referente a "+rotCurta(o)+" ("+motivo+")",done:false,_accDe:o});
+          const motivo=diaFechado(o,marc)||"dia fechado";const temTg=(id)=>toArr(tg.checklist).some(c=>c.id===id);
+          const dTg=tg._recDataOrig||tg.dueDate;
+          if(!temTg("acc_"+dTg))lst.push({id:"acc_"+dTg,text:"Referente a "+rotCurta(dTg),done:false,_accDe:dTg});
+          if(!temTg("acc_"+o))lst.push({id:"acc_"+o,text:"Referente a "+rotCurta(o)+" ("+motivo+")",done:false,_accDe:o});
+          if(!lst.length)delete addCk[tg.id];
         }
         remover.add(t.id);supr[gid]=[...new Set([...(supr[gid]||[]),o])];mudouSupr=true;
         return;
       }
       ocup.add(alvo);
       if(t.dueDate!==alvo)upd[t.id]={dueDate:alvo,_recDataOrig:alvo===o?null:o};
+      // acumulando: a tarefa movida mostra no checklist a que dia ela se refere
+      if(alvo!==o&&t._recAcumular&&!toArr(t.checklist).some(c=>c.id==="acc_"+o))(addCk[t.id]=addCk[t.id]||[]).push({id:"acc_"+o,text:"Referente a "+rotCurta(o)+" ("+(diaFechado(o,marc)||"dia fechado")+")",done:false,_accDe:o});
+      // voltou para o próprio dia: tira o item "Referente a" dela mesma
+      if(alvo===o&&toArr(t.checklist).some(c=>c._accDe===o&&!c.done)&&toArr(t.checklist).filter(c=>c._accDe).length===1)(tirarCk[t.id]=tirarCk[t.id]||new Set()).add(o);
     });
     // dias que tinham sido juntados e não precisam mais (feriado desmarcado, mudou a regra): voltam
     if(supr[gid]&&supr[gid].length){
@@ -12945,7 +12956,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 121</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 122</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

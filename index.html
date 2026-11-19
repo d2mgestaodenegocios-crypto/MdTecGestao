@@ -2284,7 +2284,7 @@ const modkCompAtual=()=>{const h=new Date();const d=new Date(h.getFullYear(),h.g
 const modkBrIso=(br)=>{const p=String(br||"").split("/");return p.length===3?p[2]+"-"+p[1].padStart(2,"0")+"-"+p[0].padStart(2,"0"):"";};
 function modkPrazoGeral(p,mes,storage){
   const pz=p.prazos||{};
-  if(pz[mes])return pz[mes];
+  if(pz[mes]){const g=String(pz[mes]).split("/");if(g.length===3)return _calcV(g[0].padStart(2,"0"),g[1].padStart(2,"0"),g[2]);return pz[mes];} // contábil sempre antecipa
   let dia=pz.__diaPadrao||"";if(!dia){try{dia=localStorage.getItem(storage+"_dia")||"";}catch(e){}}
   const pts=mes.split("/");let mm=parseInt(pts[0])+1,yy=parseInt(pts[1]);if(mm>12){mm=1;yy++;}
   return _calcV(String(parseInt(dia)||15).padStart(2,"0"),String(mm).padStart(2,"0"),String(yy));
@@ -2366,6 +2366,7 @@ function modkAplicar(data,payloads,inativas,alvo){
   // 3) prazo: se mudarem o "até dia X" da coluna (ou o vencimento do mês), o card acompanha — a não ser que alguém tenha mudado a data à mão
   tarefas=tarefas.map(t=>{
     const r=t._modRef;if(!r||t._modOk||t.status==="done"||t.status==="archived")return t;
+    const suf=" · "+modkMesNome(r.mes);if(typeof t.title==="string"&&t.title.endsWith(suf)){mudou=true;t={...t,title:t.title.slice(0,-suf.length)};}
     const p=payloads[r.row];if(!p)return t;
     const M=MODK_MODULOS.find(x=>x.row===r.row);const nd=modkPrazoCol(p,r.mes,r.col,M?M.storage:"");
     if(!nd)return t;
@@ -2408,7 +2409,7 @@ function modkAplicar(data,payloads,inativas,alvo){
         for(const fonte of [cl,g1,g2]){if(!fonte)continue;if(fonte.respEtapa&&fonte.respEtapa[col.key]){resp=[fonte.respEtapa[col.key]];break;}if(toArr(fonte.respKanban).length){resp=toArr(fonte.respKanban).slice(0,3);break;}}
         const due=modkPrazoCol(p,mes,col.key,M.storage);
         const idx=cols.filter(c=>colVigente(c,mes)).findIndex(c=>c.key===col.key)+1;const tot=cols.filter(c=>colVigente(c,mes)).length;
-        const t={id,title:(col.icon?col.icon+" ":"")+col.label+" — "+emp.nome+" · "+modkMesNome(mes),
+        const t={id,title:(col.icon?col.icon+" ":"")+col.label+" — "+emp.nome,
           description:M.nome+" · competência "+modkMesNome(mes)+" · "+emp.nome+" · etapa "+idx+" de "+tot+".\nAo concluir este card, a etapa “"+col.label+"” fica ✓ Ok no "+M.nome+" e o card da próxima etapa é criado.",
           status:"todo",priority:"media",assignees:resp.filter(Boolean),labels:[],company:co?co.id:"",companies:co?[co.id]:[],sector:"",
           dueDate:due||"",dueTime:"",checklist:[],dependencies:[],comments:[],history:[],attachments:[],createdAt:hojeIso,
@@ -3543,7 +3544,7 @@ function WhatsAppModal({open,onClose,titulo,texto,setTexto,tel,setTel,children})
           <Txt value={texto} onChange={setTexto} rows={12}/>
         </Fld>
         <Inp label="WhatsApp de quem vai receber" value={tel} onChange={setTel} placeholder="(61) 99999-9999 — opcional"/>
-        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v142</span></div>
+        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v143</span></div>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
           <Btn v="ghost" onClick={onClose}>Fechar</Btn>
           <Btn v="ghost" onClick={copiar}>{copiado?"✓ Copiado":"📋 Copiar texto"}</Btn>
@@ -4210,14 +4211,14 @@ function DiaSemanaTag({t,done,movida,dueDate}){
   const cor=done?"#94a3b8":t.color;
   const longo=DOW_LONGO[["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"].indexOf(t.label)]||t.label;
   const quando=!done&&(t.isToday?"hoje":t.isTomorrow?"amanhã":"");
-  return(<div title={t.rec===false?"Prazo":"Tarefa recorrente"} style={{display:"flex",alignItems:"center",gap:9,marginBottom:9,marginRight:34}}>
-    <div style={{width:38,borderRadius:8,overflow:"hidden",border:"1px solid "+cor+"55",background:"var(--bg2)",flexShrink:0,textAlign:"center",boxShadow:"0 1px 3px rgba(15,23,42,.08)"}}>
-      <div style={{background:cor,color:"#fff",fontSize:9,fontWeight:900,letterSpacing:".08em",padding:"2px 0"}}>{t.label.toUpperCase()}</div>
-      <div style={{fontSize:15,fontWeight:900,color:done?"#94a3b8":"var(--text)",lineHeight:1.25,padding:"1px 0 2px"}}>{t.data.slice(0,2)}</div>
+  return(<div title={t.rec===false?"Prazo":"Tarefa recorrente"} style={{display:"flex",alignItems:"center",gap:7,marginBottom:6,marginRight:32}}>
+    <div style={{width:32,borderRadius:7,overflow:"hidden",border:"1px solid "+cor+"55",background:"var(--bg2)",flexShrink:0,textAlign:"center",boxShadow:"0 1px 3px rgba(15,23,42,.08)"}}>
+      <div style={{background:cor,color:"#fff",fontSize:8,fontWeight:900,letterSpacing:".06em",padding:"1px 0"}}>{t.label.toUpperCase()}</div>
+      <div style={{fontSize:13,fontWeight:900,color:done?"#94a3b8":"var(--text)",lineHeight:1.2,padding:"0 0 1px"}}>{t.data.slice(0,2)}</div>
     </div>
     <div style={{minWidth:0,lineHeight:1.2}}>
-      <div style={{fontSize:12.5,fontWeight:800,color:cor}}>{longo}</div>
-      <div style={{fontSize:10.5,color:"var(--text3)",fontWeight:600}}>{t.rec===false?<>{t.data}{t.ano&&t.ano!==String(new Date().getFullYear())?"/"+t.ano:""}{t.hora?" · "+t.hora:""}</>:<>↻ recorrente</>}{quando?<> · <b style={{color:t.isToday?"#d97706":"#6366f1"}}>{quando}</b></>:null}</div>
+      <div style={{fontSize:11,fontWeight:800,color:cor}}>{longo}</div>
+      <div style={{fontSize:9.5,color:"var(--text3)",fontWeight:600}}>{t.rec===false?<>{t.data}{t.ano&&t.ano!==String(new Date().getFullYear())?"/"+t.ano:""}{t.hora?" · "+t.hora:""}</>:<>↻ recorrente</>}{quando?<> · <b style={{color:t.isToday?"#d97706":"#6366f1"}}>{quando}</b></>:null}</div>
       {movida&&<div title="Movida por causa de feriado/dia fechado" style={{fontSize:10,fontWeight:800,color:"#b45309"}}>{dueDate<movida?"⏪ antecipada":"⏩ adiada"} de {rotCurta(movida)}</div>}
     </div>
   </div>);
@@ -4326,19 +4327,19 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
       )}
 
       {/* ── Card content ──────────────────────── */}
-      <div className="tc-corpo" style={{flex:1,padding:"9px 11px 7px",minWidth:0}}>
+      <div className="tc-corpo" style={{flex:1,padding:"7px 10px 6px",minWidth:0}}>
         <QCBtn status={task.status} onClick={()=>onComplete&&onComplete(task)} size={24} absolute={true}/>
 
         {/* linha 1: situação */}
         {over&&!done&&task.status!=="review"
-          ?<div title={"Prazo: "+fmtDate(task.dueDate)+(task.dueTime?" "+task.dueTime:"")} style={{display:"inline-flex",alignItems:"center",gap:4,marginBottom:6,marginRight:30,padding:"2px 8px",borderRadius:20,background:"#ef4444",color:"#fff",fontSize:10.5,fontWeight:900,letterSpacing:".03em",whiteSpace:"nowrap",boxShadow:"0 2px 6px rgba(239,68,68,.3)"}}>⚠ ATRASADA <span style={{fontWeight:700,opacity:.92}}>· {atrasoTexto(task)}</span></div>
+          ?<div title={"Prazo: "+fmtDate(task.dueDate)+(task.dueTime?" "+task.dueTime:"")} style={{display:"inline-flex",alignItems:"center",gap:4,marginBottom:5,marginRight:30,padding:"1px 7px",borderRadius:20,background:"#ef4444",color:"#fff",fontSize:9.5,fontWeight:900,letterSpacing:".03em",whiteSpace:"nowrap",boxShadow:"0 2px 6px rgba(239,68,68,.3)"}}>⚠ ATRASADA <span style={{fontWeight:700,opacity:.92}}>· {atrasoTexto(task)}</span></div>
           :venceHoje&&<div style={{display:"flex",alignItems:"center",gap:4,marginBottom:6,marginRight:30,color:"#ea580c",fontSize:10.5,fontWeight:900,letterSpacing:".05em",whiteSpace:"nowrap"}}><span style={{width:7,height:7,borderRadius:"50%",background:"#f97316",boxShadow:"0 0 0 3px rgba(249,115,22,.2)"}}/>HOJE{task.dueTime?" · "+task.dueTime:""}</div>}
         {/* dia da semana (estilo calendário, como antes) */}
         {dowTag&&<DiaSemanaTag t={dowTag} done={done} movida={task._recDataOrig&&task._recDataOrig!==task.dueDate?task._recDataOrig:null} dueDate={task.dueDate}/>}
         {labels.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:3,marginBottom:5,paddingRight:30}}>{labels.map(l=><Chip key={l.id} label={l.name} color={l.color}/>)}</div>}
 
         {/* título (a descrição aparece ao passar o mouse) */}
-        <div title={task.description?task.description:undefined} style={{fontSize:13,fontWeight:800,color:done?"#94a3b8":"var(--text)",marginBottom:6,lineHeight:1.35,paddingRight:30,textDecoration:done?"line-through":"none",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>
+        <div title={task.description?task.description:undefined} style={{fontSize:11.5,fontWeight:800,color:done?"#94a3b8":"var(--text)",marginBottom:5,lineHeight:1.3,paddingRight:28,textDecoration:done?"line-through":"none",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>
           {task.pinned&&<span title="Fixada" style={{fontSize:11,color:"#f59e0b",marginRight:3}}>📌</span>}
           {(task.recurrence||task._recGroup)&&<span title="Tarefa recorrente" style={{fontSize:12,color:"#6366f1",marginRight:4}}>↻</span>}
           {task.title}
@@ -13328,7 +13329,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 142</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 143</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

@@ -189,6 +189,7 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 .lst-acao{width:28px;height:28px;border-radius:8px;border:1px solid var(--border2,#e2e8f0);background:var(--bg2,#fff);color:var(--text3,#64748b);cursor:pointer;font-size:13px;display:inline-flex;align-items:center;justify-content:center;transition:all .12s;padding:0}
 .lst-acao:hover{background:#eef2ff;border-color:#c7d2fe;color:#4338ca}
 .lst-del:hover{background:#fef2f2;border-color:#fecaca;color:#b91c1c}
+@keyframes kbAtraso{0%,100%{box-shadow:0 0 0 2px #ef4444,0 6px 18px rgba(239,68,68,.30)}50%{box-shadow:0 0 0 3px #ef4444,0 6px 24px rgba(239,68,68,.55)}}
 </style>
 </head>
 <body>
@@ -763,7 +764,10 @@ function normalizeTask(t){
 // data de HOJE no fuso do computador (antes usava UTC: depois das 21h já virava "amanhã")
 const todayStr=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");};
 const fmtDate=d=>d?new Date(d+"T12:00:00").toLocaleDateString("pt-BR"):"-";
-const isLate=t=>!!t.dueDate&&new Date(t.dueDate+"T23:59:59")<new Date()&&t.status!=="done"&&t.status!=="archived";
+// atrasada: passou do prazo — com horário (ex.: hoje 14:00) vale o horário; sem horário, o fim do dia
+const prazoDe=t=>t&&t.dueDate?new Date(t.dueDate+"T"+(/^\d{2}:\d{2}$/.test(t.dueTime||"")?t.dueTime+":00":"23:59:59")):null;
+const isLate=t=>!!t.dueDate&&prazoDe(t)<new Date()&&t.status!=="done"&&t.status!=="archived";
+const atrasoTexto=t=>{const p=prazoDe(t);if(!p)return"";const m=Math.floor((Date.now()-p.getTime())/60000);if(m<1)return"agora";if(m<60)return"há "+m+" min";const h=Math.floor(m/60);if(h<24)return"há "+h+"h"+(m%60?String(m%60).padStart(2,"0"):"");const d=Math.floor(h/24);return"há "+d+" dia"+(d>1?"s":"");};
 
 const PALETTE=["#6366f1","#8b5cf6","#0ea5e9","#14b8a6","#22c55e","#84cc16","#f59e0b","#f97316","#f43f5e","#ec4899"];
 const TRIBS=["Simples Nacional","Lucro Presumido","Lucro Real","MEI","Lucro Arbitrado","Imune/Isento"];
@@ -3325,7 +3329,7 @@ function WhatsAppModal({open,onClose,titulo,texto,setTexto,tel,setTel,children})
           <Txt value={texto} onChange={setTexto} rows={12}/>
         </Fld>
         <Inp label="WhatsApp de quem vai receber" value={tel} onChange={setTel} placeholder="(61) 99999-9999 — opcional"/>
-        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v124</span></div>
+        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v125</span></div>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
           <Btn v="ghost" onClick={onClose}>Fechar</Btn>
           <Btn v="ghost" onClick={copiar}>{copiado?"✓ Copiado":"📋 Copiar texto"}</Btn>
@@ -4020,6 +4024,8 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
     const NOMES=["DOMINGO","SEGUNDA","TERÇA","QUARTA","QUINTA","SEXTA","SÁBADO"];
     return {label:DOW_NAMES[dow],nome:NOMES[dow],data:task.dueDate.slice(8,10)+"/"+task.dueDate.slice(5,7),color:DOW_COLORS[dow],isToday,isTomorrow};
   })();
+  const [,setTick]=useState(0);
+  useEffect(()=>{if(!task.dueTime||task.dueDate!==isoLocalHoje()||task.status==="done"||task.status==="archived")return;const iv=setInterval(()=>setTick(x=>x+1),60000);return()=>clearInterval(iv);},[task.dueTime,task.dueDate,task.status]);
   const venceHoje=task.status!=="done"&&task.status!=="archived"&&task.dueDate===isoLocalHoje();
   const sector=task.sector?data.sectors.find(s=>s.id===task.sector):null;
   const company=data.companies.find(c=>c.id===task.company);
@@ -4062,7 +4068,8 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
         transition:"box-shadow .15s,transform .15s,opacity .15s",
         position:"relative",
         borderLeft:`4px solid ${done?"#22c55e":over?"#ef4444":venceHoje?"#f97316":task.pinned?"#f59e0b":p.d}`,
-        boxShadow:venceHoje&&!isDragging?"0 0 0 2px #f97316,0 6px 18px rgba(249,115,22,.35)":task.pinned&&!isDragging?`0 2px 8px rgba(245,158,11,.25),0 0 0 1.5px #fcd34d`:isDragging?"none":done?`0 1px 3px rgba(0,0,0,.05),0 0 0 1.5px #bbf7d0`:(ckOverdue>0&&!done)?`0 2px 8px ${p.d}33,0 0 0 1.5px ${p.d}66`:`0 1px 3px rgba(0,0,0,.07),0 0 0 1px ${p.d}30`,
+        animation:over&&!done&&!isDragging&&task.status!=="review"?"kbAtraso 2s ease-in-out infinite":undefined,
+        boxShadow:over&&!done&&!isDragging&&task.status!=="review"?"0 0 0 2px #ef4444,0 6px 18px rgba(239,68,68,.35)":venceHoje&&!isDragging?"0 0 0 2px #f97316,0 6px 18px rgba(249,115,22,.35)":task.pinned&&!isDragging?`0 2px 8px rgba(245,158,11,.25),0 0 0 1.5px #fcd34d`:isDragging?"none":done?`0 1px 3px rgba(0,0,0,.05),0 0 0 1.5px #bbf7d0`:(ckOverdue>0&&!done)?`0 2px 8px ${p.d}33,0 0 0 1.5px ${p.d}66`:`0 1px 3px rgba(0,0,0,.07),0 0 0 1px ${p.d}30`,
         opacity:isDragging?.3:1,
         display:"flex",
         flexDirection:"row",
@@ -4075,7 +4082,7 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
         e.currentTarget.style.transform="translateY(-2px)";
       }}
       onMouseLeave={e=>{
-        e.currentTarget.style.boxShadow=done?"0 1px 3px rgba(0,0,0,.05),0 0 0 1.5px #bbf7d0":venceHoje?"0 0 0 2px #f97316,0 6px 18px rgba(249,115,22,.35)":task.pinned?"0 2px 8px rgba(245,158,11,.25),0 0 0 1.5px #fcd34d":"0 1px 3px rgba(0,0,0,.07),0 0 0 1px rgba(0,0,0,.05)";
+        e.currentTarget.style.boxShadow=done?"0 1px 3px rgba(0,0,0,.05),0 0 0 1.5px #bbf7d0":over&&task.status!=="review"?"0 0 0 2px #ef4444,0 6px 18px rgba(239,68,68,.35)":venceHoje?"0 0 0 2px #f97316,0 6px 18px rgba(249,115,22,.35)":task.pinned?"0 2px 8px rgba(245,158,11,.25),0 0 0 1.5px #fcd34d":"0 1px 3px rgba(0,0,0,.07),0 0 0 1px rgba(0,0,0,.05)";
         e.currentTarget.style.transform="none";
       }}
     >
@@ -4107,7 +4114,9 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
       <div style={{flex:1,padding:"12px 14px",minWidth:0}}>
         <QCBtn status={task.status} onClick={()=>onComplete&&onComplete(task)} size={26} absolute={true}/>
 
-        {venceHoje&&<div style={{display:"inline-flex",alignItems:"center",gap:5,marginBottom:8,color:"#ea580c",fontSize:12,fontWeight:900,letterSpacing:".08em"}}><span style={{width:8,height:8,borderRadius:"50%",background:"#f97316",boxShadow:"0 0 0 4px rgba(249,115,22,.2)"}}/>HOJE{task.dueTime?" · "+task.dueTime:""}</div>}
+        {over&&!done&&task.status!=="review"
+          ?<div title={"Prazo: "+fmtDate(task.dueDate)+(task.dueTime?" "+task.dueTime:"")} style={{display:"inline-flex",alignItems:"center",gap:5,marginBottom:8,marginRight:34,padding:"3px 9px 3px 7px",borderRadius:20,background:"#ef4444",color:"#fff",fontSize:11,fontWeight:900,letterSpacing:".04em",whiteSpace:"nowrap",boxShadow:"0 2px 8px rgba(239,68,68,.35)"}}>⚠ ATRASADA <span style={{fontWeight:700,letterSpacing:0,opacity:.92}}>· {atrasoTexto(task)}</span></div>
+          :venceHoje&&<div style={{display:"inline-flex",alignItems:"center",gap:5,marginBottom:8,color:"#ea580c",fontSize:12,fontWeight:900,letterSpacing:".08em"}}><span style={{width:8,height:8,borderRadius:"50%",background:"#f97316",boxShadow:"0 0 0 4px rgba(249,115,22,.2)"}}/>HOJE{task.dueTime?" · "+task.dueTime:""}</div>}
         {dowTag&&<DiaSemanaTag t={dowTag} done={done} movida={task._recDataOrig&&task._recDataOrig!==task.dueDate?task._recDataOrig:null} dueDate={task.dueDate}/>}
         {labels.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8,paddingRight:36}}>{labels.map(l=><Chip key={l.id} label={l.name} color={l.color}/>)}</div>}
 
@@ -4163,9 +4172,11 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
             const diffD=Math.floor(diffMs/86400000);
             let countdown=null;
             if(!done&&task.dueDate>=today){
-              if(isToday){
-                const hLeft=Math.max(0,Math.floor((new Date(task.dueDate+"T23:59:59")-new Date())/3600000));
-                countdown=<span style={{fontSize:10,padding:"1px 7px",borderRadius:20,background:"#f97316",color:"#fff",fontWeight:900,marginLeft:4,boxShadow:"0 1px 4px rgba(249,115,22,.4)"}}>⏰ HOJE</span>;
+              if(isToday&&over&&task.status!=="review"){
+                countdown=<span style={{fontSize:10,padding:"1px 7px",borderRadius:20,background:"#ef4444",color:"#fff",fontWeight:900,marginLeft:4,whiteSpace:"nowrap",boxShadow:"0 1px 4px rgba(239,68,68,.4)"}}>⚠ venceu</span>;
+              }else if(isToday){
+                const mLeft=task.dueTime?Math.floor((prazoDe(task)-new Date())/60000):null;
+                countdown=<span style={{fontSize:10,padding:"1px 7px",borderRadius:20,background:"#f97316",color:"#fff",fontWeight:900,marginLeft:4,boxShadow:"0 1px 4px rgba(249,115,22,.4)"}}>⏰ {mLeft!=null&&mLeft>=0&&mLeft<=120?"faltam "+(mLeft<60?mLeft+" min":Math.floor(mLeft/60)+"h"+String(mLeft%60).padStart(2,"0")):"HOJE"}</span>;
               } else if(isTomorrow){
                 countdown=<span style={{fontSize:10,padding:"1px 7px",borderRadius:20,background:"#ede9fe",color:"#7c3aed",fontWeight:800,border:"1px solid #ddd6fe",marginLeft:4}}>↑ amanhã</span>;
               } else if(diffD<=3){
@@ -4427,7 +4438,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusC
             if(st.id==="doing"||st.id==="review") return true;
             if(!t.dueDate) return kanbanFilter==="week";
             const due=new Date(t.dueDate+"T12:00:00");
-            const isOverdue=due<now&&t.dueDate!==today;
+            const isOverdue=isLate(t)||(due<now&&t.dueDate!==today);
             const isDueToday=t.dueDate===today;
             if(kanbanFilter==="overdue") return isOverdue;
             if(kanbanFilter==="today") return isDueToday;
@@ -13007,7 +13018,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 124</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 125</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

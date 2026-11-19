@@ -2303,21 +2303,24 @@ function modkEmpresaSistema(emp,companies){
 }
 const modkTaskId=(page,eid,mes,col)=>"mod_"+page+"_"+eid+"_"+mes.replace("/","-")+"_"+col;
 // cria os cards que faltam da competência do mês e liga as conclusões. Devolve {data,escritas} ou null
-function modkAplicar(data,payloads,inativas){
+function modkAplicar(data,payloads,inativas,alvo){
+  // alvo = {row,eids:[...],mes} → gerar à mão (qualquer mês, mesmo com a automação desligada; recria os excluídos)
   const cfg=data.modKanban||{};
-  if(cfg.ativo===false)return null;
-  const mes=modkCompAtual();const mi=mesIdxMA(mes);
+  if(cfg.ativo===false&&!alvo)return null;
+  const mes=alvo?alvo.mes:modkCompAtual();const mi=mesIdxMA(mes);
   const criadas={...(cfg.criadas||{})};
   let tarefas=data.tasks||[];let mudou=false;const escritas={};
   const porId=new Map(tarefas.map(t=>[t.id,t]));
   const hojeIso=todayStr();
   MODK_MODULOS.forEach(M=>{
+    if(alvo&&alvo.row!==M.row)return;
     const p=payloads[M.row];if(!p||!Array.isArray(p.empresas))return;
     const dados=p.dados||{};const colsPad=Array.isArray(p.cols)?p.cols:[];
     const chaveMes=M.page+"|"+mes;const lista=new Set(criadas[chaveMes]||[]);
     // 1) criar
     p.empresas.forEach(emp=>{
       if(!emp||emp.id==null)return;
+      if(alvo&&alvo.eids&&!alvo.eids.includes(emp.id))return;
       if(inativas&&inativas[canonEmpKeyGlobal(emp.cnpj,emp.nome)])return;
       const ini=mesIdxMA(emp.periodoInicial||"01/2025");if(ini!=null&&mi<ini)return;
       if(dados[emp.id+"_"+mes+"__semmov"]===true||dados[emp.id+"_"+mes+"__analisado"]===true)return;
@@ -2328,7 +2331,7 @@ function modkAplicar(data,payloads,inativas){
         if(!col||!col.key||!colVigente(col,mes))return;
         const st=dados[emp.id+"_"+mes+"_"+col.key];if(st==="ok"||st==="nao-aplica")return;
         const k=emp.id+"_"+col.key;const id=modkTaskId(M.page,emp.id,mes,col.key);
-        if(porId.has(id)||lista.has(k))return; // já existe (ou foi criado e alguém excluiu)
+        if(porId.has(id)||(lista.has(k)&&!alvo))return; // já existe (ou foi criado e alguém excluiu)
         // empresa (por etapa → lista) e, se a empresa não tiver, o grupo (e o grupo de cima)
         const g1=(p.grupos||[]).find(g=>g&&g.id===emp.grupoId);const g2=g1&&g1.parentId?(p.grupos||[]).find(g=>g&&g.id===g1.parentId):null;
         let resp=[];
@@ -2377,7 +2380,8 @@ function modkAplicar(data,payloads,inativas){
   const ks=Object.keys(criadas).sort((a,b)=>(mesIdxMA(b.split("|")[1])||0)-(mesIdxMA(a.split("|")[1])||0));
   const manter={};ks.forEach(k=>{const pg=k.split("|")[0];const n=Object.keys(manter).filter(x=>x.startsWith(pg+"|")).length;if(n<4)manter[k]=criadas[k];});
   if(!mudou&&deq(manter,cfg.criadas||{}))return null;
-  return{data:{...data,tasks:tarefas,modKanban:{...cfg,criadas:manter}},escritas};
+  const criadosN=tarefas.length-(data.tasks||[]).length;
+  return{data:{...data,tasks:tarefas,modKanban:{...cfg,criadas:manter}},escritas,criadosN};
 }
 async function modkLerPayloads(){
   const out={};
@@ -3490,7 +3494,7 @@ function WhatsAppModal({open,onClose,titulo,texto,setTexto,tel,setTel,children})
           <Txt value={texto} onChange={setTexto} rows={12}/>
         </Fld>
         <Inp label="WhatsApp de quem vai receber" value={tel} onChange={setTel} placeholder="(61) 99999-9999 — opcional"/>
-        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v134</span></div>
+        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v135</span></div>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
           <Btn v="ghost" onClick={onClose}>Fechar</Btn>
           <Btn v="ghost" onClick={copiar}>{copiado?"✓ Copiado":"📋 Copiar texto"}</Btn>
@@ -12119,6 +12123,18 @@ function App(){
     },1500);
     return()=>{vivo=false;clearTimeout(t);};
   },[synced,modkTick,modkConcluidas,(data.modKanban||{}).ativo]); // eslint-disable-line
+  // botão "📋 Kanban" no Tributário/Folha (gera na hora para a empresa/grupo e o mês escolhidos)
+  useEffect(()=>{
+    const h=async(ev)=>{const a=ev.detail||{};
+      const {payloads,inativas}=await modkLerPayloads();
+      const r=modkAplicar(modkDataRef.current,payloads,inativas,a);
+      const n=r?Math.max(0,r.criadosN||0):0;
+      if(r)setData(d=>{const r2=modkAplicar(d,payloads,inativas,a);return r2?r2.data:d;});
+      if(r&&r.escritas)await modkGravarOk(r.escritas);
+      toast(n?"📋 "+n+" card(s) criado(s) no Kanban — "+modkMesNome(a.mes)+".":"📋 Nada novo para criar em "+modkMesNome(a.mes)+": os cards já existem ou as etapas estão Ok/N/A.",n?"ok":"warn",6000);
+    };
+    window.addEventListener("mdtec-modk-gerar",h);return()=>window.removeEventListener("mdtec-modk-gerar",h);
+  },[]);// eslint-disable-line
   const {acquire,forceAcquire,release,getLock} = useLocks();
   const {list:toasts,add:toast} = useToast();
   const {ask:askDelete, modal:deleteModal} = useConfirmDelete();
@@ -13184,7 +13200,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 134</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 135</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>
@@ -17718,6 +17734,10 @@ function makePageComponent(PAGE_CFG){
                             <td style={{padding:"7px 8px"}}>
                               <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:5,whiteSpace:"nowrap"}}>
                                 <span onClick={()=>abrirObs(emp.id,mes)} title={hasObs?(getObsTxt(emp.id,mes)+(obsVerif?" (verificado)":"")):"Adicionar observação"} style={{fontSize:14,cursor:"pointer",color:hasObs?(obsVerif?"#94a3b8":"#f59e0b"):"#cbd5e1",background:hasObs&&!obsVerif?"rgba(245,158,11,.12)":"transparent",borderRadius:6,padding:"2px 4px",border:hasObs&&!obsVerif?"1px solid #fcd34d":"1px solid transparent"}}>{hasObs&&obsVerif?"✔️":"📝"}</span>
+                                {!isGuestMode&&!analisado&&(()=>{const MK=MODK_MODULOS.find(x=>x.page===PAGE_ID);if(!MK)return null;
+                                  const nCards=(sysData?.tasks||[]).filter(t=>t._modRef&&t._modRef.row===MK.row&&t._modRef.eid===emp.id&&t._modRef.mes===mes&&t.status!=="archived").length;
+                                  return(<button onClick={()=>window.dispatchEvent(new CustomEvent("mdtec-modk-gerar",{detail:{row:MK.row,eids:[emp.id],mes}}))} title={nCards?nCards+" card(s) deste mês no Kanban — clique para criar os que faltam":"Criar no Kanban um card para cada etapa em aberto deste mês"}
+                                    style={{background:nCards?"#eef2ff":"#fff",color:"#4338ca",border:"1px solid #c7d2fe",padding:"3px 8px",borderRadius:7,cursor:"pointer",fontSize:10.5,fontWeight:800,fontFamily:"inherit"}}>📋 {nCards?nCards:"Kanban"}</button>);})()}
                                 {analisado
                                   ?<><span style={{background:"#d1fae5",color:"#065f46",padding:"3px 9px",borderRadius:20,fontSize:10,fontWeight:800}}>✅ Analisado</span>{!isGuestMode&&<button onClick={()=>setRevertModal({eid:emp.id,mes})} title="Reverter análise" style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#f59e0b",padding:"2px 4px",borderRadius:4}}>↩</button>}</>
                                   :tudoOk
@@ -18051,6 +18071,9 @@ function makePageComponent(PAGE_CFG){
                   <span style={{fontSize:10.5,fontWeight:800,color:"#15803d",background:"#f0fdf4",border:"1px solid #86efac",padding:"2px 8px",borderRadius:20}}>✅ {dia}/{at.length} em dia</span>
                 </>);})()}
                 {!isGuestMode&&<button onClick={e=>{e.stopPropagation();setLoteModal({titulo:"⚡ Lote por mês — "+grp.nome,empresas:allEmps.filter(x=>!isInativa(x))});}} title="Aplicar um status a várias empresas deste grupo de uma vez" style={{background:"#0ea5e9",border:"none",cursor:"pointer",color:"#fff",fontSize:11,padding:"4px 10px",borderRadius:8,fontWeight:800,fontFamily:"inherit"}}>⚡ Lote</button>}
+                {!isGuestMode&&MODK_MODULOS.some(x=>x.page===PAGE_ID)&&<button onClick={e=>{e.stopPropagation();const MK=MODK_MODULOS.find(x=>x.page===PAGE_ID);const mes=modkCompAtual();
+                  if(!window.confirm("Criar no Kanban os cards de "+modkMesNome(mes)+" para as "+allEmps.filter(x=>!isInativa(x)).length+" empresa(s) do grupo "+grp.nome+"?\n\nUm card por etapa em aberto; os que já existem não são repetidos."))return;
+                  window.dispatchEvent(new CustomEvent("mdtec-modk-gerar",{detail:{row:MK.row,eids:allEmps.filter(x=>!isInativa(x)).map(x=>x.id),mes}}));}} title={"Criar no Kanban os cards de "+modkMesNome(modkCompAtual())+" deste grupo"} style={{background:"#eef2ff",border:"1px solid #c7d2fe",cursor:"pointer",color:"#4338ca",fontSize:11,padding:"3px 9px",borderRadius:8,fontWeight:700}}>📋 Kanban</button>}
                 {!isGuestMode&&<button onClick={e=>{e.stopPropagation();setGrpRespModal(grp.id);}} title="Responsáveis dos cards do Kanban para as empresas deste grupo" style={{background:color+"22",border:`1px solid ${color}44`,cursor:"pointer",color,fontSize:11,padding:"3px 9px",borderRadius:8,fontWeight:700}}>👥 Resp.{(toArr(grp.respKanban).length||Object.keys(grp.respEtapa||{}).length)?" ✓":""}</button>}
                 {!isGuestMode&&<button onClick={e=>{e.stopPropagation();setLinkModal({grp});}} style={{background:color+"22",border:`1px solid ${color}44`,cursor:"pointer",color,fontSize:11,padding:"3px 9px",borderRadius:8,fontWeight:700}}>🔗 Link</button>}
                 {!isGuestMode&&<button onClick={e=>{e.stopPropagation();if(window.confirm("Excluir o grupo \""+grp.nome+"\"? As empresas ficam sem grupo."))deleteGrupo(grp.id);}} style={{background:"none",border:"none",cursor:"pointer",color:"#f87171",fontSize:13,padding:"2px 6px",borderRadius:6}}>🗑</button>}

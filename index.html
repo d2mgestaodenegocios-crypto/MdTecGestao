@@ -2006,6 +2006,246 @@ function RelatorioPage({data,isAdmin}){
 }
 
 
+
+// ════════════════════════════════════════════════════════════════════════
+// ROTINA DE POSTAGENS (Kanban × Marketing)
+// Posta: seg, qua e sex às 9:00. Cada post é programado no ÚLTIMO DIA ÚTIL antes dele
+// (ter→qua, qui→sex, sex→seg). Dia fechado (feriado, recesso, escritório fechado) faz a
+// programação voltar para o dia útil anterior, juntando os dias. Feriado NÃO pula post.
+// ════════════════════════════════════════════════════════════════════════
+const ROT_DIAS_POST=[1,3,5];
+const ROT_SEM=["dom","seg","ter","qua","qui","sex","sáb"];
+const rotIso=(d)=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+const rotData=(iso)=>{const [y,m,d]=iso.split("-").map(Number);return new Date(y,m-1,d);};
+const rotSomar=(iso,n)=>{const d=rotData(iso);d.setDate(d.getDate()+n);return rotIso(d);};
+const rotCurta=(iso)=>ROT_SEM[rotData(iso).getDay()]+" "+iso.slice(8,10)+"/"+iso.slice(5,7);
+function rotPascoa(y){const a=y%19,b=Math.floor(y/100),c=y%100,d=Math.floor(b/4),e=b%4,f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3),h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4,l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451),mes=Math.floor((h+l-7*m+114)/31),dia=((h+l-7*m+114)%31)+1;return new Date(y,mes-1,dia);}
+const _ferCache={};
+function feriadosNacionais(y){
+  if(_ferCache[y])return _ferCache[y];
+  const f={};const fx=(m,d,n)=>{f[y+"-"+String(m).padStart(2,"0")+"-"+String(d).padStart(2,"0")]=n;};
+  fx(1,1,"Confraternização Universal");fx(4,21,"Tiradentes");fx(5,1,"Dia do Trabalho");fx(9,7,"Independência");
+  fx(10,12,"Nossa Senhora Aparecida");fx(11,2,"Finados");fx(11,15,"Proclamação da República");fx(11,20,"Consciência Negra");fx(12,25,"Natal");
+  const p=rotIso(rotPascoa(y));
+  f[rotSomar(p,-48)]="Carnaval";f[rotSomar(p,-47)]="Carnaval";f[rotSomar(p,-2)]="Sexta-feira Santa";f[rotSomar(p,60)]="Corpus Christi";
+  return(_ferCache[y]=f);
+}
+// motivo do dia estar fechado (ou null se é dia de trabalho)
+function diaFechado(iso,marcados){
+  const m=(marcados||{})[iso];
+  if(m)return m.fechado===false?null:(m.motivo||"Fechado");
+  const dw=rotData(iso).getDay();
+  const fn=feriadosNacionais(+iso.slice(0,4))[iso];
+  if(fn)return fn;
+  if(dw===0||dw===6)return "Fim de semana";
+  return null;
+}
+// dia útil em que se programa o post do dia "postIso"
+function rotDiaDeProgramar(postIso,marcados){let d=rotSomar(postIso,-1);for(let i=0;i<40&&diaFechado(d,marcados);i++)d=rotSomar(d,-1);return d;}
+// { diaDeProgramar: [dias de postagem...] } para as programações de hoje até "dias" à frente
+function rotinaPlano(hojeIso,marcados,dias=7){
+  const fim=rotSomar(hojeIso,dias);const plano={};
+  for(let i=1;i<=45;i++){
+    const p=rotSomar(hojeIso,i);
+    if(!ROT_DIAS_POST.includes(rotData(p).getDay()))continue;
+    const prog=rotDiaDeProgramar(p,marcados);
+    if(prog<hojeIso||prog>fim)continue;
+    (plano[prog]=plano[prog]||[]).push(p);
+  }
+  return plano;
+}
+const rotNrm=(s)=>String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]+/g," ").trim();
+// empresa do cadastro ligada à conta do Instagram (cliente escolhido no cadastro, ou pelo nome)
+function rotEmpresaDaConta(conta,companies){
+  if(conta.clienteId&&(companies||[]).some(c=>c.id===conta.clienteId))return conta.clienteId;
+  const n=rotNrm(conta.nome);if(!n)return null;
+  const exato=(companies||[]).find(c=>rotNrm(c.name)===n);if(exato)return exato.id;
+  const parte=(companies||[]).find(c=>{const cn=rotNrm(c.name);return cn&&(cn.includes(n)||n.includes(cn));});
+  return parte?parte.id:null;
+}
+function rotConfig(data){
+  const c=data.rotinaPostagens||{};
+  const brendo=(data.collaborators||[]).find(x=>rotNrm(x.name).startsWith("brendo"));
+  return{ativo:c.ativo!==false,responsavel:c.responsavel!==undefined?c.responsavel:(brendo?brendo.id:""),hora:c.hora||"09:00"};
+}
+const ROT_OK_STATUS=["aprovacao","agendado","publicado"];
+const rotTitulo=(posts)=>"📸 Programar postagens — "+posts.map(rotCurta).join(" e ");
+function rotItens(posts,contas,data,cfg){
+  const out=[];
+  posts.forEach(p=>contas.forEach(c=>out.push({id:"rk_"+p+"_"+c.id,text:(c.nome||"Conta")+" — "+rotCurta(p)+" às "+cfg.hora,done:false,
+    company:rotEmpresaDaConta(c,data.companies),assignee:cfg.responsavel||null,_igConta:c.id,_igData:p})));
+  return out;
+}
+// aplica a rotina nas tarefas: cria/ajusta as próximas programações e marca os itens pelos posts do Marketing
+function rotinaAplicar(data,ig,hojeIso){
+  const cfg=rotConfig(data);
+  if(!cfg.ativo||!ig||!Array.isArray(ig.contas))return null;
+  const contas=ig.contas.filter(c=>c.ativa!==false);
+  if(!contas.length)return null;
+  const marcados=data.diasFechados||{};
+  const plano=rotinaPlano(hojeIso,marcados);
+  const criadas={...((data.rotinaPostagens||{}).criadas||{})};
+  let tarefas=data.tasks||[];let mudou=false;
+  const naoIniciada=(t)=>t.status==="todo"&&!toArr(t.checklist).some(c=>c.done)&&!toArr(t.comments).length;
+  // 1) programações futuras que deixaram de existir (ex.: dia marcado como fechado) → somem se ninguém começou
+  tarefas=tarefas.filter(t=>{
+    if(!t._rotinaIG||!t.dueDate||t.dueDate<hojeIso||plano[t.dueDate])return true;
+    if(naoIniciada(t)){mudou=true;delete criadas[t.dueDate];return false;}
+    return true;
+  });
+  // 2) cria / ajusta
+  Object.entries(plano).forEach(([prog,posts])=>{
+    const id="rotig_"+prog;
+    const ex=tarefas.find(t=>t.id===id);
+    const itens=rotItens(posts,contas,data,cfg);
+    if(!ex){
+      if(criadas[prog])return; // já foi criada e alguém excluiu: não volta sozinha
+      tarefas=[...tarefas,{id,title:rotTitulo(posts),status:"todo",priority:"alta",
+        description:"Criar os posts de TODAS as contas do Marketing para "+posts.map(rotCurta).join(" e ")+" (horário "+cfg.hora+") e deixar em Aprovação.\nCada item do checklist se marca sozinho quando o post daquela conta e daquele dia estiver em Aprovação ou Agendado.",
+        assignees:cfg.responsavel?[cfg.responsavel]:[],labels:[],companies:[],company:"",sector:"",dueDate:prog,dueTime:"",
+        checklist:itens,dependencies:[],comments:[],history:[],attachments:[],createdAt:todayStr(),_rotinaIG:true,_rotPosts:posts}];
+      criadas[prog]=true;mudou=true;return;
+    }
+    if(ex.status==="done"||ex.status==="archived")return;
+    // mantém o que já foi marcado; ajusta itens (novos dias/contas). Só remove itens se a tarefa não começou
+    const atuais=toArr(ex.checklist);const porId=new Map(atuais.map(c=>[c.id,c]));
+    const novos=itens.map(it=>{const a=porId.get(it.id);return a?{...it,done:a.done,doneBy:a.doneBy||null,doneAt:a.doneAt||null,_auto:a._auto,assignee:a.assignee!==undefined?a.assignee:it.assignee,company:a.company!==undefined&&a.company!==null?a.company:it.company}:it;});
+    const extras=atuais.filter(c=>!itens.some(it=>it.id===c.id)&&(!c._igConta||!naoIniciada(ex)));
+    const ck=[...novos,...extras];
+    const tit=rotTitulo(posts);
+    if(!deq(ck,atuais)||ex.title!==tit&&naoIniciada(ex)||!deq(ex._rotPosts,posts)){
+      tarefas=tarefas.map(t=>t.id===id?{...t,checklist:ck,title:naoIniciada(t)?tit:t.title,_rotPosts:posts}:t);mudou=true;
+    }
+  });
+  // 3) marca/desmarca sozinho pelos posts do Marketing
+  const nomeResp=(data.collaborators||[]).find(c=>c.id===cfg.responsavel)?.name||"";
+  const postsOk=new Map();(ig.posts||[]).forEach(p=>{if(ROT_OK_STATUS.includes(p.status)&&p.data)postsOk.set(p.contaId+"|"+p.data,p);});
+  tarefas=tarefas.map(t=>{
+    if(!t._rotinaIG||t.status==="done"||t.status==="archived")return t;
+    let alt=false;
+    const ck=toArr(t.checklist).map(c=>{
+      if(!c._igConta||!c._igData)return c;
+      const p=postsOk.get(c._igConta+"|"+c._igData);
+      if(p&&!c.done){alt=true;return{...c,done:true,_auto:true,doneAt:new Date().toISOString(),doneBy:p.criadoPor||p.editadoPor||nomeResp||null};}
+      if(!p&&c.done&&c._auto){alt=true;return{...c,done:false,_auto:false,doneAt:null,doneBy:null};}
+      return c;
+    });
+    if(!alt)return t;mudou=true;return{...t,checklist:ck};
+  });
+  if(!mudou)return null;
+  return{...data,tasks:tarefas,rotinaPostagens:{...(data.rotinaPostagens||{}),criadas}};
+}
+// lê as contas e os posts do Marketing (leve, a cada minuto) para a rotina
+function useIgResumo(ativo){
+  const [ig,setIg]=useState(null);
+  useEffect(()=>{
+    if(!ativo)return;
+    let vivo=true;let ultTs=null;
+    const buscar=async()=>{
+      try{
+        const{data:r}=await sb.from("app_data").select("ts:payload->>_savedAt").eq("id",IG_ROW_ID).maybeSingle();
+        const ts=r?.ts||"";if(ts&&ts===ultTs)return;
+        const{data:row}=await sb.from("app_data").select("payload").eq("id",IG_ROW_ID).maybeSingle();
+        const p=row?.payload||{};ultTs=ts;
+        if(vivo)setIg({contas:(p.contas||[]).map(c=>({id:c.id,nome:c.nome,ativa:c.ativa,clienteId:c.clienteId})),posts:(p.posts||[]).map(x=>({id:x.id,contaId:x.contaId,data:x.data,hora:x.hora,status:x.status,criadoPor:x.criadoPor,editadoPor:x.editadoPor}))});
+      }catch(e){}
+    };
+    buscar();const iv=setInterval(buscar,60000);
+    const f=()=>buscar();window.addEventListener("mdtec-ig-mudou",f);
+    return()=>{vivo=false;clearInterval(iv);window.removeEventListener("mdtec-ig-mudou",f);};
+  },[ativo]);
+  return ig;
+}
+
+// ── Configurações: rotina + calendário de dias fechados ─────────────────
+function DiasFechadosCalendario({data,setData,isAdmin}){
+  const [ref,setRef]=useState(()=>{const d=new Date();return{y:d.getFullYear(),m:d.getMonth()};});
+  const marcados=data.diasFechados||{};
+  const nomesMes=["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+  const ini=new Date(ref.y,ref.m,1);const total=new Date(ref.y,ref.m+1,0).getDate();
+  const cels=[];for(let i=0;i<ini.getDay();i++)cels.push(null);for(let d=1;d<=total;d++)cels.push(rotIso(new Date(ref.y,ref.m,d)));
+  const hoje=todayStr();
+  const alternar=(iso)=>{
+    if(!isAdmin)return;
+    const nac=feriadosNacionais(+iso.slice(0,4))[iso];const dw=rotData(iso).getDay();const fim=dw===0||dw===6;
+    const motivo=diaFechado(iso,marcados);
+    setData(d=>{const m={...(d.diasFechados||{})};
+      if(motivo){ // está fechado → abrir
+        if(nac||fim)m[iso]={fechado:false};else delete m[iso];
+      }else{
+        if(m[iso]&&m[iso].fechado===false&&(nac||fim)){delete m[iso];}
+        else{const mt=window.prompt("Motivo do dia fechado (ex.: Recesso, Feriado DF, Escritório fechado):","Escritório fechado");if(mt===null)return d;m[iso]={fechado:true,motivo:mt.trim()||"Fechado"};}
+      }
+      return{...d,diasFechados:m};});
+  };
+  const mudar=(n)=>setRef(r=>{const d=new Date(r.y,r.m+n,1);return{y:d.getFullYear(),m:d.getMonth()};});
+  const lista=Object.entries({...feriadosNacionais(ref.y),...Object.fromEntries(Object.entries(marcados).filter(([k])=>k.startsWith(String(ref.y))).map(([k,v])=>[k,v.motivo||""]))})
+    .filter(([k])=>k.slice(5,7)===String(ref.m+1).padStart(2,"0")).sort();
+  return(<div>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+      <button onClick={()=>mudar(-1)} style={{border:"1px solid var(--border2)",background:"var(--bg2)",borderRadius:8,padding:"3px 10px",cursor:"pointer",color:"var(--text2)"}}>‹</button>
+      <b style={{fontSize:14,minWidth:150,textAlign:"center",color:"var(--text)"}}>{nomesMes[ref.m]} {ref.y}</b>
+      <button onClick={()=>mudar(1)} style={{border:"1px solid var(--border2)",background:"var(--bg2)",borderRadius:8,padding:"3px 10px",cursor:"pointer",color:"var(--text2)"}}>›</button>
+      <span style={{marginLeft:"auto",fontSize:11,color:"var(--text4)"}}>{isAdmin?"Clique num dia para fechar/abrir":"Só o administrador altera"}</span>
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(7,minmax(0,1fr))",gap:4}}>
+      {ROT_SEM.map(s=><div key={s} style={{fontSize:10,fontWeight:800,color:"var(--text4)",textAlign:"center",textTransform:"uppercase"}}>{s}</div>)}
+      {cels.map((iso,i)=>{
+        if(!iso)return <div key={"v"+i}/>;
+        const mot=diaFechado(iso,marcados);const dw=rotData(iso).getDay();const fim=dw===0||dw===6;
+        const nac=feriadosNacionais(+iso.slice(0,4))[iso];const manual=marcados[iso]&&marcados[iso].fechado!==false;
+        const reaberto=marcados[iso]&&marcados[iso].fechado===false;
+        const posta=ROT_DIAS_POST.includes(dw);
+        const bg=manual?"#ffedd5":nac&&mot?"#fee2e2":fim?"var(--bg3)":"var(--bg2)";
+        const cor=manual?"#9a3412":nac&&mot?"#b91c1c":fim?"var(--text4)":"var(--text)";
+        return(<button key={iso} onClick={()=>alternar(iso)} title={(mot&&!fim?"Fechado: "+mot:reaberto?"Feriado/fim de semana marcado como dia de trabalho":fim?"Fim de semana":"Dia de trabalho")+(posta?" · dia de postagem (o robô posta mesmo fechado)":"")}
+          style={{minHeight:46,borderRadius:8,border:iso===hoje?"2px solid #6366f1":"1px solid var(--border2)",background:bg,color:cor,cursor:isAdmin?"pointer":"default",padding:"3px 4px",textAlign:"left",fontFamily:"inherit",display:"flex",flexDirection:"column",gap:1,overflow:"hidden"}}>
+          <span style={{fontSize:12,fontWeight:800,textDecoration:reaberto?"line-through":"none"}}>{+iso.slice(8)}{posta&&<span style={{fontSize:9,marginLeft:3}} title="dia de postagem">📸</span>}</span>
+          {mot&&!fim&&<span style={{fontSize:8.5,fontWeight:700,lineHeight:1.15,overflow:"hidden",textOverflow:"ellipsis",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{mot}</span>}
+          {reaberto&&<span style={{fontSize:8.5,color:"#15803d",fontWeight:700}}>aberto</span>}
+        </button>);
+      })}
+    </div>
+    {lista.length>0&&<div style={{marginTop:8,fontSize:11.5,color:"var(--text3)",display:"flex",flexWrap:"wrap",gap:"4px 12px"}}>
+      {lista.map(([k,n])=>{const fech=!!diaFechado(k,marcados);return <span key={k} style={{textDecoration:fech?"none":"line-through"}}>{k.slice(8)}/{k.slice(5,7)} · {n||"Fechado"}</span>;})}
+    </div>}
+  </div>);
+}
+function RotinaPostagensConfig({data,setData,isAdmin}){
+  const cfg=rotConfig(data);
+  const set=(k,v)=>setData(d=>({...d,rotinaPostagens:{...(d.rotinaPostagens||{}),...rotConfig(d),criadas:(d.rotinaPostagens||{}).criadas||{},[k]:v}}));
+  const plano=rotinaPlano(todayStr(),data.diasFechados||{},14);
+  const iSt={padding:"7px 10px",borderRadius:9,border:"2px solid #e5e7eb",fontSize:13,fontFamily:"inherit",background:"var(--input-bg)",color:"var(--text)"};
+  return(<div style={{background:"var(--bg2)",borderRadius:16,padding:24,border:"1px solid var(--border)",marginBottom:16,boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
+    <h3 style={{fontSize:14,fontWeight:800,color:"var(--text)",marginBottom:4}}>📸 Rotina de postagens (Kanban × Marketing)</h3>
+    <p style={{fontSize:13,color:"#64748b",marginBottom:14,lineHeight:1.55}}>
+      Posts às <b>segundas, quartas e sextas</b>. O sistema cria no Kanban a tarefa <b>“Programar postagens”</b> no último dia útil antes de cada post
+      (<b>terça → quarta</b>, <b>quinta → sexta</b>, <b>sexta → segunda</b>), com uma linha por conta do Marketing. A linha se marca sozinha quando o post
+      daquela conta e daquele dia está em <b>Aprovação</b> ou <b>Agendado</b>, e a tarefa só vai para revisão com tudo marcado.
+      Em dia fechado a programação volta para o dia útil anterior — <b>o post não é pulado</b> (o robô publica mesmo com o escritório fechado).
+    </p>
+    <div style={{display:"flex",gap:14,flexWrap:"wrap",alignItems:"flex-end",marginBottom:14}}>
+      <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,fontWeight:700,color:"var(--text2)",cursor:isAdmin?"pointer":"default"}}>
+        <input type="checkbox" disabled={!isAdmin} checked={cfg.ativo} onChange={e=>set("ativo",e.target.checked)}/> Rotina ligada
+      </label>
+      <div><div style={{fontSize:11.5,fontWeight:700,color:"#374151",marginBottom:4}}>Responsável</div>
+        <select disabled={!isAdmin} value={cfg.responsavel||""} onChange={e=>set("responsavel",e.target.value)} style={iSt}><option value="">— ninguém —</option>{(data.collaborators||[]).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+      <div><div style={{fontSize:11.5,fontWeight:700,color:"#374151",marginBottom:4}}>Horário dos posts</div>
+        <input disabled={!isAdmin} type="time" value={cfg.hora} onChange={e=>set("hora",e.target.value||"09:00")} style={iSt}/></div>
+    </div>
+    <div style={{fontSize:12,fontWeight:800,color:"var(--text3)",textTransform:"uppercase",marginBottom:6}}>Próximas programações</div>
+    <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:18}}>
+      {Object.entries(plano).sort().map(([prog,posts])=>(<div key={prog} style={{fontSize:13,color:"var(--text2)",display:"flex",gap:8,alignItems:"baseline"}}>
+        <b style={{minWidth:86,color:"#4f46e5"}}>{rotCurta(prog)}</b><span>programa {posts.map(rotCurta).join(" + ")}</span>
+        {posts.length>1&&<span style={{fontSize:11,color:"#b45309",fontWeight:700}}>({posts.length} dias)</span>}
+      </div>))}
+    </div>
+    <div style={{fontSize:12,fontWeight:800,color:"var(--text3)",textTransform:"uppercase",marginBottom:6}}>📅 Dias fechados — feriados, recesso e dias sem expediente</div>
+    <p style={{fontSize:12,color:"var(--text4)",marginBottom:8,lineHeight:1.5}}>Os feriados nacionais já vêm marcados (inclusive Carnaval, Sexta-feira Santa e Corpus Christi). Clique num dia para marcar como fechado (recesso, feriado do DF, escritório fechado) ou para abrir um feriado em que vocês trabalham.</p>
+    <DiasFechadosCalendario data={data} setData={setData} isAdmin={isAdmin}/>
+  </div>);
+}
+
 function ConfigPage({data,setData,toast,deduplicateTasks,isAdmin,featureFlags,saveFeatureFlags,DEFAULT_FEATURE_FLAGS}){
   const [days,setDays]=useState(data.archiveDays||30);
   const [soundOn,setSoundOn]=useState(()=>localStorage.getItem("mdtec_sound")!=="0");
@@ -2057,6 +2297,8 @@ function ConfigPage({data,setData,toast,deduplicateTasks,isAdmin,featureFlags,sa
           </div>
         </div>
       </div>
+
+      <RotinaPostagensConfig data={data} setData={setData} isAdmin={isAdmin}/>
 
       <div style={{background:"var(--bg2)",borderRadius:16,padding:24,border:"1px solid var(--border)",marginBottom:16,boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
         <h3 style={{fontSize:14,fontWeight:800,color:"#0f172a",marginBottom:4}}>📦 Arquivamento automático</h3>
@@ -3059,7 +3301,7 @@ function WhatsAppModal({open,onClose,titulo,texto,setTexto,tel,setTel,children})
           <Txt value={texto} onChange={setTexto} rows={12}/>
         </Fld>
         <Inp label="WhatsApp de quem vai receber" value={tel} onChange={setTel} placeholder="(61) 99999-9999 — opcional"/>
-        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v117</span></div>
+        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v118</span></div>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
           <Btn v="ghost" onClick={onClose}>Fechar</Btn>
           <Btn v="ghost" onClick={copiar}>{copiado?"✓ Copiado":"📋 Copiar texto"}</Btn>
@@ -3310,7 +3552,7 @@ function DepPicker({tasks,selfId,selected,onChange,blocked}){
   );
 }
 
-function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,onForce,currentUser,onComentar}){
+function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,onForce,currentUser,onComentar,onAbrirPostIG}){
   const blank={id:uid(),title:"",description:"",status:defStatus,priority:"media",company:"",companies:[],sector:"",assignees:[],labels:[],dueDate:"",dueTime:"",slaHours:"",valor:"",checklist:[],dependencies:[],recurrence:"",createdAt:todayStr(),comments:[],history:[],internalNote:"",pinned:false};
   const [f,sf]=useState(task?{...sanitizeTask(task),comments:task.comments||[]}:blank);
   const [ckTxt,sCk]=useState("");
@@ -3502,6 +3744,8 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
                      <option value="">— empresa</option>{ckEmpOps.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
                    </select>
                   :ce&&<span style={{fontSize:10.5,padding:"2px 7px",borderRadius:5,background:"#eef2ff",color:"#4f46e5",fontWeight:700,border:"1px solid #c7d2fe"}}>🏢 {ce.name}</span>;})()}
+              {ck._igConta&&onAbrirPostIG&&<button type="button" onClick={()=>onAbrirPostIG(ck._igConta,ck._igData)} title={ck.done?"Abrir o post no Marketing":"Criar/abrir o post desta conta e deste dia no Marketing (salve antes as alterações da tarefa)"} style={{fontSize:10.5,fontWeight:800,padding:"2px 8px",borderRadius:6,border:"1px solid #fbcfe8",background:"#fdf2f8",color:"#be185d",cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>📸 {ck.done?"ver post":"criar post"}</button>}
+              {ck._igConta&&ck._auto&&<span title="Marcado sozinho: o post está em Aprovação/Agendado no Marketing" style={{fontSize:10,color:"#be185d"}}>auto</span>}
               {ck.done&&ck.doneBy&&<span title={ck.doneAt?new Date(ck.doneAt).toLocaleString("pt-BR"):""} style={{fontSize:10,color:"#16a34a"}}>✔ {ck.doneBy}</span>}
               {!blocked&&<select value={ck.assignee||""} onChange={e=>set("checklist",f.checklist.map(x=>x.id===ck.id?{...x,assignee:e.target.value||null}:x))}
                 style={{fontSize:11,borderRadius:6,border:"1px solid #e2e8f0",padding:"2px 5px",background:"var(--bg2)",color:"#64748b",fontFamily:"inherit",maxWidth:110}}>
@@ -9047,7 +9291,7 @@ function useInstagramData(toast){
     setIg(prev=>{const n=fn({contas:[...prev.contas],posts:[...prev.posts]});return n;});
     try{
       const final=await gravarMesclado(IG_ROW_ID,(rem)=>{const base={contas:Array.isArray(rem?.contas)?[...rem.contas]:[],posts:Array.isArray(rem?.posts)?[...rem.posts]:[]};const n=fn(base);return{...(rem||{}),contas:n.contas,posts:n.posts};});
-      aplicar(final);return true;
+      aplicar(final);try{window.dispatchEvent(new Event("mdtec-ig-mudou"));}catch(e){}return true;
     }catch(e){toast&&toast(msgErro||"⚠️ Não foi possível salvar no Instagram. Tente de novo.","err");return false;}
   };
   return{ig,carregado,atualizar};
@@ -10993,6 +11237,15 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
     const c=contaDe(fConta)||contas.filter(x=>x.ativa!==false)[0];
     setEditor({id:uid(),contaId:c?.id||"",tipo:"feed",status:"rascunho",data:"",hora:"09:00",legenda:"",hashtags:c?.hashtagsPadrao||"",primeiroComentario:"",responsavelId:c?.respPadrao||myId||"",midias:[],ajustes:[],notas:"",...extra});
   };
+  // pedido vindo do Kanban (rotina de postagens): abre o post da conta/dia ou cria um novo já preenchido
+  const igRefAbrir=React.useRef(ig);igRefAbrir.current=ig;const carregadoRef=React.useRef(carregado);carregadoRef.current=carregado;
+  React.useEffect(()=>{
+    const abrir=()=>{const q=window.__igAbrir;const ig=igRefAbrir.current;if(!q||!carregadoRef.current)return;window.__igAbrir=null;
+      const contaDe=(id)=>ig.contas.find(c=>c.id===id);
+      const ex=ig.posts.find(p=>p.contaId===q.contaId&&p.data===q.data&&p.status!=="publicado")||ig.posts.find(p=>p.contaId===q.contaId&&p.data===q.data);
+      if(ex)setEditor(ex);else novoPost({contaId:q.contaId,data:q.data,hora:q.hora||"09:00",hashtags:contaDe(q.contaId)?.hashtagsPadrao||"",responsavelId:contaDe(q.contaId)?.respPadrao||myId||""});};
+    abrir();window.addEventListener("mdtec-ig-abrir",abrir);return()=>window.removeEventListener("mdtec-ig-abrir",abrir);
+  },[carregado]);// eslint-disable-line
   const salvarPost=async(p,fechar=true)=>{
     const agora=new Date().toISOString();
     const antigo=ig.posts.find(x=>x.id===p.id);
@@ -11508,6 +11761,15 @@ function App(){
     const t0=setTimeout(rodar,3000);const iv=setInterval(rodar,3600e3);
     return()=>{clearTimeout(t0);clearInterval(iv);};
   },[synced]);
+  // ── Rotina de postagens: tarefas "Programar postagens" ligadas aos posts do Marketing ──
+  const rotAtiva=synced&&rotConfig(data).ativo;
+  const igResumo=useIgResumo(rotAtiva);
+  const [rotTick,setRotTick]=useState(0);
+  useEffect(()=>{const iv=setInterval(()=>setRotTick(x=>x+1),5*60000);return()=>clearInterval(iv);},[]);
+  useEffect(()=>{
+    if(!rotAtiva||!igResumo)return;
+    setData(d=>rotinaAplicar(d,igResumo,todayStr())||d);
+  },[rotAtiva,igResumo,rotTick,JSON.stringify(data.diasFechados||{}),JSON.stringify(rotConfig(data)),(data.collaborators||[]).length,(data.companies||[]).length]); // eslint-disable-line
   const {acquire,forceAcquire,release,getLock} = useLocks();
   const {list:toasts,add:toast} = useToast();
   const {ask:askDelete, modal:deleteModal} = useConfirmDelete();
@@ -12364,6 +12626,7 @@ function App(){
     const iNovo=ordem.indexOf(novo),iAtual=ordem.indexOf(task.status||"todo");
     if(iNovo<0||limite<0||iNovo<limite||iNovo<=iAtual&&iAtual>=limite)return null;
     const lbl=sts.find(s=>s.id===novo)?.l||novo;
+    if(task._rotinaIG){const f=ck.filter(c=>!c.done).map(c=>c.text);return `📸 Ainda falta post em Aprovação/Agendado para: ${f.slice(0,6).join(" · ")}${f.length>6?" e mais "+(f.length-6):""}.`;}
     return `☑ "${task.title||"Tarefa"}": conclua o checklist antes de enviar para ${lbl} — faltam ${falta} de ${ck.length} itens.`;
   };
   const bulkUpdate=(action,ids,value)=>{
@@ -12569,7 +12832,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 117</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 118</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>
@@ -12735,6 +12998,7 @@ function App(){
             onForce={forceLock}
             currentUser={userName}
             onComentar={comentarTarefa}
+            onAbrirPostIG={(contaId,dataIso)=>{window.__igAbrir={contaId,data:dataIso,hora:rotConfig(data).hora};if(taskModal.task)release(taskModal.task.id);setTM(m=>({...m,open:false}));setPage("instagram");setTimeout(()=>window.dispatchEvent(new Event("mdtec-ig-abrir")),300);}}
           />
         )}
       </Modal>

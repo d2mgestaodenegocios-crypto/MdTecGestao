@@ -2270,7 +2270,7 @@ function RotinaPostagensConfig({data,setData,isAdmin}){
 // ════════════════════════════════════════════════════════════════════════
 // TRIBUTÁRIO / FOLHA → KANBAN
 // Todo mês o sistema cria um card por ETAPA (coluna) de cada empresa para a competência do mês
-// (ex.: em novembro, competência 11/2026 — vence em dezembro). Concluir o card marca ✓ Ok na etapa.
+// (ex.: em novembro, competência 10/2026 — a “atual” do módulo — vence em novembro). Concluir o card marca ✓ Ok na etapa.
 // Marcar Ok/N/A lá conclui o card.
 // ════════════════════════════════════════════════════════════════════════
 const MODK_MODULOS=[
@@ -2279,7 +2279,8 @@ const MODK_MODULOS=[
 ];
 const MODK_MN={"01":"JAN","02":"FEV","03":"MAR","04":"ABR","05":"MAI","06":"JUN","07":"JUL","08":"AGO","09":"SET","10":"OUT","11":"NOV","12":"DEZ"};
 const modkMesNome=(m)=>{const p=String(m||"").split("/");return p.length===2?(MODK_MN[p[0]]||p[0])+"/"+p[1]:m;};
-const modkCompAtual=()=>{const d=new Date();return String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear();};
+// competência de trabalho = mês anterior (igual ao “atual” da Tributário/Folha: em novembro trabalha-se outubro)
+const modkCompAtual=()=>{const h=new Date();const d=new Date(h.getFullYear(),h.getMonth()-1,1);return String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear();};
 const modkBrIso=(br)=>{const p=String(br||"").split("/");return p.length===3?p[2]+"-"+p[1].padStart(2,"0")+"-"+p[0].padStart(2,"0"):"";};
 function modkPrazoGeral(p,mes,storage){
   const pz=p.prazos||{};
@@ -2317,6 +2318,15 @@ function modkAplicar(data,payloads,inativas,alvo){
   const fechada=(d,eid,mes,col)=>{const v=d[eid+"_"+mes+"_"+col.key];return v==="ok"||v==="nao-aplica"||!colVigente(col,mes);};
   // etapa liberada = todas as anteriores Ok/N/A (igual ao módulo: só avança depois de concluir a anterior)
   const liberada=(d,eid,mes,cols,colKey)=>{for(const c of cols){if(c.key===colKey)return true;if(!fechada(d,eid,mes,c))return false;}return false;};
+  // 0) uma vez só: até a v137 o automático usava o mês corrente (NOV em novembro). Tira esses cards que ninguém começou.
+  let migr=cfg.v138===true;
+  if(!migr){
+    const mc=mesIdxMA(modkCompAtual());
+    tarefas=tarefas.filter(t=>{const r=t._modRef;if(!r||t._modOk||t.status!=="todo"||toArr(t.comments).length||toArr(t.checklist).some(c=>c.done))return true;
+      if((mesIdxMA(r.mes)||0)>mc){mudou=true;return false;}return true;});
+    Object.keys(criadas).forEach(k=>{if((mesIdxMA(k.split("|")[1])||0)>mc)delete criadas[k];});
+    migr=true;mudou=true;
+  }
   // 1) ligar conclusões (todas as competências)
   tarefas=tarefas.map(t=>{
     const r=t._modRef;if(!r||t._modOk)return t;
@@ -2399,7 +2409,7 @@ function modkAplicar(data,payloads,inativas,alvo){
   const manter={};ks.forEach(k=>{const pg=k.split("|")[0];const n=Object.keys(manter).filter(x=>x.startsWith(pg+"|")).length;if(n<4)manter[k]=criadas[k];});
   if(!mudou&&deq(manter,cfg.criadas||{}))return null;
   const criadosN=tarefas.filter(t=>t._modRef&&!(data.tasks||[]).some(x=>x.id===t.id)).length;
-  return{data:{...data,tasks:tarefas,modKanban:{...cfg,criadas:manter}},escritas,criadosN};
+  return{data:{...data,tasks:tarefas,modKanban:{...cfg,criadas:manter,v138:true}},escritas,criadosN};
 }
 async function modkLerPayloads(){
   const out={};
@@ -2434,7 +2444,7 @@ function ModkRespCadastro({emp,cols,cliente,collaborators,onMudar,doGrupo}){
         </select></label>))}
     </div>
     {(cols||[]).some(c=>!colVigente(c,modkCompAtual()))&&<div style={{fontSize:10.5,color:"#94a3b8",marginTop:8,lineHeight:1.45}}>⏸ Colunas inativas não geram card: {(cols||[]).filter(c=>!colVigente(c,modkCompAtual())).map(c=>c.label).join(", ")}.</div>}
-    <div style={{fontSize:10,color:"#64748b",marginTop:8,lineHeight:1.45}}>{doGrupo?"👥 Vale para todas as empresas deste grupo que não tiverem responsáveis próprios no Cadastro (a empresa sempre tem preferência).":"📋 Todo mês o sistema cria no Kanban o card da etapa em aberto desta empresa, uma de cada vez (competência do mês, prazo de cada coluna no mês seguinte). Concluir o card marca ✓ Ok aqui e cria o da próxima. Sem ninguém aqui, valem os responsáveis do grupo."}</div>
+    <div style={{fontSize:10,color:"#64748b",marginTop:8,lineHeight:1.45}}>{doGrupo?"👥 Vale para todas as empresas deste grupo que não tiverem responsáveis próprios no Cadastro (a empresa sempre tem preferência).":"📋 Todo mês o sistema cria no Kanban o card da etapa em aberto desta empresa, uma de cada vez (competência atual do módulo — em novembro, OUT — com o prazo de cada coluna). Concluir o card marca ✓ Ok aqui e cria o da próxima. Sem ninguém aqui, valem os responsáveis do grupo."}</div>
   </div>);
 }
 
@@ -2492,7 +2502,7 @@ function ConfigPage({data,setData,toast,deduplicateTasks,isAdmin,featureFlags,sa
 
       <div style={{background:"var(--bg2)",borderRadius:16,padding:24,border:"1px solid var(--border)",marginBottom:16,boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
         <h3 style={{fontSize:14,fontWeight:800,color:"var(--text)",marginBottom:4}}>📋 Tributário e Folha no Kanban</h3>
-        <p style={{fontSize:13,color:"#64748b",marginBottom:12,lineHeight:1.55}}>Todo mês o sistema cria no Kanban o card da <b>etapa em aberto</b> de cada empresa (NF/Relatório → Apuração → Envio de Guias…, uma de cada vez, na ordem das colunas) da competência do mês, com o prazo de cada coluna no <b>mês seguinte</b>. Os responsáveis vêm do <b>Cadastro</b> da empresa no módulo. Concluir o card marca <b>✓ Ok</b> na etapa e já cria o card da próxima; marcar Ok/N/A no módulo conclui o card.</p>
+        <p style={{fontSize:13,color:"#64748b",marginBottom:12,lineHeight:1.55}}>Todo mês o sistema cria no Kanban o card da <b>etapa em aberto</b> de cada empresa (NF/Relatório → Apuração → Envio de Guias…, uma de cada vez, na ordem das colunas) da competência <b>atual</b> do módulo (em novembro, OUT), com o prazo de cada coluna. Pelo botão <b>📋</b> de cada mês dá para gerar qualquer outro mês. Os responsáveis vêm do <b>Cadastro</b> da empresa no módulo. Concluir o card marca <b>✓ Ok</b> na etapa e já cria o card da próxima; marcar Ok/N/A no módulo conclui o card.</p>
         <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,fontWeight:700,color:"var(--text2)",cursor:isAdmin?"pointer":"default"}}>
           <input type="checkbox" disabled={!isAdmin} checked={(data.modKanban||{}).ativo!==false} onChange={e=>setData(d=>({...d,modKanban:{...(d.modKanban||{}),ativo:e.target.checked}}))}/> Gerar os cards automaticamente
         </label>
@@ -3512,7 +3522,7 @@ function WhatsAppModal({open,onClose,titulo,texto,setTexto,tel,setTel,children})
           <Txt value={texto} onChange={setTexto} rows={12}/>
         </Fld>
         <Inp label="WhatsApp de quem vai receber" value={tel} onChange={setTel} placeholder="(61) 99999-9999 — opcional"/>
-        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v137</span></div>
+        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v138</span></div>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
           <Btn v="ghost" onClick={onClose}>Fechar</Btn>
           <Btn v="ghost" onClick={copiar}>{copiado?"✓ Copiado":"📋 Copiar texto"}</Btn>
@@ -13218,7 +13228,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 137</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 138</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>
@@ -17134,6 +17144,7 @@ function makePageComponent(PAGE_CFG){
     const [prazoModal,setPrazoModal]=useState(null);
     const [prazoVal,setPrazoVal]=useState("");
     const [grpRespModal,setGrpRespModal]=useState(null); // id do grupo
+    const [kbGerar,setKbGerar]=useState(null); // {titulo,emps,mes} → gerar cards do mês escolhido
     const [diaVencPadrao,setDiaVencPadrao]=useState(()=>{try{return localStorage.getItem(STORAGE_KEY+"_dia")||"";}catch(e){return "";}});
     // guarda o "dia padrão" junto com os dados (o Kanban usa para o prazo dos cards)
     useEffect(()=>{if(dbSynced&&diaVencPadrao&&String(prazos.__diaPadrao||"")!==String(diaVencPadrao))setPrazos(p=>({...p,__diaPadrao:String(diaVencPadrao)}));},[dbSynced,diaVencPadrao,prazos.__diaPadrao]);
@@ -17755,7 +17766,7 @@ function makePageComponent(PAGE_CFG){
                                 {!isGuestMode&&!analisado&&(()=>{const MK=MODK_MODULOS.find(x=>x.page===PAGE_ID);if(!MK)return null;
                                   const nCards=(sysData?.tasks||[]).filter(t=>t._modRef&&t._modRef.row===MK.row&&t._modRef.eid===emp.id&&t._modRef.mes===mes&&t.status!=="archived").length;
                                   return(<button onClick={()=>window.dispatchEvent(new CustomEvent("mdtec-modk-gerar",{detail:{row:MK.row,eids:[emp.id],mes}}))} title={nCards?nCards+" card(s) deste mês no Kanban — clique para criar o da etapa em aberto, se faltar":"Criar no Kanban o card da etapa em aberto deste mês"}
-                                    style={{background:nCards?"#eef2ff":"#fff",color:"#4338ca",border:"1px solid #c7d2fe",padding:"3px 8px",borderRadius:7,cursor:"pointer",fontSize:10.5,fontWeight:800,fontFamily:"inherit"}}>📋{nCards?" "+nCards:""}</button>);})()}
+                                    style={{background:nCards?"#eef2ff":"#fff",color:"#4338ca",border:"1px solid #c7d2fe",padding:"3px 8px",borderRadius:7,cursor:"pointer",fontSize:10.5,fontWeight:800,fontFamily:"inherit"}}>{nCards?"📋 "+nCards+" no Kanban":"📋 Gerar card"}</button>);})()}
                                 {analisado
                                   ?<><span style={{background:"#d1fae5",color:"#065f46",padding:"3px 9px",borderRadius:20,fontSize:10,fontWeight:800}}>✅ Analisado</span>{!isGuestMode&&<button onClick={()=>setRevertModal({eid:emp.id,mes})} title="Reverter análise" style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:"#f59e0b",padding:"2px 4px",borderRadius:4}}>↩</button>}</>
                                   :tudoOk
@@ -18089,9 +18100,7 @@ function makePageComponent(PAGE_CFG){
                   <span style={{fontSize:10.5,fontWeight:800,color:"#15803d",background:"#f0fdf4",border:"1px solid #86efac",padding:"2px 8px",borderRadius:20}}>✅ {dia}/{at.length} em dia</span>
                 </>);})()}
                 {!isGuestMode&&<button onClick={e=>{e.stopPropagation();setLoteModal({titulo:"⚡ Lote por mês — "+grp.nome,empresas:allEmps.filter(x=>!isInativa(x))});}} title="Aplicar um status a várias empresas deste grupo de uma vez" style={{background:"#0ea5e9",border:"none",cursor:"pointer",color:"#fff",fontSize:11,padding:"4px 10px",borderRadius:8,fontWeight:800,fontFamily:"inherit"}}>⚡ Lote</button>}
-                {!isGuestMode&&MODK_MODULOS.some(x=>x.page===PAGE_ID)&&<button onClick={e=>{e.stopPropagation();const MK=MODK_MODULOS.find(x=>x.page===PAGE_ID);const mes=modkCompAtual();
-                  if(!window.confirm("Criar no Kanban os cards de "+modkMesNome(mes)+" para as "+allEmps.filter(x=>!isInativa(x)).length+" empresa(s) do grupo "+grp.nome+"?\n\nUm card da etapa em aberto de cada empresa; os que já existem não são repetidos."))return;
-                  window.dispatchEvent(new CustomEvent("mdtec-modk-gerar",{detail:{row:MK.row,eids:allEmps.filter(x=>!isInativa(x)).map(x=>x.id),mes}}));}} title={"Criar no Kanban os cards de "+modkMesNome(modkCompAtual())+" deste grupo"} style={{background:"#eef2ff",border:"1px solid #c7d2fe",cursor:"pointer",color:"#4338ca",fontSize:11,padding:"3px 9px",borderRadius:8,fontWeight:700}}>📋 Kanban</button>}
+                {!isGuestMode&&MODK_MODULOS.some(x=>x.page===PAGE_ID)&&<button onClick={e=>{e.stopPropagation();setKbGerar({titulo:"grupo "+grp.nome,emps:allEmps.filter(x=>!isInativa(x)),mes:modkCompAtual()});}} title="Criar no Kanban os cards do mês que você escolher, para as empresas deste grupo" style={{background:"#eef2ff",border:"1px solid #c7d2fe",cursor:"pointer",color:"#4338ca",fontSize:11,padding:"3px 9px",borderRadius:8,fontWeight:700}}>📋 Kanban</button>}
                 {!isGuestMode&&<button onClick={e=>{e.stopPropagation();setGrpRespModal(grp.id);}} title="Responsáveis dos cards do Kanban para as empresas deste grupo" style={{background:color+"22",border:`1px solid ${color}44`,cursor:"pointer",color,fontSize:11,padding:"3px 9px",borderRadius:8,fontWeight:700}}>👥 Resp.{(toArr(grp.respKanban).length||Object.keys(grp.respEtapa||{}).length)?" ✓":""}</button>}
                 {!isGuestMode&&<button onClick={e=>{e.stopPropagation();setLinkModal({grp});}} style={{background:color+"22",border:`1px solid ${color}44`,cursor:"pointer",color,fontSize:11,padding:"3px 9px",borderRadius:8,fontWeight:700}}>🔗 Link</button>}
                 {!isGuestMode&&<button onClick={e=>{e.stopPropagation();if(window.confirm("Excluir o grupo \""+grp.nome+"\"? As empresas ficam sem grupo."))deleteGrupo(grp.id);}} style={{background:"none",border:"none",cursor:"pointer",color:"#f87171",fontSize:13,padding:"2px 6px",borderRadius:6}}>🗑</button>}
@@ -18298,6 +18307,27 @@ function makePageComponent(PAGE_CFG){
         </div>);})}</div>);})}</div></div></div>)}
         {revertModal&&(<div onClick={e=>e.target===e.currentTarget&&setRevertModal(null)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.6)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}}><div style={{background:"var(--bg2)",borderRadius:16,padding:"24px",maxWidth:380,width:"100%",textAlign:"center",boxShadow:"0 32px 80px rgba(0,0,0,.3)"}}><div style={{fontSize:32,marginBottom:8}}>↩</div><div style={{fontSize:15,fontWeight:900,color:"var(--text)",marginBottom:6}}>Reverter análise?</div><div style={{fontSize:12,color:"#64748b",marginBottom:20}}>{getMesNome(revertModal.mes)} — {empresas.find(e=>e.id===revertModal.eid)?.nome}</div><div style={{display:"flex",gap:10,justifyContent:"center"}}><Btn onClick={()=>setRevertModal(null)} v="ghost">Cancelar</Btn><Btn onClick={()=>{reverterAnalise(revertModal.eid,revertModal.mes);setRevertModal(null);}} xs={{background:"#f59e0b",color:"#fff",border:"none"}}>Reverter</Btn></div></div></div>)}
         {deleteEmpModal&&(<div onClick={e=>e.target===e.currentTarget&&setDeleteEmpModal(null)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.72)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}}><div style={{background:"var(--bg2)",borderRadius:20,width:"100%",maxWidth:420,boxShadow:"0 32px 80px rgba(0,0,0,.35)",overflow:"hidden"}}><div style={{background:"linear-gradient(135deg,#fef2f2,#fff0f0)",padding:"20px 24px",borderBottom:"1px solid #fecaca",display:"flex",alignItems:"center",gap:14}}><div style={{fontSize:15,fontWeight:900,color:"#991b1b"}}>Excluir empresa?</div><div style={{fontSize:12,color:"#ef4444",marginLeft:4,fontWeight:600}}>{deleteEmpModal.nome}</div><button onClick={()=>setDeleteEmpModal(null)} style={{marginLeft:"auto",background:"none",border:"none",cursor:"pointer",color:"#fca5a5",fontSize:20}}>×</button></div><div style={{padding:"20px 24px"}}><p style={{fontSize:13,color:"#374151",marginBottom:10}}>Digite <strong style={{color:"#ef4444",fontFamily:"monospace",letterSpacing:2}}>EXCLUIR</strong>:</p><input autoFocus value={deleteTyped} onChange={e=>setDeleteTyped(e.target.value)} onKeyDown={e=>e.key==="Enter"&&executarDelete()} placeholder="EXCLUIR" style={{width:"100%",padding:"11px 14px",borderRadius:10,fontSize:14,fontWeight:800,letterSpacing:3,border:`2px solid ${deleteTyped.toUpperCase()==="EXCLUIR"?"#22c55e":"#e5e7eb"}`,outline:"none",fontFamily:"monospace",textTransform:"uppercase",color:"#0f172a",background:deleteTyped.toUpperCase()==="EXCLUIR"?"#f0fdf4":"#fff",boxSizing:"border-box"}}/><div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16}}><Btn onClick={()=>setDeleteEmpModal(null)} v="ghost">Cancelar</Btn><Btn onClick={executarDelete} xs={{background:"#dc2626",color:"#fff",border:"none",opacity:deleteTyped.toUpperCase()==="EXCLUIR"?1:.5}}>🗑 Excluir</Btn></div></div></div></div>)}
+        {kbGerar&&(()=>{const MK=MODK_MODULOS.find(x=>x.page===PAGE_ID);if(!MK)return null;
+          const base=modkCompAtual().split("/");const meses=[];for(let i=-12;i<=1;i++){const d=new Date(parseInt(base[1]),parseInt(base[0])-1+i,1);meses.push(String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear());}
+          meses.reverse();
+          const emps=kbGerar.emps.filter(e=>{const ini=mesIdxMA(e.periodoInicial||"01/2025");const mi=mesIdxMA(kbGerar.mes);return !(ini!=null&&mi<ini)&&!dados[e.id+"_"+kbGerar.mes+"__analisado"]&&!dados[e.id+"_"+kbGerar.mes+"__semmov"];});
+          const jaTem=emps.filter(e=>(sysData?.tasks||[]).some(t=>t._modRef&&t._modRef.row===MK.row&&t._modRef.eid===e.id&&t._modRef.mes===kbGerar.mes&&t.status!=="done"&&t.status!=="archived")).length;
+          return(<Modal open onClose={()=>setKbGerar(null)} title={"📋 Gerar cards no Kanban — "+kbGerar.titulo} width={460}>
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              <div style={{fontSize:11,fontWeight:800,color:"#64748b",textTransform:"uppercase",letterSpacing:".06em"}}>Competência</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                {meses.map(m=>{const on=m===kbGerar.mes;return(<button key={m} type="button" onClick={()=>setKbGerar(k=>({...k,mes:m}))} style={{padding:"6px 10px",borderRadius:9,border:"1.5px solid "+(on?"#6366f1":"var(--border)"),background:on?"#eef2ff":"var(--bg2)",color:on?"#4338ca":"#64748b",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{modkMesNome(m)}{m===modkCompAtual()?" · atual":""}</button>);})}
+              </div>
+              <div style={{padding:"10px 12px",borderRadius:10,background:"#eef2ff",border:"1px solid #c7d2fe",fontSize:12,color:"#3730a3",lineHeight:1.5}}>
+                <b>{emps.length}</b> empresa(s) com {modkMesNome(kbGerar.mes)} em aberto{jaTem?<> · <b>{jaTem}</b> já têm card aberto</>:null}.<br/>
+                Cria o card da <b>etapa em aberto</b> de cada empresa, com o prazo da coluna. As próximas etapas aparecem conforme cada uma for concluída. Nada é repetido.
+              </div>
+              <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                <Btn onClick={()=>setKbGerar(null)} v="ghost">Cancelar</Btn>
+                <Btn disabled={!emps.length} onClick={()=>{window.dispatchEvent(new CustomEvent("mdtec-modk-gerar",{detail:{row:MK.row,eids:emps.map(x=>x.id),mes:kbGerar.mes}}));setKbGerar(null);}} xs={{background:"#6366f1",color:"#fff",border:"none"}}>📋 Gerar cards de {modkMesNome(kbGerar.mes)}</Btn>
+              </div>
+            </div>
+          </Modal>);})()}
         {grpRespModal!=null&&(()=>{const g=grupos.find(x=>x.id===grpRespModal);if(!g)return null;
               return(<Modal open onClose={()=>setGrpRespModal(null)} title={"👥 Responsáveis no Kanban — grupo "+g.nome} width={460}>
                 <div style={{background:"#0f172a",borderRadius:12,padding:14}}>

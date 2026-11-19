@@ -1636,7 +1636,7 @@ function useConfirmDelete(){
 
 
 function ArchivedPage({data,setData,toast,isAdmin}){
-  const archived=useMemo(()=>(data.tasks||[]).filter(t=>t.status==="archived"),[data.tasks]);
+  const archived=useMemo(()=>(data.tasks||[]).filter(t=>t.status==="archived"&&!t._recJuntada),[data.tasks]);
   const {ask:askDel,modal:delModal}=useConfirmDelete();
   const LS="mdtec_arq_filtros";
   const [fl,setFl]=useState(()=>{try{return {per:"tudo",de:"",ate:"",base:"conclusao",emp:"",col:"",setor:"",etq:"",busca:"",obs:false,agrupar:"lista",...JSON.parse(localStorage.getItem(LS)||"{}")};}catch(e){return {per:"tudo",de:"",ate:"",base:"conclusao",emp:"",col:"",setor:"",etq:"",busca:"",obs:false,agrupar:"lista"};}});
@@ -1664,10 +1664,13 @@ function ArchivedPage({data,setData,toast,isAdmin}){
   const execPor=(t,emp)=>{const its=emp?toArr(t.checklist).filter(c=>c.company===emp&&c.done):[];
     const nomes=[...new Set([...its.map(c=>c.doneBy||(c.assignee?((data.collaborators||[]).find(u=>u.id===c.assignee)?.name):"")).filter(Boolean)])];
     if(nomes.length)return nomes.join(", ");
-    const en=entrega(t);if(en&&en.user)return en.user;
-    // concluiu direto (sem revisão): vale quem concluiu se for responsável; senão os responsáveis
-    if(t.completedBy&&toArr(t.assignees).includes(t.completedBy)&&t.completedByName)return t.completedByName;
-    return nomesResp(t)||t.completedByName||"";};
+    const en=entrega(t);
+    // quem marcou os itens do checklist também executou
+    const porItens=[...new Set(toArr(t.checklist).filter(c=>c.done&&c.doneBy).map(c=>c.doneBy))];
+    if(en&&en.user)return [...new Set([en.user,...porItens])].join(", ");
+    if(porItens.length)return porItens.join(", ");
+    // concluiu direto (sem revisão): executou quem concluiu
+    return t.completedByName||nomesResp(t)||"";};
   // feita para a empresa: tarefa da empresa, ou item dela marcado; se ninguém marcou nenhum item, a tarefa concluída vale para todas
   const feitaPara=(t,emp)=>{if(!emp)return true;if(taskCompanies(t).includes(emp))return true;const ck=toArr(t.checklist);if(!ck.some(c=>c.done))return ck.some(c=>c.company===emp);return ck.some(c=>c.company===emp&&c.done);};
   const dataBase=(t)=>String((fl.base==="arquivamento"?t.archivedAt:fl.base==="prazo"?t.dueDate:execEm(t,fl.emp))||"").slice(0,10);
@@ -1724,7 +1727,7 @@ function ArchivedPage({data,setData,toast,isAdmin}){
     const emp=(data.companies||[]).find(c=>c.id===fl.emp)||{name:empNome(fl.emp)};
     const e=(x)=>String(x??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
     // concluídas (ainda no Kanban) + arquivadas, com os mesmos filtros
-    const fonte=(data.tasks||[]).filter(t=>(t.status==="done"||t.status==="archived")&&passa(t));
+    const fonte=(data.tasks||[]).filter(t=>!t._recJuntada&&(t.status==="done"||t.status==="archived")&&passa(t));
     const ativ=fonte.map(t=>{const its=itensDe(t,fl.emp);const viaCk=!taskCompanies(t).includes(fl.emp);
       const nenhumMarcado=!toArr(t.checklist).some(c=>c.done);
       const feitos=viaCk&&!nenhumMarcado?its.filter(c=>c.done):its.map(c=>({...c,done:true}));return{t,data:execEm(t,fl.emp),por:execPor(t,fl.emp),itens:feitos};})
@@ -1866,7 +1869,7 @@ function RelatorioPage({data,isAdmin}){
   const company=data.companies.find(c=>c.id===selCompany);
 
   const tasks=useMemo(()=>{
-    let ts=data.tasks.filter(t=>(showArq||t.status!=="archived")&&taskHasCompanyAll(t,selCompany));
+    let ts=data.tasks.filter(t=>!t._recJuntada&&(showArq||t.status!=="archived")&&taskHasCompanyAll(t,selCompany));
     if(!showDone) ts=ts.filter(t=>!feito(t));
     if(!showOpen) ts=ts.filter(t=>feito(t));
     if(period==="month") ts=ts.filter(t=>{
@@ -3221,15 +3224,21 @@ function montarResumoDia(data,{pessoaId,dia,incluirAndamento=true,incluirAmanha=
   const nomes=c?[norm(c.name),norm(c.name).split(" ")[0],norm(c.email||"").split("@")[0]].filter(Boolean):[];
   const ehEle=(quem)=>{if(!pessoaId)return true;const q=norm(quem);return !!q&&nomes.some(n=>q===n||q.split(" ")[0]===n);};
   const responsavel=(t)=>!pessoaId||toArr(t.assignees).includes(pessoaId);
-  const tarefas=data.tasks||[];
+  const tarefas=(data.tasks||[]).filter(t=>!t._recJuntada);
   const fechada=(t)=>t.status==="done"||t.status==="archived";
   const concluiuHoje=(t)=>fechada(t)&&(dias.has(String(t.completedAt||"").slice(0,10))||toArr(t.history).some(h=>noDia(h.at)&&/→\s*Conclu/i.test(h.changes||"")));
   // entregou para revisão no dia e o gestor já aprovou/arquivou (mesmo que depois) → conta como concluída dele
   const entregouHojeEFechou=(t)=>fechada(t)&&toArr(t.history).some(x=>noDia(x.at)&&/→\s*Em Revis/i.test(x.changes||"")&&(pessoaId?ehEle(x.user):true));
   // quem executou = quem entregou para revisão; só quando não houve revisão vale o responsável (ou quem concluiu, se não há responsável)
   const entregador=(t)=>{const h=toArr(t.history).filter(x=>/→\s*Em Revis/i.test(x.changes||""));return h.length?h[h.length-1].user:null;};
-  const executou=(t)=>{if(!pessoaId)return true;const en=entregador(t);if(en)return ehEle(en);
-    if(toArr(t.assignees).length)return responsavel(t);return t.completedBy===pessoaId||ehEle(t.completedByName);};
+  // quem marcou os itens do checklist também executou (ex.: tarefa do Brendo que a Carolina fez)
+  const fezItens=(t)=>toArr(t.checklist).filter(c=>c.done&&c.doneBy&&ehEle(c.doneBy)).length;
+  const executou=(t)=>{if(!pessoaId)return true;const en=entregador(t);if(en)return ehEle(en)||fezItens(t)>0;
+    const ck=toArr(t.checklist).filter(c=>c.done&&c.doneBy);
+    if(ck.length)return fezItens(t)>0;
+    // concluída direto (sem revisão e sem checklist): executou quem concluiu; sem essa informação, o responsável
+    if(t.completedBy||t.completedByName)return t.completedBy===pessoaId||ehEle(t.completedByName);
+    return responsavel(t);};
   const feitas=tarefas.filter(t=>(concluiuHoje(t)&&executou(t))||entregouHojeEFechou(t));
   // o que a pessoa APROVOU no dia (tarefas executadas por outros)
   const aprovadas=pessoaId?tarefas.filter(t=>fechada(t)&&!feitas.includes(t)&&(t.completedBy===pessoaId||ehEle(t.completedByName))&&concluiuHoje(t)):[];
@@ -3244,8 +3253,10 @@ function montarResumoDia(data,{pessoaId,dia,incluirAndamento=true,incluirAmanha=
   const outras=[];
   tarefas.forEach(t=>{
     if(idsFeitas.has(t.id)||idsEntregues.has(t.id)||idsAprov.has(t.id))return;
-    // "Também trabalhou em" = só tarefas que ESTÃO em andamento/revisão agora (A Fazer não entra, mesmo que tenha saído e voltado)
-    if(t.status!=="doing"&&t.status!=="review")return;
+    // "Também trabalhou em" = tarefas em andamento/revisão agora, ou em que a pessoa marcou itens do checklist hoje
+    // (A Fazer sem itens marcados por ela não entra, mesmo que tenha saído e voltado)
+    const itensHoje=toArr(t.checklist).filter(c=>c.done&&c.doneBy&&ehEle(c.doneBy)&&noDia(c.doneAt));
+    if(t.status!=="doing"&&t.status!=="review"&&!itensHoje.length)return;
     const coms=toArr(t.comments).filter(x=>noDia(x.createdAt)&&ehEle(x.author));
     // mudança de etapa só conta se a tarefa ainda está na etapa para onde foi movida
     // (ex.: "→ Em Revisão" numa tarefa que hoje está em "A Fazer" foi desfeita ou veio copiada de outra ocorrência)
@@ -3256,9 +3267,10 @@ function montarResumoDia(data,{pessoaId,dia,incluirAndamento=true,incluirAmanha=
     const lblAtual=nrm((STS.find(x=>x.id===t.status)||{}).l||t.status);
     const coerente=!ultSt||destino.startsWith(lblAtual)||lblAtual.startsWith(destino)||(t.status==="archived"&&/conclu/.test(destino));
     const hs=toArr(t.history).filter(x=>noDia(x.at)&&ehEle(x.user)&&(coerente||!/Status:/.test(x.changes||"")));
-    if(coms.length||hs.length){
+    if(coms.length||hs.length||itensHoje.length){
       const partes=[];
-      if(hs.length)partes.push(hs[hs.length-1].changes.replace(/^Status: /,"etapa: "));
+      if(itensHoje.length)partes.push("✔ "+itensHoje.length+" de "+toArr(t.checklist).length+" itens do checklist");
+      if(hs.length&&(t.status==="doing"||t.status==="review"))partes.push(hs[hs.length-1].changes.replace(/^Status: /,"etapa: "));
       if(coms.length)partes.push(coms.length+" comentário"+(coms.length>1?"s":""));
       outras.push({t,txt:partes.join(" · ")});
     }
@@ -3311,7 +3323,7 @@ function WhatsAppModal({open,onClose,titulo,texto,setTexto,tel,setTel,children})
           <Txt value={texto} onChange={setTexto} rows={12}/>
         </Fld>
         <Inp label="WhatsApp de quem vai receber" value={tel} onChange={setTel} placeholder="(61) 99999-9999 — opcional"/>
-        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v122</span></div>
+        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v123</span></div>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
           <Btn v="ghost" onClick={onClose}>Fechar</Btn>
           <Btn v="ghost" onClick={copiar}>{copiado?"✓ Copiado":"📋 Copiar texto"}</Btn>
@@ -3659,6 +3671,22 @@ function TaskForm({data,task,defStatus="todo",onSave,onClose,onDelete,lockInfo,o
       {!f._recGroup&&f.recurrence&&(()=>{const r=data.recurrences.find(x=>x.id===f.recurrence);if(!r)return null;const desc=r.interval==="custom_days"&&r.days?.length?"Toda "+[...r.days].sort().map(d=>WDAYS[d].s).join(", "):(RINTS.find(x=>x.value===r.interval)?.label||r.interval);
         return(<div style={{marginTop:-6,marginBottom:10,fontSize:11.5,color:"#4338ca",background:"#eef2ff",borderRadius:8,padding:"6px 10px"}}>↻ {desc}{r.interval==="daily"?" (inclui sábado e domingo — para só dias úteis use “Dias úteis”)":""} · começa {f.dueDate?"em "+f.dueDate.split("-").reverse().join("/"):"hoje"} · a série se renova sozinha (sempre com as próximas semanas criadas).</div>);})()}
 
+      {((f._recGroup&&!f._serviceId)||f.recurrence)&&(()=>{
+        const serie=f._recGroup?(data.tasks||[]).filter(t=>t._recGroup===f._recGroup):[];
+        const ini=serie.length?serie.map(t=>t._recDataOrig||t.dueDate).filter(Boolean).sort()[0]:f.dueDate;
+        const fimAtual=f._recGroup?(f._recAteEm?f._recAte:recFimSerie(serie)):(f._recAte||"");
+        const inpD={padding:"6px 9px",borderRadius:8,border:"1.5px solid var(--border2)",fontSize:12.5,fontFamily:"inherit",background:"var(--input-bg)",color:"var(--text)"};
+        return(<div style={{marginTop:-4,marginBottom:10,padding:"9px 12px",borderRadius:10,border:"1px solid #e0e7ff",background:"var(--bg3)",display:"flex",gap:14,flexWrap:"wrap",alignItems:"flex-end"}}>
+          <div><div style={{fontSize:11.5,fontWeight:800,color:"#4338ca",marginBottom:4}}>▶ Início da série</div>
+            {f._recGroup?<div style={{fontSize:13,fontWeight:700,color:"var(--text2)",padding:"6px 0"}}>{ini?rotCurta(ini)+"/"+ini.slice(0,4):"—"}</div>
+              :<input type="date" value={f.dueDate||""} disabled={blocked} onChange={e=>set("dueDate",e.target.value)} style={inpD}/>}</div>
+          <div><div style={{fontSize:11.5,fontWeight:800,color:"#4338ca",marginBottom:4}}>⏹ Fim da série <span style={{fontWeight:600,color:"var(--text4)"}}>(opcional)</span></div>
+            <div style={{display:"flex",gap:6,alignItems:"center"}}>
+              <input type="date" value={fimAtual||""} min={ini||undefined} disabled={blocked} onChange={e=>{set("_recAte",e.target.value);set("_recAteEm",Date.now());}} style={inpD}/>
+              {fimAtual&&!blocked&&<button type="button" onClick={()=>{set("_recAte","");set("_recAteEm",Date.now());}} style={{border:"1px solid var(--border2)",background:"var(--bg2)",borderRadius:7,padding:"4px 8px",fontSize:11.5,cursor:"pointer",color:"var(--text3)",fontFamily:"inherit"}}>sem fim</button>}
+            </div></div>
+          <div style={{fontSize:11,color:"var(--text4)",flex:"1 1 200px",lineHeight:1.4}}>{fimAtual?"A série para em "+rotCurta(fimAtual)+"/"+fimAtual.slice(0,4)+". As pendentes depois disso saem do Kanban (voltam se você mudar o fim).":"Sem fim: a série se renova sozinha, sempre com as próximas semanas criadas."}</div>
+        </div>);})()}
       {((f._recGroup&&!f._serviceId)||f.recurrence)&&<div style={{marginTop:-4,marginBottom:12,padding:"9px 12px",borderRadius:10,border:"1px solid #e0e7ff",background:"var(--bg3)"}}>
         <div style={{fontSize:11.5,fontWeight:800,color:"#4338ca",marginBottom:6}}>📅 Quando cair em feriado ou dia sem expediente</div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
@@ -11700,6 +11728,8 @@ function recAlvoFeriado(orig,regra,marc,hoje){
   if(d<hoje)d=andar(1); // não dá para antecipar para o passado: vai para o próximo dia útil
   return d;
 }
+// fim da série: vale o último que alguém definiu (_recAteEm mais recente)
+function recFimSerie(lista){let r=null;lista.forEach(t=>{if(t._recAteEm&&(!r||t._recAteEm>r._recAteEm))r=t;});return r?(r._recAte||""):"";}
 function recAjustarFeriados(data){
   const marc=data.diasFechados||{};const hoje=todayStr();
   const supr={...(data.recSuprimidas||{})};let mudouSupr=false;
@@ -11711,8 +11741,13 @@ function recAjustarFeriados(data){
   const upd={};const remover=new Set();const novas=[];const addCk={};const tirarCk={};
   Object.entries(grupos).forEach(([gid,lista])=>{
     lista.sort((a,b)=>orig(a).localeCompare(orig(b)));
-    const ref=lista[lista.length-1];
+    const ref=lista.filter(t=>!t._recJuntada).slice(-1)[0]||lista[lista.length-1];
     const regra=ref._recFeriado||"manter";const acum=!!ref._recAcumular;
+    // fim da série: as pendentes depois do fim saem do Kanban (guardadas, voltam se o fim mudar)
+    const fim=recFimSerie(lista);
+    if(fim)lista.filter(t=>pend(t)&&orig(t)>fim&&naoIniciada(t)).forEach(t=>{upd[t.id]={status:"archived",archivedAt:hoje,_recJuntada:true,_recMotivo:"fim",_recDataOrig:orig(t)===t.dueDate?null:orig(t)};});
+    lista.filter(t=>t._recJuntada&&t._recMotivo==="fim"&&orig(t)>=hoje&&(!fim||orig(t)<=fim)).forEach(t=>{upd[t.id]={status:"todo",archivedAt:null,_recJuntada:null,_recMotivo:null};});
+    lista=lista.map(t=>upd[t.id]?{...t,...upd[t.id]}:t);
     const alvoDe=new Map(lista.filter(pend).map(t=>[t.id,recAlvoFeriado(orig(t),t._recFeriado||"manter",marc,hoje)]));
     // ocupados: as que não mudam (já feitas/em andamento e as pendentes que ficam no próprio dia)
     const ocup=new Set(lista.filter(t=>!pend(t)||alvoDe.get(t.id)===orig(t)).map(t=>pend(t)?orig(t):t.dueDate));
@@ -11732,17 +11767,25 @@ function recAjustarFeriados(data){
           if(!temTg("acc_"+o))lst.push({id:"acc_"+o,text:"Referente a "+rotCurta(o)+" ("+motivo+")",done:false,_accDe:o});
           if(!lst.length)delete addCk[tg.id];
         }
-        remover.add(t.id);supr[gid]=[...new Set([...(supr[gid]||[]),o])];mudouSupr=true;
+        // não apaga: guarda como "juntada" (fora do Kanban e dos relatórios). Assim nenhum computador recria o dia
+        upd[t.id]={...(upd[t.id]||{}),status:"archived",archivedAt:hoje,_recJuntada:true,_recJuntadaEm:alvo,_recDataOrig:o};
         return;
       }
       ocup.add(alvo);
-      if(t.dueDate!==alvo)upd[t.id]={dueDate:alvo,_recDataOrig:alvo===o?null:o};
+      if(t.dueDate!==alvo)upd[t.id]={...(upd[t.id]||{}),dueDate:alvo,_recDataOrig:alvo===o?null:o};
       // acumulando: a tarefa movida mostra no checklist a que dia ela se refere
       if(alvo!==o&&t._recAcumular&&!toArr(t.checklist).some(c=>c.id==="acc_"+o))(addCk[t.id]=addCk[t.id]||[]).push({id:"acc_"+o,text:"Referente a "+rotCurta(o)+" ("+(diaFechado(o,marc)||"dia fechado")+")",done:false,_accDe:o});
       // voltou para o próprio dia: tira o item "Referente a" dela mesma
       if(alvo===o&&toArr(t.checklist).some(c=>c._accDe===o&&!c.done)&&toArr(t.checklist).filter(c=>c._accDe).length===1)(tirarCk[t.id]=tirarCk[t.id]||new Set()).add(o);
     });
-    // dias que tinham sido juntados e não precisam mais (feriado desmarcado, mudou a regra): voltam
+    // tarefas juntadas que não precisam mais (feriado desmarcado, mudou a regra): voltam para o Kanban
+    lista.filter(t=>t._recJuntada&&t._recMotivo!=="fim"&&orig(t)>=hoje&&(!fim||orig(t)<=fim)).forEach(t=>{
+      const o=orig(t);const alvo=recAlvoFeriado(o,t._recFeriado||"manter",marc,hoje);
+      if(alvo!==o&&ocup.has(alvo))return; // continua juntada
+      upd[t.id]={...(upd[t.id]||{}),status:"todo",archivedAt:null,_recJuntada:null,_recJuntadaEm:null,dueDate:alvo,_recDataOrig:alvo===o?null:o};ocup.add(alvo);
+      lista.forEach(x=>{if(x.id!==t.id&&toArr(x.checklist).some(c=>c._accDe===o&&!c.done))(tirarCk[x.id]=tirarCk[x.id]||new Set()).add(o);});
+    });
+    // (versões 121/122 apagavam a juntada) dias que não precisam mais: voltam
     if(supr[gid]&&supr[gid].length){
       const fica=[];
       supr[gid].forEach(o=>{
@@ -11785,12 +11828,15 @@ function recRenovarSeries(data){
     if(lista.some(t=>t._recFim))return; // série encerrada
     const _o=(t)=>t._recDataOrig||t.dueDate;
     lista.sort((a,b)=>_o(a).localeCompare(_o(b)));
-    const ultima0=lista[lista.length-1];const ultima={...ultima0,dueDate:_o(ultima0),_recDataOrig:null};
+    const vivas=lista.filter(t=>!t._recJuntada);if(!vivas.length)return;
+    const ultima0=vivas[vivas.length-1];const ultima={...ultima0,dueDate:_o(ultima0),_recDataOrig:null};
     if(ultima.status==="archived")return;          // pausada
     if(ultima.dueDate<limiteAntigo)return;          // parada há muito tempo: não ressuscita sozinha
     const diaBase=Number((lista[0].dueDate||"").slice(8,10))||1;
     const existentes=new Set([...lista.map(t=>_o(t)),...(((data.recSuprimidas||{})[gid])||[])]);
+    const fimS=recFimSerie(lista);
     recProximasDatas(rec,ultima.dueDate,diaBase,hoje).forEach(ds=>{
+      if(fimS&&ds>fimS)return;
       if(existentes.has(ds))return;existentes.add(ds);
       novas.push({...ultima,
         id:"rec_"+gid+"_"+ds, // id fixo: dois computadores gerando ao mesmo tempo não duplicam
@@ -11882,7 +11928,7 @@ function App(){
         return nd;
       });
     };
-    const t0=setTimeout(rodar,3000);const iv=setInterval(rodar,3600e3);
+    const t0=setTimeout(rodar,400);const iv=setInterval(rodar,3600e3);
     return()=>{clearTimeout(t0);clearInterval(iv);};
   },[synced,JSON.stringify(data.diasFechados||{}),(data.tasks||[]).length,(data.tasks||[]).filter(t=>t._recFeriado&&t._recFeriado!=="manter").length]); // eslint-disable-line
   // ── Rotina de postagens: tarefas "Programar postagens" ligadas aos posts do Marketing ──
@@ -12566,7 +12612,7 @@ function App(){
     if(!isNew && base.recurrence && !base._recGroup){
       const rec=data.recurrences.find(r=>r.id===base.recurrence);
       if(rec){
-        const copias=generateRecurringTasks(base,rec).filter(t=>t.dueDate!==base.dueDate).map(t=>({...t,history:[],comments:[],_recGroup:base.id,_recurrenceId:rec.id}));
+        const copias=generateRecurringTasks(base,rec).filter(t=>t.dueDate!==base.dueDate&&(!base._recAte||t.dueDate<=base._recAte)).map(t=>({...t,history:[],comments:[],_recGroup:base.id,_recurrenceId:rec.id}));
         const atual={...base,recurrence:"",_recGroup:base.id,_recurrenceId:rec.id};
         setData(d=>({...d,tasks:[...d.tasks.map(t=>t.id===atual.id?atual:t),...copias.filter(c=>!d.tasks.some(t=>t._recGroup===atual.id&&t.dueDate===c.dueDate))]}));
         if(taskModal.task) release(taskModal.task.id);
@@ -12586,7 +12632,7 @@ function App(){
       // só pergunta se mudou algo que vale para a série (checklist, comentários e etapa são de cada ocorrência)
       const ant=(taskModal.task&&taskModal.task.id===base.id?taskModal.task:null)||data.tasks.find(t=>t.id===base.id)||{};
       const igual=(a,b)=>JSON.stringify(a??null)===JSON.stringify(b??null);
-      const camposSerie=[["title","título"],["dueTime","horário"],["description","descrição"],["priority","prioridade"],["sector","setor"],["assignees","responsáveis"],["labels","etiquetas"],["companies","empresas"],["_recFeriado","regra de feriado"],["_recAcumular","acumular em feriado"]];
+      const camposSerie=[["title","título"],["dueTime","horário"],["description","descrição"],["priority","prioridade"],["sector","setor"],["assignees","responsáveis"],["labels","etiquetas"],["companies","empresas"],["_recFeriado","regra de feriado"],["_recAcumular","acumular em feriado"],["_recAte","fim da série"]];
       const ehLista=(k)=>k==="assignees"||k==="labels"||k==="companies";
       const valDe=(o,k)=>k==="companies"?taskCompanies(o):ehLista(k)?toArr(o[k]):o[k];
       const mudou=camposSerie.filter(([k])=>!igual(valDe(ant,k),valDe(base,k)));
@@ -12607,6 +12653,7 @@ function App(){
             mudou.forEach(([k])=>{
               if(k==="checklist")return;
               if(k==="companies"){nt.companies=[...taskCompanies(base)];nt.company=nt.companies[0]||"";return;}
+              if(k==="_recAte"){nt._recAte=base._recAte||"";nt._recAteEm=base._recAteEm||Date.now();return;}
               nt[k]=ehLista(k)?[...toArr(base[k])]:base[k];
             });
             if(ckMudou){
@@ -12956,7 +13003,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 122</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 123</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

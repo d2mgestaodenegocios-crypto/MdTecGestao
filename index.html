@@ -3544,7 +3544,7 @@ function WhatsAppModal({open,onClose,titulo,texto,setTexto,tel,setTel,children})
           <Txt value={texto} onChange={setTexto} rows={12}/>
         </Fld>
         <Inp label="WhatsApp de quem vai receber" value={tel} onChange={setTel} placeholder="(61) 99999-9999 — opcional"/>
-        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v143</span></div>
+        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v144</span></div>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
           <Btn v="ghost" onClick={onClose}>Fechar</Btn>
           <Btn v="ghost" onClick={copiar}>{copiado?"✓ Copiado":"📋 Copiar texto"}</Btn>
@@ -4339,7 +4339,7 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
         {labels.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:3,marginBottom:5,paddingRight:30}}>{labels.map(l=><Chip key={l.id} label={l.name} color={l.color}/>)}</div>}
 
         {/* título (a descrição aparece ao passar o mouse) */}
-        <div title={task.description?task.description:undefined} style={{fontSize:11.5,fontWeight:800,color:done?"#94a3b8":"var(--text)",marginBottom:5,lineHeight:1.3,paddingRight:28,textDecoration:done?"line-through":"none",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>
+        <div title={task.description?task.description:undefined} style={{fontSize:10.5,fontWeight:700,color:done?"#94a3b8":"var(--text)",marginBottom:4,lineHeight:1.25,paddingRight:26,textDecoration:done?"line-through":"none",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>
           {task.pinned&&<span title="Fixada" style={{fontSize:11,color:"#f59e0b",marginRight:3}}>📌</span>}
           {(task.recurrence||task._recGroup)&&<span title="Tarefa recorrente" style={{fontSize:12,color:"#6366f1",marginRight:4}}>↻</span>}
           {task.title}
@@ -13329,7 +13329,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 143</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 144</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

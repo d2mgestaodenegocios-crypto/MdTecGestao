@@ -190,6 +190,9 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 .lst-acao:hover{background:#eef2ff;border-color:#c7d2fe;color:#4338ca}
 .lst-del:hover{background:#fef2f2;border-color:#fecaca;color:#b91c1c}
 @keyframes kbAtraso{0%,100%{box-shadow:0 0 0 2px #ef4444,0 6px 18px rgba(239,68,68,.30)}50%{box-shadow:0 0 0 3px #ef4444,0 6px 24px rgba(239,68,68,.55)}}
+.tc-acoes{max-height:0;opacity:0;overflow:hidden;transition:max-height .18s,opacity .15s,margin .15s}
+.tc-corpo:hover .tc-acoes,.tc-corpo:focus-within .tc-acoes{max-height:30px;opacity:1;margin-top:2px}
+@media (hover:none){.tc-acoes{max-height:30px;opacity:1}}
 </style>
 </head>
 <body>
@@ -3329,7 +3332,7 @@ function WhatsAppModal({open,onClose,titulo,texto,setTexto,tel,setTel,children})
           <Txt value={texto} onChange={setTexto} rows={12}/>
         </Fld>
         <Inp label="WhatsApp de quem vai receber" value={tel} onChange={setTel} placeholder="(61) 99999-9999 — opcional"/>
-        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v127</span></div>
+        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v128</span></div>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
           <Btn v="ghost" onClick={onClose}>Fechar</Btn>
           <Btn v="ghost" onClick={copiar}>{copiado?"✓ Copiado":"📋 Copiar texto"}</Btn>
@@ -4111,121 +4114,79 @@ function TCard({task,data,onEdit,onDelete,onComplete,onArchive,onPointerDown,isD
       )}
 
       {/* ── Card content ──────────────────────── */}
-      <div style={{flex:1,padding:"12px 14px",minWidth:0}}>
-        <QCBtn status={task.status} onClick={()=>onComplete&&onComplete(task)} size={26} absolute={true}/>
+      <div className="tc-corpo" style={{flex:1,padding:"9px 11px 7px",minWidth:0}}>
+        <QCBtn status={task.status} onClick={()=>onComplete&&onComplete(task)} size={24} absolute={true}/>
 
-        {over&&!done&&task.status!=="review"
-          ?<div title={"Prazo: "+fmtDate(task.dueDate)+(task.dueTime?" "+task.dueTime:"")} style={{display:"inline-flex",alignItems:"center",gap:5,marginBottom:8,marginRight:34,padding:"3px 9px 3px 7px",borderRadius:20,background:"#ef4444",color:"#fff",fontSize:11,fontWeight:900,letterSpacing:".04em",whiteSpace:"nowrap",boxShadow:"0 2px 8px rgba(239,68,68,.35)"}}>⚠ ATRASADA <span style={{fontWeight:700,letterSpacing:0,opacity:.92}}>· {atrasoTexto(task)}</span></div>
-          :venceHoje&&<div style={{display:"inline-flex",alignItems:"center",gap:5,marginBottom:8,color:"#ea580c",fontSize:12,fontWeight:900,letterSpacing:".08em"}}><span style={{width:8,height:8,borderRadius:"50%",background:"#f97316",boxShadow:"0 0 0 4px rgba(249,115,22,.2)"}}/>HOJE{task.dueTime?" · "+task.dueTime:""}</div>}
-        {dowTag&&<DiaSemanaTag t={dowTag} done={done} movida={task._recDataOrig&&task._recDataOrig!==task.dueDate?task._recDataOrig:null} dueDate={task.dueDate}/>}
-        {labels.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8,paddingRight:36}}>{labels.map(l=><Chip key={l.id} label={l.name} color={l.color}/>)}</div>}
+        {/* linha 1: situação + dia (compacto) */}
+        {(()=>{const late=over&&!done&&task.status!=="review";const movida=task._recDataOrig&&task._recDataOrig!==task.dueDate;
+          if(!late&&!venceHoje&&!dowTag&&!task.pinned)return null;
+          return(<div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap",marginBottom:5,marginRight:30}}>
+            {late?<span title={"Prazo: "+fmtDate(task.dueDate)+(task.dueTime?" "+task.dueTime:"")} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 8px",borderRadius:20,background:"#ef4444",color:"#fff",fontSize:10.5,fontWeight:900,letterSpacing:".03em",whiteSpace:"nowrap",boxShadow:"0 2px 6px rgba(239,68,68,.3)"}}>⚠ ATRASADA <span style={{fontWeight:700,opacity:.92}}>· {atrasoTexto(task)}</span></span>
+              :venceHoje?<span style={{display:"inline-flex",alignItems:"center",gap:4,color:"#ea580c",fontSize:10.5,fontWeight:900,letterSpacing:".05em",whiteSpace:"nowrap"}}><span style={{width:7,height:7,borderRadius:"50%",background:"#f97316",boxShadow:"0 0 0 3px rgba(249,115,22,.2)"}}/>HOJE{task.dueTime?" · "+task.dueTime:""}</span>:null}
+            {dowTag&&<span title={"Recorrente — "+(DOW_LONGO[["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"].indexOf(dowTag.label)]||dowTag.label)} style={{display:"inline-flex",alignItems:"center",borderRadius:6,overflow:"hidden",border:"1px solid "+(done?"#cbd5e1":dowTag.color)+"66",fontSize:9.5,fontWeight:900,lineHeight:1}}>
+              <span style={{background:done?"#94a3b8":dowTag.color,color:"#fff",padding:"3px 5px",letterSpacing:".05em"}}>{dowTag.label.toUpperCase()}</span>
+              <span style={{background:"var(--bg2)",color:done?"#94a3b8":"var(--text)",padding:"3px 5px"}}>{dowTag.data.slice(0,2)}</span>
+            </span>}
+            {dowTag&&!done&&!venceHoje&&!late&&dowTag.isTomorrow&&<span style={{fontSize:10,fontWeight:800,color:"#6366f1"}}>amanhã</span>}
+            {movida&&<span title="Movida por feriado/dia fechado" style={{fontSize:10,fontWeight:800,color:"#b45309",whiteSpace:"nowrap"}}>{task.dueDate<task._recDataOrig?"⏪":"⏩"} de {rotCurta(task._recDataOrig)}</span>}
+          </div>);})()}
+        {labels.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:3,marginBottom:5,paddingRight:30}}>{labels.map(l=><Chip key={l.id} label={l.name} color={l.color}/>)}</div>}
 
-        <div style={{fontSize:13,fontWeight:800,color:done?"#94a3b8":"#0f172a",marginBottom:6,lineHeight:1.4,paddingRight:36,textDecoration:done?"line-through":"none",display:"flex",alignItems:"flex-start",gap:5}}>
-          {task.pinned&&<span title="Fixada" style={{fontSize:12,color:"#f59e0b",flexShrink:0}}>📌</span>}
-          {(task.recurrence||task._recGroup)&&<span title="Tarefa recorrente" style={{fontSize:13,color:"#6366f1",flexShrink:0}}>↻</span>}
+        {/* título (a descrição aparece ao passar o mouse) */}
+        <div title={task.description?task.description:undefined} style={{fontSize:13,fontWeight:800,color:done?"#94a3b8":"var(--text)",marginBottom:6,lineHeight:1.35,paddingRight:30,textDecoration:done?"line-through":"none",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>
+          {task.pinned&&<span title="Fixada" style={{fontSize:11,color:"#f59e0b",marginRight:3}}>📌</span>}
+          {(task.recurrence||task._recGroup)&&<span title="Tarefa recorrente" style={{fontSize:12,color:"#6366f1",marginRight:4}}>↻</span>}
           {task.title}
+          {task.description&&<span title={task.description} style={{fontSize:10,color:"#94a3b8",marginLeft:5,fontWeight:700}}>≡</span>}
         </div>
 
-        {task.description&&<p style={{fontSize:12,color:"#94a3b8",marginBottom:10,lineHeight:1.5}}>{task.description.length>70?task.description.slice(0,70)+"…":task.description}</p>}
-
-        {company&&(
-          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,padding:"5px 9px",borderRadius:8,background:company.color+"12",border:`1px solid ${company.color}30`}}>
-            <span style={{fontSize:12,fontWeight:900,color:company.color}}>{company.logo}</span>
-            <span style={{fontSize:12,fontWeight:800,color:company.color,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{company.name}</span>
-            {sector&&<span style={{fontSize:10,fontWeight:700,padding:"1px 7px",borderRadius:10,background:sector.color+"22",color:sector.color,whiteSpace:"nowrap"}}>{sector.name}</span>}
-          </div>
-        )}
-        {(()=>{const ids=[...new Set(toArr(task.checklist).map(c=>c&&c.company).filter(x=>x&&x!==(company&&company.id)))];if(!ids.length)return null;
-          const cs=ids.map(id=>data.companies.find(c=>c.id===id)).filter(Boolean);if(!cs.length)return null;
+        {/* empresa(s) + responsáveis em uma linha */}
+        {(()=>{
+          const idsCk=[...new Set(toArr(task.checklist).map(c=>c&&c.company).filter(x=>x&&x!==(company&&company.id)))];
+          const csCk=idsCk.map(id=>data.companies.find(c=>c.id===id)).filter(Boolean);
           const sig=(c)=>(c.logo&&String(c.logo).length<=3?c.logo:(c.name||"?").split(/\s+/).filter(Boolean).slice(0,2).map(w=>w[0]).join("")).toUpperCase();
-          const MAX=5;
-          return(<div title={(company?"Também: ":"Empresas: ")+cs.map(c=>c.name).join(", ")} style={{display:"flex",alignItems:"center",gap:3,marginTop:company?-4:0,marginBottom:8,overflow:"hidden",whiteSpace:"nowrap"}}>
-            <span style={{fontSize:9.5,fontWeight:800,color:"#94a3b8",textTransform:"uppercase",marginRight:2}}>☑ {cs.length===1?(company?"também":"empresa"):cs.length+" empresas"}</span>
-            {cs.length===1
-              ?<span style={{fontSize:10.5,fontWeight:800,padding:"1px 7px",borderRadius:10,background:cs[0].color+"14",color:cs[0].color,border:`1px solid ${cs[0].color}30`,overflow:"hidden",textOverflow:"ellipsis",minWidth:0}}>{cs[0].name}</span>
-              :<>{cs.slice(0,MAX).map(c=><span key={c.id} title={c.name} style={{flexShrink:0,minWidth:20,height:18,padding:"0 4px",borderRadius:6,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:900,background:(c.color||"#6366f1")+"18",color:c.color||"#6366f1",border:`1px solid ${(c.color||"#6366f1")}35`}}>{sig(c)}</span>)}
-                {cs.length>MAX&&<span style={{fontSize:10,fontWeight:800,color:"#94a3b8"}}>+{cs.length-MAX}</span>}</>}
+          if(!company&&!csCk.length)return null;
+          return(<div style={{display:"flex",alignItems:"center",gap:5,marginBottom:6,minWidth:0}}>
+            {company&&<span title={company.name+(sector?" · "+sector.name:"")} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 7px",borderRadius:7,background:company.color+"14",border:`1px solid ${company.color}33`,color:company.color,fontSize:11,fontWeight:800,minWidth:0,maxWidth:"62%"}}>
+              <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{company.name}</span></span>}
+            {csCk.length>0&&<span title={(company?"Também: ":"Empresas: ")+csCk.map(c=>c.name).join(", ")} style={{display:"inline-flex",alignItems:"center",gap:2,flexShrink:0}}>
+              {!company&&csCk.length===1?<span style={{padding:"2px 7px",borderRadius:7,background:csCk[0].color+"14",border:`1px solid ${csCk[0].color}33`,color:csCk[0].color,fontSize:11,fontWeight:800,maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{csCk[0].name}</span>
+                :<>{!company&&<span style={{fontSize:9.5,fontWeight:800,color:"#94a3b8",marginRight:1}}>☑</span>}{csCk.slice(0,4).map(c=><span key={c.id} style={{minWidth:18,height:17,padding:"0 3px",borderRadius:5,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:8.5,fontWeight:900,background:(c.color||"#6366f1")+"18",color:c.color||"#6366f1",border:`1px solid ${(c.color||"#6366f1")}35`}}>{sig(c)}</span>)}{csCk.length>4&&<span style={{fontSize:9.5,fontWeight:800,color:"#94a3b8"}}>+{csCk.length-4}</span>}</>}
+            </span>}
           </div>);})()}
 
-        {assignees.length>0&&(
-          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8,flexWrap:"wrap"}}>
-            <span style={{fontSize:10,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".05em"}}>Resp.</span>
-            {assignees.slice(0,3).map(u=>(
-              <div key={u.id} style={{display:"flex",alignItems:"center",gap:4,padding:"2px 8px 2px 3px",borderRadius:20,background:u.color+"15",border:`1.5px solid ${u.color}40`}}>
-                <Av initials={u.initials} color={u.color} size={18} photo={u.photo}/>
-                <span style={{fontSize:11,fontWeight:700,color:u.color,maxWidth:80,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.name||u.initials||"?"}</span>
-              </div>
-            ))}
-            {assignees.length>3&&<span style={{fontSize:11,color:"#94a3b8",fontWeight:700}}>+{assignees.length-3}</span>}
-          </div>
-        )}
-
-        <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:8}}>
-          <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:700,background:p.bg,color:p.t}}><span style={{display:"inline-block",width:5,height:5,borderRadius:"50%",background:p.d,marginRight:4,verticalAlign:"middle"}}/>{p.l}</span>
+        {/* prioridade · prazo · contadores */}
+        <div style={{display:"flex",flexWrap:"wrap",gap:5,alignItems:"center",marginBottom:prog!==null?6:4}}>
+          <span title={"Prioridade "+p.l} style={{fontSize:10.5,padding:"1px 7px",borderRadius:20,fontWeight:700,background:p.bg,color:p.t,whiteSpace:"nowrap"}}><span style={{display:"inline-block",width:5,height:5,borderRadius:"50%",background:p.d,marginRight:4,verticalAlign:"middle"}}/>{p.l}</span>
           {task.dueDate&&(()=>{
-            const today=isoLocalHoje();
-            const isToday=task.dueDate===today;
-            const tomorrow=new Date();tomorrow.setDate(tomorrow.getDate()+1);
-            const isTomorrow=task.dueDate===recIsoLocal(tomorrow);
-            const diffMs=new Date(task.dueDate+"T23:59:59")-new Date();
-            const diffH=Math.floor(diffMs/3600000);
-            const diffD=Math.floor(diffMs/86400000);
+            const today=isoLocalHoje();const isToday=task.dueDate===today;
+            const tomorrow=new Date();tomorrow.setDate(tomorrow.getDate()+1);const isTomorrow=task.dueDate===recIsoLocal(tomorrow);
+            const diffD=Math.floor((new Date(task.dueDate+"T23:59:59")-new Date())/86400000);
             let countdown=null;
             if(!done&&task.dueDate>=today){
-              if(isToday&&over&&task.status!=="review"){
-                countdown=<span style={{fontSize:10,padding:"1px 7px",borderRadius:20,background:"#ef4444",color:"#fff",fontWeight:900,marginLeft:4,whiteSpace:"nowrap",boxShadow:"0 1px 4px rgba(239,68,68,.4)"}}>⚠ venceu</span>;
-              }else if(isToday){
-                const mLeft=task.dueTime?Math.floor((prazoDe(task)-new Date())/60000):null;
-                countdown=<span style={{fontSize:10,padding:"1px 7px",borderRadius:20,background:"#f97316",color:"#fff",fontWeight:900,marginLeft:4,boxShadow:"0 1px 4px rgba(249,115,22,.4)"}}>⏰ {mLeft!=null&&mLeft>=0&&mLeft<=120?"faltam "+(mLeft<60?mLeft+" min":Math.floor(mLeft/60)+"h"+String(mLeft%60).padStart(2,"0")):"HOJE"}</span>;
-              } else if(isTomorrow){
-                countdown=<span style={{fontSize:10,padding:"1px 7px",borderRadius:20,background:"#ede9fe",color:"#7c3aed",fontWeight:800,border:"1px solid #ddd6fe",marginLeft:4}}>↑ amanhã</span>;
-              } else if(diffD<=3){
-                countdown=<span style={{fontSize:10,padding:"1px 7px",borderRadius:20,background:"#fff7ed",color:"#f97316",fontWeight:800,border:"1px solid #fed7aa",marginLeft:4}}>em {diffD}d</span>;
-              }
+              if(isToday&&!(over&&task.status!=="review")){const mLeft=task.dueTime?Math.floor((prazoDe(task)-new Date())/60000):null;
+                if(mLeft!=null&&mLeft>=0&&mLeft<=120)countdown=<span style={{fontSize:9.5,padding:"1px 6px",borderRadius:20,background:"#f97316",color:"#fff",fontWeight:900,marginLeft:4,whiteSpace:"nowrap"}}>⏰ {mLeft<60?mLeft+" min":Math.floor(mLeft/60)+"h"+String(mLeft%60).padStart(2,"0")}</span>;}
+              else if(isTomorrow&&!dowTag)countdown=<span style={{fontSize:9.5,padding:"1px 6px",borderRadius:20,background:"#ede9fe",color:"#7c3aed",fontWeight:800,marginLeft:4}}>amanhã</span>;
+              else if(!isToday&&!isTomorrow&&diffD<=3)countdown=<span style={{fontSize:9.5,padding:"1px 6px",borderRadius:20,background:"#fff7ed",color:"#f97316",fontWeight:800,marginLeft:4}}>em {diffD}d</span>;
             }
-            return<span style={{fontSize:11,color:over?"#ef4444":"#94a3b8",fontWeight:over?800:400,display:"inline-flex",alignItems:"center"}}>📅 {fmtDate(task.dueDate)}{task.dueTime?` ${task.dueTime}`:""}{countdown}</span>;
+            const dt=task.dueDate.slice(8,10)+"/"+task.dueDate.slice(5,7)+(task.dueDate.slice(0,4)!==today.slice(0,4)?"/"+task.dueDate.slice(2,4):"");
+            return<span title={"Prazo: "+fmtDate(task.dueDate)+(task.dueTime?" "+task.dueTime:"")} style={{fontSize:10.5,color:over&&!done?"#ef4444":"#94a3b8",fontWeight:over&&!done?800:600,display:"inline-flex",alignItems:"center",whiteSpace:"nowrap"}}>📅 {dt}{task.dueTime?" "+task.dueTime:""}{countdown}</span>;
           })()}
-          {toArr(task.comments).length>0&&(()=>{const cs=toArr(task.comments);const u=cs[cs.length-1]||{};return<span title={"Último comentário — "+(u.author||"")+": "+String(u.text||"").slice(0,120)} style={{fontSize:10.5,padding:"1px 7px",borderRadius:20,background:"#eef2ff",color:"#4338ca",fontWeight:800,border:"1px solid #c7d2fe"}}>💬 {cs.length}</span>;})()}
-          {slaUrgent&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#fef3c7",color:"#b45309",fontWeight:800,animation:"pulse 1.5s infinite"}}>⏱ SLA</span>}
-          {task.slaHours&&!slaUrgent&&!done&&<span style={{fontSize:10,color:"#f59e0b",fontWeight:700}}>⏱ {task.slaHours}h</span>}
-          {toArr(task.assignees).length===0&&!done&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#f1f5f9",color:"#94a3b8",fontWeight:700,border:"1px dashed #cbd5e1"}}>👤 Sem responsável</span>}
-          {rec&&(()=>{
-            // Find next occurrence: look for future tasks in same _recGroup
-            const nextTask=task._recGroup
-              ? data.tasks.filter(t=>t._recGroup===task._recGroup&&t.dueDate>task.dueDate&&t.status!=="done"&&t.status!=="archived").sort((a,b)=>a.dueDate.localeCompare(b.dueDate))[0]
-              : null;
-            return(
-              <span style={{fontSize:11,color:"#14b8a6",fontWeight:700,display:"inline-flex",alignItems:"center",gap:4}}>
-                ↻ {rec.name}
-                {nextTask&&<span style={{fontSize:10,color:"#94a3b8",fontWeight:500}}>· próx: {fmtDate(nextTask.dueDate)}</span>}
-              </span>
-            );
-          })()}
-          {task.dependencies?.length>0&&<span style={{fontSize:11,color:"#f59e0b",fontWeight:700}}>⬡ {task.dependencies.length}</span>}
-          {task._competencia&&<span style={{fontSize:11,padding:"2px 9px",borderRadius:20,background:"#f5f3ff",color:"#7c3aed",fontWeight:800,border:"1.5px solid #ddd6fe"}}>🏷 {task._competencia}</span>}
+          {prog!==null&&<span title={"Checklist "+ckDone+" de "+ckTot+(ckOverdue>0&&!done?" · "+ckOverdue+" item(ns) atrasado(s)":"")} style={{fontSize:10.5,fontWeight:800,color:ckOverdue>0&&!done?"#ef4444":prog===100?"#16a34a":"#64748b",whiteSpace:"nowrap"}}>☑ {ckDone}/{ckTot}{ckOverdue>0&&!done?" ⚠":""}</span>}
+          {toArr(task.comments).length>0&&(()=>{const cs=toArr(task.comments);const u=cs[cs.length-1]||{};return<span title={"Último comentário — "+(u.author||"")+": "+String(u.text||"").slice(0,120)} style={{fontSize:10.5,fontWeight:800,color:"#4338ca",whiteSpace:"nowrap"}}>💬 {cs.length}</span>;})()}
+          {slaUrgent&&<span style={{fontSize:9.5,padding:"1px 6px",borderRadius:20,background:"#fef3c7",color:"#b45309",fontWeight:800,animation:"pulse 1.5s infinite"}}>⏱ SLA</span>}
+          {task.dependencies?.length>0&&<span title="Dependências" style={{fontSize:10.5,color:"#f59e0b",fontWeight:700}}>⬡ {task.dependencies.length}</span>}
+          {task._competencia&&<span style={{fontSize:10,padding:"1px 7px",borderRadius:20,background:"#f5f3ff",color:"#7c3aed",fontWeight:800,border:"1px solid #ddd6fe"}}>🏷 {task._competencia}</span>}
+          <span style={{marginLeft:"auto",display:"inline-flex",alignItems:"center",flexShrink:0}}>
+            {assignees.slice(0,3).map((u,i)=><span key={u.id} title={"Responsável: "+u.name} style={{marginLeft:i?-6:0,borderRadius:"50%",boxShadow:"0 0 0 2px var(--bg2)"}}><Av initials={u.initials} color={u.color} size={22} photo={u.photo}/></span>)}
+            {assignees.length>3&&<span style={{fontSize:10,color:"#94a3b8",fontWeight:700,marginLeft:3}}>+{assignees.length-3}</span>}
+            {toArr(task.assignees).length===0&&!done&&<span title="Sem responsável" style={{fontSize:10,padding:"1px 6px",borderRadius:20,background:"#f1f5f9",color:"#94a3b8",fontWeight:700,border:"1px dashed #cbd5e1"}}>👤 —</span>}
+          </span>
         </div>
-
-        {prog!==null&&(
-          <div style={{marginBottom:8}}>
-            <div style={{display:"flex",justifyContent:"space-between",marginBottom:3,alignItems:"center"}}>
-              <span style={{fontSize:10,color:"#94a3b8"}}>Checklist</span>
-              <div style={{display:"flex",alignItems:"center",gap:6}}>
-                {ckOverdue>0&&!done&&(
-                  <span style={{fontSize:10,padding:"1px 7px",borderRadius:20,background:"#fff0f0",color:"#ef4444",fontWeight:800,border:"1px solid #fca5a5",animation:"pulse 2s infinite"}}>
-                    ⚠ {ckOverdue} atrasad{ckOverdue>1?"os":"o"}
-                  </span>
-                )}
-                <span style={{fontSize:10,fontWeight:700,color:ckOverdue>0&&!done?"#ef4444":"#64748b"}}>{ckDone}/{ckTot}</span>
-              </div>
-            </div>
-            <div style={{height:4,borderRadius:3,background:"#f1f5f9",overflow:"hidden"}}>
-              <div style={{width:`${prog}%`,height:"100%",background:prog===100?"#22c55e":ckOverdue>0&&!done?"#ef4444":"#6366f1",borderRadius:3,transition:"width .4s"}}/>
-            </div>
-          </div>
-        )}
+        {prog!==null&&<div style={{height:3,borderRadius:3,background:"#f1f5f9",overflow:"hidden",marginBottom:4}}><div style={{width:`${prog}%`,height:"100%",background:prog===100?"#22c55e":ckOverdue>0&&!done?"#ef4444":"#6366f1",borderRadius:3,transition:"width .4s"}}/></div>}
 
         {!ghost&&(
-          <div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",gap:4}}>
+          <div className="tc-acoes" style={{display:"flex",justifyContent:"flex-end",alignItems:"center",gap:4}}>
             {/* Urgente toggle */}
             {onComplete&&<button onClick={e=>{e.stopPropagation();if(onUrgent)onUrgent(task.id,task.priority!=="critica");}} title={task.priority==="critica"?"Remover urgência":"Marcar como urgente"} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:task.priority==="critica"?"#ef4444":"#e2e8f0",padding:"2px 4px",borderRadius:5,transition:"color .15s"}} onMouseEnter={e=>e.currentTarget.style.color="#ef4444"} onMouseLeave={e=>e.currentTarget.style.color=task.priority==="critica"?"#ef4444":"#e2e8f0"}>🔴</button>}
             {/* Copiar link */}
@@ -13019,7 +12980,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 127</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 128</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

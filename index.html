@@ -2329,7 +2329,10 @@ function modkAplicar(data,payloads,inativas){
         const st=dados[emp.id+"_"+mes+"_"+col.key];if(st==="ok"||st==="nao-aplica")return;
         const k=emp.id+"_"+col.key;const id=modkTaskId(M.page,emp.id,mes,col.key);
         if(porId.has(id)||lista.has(k))return; // já existe (ou foi criado e alguém excluiu)
-        const resp=(cl.respEtapa&&cl.respEtapa[col.key])?[cl.respEtapa[col.key]]:toArr(cl.respKanban).slice(0,3);
+        // empresa (por etapa → lista) e, se a empresa não tiver, o grupo (e o grupo de cima)
+        const g1=(p.grupos||[]).find(g=>g&&g.id===emp.grupoId);const g2=g1&&g1.parentId?(p.grupos||[]).find(g=>g&&g.id===g1.parentId):null;
+        let resp=[];
+        for(const fonte of [cl,g1,g2]){if(!fonte)continue;if(fonte.respEtapa&&fonte.respEtapa[col.key]){resp=[fonte.respEtapa[col.key]];break;}if(toArr(fonte.respKanban).length){resp=toArr(fonte.respKanban).slice(0,3);break;}}
         const due=modkPrazoCol(p,mes,col.key,M.storage);
         const t={id,title:(col.icon?col.icon+" ":"")+col.label+" — "+emp.nome+" · "+modkMesNome(mes),
           description:M.nome+" · competência "+modkMesNome(mes)+" · "+emp.nome+".\nAo concluir este card, a etapa “"+col.label+"” fica ✓ Ok no "+M.nome+".",
@@ -2340,6 +2343,20 @@ function modkAplicar(data,payloads,inativas){
       });
     });
     criadas[chaveMes]=[...lista];
+  });
+  // 1b) coluna inativada/removida, empresa inativada ou mês "Sem mov." depois de o card existir:
+  //     o card some se ninguém começou (se já começou, fica)
+  const naoIniciado=(t)=>t.status==="todo"&&!toArr(t.comments).length&&!toArr(t.checklist).some(c=>c.done);
+  tarefas=tarefas.filter(t=>{
+    const r=t._modRef;if(!r||t._modOk||!naoIniciado(t))return true;
+    const p=payloads[r.row];if(!p||!Array.isArray(p.empresas))return true;
+    const emp=p.empresas.find(e=>e&&e.id===r.eid);
+    const colsE=(emp&&p.empColsOverride&&Array.isArray(p.empColsOverride[emp.id])&&p.empColsOverride[emp.id].length)?p.empColsOverride[emp.id]:(Array.isArray(p.cols)?p.cols:[]);
+    const col=colsE.find(c=>c&&c.key===r.col);
+    const d=p.dados||{};
+    const vale=emp&&!(inativas&&inativas[canonEmpKeyGlobal(emp.cnpj,emp.nome)])&&col&&colVigente(col,r.mes)&&d[r.eid+"_"+r.mes+"__semmov"]!==true;
+    if(vale)return true;
+    mudou=true;return false;
   });
   // 2) ligar conclusões (todas as competências)
   tarefas=tarefas.map(t=>{
@@ -2375,7 +2392,7 @@ async function modkGravarOk(escritas){
   }
 }
 // Cadastro da empresa no módulo: responsáveis dos cards
-function ModkRespCadastro({emp,cols,cliente,collaborators,onMudar}){
+function ModkRespCadastro({emp,cols,cliente,collaborators,onMudar,doGrupo}){
   const resp=toArr(cliente.respKanban);const porEtapa=cliente.respEtapa||{};
   const alternar=(id)=>{let n=resp.includes(id)?resp.filter(x=>x!==id):[...resp,id];if(n.length>3)n=n.slice(-3);onMudar({...cliente,respKanban:n});};
   const sel={padding:"6px 8px",borderRadius:7,border:"1px solid #334155",background:"#1e293b",color:"#f1f5f9",fontSize:11.5,fontFamily:"inherit",outline:"none",width:"100%"};
@@ -2388,13 +2405,14 @@ function ModkRespCadastro({emp,cols,cliente,collaborators,onMudar}){
     </div>
     <div style={{fontSize:10.5,color:"#64748b",marginBottom:6}}>Ou um responsável por etapa (vale mais que a lista acima):</div>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
-      {(cols||[]).map(c=>(<label key={c.key} style={{display:"flex",flexDirection:"column",gap:3,fontSize:10.5,color:"#cbd5e1",fontWeight:700}}>
+      {(cols||[]).filter(c=>colVigente(c,modkCompAtual())).map(c=>(<label key={c.key} style={{display:"flex",flexDirection:"column",gap:3,fontSize:10.5,color:"#cbd5e1",fontWeight:700}}>
         <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.icon} {c.label}</span>
         <select value={porEtapa[c.key]||""} onChange={e=>{const n={...porEtapa};if(e.target.value)n[c.key]=e.target.value;else delete n[c.key];onMudar({...cliente,respEtapa:n});}} style={sel}>
           <option value="">— os de cima —</option>{(collaborators||[]).map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
         </select></label>))}
     </div>
-    <div style={{fontSize:10,color:"#64748b",marginTop:8,lineHeight:1.45}}>📋 Todo mês o sistema cria no Kanban um card por etapa desta empresa (competência do mês, vencendo no mês seguinte). Concluir o card marca ✓ Ok aqui.</div>
+    {(cols||[]).some(c=>!colVigente(c,modkCompAtual()))&&<div style={{fontSize:10.5,color:"#94a3b8",marginTop:8,lineHeight:1.45}}>⏸ Colunas inativas não geram card: {(cols||[]).filter(c=>!colVigente(c,modkCompAtual())).map(c=>c.label).join(", ")}.</div>}
+    <div style={{fontSize:10,color:"#64748b",marginTop:8,lineHeight:1.45}}>{doGrupo?"👥 Vale para todas as empresas deste grupo que não tiverem responsáveis próprios no Cadastro (a empresa sempre tem preferência).":"📋 Todo mês o sistema cria no Kanban um card por etapa desta empresa (competência do mês, vencendo no mês seguinte). Concluir o card marca ✓ Ok aqui. Sem ninguém aqui, valem os responsáveis do grupo."}</div>
   </div>);
 }
 
@@ -3472,7 +3490,7 @@ function WhatsAppModal({open,onClose,titulo,texto,setTexto,tel,setTel,children})
           <Txt value={texto} onChange={setTexto} rows={12}/>
         </Fld>
         <Inp label="WhatsApp de quem vai receber" value={tel} onChange={setTel} placeholder="(61) 99999-9999 — opcional"/>
-        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v132</span></div>
+        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v134</span></div>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
           <Btn v="ghost" onClick={onClose}>Fechar</Btn>
           <Btn v="ghost" onClick={copiar}>{copiado?"✓ Copiado":"📋 Copiar texto"}</Btn>
@@ -13166,7 +13184,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 132</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 134</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>
@@ -17081,6 +17099,7 @@ function makePageComponent(PAGE_CFG){
     // ── Prazo automático ─────────────────────────────────────────
     const [prazoModal,setPrazoModal]=useState(null);
     const [prazoVal,setPrazoVal]=useState("");
+    const [grpRespModal,setGrpRespModal]=useState(null); // id do grupo
     const [diaVencPadrao,setDiaVencPadrao]=useState(()=>{try{return localStorage.getItem(STORAGE_KEY+"_dia")||"";}catch(e){return "";}});
     // guarda o "dia padrão" junto com os dados (o Kanban usa para o prazo dos cards)
     useEffect(()=>{if(dbSynced&&diaVencPadrao&&String(prazos.__diaPadrao||"")!==String(diaVencPadrao))setPrazos(p=>({...p,__diaPadrao:String(diaVencPadrao)}));},[dbSynced,diaVencPadrao,prazos.__diaPadrao]);
@@ -18032,6 +18051,7 @@ function makePageComponent(PAGE_CFG){
                   <span style={{fontSize:10.5,fontWeight:800,color:"#15803d",background:"#f0fdf4",border:"1px solid #86efac",padding:"2px 8px",borderRadius:20}}>✅ {dia}/{at.length} em dia</span>
                 </>);})()}
                 {!isGuestMode&&<button onClick={e=>{e.stopPropagation();setLoteModal({titulo:"⚡ Lote por mês — "+grp.nome,empresas:allEmps.filter(x=>!isInativa(x))});}} title="Aplicar um status a várias empresas deste grupo de uma vez" style={{background:"#0ea5e9",border:"none",cursor:"pointer",color:"#fff",fontSize:11,padding:"4px 10px",borderRadius:8,fontWeight:800,fontFamily:"inherit"}}>⚡ Lote</button>}
+                {!isGuestMode&&<button onClick={e=>{e.stopPropagation();setGrpRespModal(grp.id);}} title="Responsáveis dos cards do Kanban para as empresas deste grupo" style={{background:color+"22",border:`1px solid ${color}44`,cursor:"pointer",color,fontSize:11,padding:"3px 9px",borderRadius:8,fontWeight:700}}>👥 Resp.{(toArr(grp.respKanban).length||Object.keys(grp.respEtapa||{}).length)?" ✓":""}</button>}
                 {!isGuestMode&&<button onClick={e=>{e.stopPropagation();setLinkModal({grp});}} style={{background:color+"22",border:`1px solid ${color}44`,cursor:"pointer",color,fontSize:11,padding:"3px 9px",borderRadius:8,fontWeight:700}}>🔗 Link</button>}
                 {!isGuestMode&&<button onClick={e=>{e.stopPropagation();if(window.confirm("Excluir o grupo \""+grp.nome+"\"? As empresas ficam sem grupo."))deleteGrupo(grp.id);}} style={{background:"none",border:"none",cursor:"pointer",color:"#f87171",fontSize:13,padding:"2px 6px",borderRadius:6}}>🗑</button>}
                 <span style={{fontSize:14,color:"#94a3b8",transition:"transform .25s",transform:isGrpOpen(grp.id)?"rotate(180deg)":"none"}}>▼</span>
@@ -18237,7 +18257,15 @@ function makePageComponent(PAGE_CFG){
         </div>);})}</div>);})}</div></div></div>)}
         {revertModal&&(<div onClick={e=>e.target===e.currentTarget&&setRevertModal(null)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.6)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}}><div style={{background:"var(--bg2)",borderRadius:16,padding:"24px",maxWidth:380,width:"100%",textAlign:"center",boxShadow:"0 32px 80px rgba(0,0,0,.3)"}}><div style={{fontSize:32,marginBottom:8}}>↩</div><div style={{fontSize:15,fontWeight:900,color:"var(--text)",marginBottom:6}}>Reverter análise?</div><div style={{fontSize:12,color:"#64748b",marginBottom:20}}>{getMesNome(revertModal.mes)} — {empresas.find(e=>e.id===revertModal.eid)?.nome}</div><div style={{display:"flex",gap:10,justifyContent:"center"}}><Btn onClick={()=>setRevertModal(null)} v="ghost">Cancelar</Btn><Btn onClick={()=>{reverterAnalise(revertModal.eid,revertModal.mes);setRevertModal(null);}} xs={{background:"#f59e0b",color:"#fff",border:"none"}}>Reverter</Btn></div></div></div>)}
         {deleteEmpModal&&(<div onClick={e=>e.target===e.currentTarget&&setDeleteEmpModal(null)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.72)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}}><div style={{background:"var(--bg2)",borderRadius:20,width:"100%",maxWidth:420,boxShadow:"0 32px 80px rgba(0,0,0,.35)",overflow:"hidden"}}><div style={{background:"linear-gradient(135deg,#fef2f2,#fff0f0)",padding:"20px 24px",borderBottom:"1px solid #fecaca",display:"flex",alignItems:"center",gap:14}}><div style={{fontSize:15,fontWeight:900,color:"#991b1b"}}>Excluir empresa?</div><div style={{fontSize:12,color:"#ef4444",marginLeft:4,fontWeight:600}}>{deleteEmpModal.nome}</div><button onClick={()=>setDeleteEmpModal(null)} style={{marginLeft:"auto",background:"none",border:"none",cursor:"pointer",color:"#fca5a5",fontSize:20}}>×</button></div><div style={{padding:"20px 24px"}}><p style={{fontSize:13,color:"#374151",marginBottom:10}}>Digite <strong style={{color:"#ef4444",fontFamily:"monospace",letterSpacing:2}}>EXCLUIR</strong>:</p><input autoFocus value={deleteTyped} onChange={e=>setDeleteTyped(e.target.value)} onKeyDown={e=>e.key==="Enter"&&executarDelete()} placeholder="EXCLUIR" style={{width:"100%",padding:"11px 14px",borderRadius:10,fontSize:14,fontWeight:800,letterSpacing:3,border:`2px solid ${deleteTyped.toUpperCase()==="EXCLUIR"?"#22c55e":"#e5e7eb"}`,outline:"none",fontFamily:"monospace",textTransform:"uppercase",color:"#0f172a",background:deleteTyped.toUpperCase()==="EXCLUIR"?"#f0fdf4":"#fff",boxSizing:"border-box"}}/><div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16}}><Btn onClick={()=>setDeleteEmpModal(null)} v="ghost">Cancelar</Btn><Btn onClick={executarDelete} xs={{background:"#dc2626",color:"#fff",border:"none",opacity:deleteTyped.toUpperCase()==="EXCLUIR"?1:.5}}>🗑 Excluir</Btn></div></div></div></div>)}
-        {linkModal&&(<div onClick={e=>e.target===e.currentTarget&&setLinkModal(null)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.65)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}}><div style={{background:"var(--bg2)",borderRadius:18,width:"100%",maxWidth:500,boxShadow:"0 32px 80px rgba(0,0,0,.3)",overflow:"hidden"}}><div style={{background:`linear-gradient(135deg,${getGrpColor(linkModal.grp.id)},${getGrpColor(linkModal.grp.id)}cc)`,padding:"16px 22px",display:"flex",alignItems:"center",justifyContent:"space-between"}}><div><div style={{fontSize:15,fontWeight:900,color:"#fff"}}>🔗 Link — {linkModal.grp.nome}</div><div style={{fontSize:12,color:"rgba(255,255,255,.75)",marginTop:2}}>Acesso sem senha · somente este grupo</div></div><button onClick={()=>setLinkModal(null)} style={{background:"rgba(255,255,255,.2)",border:"none",color:"#fff",fontSize:18,cursor:"pointer",borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button></div><div style={{padding:"20px"}}><div style={{padding:"10px 14px",background:"var(--bg3)",border:"1.5px solid var(--border)",borderRadius:10,fontSize:12,fontFamily:"monospace",wordBreak:"break-all",color:"#374151",marginBottom:12,lineHeight:1.6}}>{getGuestLink(linkModal.grp.id)}</div><div style={{padding:"10px 14px",borderRadius:10,background:"#fef9c3",border:"1px solid #fde047",fontSize:12,color:"#713f12",marginBottom:14,lineHeight:1.6}}><strong>⚠️ Permissões:</strong> Editar status e observações. Sem criar/excluir.</div><div style={{display:"flex",gap:10,justifyContent:"flex-end"}}><Btn onClick={()=>setLinkModal(null)} v="ghost">Fechar</Btn><Btn onClick={()=>{navigator.clipboard.writeText(getGuestLink(linkModal.grp.id));toast("🔗 Link copiado!","ok");}} xs={{background:getGrpColor(linkModal.grp.id),color:"#fff",border:"none"}}>📋 Copiar</Btn></div></div></div></div>)}
+        {grpRespModal!=null&&(()=>{const g=grupos.find(x=>x.id===grpRespModal);if(!g)return null;
+              return(<Modal open onClose={()=>setGrpRespModal(null)} title={"👥 Responsáveis no Kanban — grupo "+g.nome} width={460}>
+                <div style={{background:"#0f172a",borderRadius:12,padding:14}}>
+                  <ModkRespCadastro doGrupo cols={Array.isArray(cols)&&cols.length?cols:DEFAULT_COLS} cliente={{respKanban:g.respKanban,respEtapa:g.respEtapa}} collaborators={(sysData&&sysData.collaborators)||[]}
+                    onMudar={(nc)=>setGrupos(prev=>prev.map(x=>x.id===g.id?{...x,respKanban:toArr(nc.respKanban),respEtapa:nc.respEtapa||{}}:x))}/>
+                </div>
+                <div style={{display:"flex",justifyContent:"flex-end",marginTop:12}}><Btn onClick={()=>{setGrpRespModal(null);toast("👥 Responsáveis do grupo salvos.","ok");}}>Pronto</Btn></div>
+              </Modal>);})()}
+            {linkModal&&(<div onClick={e=>e.target===e.currentTarget&&setLinkModal(null)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.65)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(6px)"}}><div style={{background:"var(--bg2)",borderRadius:18,width:"100%",maxWidth:500,boxShadow:"0 32px 80px rgba(0,0,0,.3)",overflow:"hidden"}}><div style={{background:`linear-gradient(135deg,${getGrpColor(linkModal.grp.id)},${getGrpColor(linkModal.grp.id)}cc)`,padding:"16px 22px",display:"flex",alignItems:"center",justifyContent:"space-between"}}><div><div style={{fontSize:15,fontWeight:900,color:"#fff"}}>🔗 Link — {linkModal.grp.nome}</div><div style={{fontSize:12,color:"rgba(255,255,255,.75)",marginTop:2}}>Acesso sem senha · somente este grupo</div></div><button onClick={()=>setLinkModal(null)} style={{background:"rgba(255,255,255,.2)",border:"none",color:"#fff",fontSize:18,cursor:"pointer",borderRadius:8,width:30,height:30,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button></div><div style={{padding:"20px"}}><div style={{padding:"10px 14px",background:"var(--bg3)",border:"1.5px solid var(--border)",borderRadius:10,fontSize:12,fontFamily:"monospace",wordBreak:"break-all",color:"#374151",marginBottom:12,lineHeight:1.6}}>{getGuestLink(linkModal.grp.id)}</div><div style={{padding:"10px 14px",borderRadius:10,background:"#fef9c3",border:"1px solid #fde047",fontSize:12,color:"#713f12",marginBottom:14,lineHeight:1.6}}><strong>⚠️ Permissões:</strong> Editar status e observações. Sem criar/excluir.</div><div style={{display:"flex",gap:10,justifyContent:"flex-end"}}><Btn onClick={()=>setLinkModal(null)} v="ghost">Fechar</Btn><Btn onClick={()=>{navigator.clipboard.writeText(getGuestLink(linkModal.grp.id));toast("🔗 Link copiado!","ok");}} xs={{background:getGrpColor(linkModal.grp.id),color:"#fff",border:"none"}}>📋 Copiar</Btn></div></div></div></div>)}
 
         {/* ── Side Panel por empresa ── */}
         {(()=>{

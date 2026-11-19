@@ -3245,10 +3245,12 @@ function montarResumoDia(data,{pessoaId,dia,incluirAndamento=true,incluirAmanha=
   const idsAprov=new Set(aprovadas.map(t=>t.id));
   const idsFeitas=new Set(feitas.map(t=>t.id));
   // entregues para revisão hoje (quem conclui é o gestor/administrador)
-  const enviouRevisaoHoje=(t)=>toArr(t.history).some(x=>noDia(x.at)&&/→\s*Em Revis/i.test(x.changes||"")&&(ehEle(x.user)||responsavel(t)));
-  const entregues=tarefas.filter(t=>!idsFeitas.has(t.id)&&t.status==="review"&&responsavel(t)&&enviouRevisaoHoje(t));
+  // quem entregou para revisão é quem executou — mesmo que a tarefa esteja marcada para outra pessoa
+  const enviouRevisaoHoje=(t)=>{const h=toArr(t.history).filter(x=>/→\s*Em Revis/i.test(x.changes||""));const u=h[h.length-1];return !!u&&noDia(u.at)&&(pessoaId?ehEle(u.user):true);};
+  const entregues=tarefas.filter(t=>!idsFeitas.has(t.id)&&t.status==="review"&&enviouRevisaoHoje(t));
   const idsEntregues=new Set(entregues.map(t=>t.id));
-  const andamento=incluirAndamento?tarefas.filter(t=>(t.status==="doing"||t.status==="review")&&responsavel(t)&&!idsEntregues.has(t.id)):[];
+  // em andamento: as dele; a que outra pessoa já entregou para revisão não conta como dele
+  const andamento=incluirAndamento?tarefas.filter(t=>(t.status==="doing"||t.status==="review")&&responsavel(t)&&!idsEntregues.has(t.id)&&!(t.status==="review"&&entregador(t)&&!ehEle(entregador(t)))):[];
   // outras coisas que ele fez no dia: comentários e mudanças de etapa
   const outras=[];
   tarefas.forEach(t=>{
@@ -3323,7 +3325,7 @@ function WhatsAppModal({open,onClose,titulo,texto,setTexto,tel,setTel,children})
           <Txt value={texto} onChange={setTexto} rows={12}/>
         </Fld>
         <Inp label="WhatsApp de quem vai receber" value={tel} onChange={setTel} placeholder="(61) 99999-9999 — opcional"/>
-        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v123</span></div>
+        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v124</span></div>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
           <Btn v="ghost" onClick={onClose}>Fechar</Btn>
           <Btn v="ghost" onClick={copiar}>{copiado?"✓ Copiado":"📋 Copiar texto"}</Btn>
@@ -7651,7 +7653,7 @@ function PainelRecorrencias({data,setData,onEdit,toast}){
   const groups=useMemo(()=>{
     const map={};
     data.tasks.forEach(t=>{
-      if(!t._recGroup) return;
+      if(!t._recGroup||t._recJuntada) return;
       if(!map[t._recGroup]) map[t._recGroup]={id:t._recGroup,tasks:[],title:t.title,company:t.company,sector:t.sector,recurrenceId:t._recurrenceId||null,serviceId:t._serviceId||null};
       map[t._recGroup].tasks.push(t);
     });
@@ -7687,7 +7689,7 @@ function PainelRecorrencias({data,setData,onEdit,toast}){
 
   const restoreGroup=(grpId)=>{
     setData(d=>({...d,tasks:d.tasks.map(t=>
-      t._recGroup===grpId&&t.status==="archived"
+      t._recGroup===grpId&&t.status==="archived"&&!t._recJuntada
         ?{...t,status:"todo",archivedAt:null}:t
     )}));
     toast("↻ Série restaurada.","ok");
@@ -12712,16 +12714,17 @@ function App(){
   /* ── Estado do modal de exclusão de série recorrente ── */
   const closeRecDeleteModal=()=>setRecDeleteModal({open:false,taskId:null,title:"",serie:[],futuras:[]});
   const execRecDelete=(opcao)=>{
-    const {taskId,serie,futuras}=recDeleteModal;
+    const {taskId,serie,futuras,serieToda,grupo,dataRef}=recDeleteModal;
     if(opcao===1){
       setData(d=>({...d,tasks:d.tasks.filter(x=>x.id!==taskId)}));
       toast("🗑 Tarefa excluída.","warn");
     } else if(opcao===2){
-      const ids=new Set([taskId,...futuras.map(x=>x.id)]);
-      setData(d=>({...d,tasks:d.tasks.filter(x=>!ids.has(x.id))}));
+      // também as "juntadas" dali para frente; e a série fica encerrada (não se renova mais)
+      const ids=new Set([taskId,...futuras.map(x=>x.id),...toArr(serieToda).filter(x=>x._recJuntada&&(x._recDataOrig||x.dueDate||"")>=(dataRef||"")).map(x=>x.id)]);
+      setData(d=>({...d,tasks:d.tasks.filter(x=>!ids.has(x.id)).map(x=>grupo&&x._recGroup===grupo?{...x,_recFim:true}:x)}));
       toast(`🗑 ${ids.size} tarefa(s) excluída(s).`,"warn");
     } else if(opcao===3){
-      const ids=new Set(serie.map(x=>x.id));
+      const ids=new Set(toArr(serieToda||serie).map(x=>x.id));
       setData(d=>({...d,tasks:d.tasks.filter(x=>!ids.has(x.id))}));
       toast(`🗑 Série completa excluída (${serie.length} tarefas).`,"warn");
     }
@@ -12739,14 +12742,15 @@ function App(){
     /* Tarefa pertence a uma série recorrente → modal de escolha */
     if(t._recGroup){
       const today=todayStr();
-      const serie=data.tasks.filter(x=>x._recGroup===t._recGroup);
+      const serieToda=data.tasks.filter(x=>x._recGroup===t._recGroup);
+      const serie=serieToda.filter(x=>!x._recJuntada); // as "juntadas" (feriado / depois do fim) não contam
       const futuras=serie.filter(x=>
         x.id!==id &&
         (x.dueDate||"")>=today &&
         x.status!=="done" &&
         x.status!=="archived"
       );
-      setRecDeleteModal({open:true,taskId:id,title:t.title,serie,futuras});
+      setRecDeleteModal({open:true,taskId:id,title:t.title,serie,futuras,serieToda,grupo:t._recGroup,dataRef:t._recDataOrig||t.dueDate||today});
       return;
     }
 
@@ -13003,7 +13007,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 123</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 124</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

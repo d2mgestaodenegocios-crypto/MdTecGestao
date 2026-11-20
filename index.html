@@ -3556,7 +3556,7 @@ function WhatsAppModal({open,onClose,titulo,texto,setTexto,tel,setTel,children})
           <Txt value={texto} onChange={setTexto} rows={12}/>
         </Fld>
         <Inp label="WhatsApp de quem vai receber" value={tel} onChange={setTel} placeholder="(61) 99999-9999 — opcional"/>
-        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v145</span></div>
+        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v146</span></div>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
           <Btn v="ghost" onClick={onClose}>Fechar</Btn>
           <Btn v="ghost" onClick={copiar}>{copiado?"✓ Copiado":"📋 Copiar texto"}</Btn>
@@ -11512,13 +11512,61 @@ function IgRelatorios({contas,posts,metricas,contaSel,setContaSel,toast,isAdmin}
 }
 
 // ── Página principal ───────────────────────────────────────────────
+// ── 📦 Publicados: histórico de tudo o que foi ao ar (arquivados inclusive). Nada é apagado. ──
+function IgPublicados({posts,contaDe,isAdmin,onAbrir,onArquivar,nomeColab}){
+  const [per,setPer]=React.useState("tudo"); // tudo | mes | AAAA-MM
+  const [mostrar,setMostrar]=React.useState("todos"); // todos | kanban | arquivados
+  const [lim,setLim]=React.useState(60);
+  const mesAt=igHojeISO().slice(0,7);
+  const pubs=React.useMemo(()=>posts.filter(p=>p.status==="publicado").sort((a,b)=>((b.publicadoEm||b.data||"")).localeCompare(a.publicadoEm||a.data||"")),[posts]);
+  const quando=(p)=>(p.publicadoEm?new Date(p.publicadoEm).toLocaleDateString("sv-SE",{timeZone:"America/Sao_Paulo"}):(p.data||"")).slice(0,7);
+  const meses=[...new Set(pubs.map(quando).filter(Boolean))].sort().reverse();
+  const lst=pubs.filter(p=>{const m=quando(p);if(per==="mes"&&m!==mesAt)return false;if(/^\d{4}-\d{2}$/.test(per)&&m!==per)return false;
+    if(mostrar==="kanban"&&p.arquivado)return false;if(mostrar==="arquivados"&&!p.arquivado)return false;return true;});
+  const nomeMes=(m)=>{const [y,mm]=m.split("-");return ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"][parseInt(mm)-1]+"/"+y;};
+  const porConta={};lst.forEach(p=>{const c=contaDe(p.contaId);const k=c?"@"+(c.usuario||c.nome).replace(/^@/,""):"sem conta";porConta[k]=(porConta[k]||0)+1;});
+  const sel={padding:"6px 9px",borderRadius:9,border:"1.5px solid var(--border3)",fontSize:12,fontFamily:"inherit",background:"var(--bg2)",color:"var(--text)"};
+  const csv=()=>{const linhas=[["Publicado em","Programado","Conta","Tipo","Legenda","Link","Responsável","Arquivado"]].concat(lst.map(p=>{const c=contaDe(p.contaId);return[p.publicadoEm?new Date(p.publicadoEm).toLocaleString("pt-BR"):"",p.data?p.data.split("-").reverse().join("/")+" "+(p.hora||""):"",c?"@"+(c.usuario||c.nome).replace(/^@/,""):"",(IG_TIPO[p.tipo]||IG_TIPO.feed).l,(p.legenda||"").replace(/\s+/g," "),p.link||"",p.responsavelId?nomeColab(p.responsavelId):"",p.arquivado?"sim":""];}));
+    const txt="﻿"+linhas.map(l=>l.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(";")).join("\n");
+    const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([txt],{type:"text/csv;charset=utf-8"}));a.download="instagram-publicados.csv";a.click();};
+  return(<div style={{display:"flex",flexDirection:"column",gap:10}}>
+    <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",padding:"10px 12px",borderRadius:12,background:"#f0fdf4",border:"1px solid #bbf7d0"}}>
+      <b style={{color:"#15803d",fontSize:13}}>✅ {lst.length} publicado(s)</b>
+      <span style={{fontSize:11.5,color:"#166534"}}>{Object.entries(porConta).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([k,v])=>k+" "+v).join(" · ")}</span>
+      <div style={{marginLeft:"auto",display:"flex",gap:6,flexWrap:"wrap"}}>
+        <select value={per} onChange={e=>{setPer(e.target.value);setLim(60);}} style={sel}><option value="tudo">Todo o período</option><option value="mes">Este mês</option>{meses.map(m=><option key={m} value={m}>{nomeMes(m)}</option>)}</select>
+        <select value={mostrar} onChange={e=>{setMostrar(e.target.value);setLim(60);}} style={sel}><option value="todos">Todos</option><option value="kanban">Ainda no Kanban</option><option value="arquivados">📦 Arquivados</option></select>
+        <button onClick={csv} style={{...sel,cursor:"pointer",fontWeight:800}}>⬇ CSV</button>
+      </div>
+    </div>
+    <div style={{fontSize:11,color:"var(--text4)"}}>Aqui fica o histórico de tudo o que foi publicado — arquivar só tira do Kanban, nunca apaga. Use a busca e as contas lá em cima para filtrar.</div>
+    {lst.length===0&&<div style={{padding:30,textAlign:"center",color:"var(--text4)",border:"1px dashed var(--border2)",borderRadius:12}}>Nenhum post publicado neste filtro.</div>}
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:8}}>
+      {lst.slice(0,lim).map(p=>{const c=contaDe(p.contaId);return(
+        <div key={p.id} onClick={()=>onAbrir(p)} style={{display:"flex",gap:9,padding:"9px 10px",borderRadius:11,background:"var(--bg2)",border:"1px solid var(--border2)",borderLeft:"4px solid "+(c?.cor||"#22c55e"),cursor:"pointer",minWidth:0,opacity:p.arquivado?.85:1}}>
+          <IgThumb post={p} size={52}/>
+          <div style={{minWidth:0,flex:1}}>
+            <div style={{display:"flex",gap:5,alignItems:"center",minWidth:0}}><b style={{fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c?"@"+(c.usuario||c.nome).replace(/^@/,""):"sem conta"}</b><span style={{fontSize:10.5,color:"var(--text3)",whiteSpace:"nowrap"}}>{(IG_TIPO[p.tipo]||IG_TIPO.feed).ic} {(IG_TIPO[p.tipo]||IG_TIPO.feed).l}</span>{p.arquivado&&<span title={"Arquivado"+(p.arquivadoPor?" por "+p.arquivadoPor:"")+(p.arquivadoEm?" em "+new Date(p.arquivadoEm).toLocaleDateString("pt-BR"):"")} style={{marginLeft:"auto",fontSize:9.5,fontWeight:800,color:"#64748b",background:"var(--bg3)",borderRadius:6,padding:"0 5px"}}>📦</span>}</div>
+            <div style={{fontSize:11.5,color:"var(--text2)",overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",lineHeight:1.3,marginTop:1}}>{p.legenda||<i style={{color:"#94a3b8"}}>sem legenda</i>}</div>
+            <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",marginTop:4}}>
+              <span style={{fontSize:10.5,fontWeight:800,color:"#15803d"}}>✅ {p.publicadoEm?igFmtPostado(p.publicadoEm):(p.data?igFmtDataCurta(p.data):"—")}</span>
+              {p.link&&<a href={p.link} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:10.5,fontWeight:800,color:"#be185d"}}>ver post ↗</a>}
+              {isAdmin&&<button onClick={e=>{e.stopPropagation();onArquivar([p.id],!p.arquivado);}} style={{marginLeft:"auto",border:"1px solid var(--border2)",background:"var(--bg3)",color:"var(--text3)",borderRadius:6,padding:"1px 7px",fontSize:10.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>{p.arquivado?"↩️ Desarquivar":"📦 Arquivar"}</button>}
+            </div>
+          </div>
+        </div>);})}
+    </div>
+    {lst.length>lim&&<button onClick={()=>setLim(l=>l+60)} style={{alignSelf:"center",border:"1px solid var(--border2)",background:"var(--bg2)",borderRadius:9,padding:"7px 16px",fontWeight:800,cursor:"pointer",fontFamily:"inherit",color:"var(--text2)"}}>Mostrar mais ({lst.length-lim})</button>}
+  </div>);
+}
+
 function InstagramPage({toast,data,myCollab,isAdmin,userName}){
   const {ig,carregado,atualizar}=useInstagramData(toast);
   const metricas=useIgMetricas();
   const collaborators=data?.collaborators||[];const companies=data?.companies||[];
   const myId=myCollab?.id||"";
   const VIEW_KEY="mdtec_ig_view_"+(myId||"eu");
-  const [view,setViewSt]=React.useState(()=>{try{const v=localStorage.getItem(VIEW_KEY);return["calendario","kanban","lista","relatorios"].includes(v)?v:"calendario";}catch(e){return"calendario";}});
+  const [view,setViewSt]=React.useState(()=>{try{const v=localStorage.getItem(VIEW_KEY);return["calendario","kanban","lista","publicados","relatorios"].includes(v)?v:"calendario";}catch(e){return"calendario";}});
   const setView=(v)=>{setViewSt(v);try{localStorage.setItem(VIEW_KEY,v);}catch(e){}};
   const [fConta,setFConta]=React.useState("");
   const [fResp,setFResp]=React.useState("");
@@ -11618,9 +11666,17 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
   const usadaEmOutro=(mid,postId)=>ig.posts.some(x=>x.id!==postId&&(x.midias||[]).some(m=>m.id===mid||(m.original&&m.original.id===mid))||(x.id!==postId&&x.capa&&x.capa.midia&&x.capa.midia.id===mid));
   const excluirPost=async(p)=>{
     const antigo=ig.posts.find(x=>x.id===p.id)||p;
+    if(antigo.status==="publicado"){toast("📦 Post publicado não se exclui — o histórico fica guardado. Use 📦 Arquivar.","warn",7000);return;}
     [...(antigo.midias||[]),...(p.midias||[])].filter(m=>!usadaEmOutro(m.id,p.id)).forEach(igApagarMidia);
     await atualizar(d=>({...d,posts:d.posts.filter(x=>x.id!==p.id)}));
     toast("🗑 Post excluído","ok");setEditor(null);
+  };
+  // Arquivar publicados: só sai do Kanban — continua no calendário, na lista, nos relatórios e em 📦 Publicados
+  const arquivarPosts=async(ids,arq=true)=>{
+    if(!isAdmin){toast("Só o administrador arquiva.","warn");return;}
+    const set=new Set(ids);const agora=new Date().toISOString();
+    const ok=await atualizar(d=>({...d,posts:d.posts.map(x=>set.has(x.id)&&x.status==="publicado"?(arq?{...x,arquivado:true,arquivadoEm:agora,arquivadoPor:userName||""}:{...x,arquivado:false,arquivadoEm:"",arquivadoPor:""}):x)}));
+    if(ok)toast(arq?"📦 "+ids.length+" post(s) arquivado(s) — veja em 📦 Publicados.":"↩️ Post voltou para o Kanban.","ok");
   };
   // Regras do caminho: Produção → Aprovação → Agendado → Publicado (só o robô publica)
   const mudarStatus=(p,status)=>{
@@ -11712,6 +11768,7 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
             {(()=>{const fam=igFamiliaRepub(p,ig.posts);if(!fam.reps.length)return null;return<span title={p.republicadoDe?"Esta é uma republicação":"Republicado "+fam.reps.length+"×: "+fam.reps.map(x=>x.publicadoEm?new Date(x.publicadoEm).toLocaleDateString("pt-BR"):x.data?igFmtDataCurta(x.data):"sem data").join(", ")} style={{fontSize:10.5,fontWeight:800,color:"#6d28d9",background:"#f5f3ff",borderRadius:6,padding:"1px 6px"}}>🔁{p.republicadoDe?" republicação":" "+fam.reps.length+"×"}</span>;})()}
             {p.status==="publicado"&&<button onClick={e=>{e.stopPropagation();setRepub(p);}} title="Republicar (cria um novo post com o mesmo conteúdo)" style={{marginLeft:"auto",border:"none",background:"#f5f3ff",color:"#6d28d9",borderRadius:6,padding:"1px 7px",fontSize:10.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>🔁 Republicar</button>}
             {p.status==="publicado"&&p.link&&<a href={p.link} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:10.5,fontWeight:800,color:"#be185d"}}>ver post ↗</a>}
+            {p.status==="publicado"&&isAdmin&&!compacto&&<button onClick={e=>{e.stopPropagation();p.arquivado?arquivarPosts([p.id],false):arquivarPosts([p.id]);}} title={p.arquivado?"Voltar para o Kanban":"Arquivar (sai do Kanban, o histórico fica em 📦 Publicados)"} style={{border:"1px solid var(--border2)",background:"var(--bg3)",color:"var(--text3)",borderRadius:6,padding:"1px 7px",fontSize:10.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>{p.arquivado?"↩️ Desarquivar":"📦 Arquivar"}</button>}
           </div>
         </>}
       </div>
@@ -11779,17 +11836,19 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
   const renderKanban=()=>(
     <div className="ig-kanban" style={{display:"grid",gridTemplateColumns:"repeat(5,minmax(220px,1fr))",gap:10,overflowX:"auto",paddingBottom:6,scrollSnapType:"x proximity",WebkitOverflowScrolling:"touch"}}>
       {IG_STATUS.map(s=>{
-        let lst=postsFiltrados.filter(p=>igEtapa(p)===s.k);
+        let lst=postsFiltrados.filter(p=>igEtapa(p)===s.k&&!p.arquivado);
+        const nPub=lst.length;
         if(s.k==="publicado")lst=lst.sort((a,b)=>(b.publicadoEm||"").localeCompare(a.publicadoEm||"")).slice(0,30);
         else lst=lst.sort((a,b)=>((a.data||"9999")+(a.hora||"")).localeCompare((b.data||"9999")+(b.hora||"")));
         return(<div key={s.k} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();const id=e.dataTransfer.getData("text/plain");const p=ig.posts.find(x=>x.id===id);if(p)mudarStatus(p,s.k);setArrastando(null);}}
           style={{background:"var(--bg3)",borderRadius:12,padding:10,display:"flex",flexDirection:"column",gap:8,minHeight:200,border:"1px solid var(--border2)"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:11.5,fontWeight:900,textTransform:"uppercase",letterSpacing:".05em",color:s.c}}>{s.ic} {s.l}<span style={{background:s.bg,color:s.c,borderRadius:20,padding:"1px 8px",fontSize:11}}>{postsFiltrados.filter(p=>igEtapa(p)===s.k).length}</span></div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:11.5,fontWeight:900,textTransform:"uppercase",letterSpacing:".05em",color:s.c}}>{s.ic} {s.l}<span style={{background:s.bg,color:s.c,borderRadius:20,padding:"1px 8px",fontSize:11}}>{nPub}</span></div>
+          {s.k==="publicado"&&isAdmin&&nPub>0&&<button onClick={()=>{const ids=postsFiltrados.filter(p=>p.status==="publicado"&&!p.arquivado).map(p=>p.id);if(window.confirm("Arquivar os "+ids.length+" post(s) publicados"+(fConta?" desta conta":"")+"?\n\nEles saem do Kanban, mas nada é apagado: ficam em 📦 Publicados, no calendário e nos relatórios."))arquivarPosts(ids);}} style={{border:"1.5px dashed #86efac",background:"#f0fdf4",color:"#15803d",borderRadius:9,padding:"5px 8px",fontSize:11.5,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📦 Arquivar todos ({nPub})</button>}
           {lst.length===0&&<div style={{textAlign:"center",color:"var(--text4)",fontSize:11,padding:14}}>— vazio —</div>}
           {lst.map(p=>cardPost(p,false))}
           {s.k==="publicado"&&<div style={{fontSize:10.5,color:"var(--text4)",textAlign:"center"}}>🤖 só o robô coloca posts aqui</div>}
           {s.k==="rascunho"&&<button onClick={()=>novoPost({status:"rascunho"})} style={{border:"1.5px dashed var(--border2)",background:"transparent",borderRadius:10,padding:8,color:"var(--text3)",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>＋ Novo post</button>}
-          {s.k==="publicado"&&postsFiltrados.filter(p=>p.status==="publicado").length>30&&<div style={{fontSize:10.5,color:"var(--text4)",textAlign:"center"}}>mostrando os 30 mais recentes — use a Lista para ver todos</div>}
+          {s.k==="publicado"&&nPub>30&&<div style={{fontSize:10.5,color:"var(--text4)",textAlign:"center"}}>mostrando os 30 mais recentes — use a Lista para ver todos</div>}
         </div>);
       })}
     </div>
@@ -11866,12 +11925,13 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
         <input value={fBusca} onChange={e=>setFBusca(e.target.value)} placeholder="🔍 Buscar na legenda, hashtags, notas…" style={{...sel,flex:"1 1 220px"}}/>
         <select value={fResp} onChange={e=>setFResp(e.target.value)} style={sel}><option value="">👤 Todos os responsáveis</option><option value="__sem__">— sem responsável —</option>{collaborators.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>
         <div className="ig-views" title="Escolha como ver — fica salvo para as próximas vezes" style={{display:"flex",border:"1px solid var(--border2)",borderRadius:10,overflow:"hidden",marginLeft:"auto"}}>
-          {[["calendario","📅 Calendário"],["kanban","▥ Kanban"],["lista","☰ Lista"],["relatorios","📊 Relatórios"]].map(([k,l])=><button key={k} onClick={()=>setView(k)} style={{padding:"7px 12px",border:"none",borderRight:k!=="relatorios"?"1px solid var(--border2)":"none",background:view===k?"#e1306c":"transparent",color:view===k?"#fff":"var(--text3)",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{l}</button>)}
+          {[["calendario","📅 Calendário"],["kanban","▥ Kanban"],["lista","☰ Lista"],["publicados","📦 Publicados"],["relatorios","📊 Relatórios"]].map(([k,l])=><button key={k} onClick={()=>setView(k)} style={{padding:"7px 12px",border:"none",borderRight:k!=="relatorios"?"1px solid var(--border2)":"none",background:view===k?"#e1306c":"transparent",color:view===k?"#fff":"var(--text3)",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{l}</button>)}
         </div>
       </div>
 
       {!carregado?<div style={{padding:40,textAlign:"center",color:"var(--text4)"}}>Carregando…</div>
         :view==="relatorios"?<IgRelatorios isAdmin={isAdmin} contas={contas} posts={ig.posts} metricas={metricas} contaSel={fConta} setContaSel={setFConta} toast={toast}/>
+        :view==="publicados"?<IgPublicados posts={postsFiltrados} contaDe={contaDe} isAdmin={isAdmin} onAbrir={setEditor} onArquivar={arquivarPosts} nomeColab={nomeColab}/>
         :view==="calendario"?renderCalendario():view==="kanban"?renderKanban():renderLista()}
 
       <IgPostEditor open={!!editor} post={(editor&&ig.posts.find(x=>x.id===editor.id))||editor||{}} novo={!!editor&&!ig.posts.some(x=>x.id===editor.id)} posts={ig.posts} contas={contas} collaborators={collaborators} companies={companies} userName={userName} myCollabId={myId}
@@ -13343,7 +13403,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 145</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 146</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

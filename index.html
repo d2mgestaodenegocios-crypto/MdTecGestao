@@ -78,6 +78,8 @@ button{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 @keyframes slideUp{from{opacity:0;transform:translateY(100%)}to{opacity:1;transform:translateY(0)}}
 @keyframes fadeIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes mdtecSpin{to{transform:rotate(360deg)}}
+.mdtec-spin{animation:mdtecSpin .8s linear infinite}
 @keyframes badgePulse{from{transform:scale(0.7);opacity:0;}50%{transform:scale(1.1);}to{transform:scale(1);opacity:1;}}
 @keyframes dotPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.2)}}
 @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
@@ -970,24 +972,30 @@ const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
   }
 
 // ── Confirmação com a senha do próprio usuário (ex.: aprovar post) ──
-function pedirSenha(titulo,texto){
+// verificar(senha) opcional: a caixa fica aberta mostrando "Conferindo…" e só fecha com a senha certa
+function pedirSenha(titulo,texto,verificar){
   return new Promise(res=>{
     const el=document.createElement("div");document.body.appendChild(el);const root=ReactDOM.createRoot(el);
     const fim=(v)=>{try{root.unmount();}catch(e){}el.remove();res(v);};
     function Caixa(){
       const [v,setV]=React.useState("");const [ver,setVer]=React.useState(false);const ref=React.useRef(null);
+      const [busy,setBusy]=React.useState(false);const [erro,setErro]=React.useState("");
+      const enviar=async()=>{if(!v||busy)return;if(!verificar){fim(v);return;}
+        setBusy(true);setErro("");let ok=false;try{ok=await verificar(v);}catch(e){ok=false;}
+        if(ok){fim(v);return;}setBusy(false);setErro("Senha incorreta. Tente de novo.");setTimeout(()=>{if(ref.current){ref.current.focus();ref.current.select();}},30);};
       React.useEffect(()=>{setTimeout(()=>ref.current&&ref.current.focus(),50);},[]);
-      return(<div style={{position:"fixed",inset:0,background:"rgba(15,23,42,.55)",zIndex:20000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onMouseDown={e=>{if(e.target===e.currentTarget)fim(null);}}>
-        <form onSubmit={e=>{e.preventDefault();fim(v);}} style={{background:"var(--bg2,#fff)",color:"var(--text,#0f172a)",borderRadius:16,padding:"20px 22px",width:"min(380px,100%)",boxShadow:"0 24px 60px rgba(0,0,0,.3)",fontFamily:"inherit"}}>
+      return(<div style={{position:"fixed",inset:0,background:"rgba(15,23,42,.55)",zIndex:20000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onMouseDown={e=>{if(e.target===e.currentTarget&&!busy)fim(null);}}>
+        <form onSubmit={e=>{e.preventDefault();enviar();}} style={{background:"var(--bg2,#fff)",color:"var(--text,#0f172a)",borderRadius:16,padding:"20px 22px",width:"min(380px,100%)",boxShadow:"0 24px 60px rgba(0,0,0,.3)",fontFamily:"inherit"}}>
           <div style={{fontSize:16,fontWeight:900,marginBottom:4}}>🔒 {titulo}</div>
           <div style={{fontSize:12.5,color:"var(--text3,#64748b)",marginBottom:12,lineHeight:1.45}}>{texto}</div>
           <div style={{position:"relative"}}>
-            <input ref={ref} type={ver?"text":"password"} value={v} onChange={e=>setV(e.target.value)} placeholder="Sua senha de acesso ao sistema" autoComplete="current-password" data-norascunho="" style={{width:"100%",padding:"10px 40px 10px 12px",borderRadius:10,border:"1.5px solid var(--border3,#e5e7eb)",fontSize:14,fontFamily:"inherit",boxSizing:"border-box",background:"var(--bg2,#fff)",color:"inherit"}}/>
+            <input ref={ref} type={ver?"text":"password"} value={v} disabled={busy} onChange={e=>{setV(e.target.value);setErro("");}} placeholder="Sua senha de acesso ao sistema" autoComplete="current-password" data-norascunho="" style={{width:"100%",padding:"10px 40px 10px 12px",borderRadius:10,border:"1.5px solid var(--border3,#e5e7eb)",fontSize:14,fontFamily:"inherit",boxSizing:"border-box",background:"var(--bg2,#fff)",color:"inherit"}}/>
             <button type="button" onClick={()=>setVer(x=>!x)} title={ver?"Esconder":"Mostrar"} style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",border:"none",background:"none",cursor:"pointer",fontSize:15}}>{ver?"🙈":"👁"}</button>
           </div>
+          {erro&&<div style={{marginTop:8,fontSize:12.5,fontWeight:800,color:"#dc2626"}}>🔒 {erro}</div>}
           <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:14}}>
-            <button type="button" onClick={()=>fim(null)} style={{border:"1px solid var(--border2,#e2e8f0)",background:"var(--bg2,#fff)",color:"inherit",borderRadius:9,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Cancelar</button>
-            <button type="submit" disabled={!v} style={{border:"none",background:v?"#16a34a":"#94a3b8",color:"#fff",borderRadius:9,padding:"8px 16px",fontWeight:800,cursor:v?"pointer":"default",fontFamily:"inherit"}}>Confirmar</button>
+            <button type="button" disabled={busy} onClick={()=>fim(null)} style={{border:"1px solid var(--border2,#e2e8f0)",background:"var(--bg2,#fff)",color:"inherit",borderRadius:9,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Cancelar</button>
+            <button type="submit" disabled={!v||busy} style={{border:"none",background:v?"#16a34a":"#94a3b8",color:"#fff",borderRadius:9,padding:"8px 16px",fontWeight:800,cursor:v&&!busy?"pointer":"default",fontFamily:"inherit",opacity:busy?.8:1,display:"inline-flex",alignItems:"center",gap:7}}>{busy?<><span className="mdtec-spin" style={{width:13,height:13,border:"2px solid rgba(255,255,255,.45)",borderTopColor:"#fff",borderRadius:"50%",display:"inline-block"}}/>Conferindo…</>:"Confirmar"}</button>
           </div>
         </form>
       </div>);
@@ -1000,14 +1008,18 @@ async function conferirSenhaUsuario(senha){
   if(!senha)return false;
   let loc=null;try{loc=JSON.parse(localStorage.getItem("mdtec_local_session")||"null");}catch(e){}
   if(loc&&loc._localAuth){
-    const{data:row}=await sb.from("app_data").select("payload").eq("id",1).maybeSingle();
-    const c=(row?.payload?.collaborators||[]).find(x=>x.id===loc._collabId||(x.email&&loc.email&&x.email.toLowerCase()===loc.email.toLowerCase()));
+    let lista=null;
+    try{const{data:r2}=await sb.from("app_data").select("collaborators:payload->collaborators").eq("id",1).maybeSingle();lista=r2&&Array.isArray(r2.collaborators)?r2.collaborators:null;}catch(e){}
+    if(!lista){const{data:row}=await sb.from("app_data").select("payload").eq("id",1).maybeSingle();lista=row?.payload?.collaborators||[];}
+    const c=(lista||[]).find(x=>x.id===loc._collabId||(x.email&&loc.email&&x.email.toLowerCase()===loc.email.toLowerCase()));
     if(!c||!c._pwdHash)return false;
     return (await hashPwd(senha))===c._pwdHash;
   }
   try{
     const{data:u}=await sb.auth.getUser();const email=u?.user?.email;if(!email)return false;
-    const{error}=await sb.auth.signInWithPassword({email,password:senha});
+    // cliente à parte, sem guardar sessão: conferir a senha não troca o login nem recarrega o app
+    if(!window.__sbVerif)window.__sbVerif=createClient(SUPABASE_URL,SUPABASE_KEY,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false,storageKey:"mdtec_verif"}});
+    const{error}=await window.__sbVerif.auth.signInWithPassword({email,password:senha});
     return !error;
   }catch(e){return false;}
 }
@@ -3544,7 +3556,7 @@ function WhatsAppModal({open,onClose,titulo,texto,setTexto,tel,setTel,children})
           <Txt value={texto} onChange={setTexto} rows={12}/>
         </Fld>
         <Inp label="WhatsApp de quem vai receber" value={tel} onChange={setTel} placeholder="(61) 99999-9999 — opcional"/>
-        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v144</span></div>
+        <div style={{fontSize:11,color:"#94a3b8",fontWeight:600,marginTop:-6}}>Sem número, o WhatsApp abre para você escolher o contato ou o grupo. A mensagem só é enviada quando você confirmar lá. <span style={{opacity:.6}}>· v145</span></div>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
           <Btn v="ghost" onClick={onClose}>Fechar</Btn>
           <Btn v="ghost" onClick={copiar}>{copiado?"✓ Copiado":"📋 Copiar texto"}</Btn>
@@ -10092,9 +10104,8 @@ function IgPostEditor({open,post,novo,contas,collaborators,companies,posts,userN
     if(!f.data){toast("📅 Defina a data e a hora da postagem antes de aprovar — ao aprovar, o post já vai para a agenda.","warn",7000);setAba("conteudo");return;}
     const quem=window.prompt("Quem aprovou? (nome do cliente ou de quem aprovou)",quemPadrao||"");if(quem===null)return;
     // aprovação só com a senha de quem está registrando
-    const senha=await pedirSenha("Confirmar aprovação",`Digite a sua senha para aprovar e agendar o post de ${conta?("@"+(conta.usuario||conta.nome).replace(/^@/,"")):"Instagram"}.`);
+    const senha=await pedirSenha("Confirmar aprovação",`Digite a sua senha para aprovar e agendar o post de ${conta?("@"+(conta.usuario||conta.nome).replace(/^@/,"")):"Instagram"}.`,conferirSenhaUsuario);
     if(senha===null)return;
-    if(!(await conferirSenhaUsuario(senha))){toast("🔒 Senha incorreta — o post não foi aprovado.","err",7000);return;}
     const base={aprovadoPor:quem.trim()||"Aprovado",aprovadoEm:new Date().toISOString(),aprovadoRegistradoPor:userName||"",aprovadoComSenha:true,aprovadoAssinatura:igAssinatura(f)};
     const extra={...base,status:"agendado",autoPublicar:true};
     setF(p=>({...p,...extra}));
@@ -11680,12 +11691,12 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
     const c=contaDe(p.contaId);const at=igAtrasado(p);
     return(<div key={p.id} draggable onDragStart={e=>{e.dataTransfer.setData("text/plain",p.id);setArrastando(p.id);}} onDragEnd={()=>setArrastando(null)}
       onClick={()=>setEditor(p)} title={(c?"@"+(c.usuario||c.nome).replace(/^@/,"")+" · ":"")+(p.legenda||"").slice(0,120)}
-      style={{background:"var(--bg2)",border:"1px solid "+(at?"#fca5a5":"var(--border2)"),borderLeft:"4px solid "+(c?.cor||"#cbd5e1"),borderRadius:10,padding:compacto?"5px 6px":"9px 10px",display:"flex",gap:compacto?6:9,alignItems:compacto?"center":"flex-start",cursor:"pointer",boxShadow:"0 1px 2px rgba(0,0,0,.04)",opacity:arrastando===p.id?.4:1}}>
-      <IgThumb post={p} size={compacto?26:46}/>
+      style={{background:"var(--bg2)",border:"1px solid "+(at?"#fca5a5":"var(--border2)"),borderLeft:"4px solid "+(c?.cor||"#cbd5e1"),borderRadius:10,padding:compacto?"5px 6px":"8px 9px",display:"flex",gap:compacto?6:8,alignItems:compacto?"center":"flex-start",cursor:"pointer",boxShadow:"0 1px 2px rgba(0,0,0,.04)",opacity:arrastando===p.id?.4:1,minWidth:0,overflow:"hidden"}}>
+      <IgThumb post={p} size={compacto?26:40}/>
       <div style={{minWidth:0,flex:1}}>
         {compacto?<div style={{fontSize:10.5,fontWeight:800,color:at||igRobo(p).estado==="erro"?"#b91c1c":"var(--text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.status==="publicado"?"✅":igRobo(p).estado==="erro"?"⚠️":["publicando","processando"].includes(igRobo(p).estado)?"⏳":at?"🔴":igAuto(p,c)?"🤖":""}{p.hora||"09:00"} · {c?(c.usuario||c.nome).replace(/^@/,""):"sem conta"}</div>
         :<>
-          <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}><b style={{fontSize:12}}>{c?"@"+(c.usuario||c.nome).replace(/^@/,""):"sem conta"}</b><span style={{fontSize:10.5,color:"var(--text3)"}}>{(IG_TIPO[p.tipo]||IG_TIPO.feed).ic} {(IG_TIPO[p.tipo]||IG_TIPO.feed).l}</span></div>
+          <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap",minWidth:0}}><b style={{fontSize:12,maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c?"@"+(c.usuario||c.nome).replace(/^@/,""):"sem conta"}</b><span style={{fontSize:10.5,color:"var(--text3)"}}>{(IG_TIPO[p.tipo]||IG_TIPO.feed).ic} {(IG_TIPO[p.tipo]||IG_TIPO.feed).l}</span></div>
           <div style={{fontSize:11.5,color:"var(--text2)",marginTop:2,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",lineHeight:1.35}}>{p.legenda||<i style={{color:"#94a3b8"}}>sem legenda</i>}</div>
           <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",marginTop:5}}>
             {p.status==="publicado"&&p.publicadoEm
@@ -11766,7 +11777,7 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
   const navBtn={width:30,height:30,borderRadius:8,border:"1px solid var(--border2)",background:"var(--bg2)",color:"var(--text)",cursor:"pointer",fontWeight:900,fontSize:15,fontFamily:"inherit"};
 
   const renderKanban=()=>(
-    <div style={{display:"grid",gridTemplateColumns:"repeat(5,minmax(210px,1fr))",gap:10,overflowX:"auto",paddingBottom:6}}>
+    <div className="ig-kanban" style={{display:"grid",gridTemplateColumns:"repeat(5,minmax(220px,1fr))",gap:10,overflowX:"auto",paddingBottom:6,scrollSnapType:"x proximity",WebkitOverflowScrolling:"touch"}}>
       {IG_STATUS.map(s=>{
         let lst=postsFiltrados.filter(p=>igEtapa(p)===s.k);
         if(s.k==="publicado")lst=lst.sort((a,b)=>(b.publicadoEm||"").localeCompare(a.publicadoEm||"")).slice(0,30);
@@ -11814,11 +11825,14 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
   const contasAtivas=contas.filter(c=>c.ativa!==false);
 
   return(
-    <div style={{padding:"18px 22px",display:"flex",flexDirection:"column",gap:14}}>
-      <style>{`.ig-dia .ig-add{opacity:0;transition:opacity .15s}.ig-dia:hover .ig-add{opacity:1}@media (hover:none){.ig-dia .ig-add{opacity:1}}`}</style>
+    <div className="ig-pagina" style={{padding:"18px 22px",display:"flex",flexDirection:"column",gap:14}}>
+      <style>{`.ig-dia .ig-add{opacity:0;transition:opacity .15s}.ig-dia:hover .ig-add{opacity:1}@media (hover:none){.ig-dia .ig-add{opacity:1}}
+.ig-kanban>div{scroll-snap-align:start;min-width:0}
+@media (max-width:900px){.ig-pagina{padding:12px 10px!important;gap:10px!important}.ig-kpis,.ig-contas{flex-wrap:nowrap!important;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding-bottom:2px}.ig-kpis::-webkit-scrollbar,.ig-contas::-webkit-scrollbar{display:none}.ig-kpis>*,.ig-contas>*{flex-shrink:0;white-space:nowrap}.ig-kpis>*{padding:6px 11px!important}}
+@media (max-width:600px){.ig-views{margin-left:0!important;width:100%;overflow-x:auto}.ig-views>button{flex:1 0 auto;padding:7px 9px!important}.ig-kanban{grid-template-columns:repeat(5,82vw)!important}.ig-titulo{font-size:20px!important}}`}</style>
       <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
         <div style={{width:42,height:42,borderRadius:12,background:"linear-gradient(45deg,#f9ce34,#ee2a7b,#6228d7)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,color:"#fff"}}>📸</div>
-        <div><div style={{fontSize:24,fontWeight:900,color:"var(--text)",lineHeight:1.1}}>Instagram</div><div style={{fontSize:12,color:"var(--text3)"}}>Planejamento e postagem · {contasAtivas.length} conta(s)</div></div>
+        <div><div className="ig-titulo" style={{fontSize:24,fontWeight:900,color:"var(--text)",lineHeight:1.1}}>Instagram</div><div style={{fontSize:12,color:"var(--text3)"}}>Planejamento e postagem · {contasAtivas.length} conta(s)</div></div>
         <div style={{marginLeft:"auto",display:"flex",gap:8,flexWrap:"wrap"}}>
           <Btn onClick={()=>setContasOpen(true)} v="ghost" sz="sm">👤 Contas</Btn>
           <Btn onClick={()=>{if(!contasAtivas.length){toast("Cadastre uma conta primeiro.","warn");setContasOpen(true);return;}novoPost();}} sz="sm" col="#e1306c">＋ Novo post</Btn>
@@ -11831,7 +11845,7 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
         <Btn onClick={()=>setContasOpen(true)} sz="sm" col="#e1306c">👤 Cadastrar contas</Btn>
       </div>}
 
-      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+      <div className="ig-kpis" style={{display:"flex",gap:8,flexWrap:"wrap"}}>
         {kpiBtn("hoje",kpi.hoje,"para hoje","#be185d","#fdf2f8")}
         {kpiBtn("atrasados",kpi.atrasados,"atrasados","#b91c1c","#fee2e2")}
         {kpiBtn("aprovacao",kpi.aprovacao,"aguardando aprovação","#b45309","#fef3c7")}
@@ -11840,7 +11854,7 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
         <div style={{display:"flex",alignItems:"baseline",gap:6,padding:"8px 14px",borderRadius:11,border:"1px solid #86efac55",background:"#f0fdf4"}}><span style={{fontSize:20,fontWeight:900,color:"#15803d",lineHeight:1}}>{kpi.publicadosMes}</span><span style={{fontSize:11,fontWeight:700,color:"#15803d"}}>publicados no mês</span></div>
       </div>
 
-      <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+      <div className="ig-contas" style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
         <button onClick={()=>setFConta("")} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 12px",borderRadius:20,border:"1.5px solid "+(fConta===""?"#e1306c":"var(--border2)"),background:fConta===""?"#fdf2f8":"var(--bg2)",color:fConta===""?"#be185d":"var(--text2)",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Todas as contas</button>
         {contasAtivas.map(c=>{const pend=ig.posts.filter(p=>p.contaId===c.id&&p.status!=="publicado").length;const at=ig.posts.filter(p=>p.contaId===c.id&&igAtrasado(p)).length;return(
           <button key={c.id} onClick={()=>setFConta(f=>f===c.id?"":c.id)} style={{display:"flex",alignItems:"center",gap:6,padding:"3px 10px 3px 4px",borderRadius:20,border:"1.5px solid "+(fConta===c.id?c.cor:"var(--border2)"),background:fConta===c.id?c.cor+"18":"var(--bg2)",color:"var(--text)",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
@@ -11851,7 +11865,7 @@ function InstagramPage({toast,data,myCollab,isAdmin,userName}){
       <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",padding:"10px 12px",borderRadius:12,background:"var(--bg2)",border:"1px solid var(--border2)"}}>
         <input value={fBusca} onChange={e=>setFBusca(e.target.value)} placeholder="🔍 Buscar na legenda, hashtags, notas…" style={{...sel,flex:"1 1 220px"}}/>
         <select value={fResp} onChange={e=>setFResp(e.target.value)} style={sel}><option value="">👤 Todos os responsáveis</option><option value="__sem__">— sem responsável —</option>{collaborators.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>
-        <div title="Escolha como ver — fica salvo para as próximas vezes" style={{display:"flex",border:"1px solid var(--border2)",borderRadius:10,overflow:"hidden",marginLeft:"auto"}}>
+        <div className="ig-views" title="Escolha como ver — fica salvo para as próximas vezes" style={{display:"flex",border:"1px solid var(--border2)",borderRadius:10,overflow:"hidden",marginLeft:"auto"}}>
           {[["calendario","📅 Calendário"],["kanban","▥ Kanban"],["lista","☰ Lista"],["relatorios","📊 Relatórios"]].map(([k,l])=><button key={k} onClick={()=>setView(k)} style={{padding:"7px 12px",border:"none",borderRight:k!=="relatorios"?"1px solid var(--border2)":"none",background:view===k?"#e1306c":"transparent",color:view===k?"#fff":"var(--text3)",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{l}</button>)}
         </div>
       </div>
@@ -13329,7 +13343,7 @@ function App(){
           })}
         </nav>
         <div className="sb-bottom" style={{padding:"10px 10px 14px",borderTop:"1px solid rgba(255,255,255,.06)"}}>
-          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 144</div>}
+          {!sideCol&&<div title="Versão do sistema publicada — confira se todos estão na mesma" style={{fontSize:9.5,color:"rgba(255,255,255,.35)",textAlign:"center",marginBottom:6}}>versão 145</div>}
           {/* Usuário logado */}
           {!sideCol&&(
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:9,background:"rgba(255,255,255,.04)",marginBottom:8}}>

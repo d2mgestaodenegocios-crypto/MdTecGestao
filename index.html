@@ -4541,10 +4541,57 @@ function BaixaAntigasModal({data,onFechar,onConfirmar}){
   </Modal>);
 }
 
+/* ── Busca do Kanban: texto parcial/total, sem diferenciar acento/maiúscula, + datas ── */
+const kbNorm=(s)=>String(s==null?"":s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ").trim();
+const kbDatasTexto=(iso)=>{ // "2026-11-23" -> "23/11/2026 23/11 2026-11-23 segunda-feira novembro ..."
+  if(!/^\d{4}-\d{2}-\d{2}/.test(iso||""))return "";
+  const [y,m,d]=String(iso).slice(0,10).split("-");
+  const dt=new Date(iso.slice(0,10)+"T12:00:00");
+  const dow=DOW_LONGO[dt.getDay()]||"";
+  return [d+"/"+m+"/"+y,d+"/"+m,d+"/"+m+"/"+y.slice(2),y+"-"+m+"-"+d,(+d)+"/"+(+m),dow,MN[+m-1]||"",MS[+m-1]||"",y].join(" ");
+};
+function kbMatch(t,data,q,hojeIso){
+  const termos=kbNorm(q).split(" ").filter(Boolean);
+  if(!termos.length)return true;
+  const nomeDe=(lista,id)=>((lista||[]).find(x=>x.id===id)||{}).name||"";
+  const hojeD=new Date(hojeIso+"T12:00:00");
+  const addDias=(n)=>{const x=new Date(hojeD);x.setDate(x.getDate()+n);return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0");};
+  const pri=(typeof PRI!=="undefined"&&PRI[t.priority])?PRI[t.priority].l:"";
+  const stat=((typeof getFullSTS==="function"?getFullSTS(data.customStatuses):[]).find(x=>x.id===t.status)||{}).l||"";
+  const texto=kbNorm([
+    t.title,t.description,t.internalNote,
+    taskCompaniesAll(t).map(id=>nomeDe(data.companies,id)).join(" "),
+    taskColabsAll(t).map(id=>nomeDe(data.collaborators,id)).join(" "),
+    toArr(t.labels).map(id=>nomeDe(data.labels,id)).join(" "),
+    nomeDe(data.sectors,t.sector),pri,stat,
+    toArr(t.checklist).map(c=>c&&(c.text||c.title||c.name)||"").join(" ")
+  ].join(" "));
+  const datas=kbNorm([kbDatasTexto(t.dueDate),t.dueTime,kbDatasTexto(String(t.completedAt||"").slice(0,10)),kbDatasTexto(String(t.createdAt||"").slice(0,10))].join(" "));
+  const prazo=kbNorm([kbDatasTexto(t.dueDate),t.dueTime].join(" "));
+  return termos.every(raw=>{
+    let tm=raw;
+    // atalhos de data
+    if(tm==="hoje")return t.dueDate===hojeIso||texto.includes(tm);
+    if(tm==="amanha")return t.dueDate===addDias(1)||texto.includes(tm);
+    if(tm==="ontem")return t.dueDate===addDias(-1)||texto.includes(tm);
+    // 2026-11-23 -> 23/11/2026 ; 23-11, 23.11.2026, 23/11 -> 23/11[/2026]
+    let m=tm.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if(m)tm=m[3].padStart(2,"0")+"/"+m[2].padStart(2,"0")+"/"+m[1];
+    else if((m=tm.match(/^(\d{1,2})[\/.\-](\d{1,2})(?:[\/.\-](\d{2,4}))?$/))){
+      tm=m[1].padStart(2,"0")+"/"+m[2].padStart(2,"0")+(m[3]?"/"+m[3]:"");
+      return datas.includes(tm); // é data: só procura nos campos de data
+    }
+    if(m&&/^\d{2}\/\d{2}\/\d{4}$/.test(tm))return datas.includes(tm);
+    return texto.includes(tm)||datas.includes(tm);
+  });
+}
+
 function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusChange,myCollabId,myCollab,isAdmin,onArchive,onPomodoro,onPin,onMoveTop,onUrgent,onArquivarConcluidas,onBaixaAntigas}){
   const [kanbanFilter,setKanbanFilter]=useState("week");
   const [ownerFilter,setOwnerFilter]=useState("all");
   const [collabFilter,setCollabFilter]=useState(""); // NEW: filter by specific collaborator
+  const [kbBusca,setKbBusca]=useState(""); // busca por nome/data (parcial, sem acento)
+  const kbBuscaAtiva=kbNorm(kbBusca)!=="";
   // Lembrete por WhatsApp
   const [waOpen,setWaOpen]=useState(false);
   const [resumoOpen,setResumoOpen]=useState(false);
@@ -4654,6 +4701,12 @@ function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusC
           {myCollabId&&<button style={btnStyle(ownerFilter==="mine","#8b5cf6")} onClick={()=>{setOwnerFilter("mine");setCollabFilter("");}}>⭐ Minhas</button>}
           {mySectors.length>0&&<button style={btnStyle(ownerFilter==="sector","#14b8a6")} onClick={()=>{setOwnerFilter("sector");setCollabFilter("");}}>🏢 Meu setor</button>}
           <button style={btnStyle(ownerFilter==="unassigned","#94a3b8")} onClick={()=>{setOwnerFilter("unassigned");setCollabFilter("");}}>Sem responsável</button>
+          <span style={{width:1,height:18,background:"var(--border2)",margin:"0 4px"}}/>
+          <div style={{position:"relative",display:"flex",alignItems:"center"}} title={"Busque por nome da tarefa, empresa, responsável, etiqueta ou data (ex.: 23/11, 23/11/2026, segunda, novembro, hoje). Não diferencia acentos. Ao buscar, o filtro de período é ignorado."}>
+            <input id="kb-busca" value={kbBusca} onChange={e=>setKbBusca(e.target.value)} onKeyDown={e=>{if(e.key==="Escape")setKbBusca("");}} placeholder="🔍 Buscar nome ou data…" autoComplete="off"
+              style={{padding:"4px "+(kbBusca?"26px":"12px")+" 4px 12px",borderRadius:20,border:"1.5px solid "+(kbBuscaAtiva?"#6366f1":"#e2e8f0"),background:"var(--bg3)",color:"var(--text)",fontSize:11.5,fontFamily:"inherit",outline:"none",width:200,transition:"all .15s"}}/>
+            {kbBusca&&<button onClick={()=>setKbBusca("")} title="Limpar busca (Esc)" style={{position:"absolute",right:6,background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:14,lineHeight:1,padding:0}}>×</button>}
+          </div>
           <div style={{marginLeft:"auto",display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>
           {nAntigas>0&&<button onClick={()=>setBaixaOpen(true)} title={"Tarefas atrasadas há mais de "+BAIXA_DIAS+" dias — dar baixa nas que já foram analisadas na Tributário/Folha"} style={{background:"#fef2f2",border:"1.5px solid #fca5a5",borderRadius:7,padding:"3px 10px",fontSize:11,fontWeight:800,color:"#b91c1c",cursor:"pointer",fontFamily:"inherit"}}>🧹 Atrasadas antigas ({nAntigas})</button>}
           <button onClick={()=>setResumoOpen(true)} title="Copiar as tarefas feitas no dia e mandar pelo WhatsApp" style={{background:"#16a34a",border:"1.5px solid #16a34a",borderRadius:7,padding:"3px 10px",fontSize:11,fontWeight:800,color:"#fff",cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:5,flexShrink:0}}>✅ Resumo do dia</button>
@@ -4695,6 +4748,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusC
               const isMine=myCollabId&&toArr(t.assignees).includes(myCollabId);
               if(!inSector&&!isMine) return false;
             }
+            if(kbBuscaAtiva) return kbMatch(t,data,kbBusca,today); // busca varre todos os períodos
             if(kanbanFilter==="all") return true;
             // Em Andamento e Em Revisão mostram TUDO o que está lá, qualquer que seja o prazo
             // (ex.: tarefa da semana que vem adiantada pelo colaborador não pode ficar escondida do gestor)
@@ -4790,7 +4844,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusC
                     border:`2px dashed ${isDropTarget?st.c:"var(--border)"}`,
                     borderRadius:10,transition:"all .2s",
                   }}>
-                    {isDropTarget?"Soltar aqui →":ownerFilter==="mine"?"Nenhuma tarefa sua":ownerFilter==="unassigned"?"Nenhuma sem responsável":ownerFilter==="sector"?"Nenhuma do setor":"Sem tarefas"}
+                    {isDropTarget?"Soltar aqui →":kbBuscaAtiva?"Nada encontrado":ownerFilter==="mine"?"Nenhuma tarefa sua":ownerFilter==="unassigned"?"Nenhuma sem responsável":ownerFilter==="sector"?"Nenhuma do setor":"Sem tarefas"}
                   </div>
                 )}
                 {isDropTarget&&tasks.length>0&&(

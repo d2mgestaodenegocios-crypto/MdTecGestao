@@ -4586,12 +4586,76 @@ function kbMatch(t,data,q,hojeIso){
   });
 }
 
+/* ── Mini calendário da busca do Kanban: clica no dia e filtra pelo prazo ── */
+function KbMiniCal({value,onPick,contagem,hojeIso}){
+  const [open,setOpen]=useState(false);
+  const base=value||hojeIso;
+  const [vis,setVis]=useState(()=>{const a=base.split("-");return {y:+a[0],m:+a[1]-1};});
+  const ref=useRef(null);
+  useEffect(()=>{
+    if(!open)return;
+    const fora=(e)=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false);};
+    const tecla=(e)=>{if(e.key==="Escape")setOpen(false);};
+    document.addEventListener("mousedown",fora);document.addEventListener("keydown",tecla);
+    return()=>{document.removeEventListener("mousedown",fora);document.removeEventListener("keydown",tecla);};
+  },[open]);
+  const pad=(n)=>String(n).padStart(2,"0");
+  const isoDe=(d)=>vis.y+"-"+pad(vis.m+1)+"-"+pad(d);
+  const lead=new Date(vis.y,vis.m,1).getDay();
+  const nDias=new Date(vis.y,vis.m+1,0).getDate();
+  const cels=[...Array(lead).fill(null),...Array.from({length:nDias},(_,i)=>i+1)];
+  const mover=(n)=>setVis(v=>{const d=new Date(v.y,v.m+n,1);return {y:d.getFullYear(),m:d.getMonth()};});
+  const irHoje=()=>{const a=hojeIso.split("-");setVis({y:+a[0],m:+a[1]-1});};
+  const rotulo=value?value.split("-").reverse().join("/"):"";
+  const navBtn={background:"none",border:"none",cursor:"pointer",fontSize:15,color:"#64748b",padding:"2px 8px",borderRadius:6,fontFamily:"inherit"};
+  return(
+    <div ref={ref} style={{position:"relative",display:"flex",alignItems:"center",gap:4}}>
+      <button onClick={()=>{if(!open){const a=base.split("-");setVis({y:+a[0],m:+a[1]-1});}setOpen(o=>!o);}} title="Escolher uma data no calendário"
+        style={{padding:"4px 11px",borderRadius:20,border:"1.5px solid "+(value?"#6366f1":"#e2e8f0"),background:value?"#6366f1":"var(--bg3)",color:value?"#fff":"#64748b",fontSize:11.5,fontWeight:700,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>
+        📅{rotulo?" "+rotulo:""}
+      </button>
+      {value&&<button onClick={()=>onPick("")} title="Limpar data" style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:14,lineHeight:1,padding:0}}>×</button>}
+      {open&&(
+        <div style={{position:"absolute",top:"calc(100% + 6px)",left:0,zIndex:300,width:248,padding:10,borderRadius:12,background:"var(--bg2)",border:"1px solid var(--border2)",boxShadow:"0 10px 30px rgba(0,0,0,.18)"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+            <button onClick={()=>mover(-1)} style={navBtn} title="Mês anterior">‹</button>
+            <button onClick={irHoje} title="Voltar para o mês de hoje" style={{...navBtn,fontSize:12.5,fontWeight:800,color:"var(--text)"}}>{MN[vis.m]} {vis.y}</button>
+            <button onClick={()=>mover(1)} style={navBtn} title="Próximo mês">›</button>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,textAlign:"center"}}>
+            {["D","S","T","Q","Q","S","S"].map((d,i)=><div key={i} style={{fontSize:10,fontWeight:800,color:"#94a3b8",padding:"2px 0"}}>{d}</div>)}
+            {cels.map((d,i)=>{
+              if(!d)return <div key={i}/>;
+              const iso=isoDe(d),sel=iso===value,hoje=iso===hojeIso,n=contagem[iso]||0;
+              return(
+                <button key={i} onClick={()=>{onPick(sel?"":iso);setOpen(false);}} title={n?n+" tarefa"+(n>1?"s":"")+" com prazo neste dia":"Sem tarefas neste dia"}
+                  style={{position:"relative",height:30,borderRadius:8,border:hoje&&!sel?"1.5px solid #6366f1":"1.5px solid transparent",background:sel?"#6366f1":"transparent",color:sel?"#fff":"var(--text)",fontSize:11.5,fontWeight:hoje||sel||n?800:500,cursor:"pointer",fontFamily:"inherit",padding:0,opacity:n||sel||hoje?1:.55}}
+                  onMouseEnter={e=>{if(!sel)e.currentTarget.style.background="var(--bg3)";}} onMouseLeave={e=>{if(!sel)e.currentTarget.style.background="transparent";}}>
+                  {d}
+                  {n>0&&<span style={{position:"absolute",bottom:2,left:"50%",transform:"translateX(-50%)",width:4,height:4,borderRadius:"50%",background:sel?"#fff":"#f59e0b"}}/>}
+                </button>
+              );
+            })}
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",marginTop:8,paddingTop:8,borderTop:"1px solid var(--border)"}}>
+            <button onClick={()=>{onPick(hojeIso);setOpen(false);}} style={{background:"none",border:"none",cursor:"pointer",fontSize:11.5,fontWeight:800,color:"#6366f1",fontFamily:"inherit"}}>Hoje</button>
+            <span style={{fontSize:10.5,color:"#94a3b8",alignSelf:"center"}}>● dias com tarefas</span>
+            <button onClick={()=>{onPick("");setOpen(false);}} style={{background:"none",border:"none",cursor:"pointer",fontSize:11.5,fontWeight:700,color:"#94a3b8",fontFamily:"inherit"}}>Limpar</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusChange,myCollabId,myCollab,isAdmin,onArchive,onPomodoro,onPin,onMoveTop,onUrgent,onArquivarConcluidas,onBaixaAntigas}){
   const [kanbanFilter,setKanbanFilter]=useState("week");
   const [ownerFilter,setOwnerFilter]=useState("all");
   const [collabFilter,setCollabFilter]=useState(""); // NEW: filter by specific collaborator
   const [kbBusca,setKbBusca]=useState(""); // busca por nome/data (parcial, sem acento)
-  const kbBuscaAtiva=kbNorm(kbBusca)!=="";
+  const [kbDia,setKbDia]=useState(""); // dia escolhido no mini calendário (AAAA-MM-DD)
+  const kbBuscaAtiva=kbNorm(kbBusca)!==""||!!kbDia;
+  const kbContagem={};data.tasks.forEach(t=>{if(t.status!=="archived"&&t.dueDate)kbContagem[t.dueDate]=(kbContagem[t.dueDate]||0)+1;});
   // Lembrete por WhatsApp
   const [waOpen,setWaOpen]=useState(false);
   const [resumoOpen,setResumoOpen]=useState(false);
@@ -4707,6 +4771,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusC
               style={{padding:"4px "+(kbBusca?"26px":"12px")+" 4px 12px",borderRadius:20,border:"1.5px solid "+(kbBuscaAtiva?"#6366f1":"#e2e8f0"),background:"var(--bg3)",color:"var(--text)",fontSize:11.5,fontFamily:"inherit",outline:"none",width:200,transition:"all .15s"}}/>
             {kbBusca&&<button onClick={()=>setKbBusca("")} title="Limpar busca (Esc)" style={{position:"absolute",right:6,background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:14,lineHeight:1,padding:0}}>×</button>}
           </div>
+          <KbMiniCal value={kbDia} onPick={setKbDia} contagem={kbContagem} hojeIso={today}/>
           <div style={{marginLeft:"auto",display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>
           {nAntigas>0&&<button onClick={()=>setBaixaOpen(true)} title={"Tarefas atrasadas há mais de "+BAIXA_DIAS+" dias — dar baixa nas que já foram analisadas na Tributário/Folha"} style={{background:"#fef2f2",border:"1.5px solid #fca5a5",borderRadius:7,padding:"3px 10px",fontSize:11,fontWeight:800,color:"#b91c1c",cursor:"pointer",fontFamily:"inherit"}}>🧹 Atrasadas antigas ({nAntigas})</button>}
           <button onClick={()=>setResumoOpen(true)} title="Copiar as tarefas feitas no dia e mandar pelo WhatsApp" style={{background:"#16a34a",border:"1.5px solid #16a34a",borderRadius:7,padding:"3px 10px",fontSize:11,fontWeight:800,color:"#fff",cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:5,flexShrink:0}}>✅ Resumo do dia</button>
@@ -4748,7 +4813,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusC
               const isMine=myCollabId&&toArr(t.assignees).includes(myCollabId);
               if(!inSector&&!isMine) return false;
             }
-            if(kbBuscaAtiva) return kbMatch(t,data,kbBusca,today); // busca varre todos os períodos
+            if(kbBuscaAtiva) return (!kbDia||t.dueDate===kbDia)&&kbMatch(t,data,kbBusca,today); // busca varre todos os períodos
             if(kanbanFilter==="all") return true;
             // Em Andamento e Em Revisão mostram TUDO o que está lá, qualquer que seja o prazo
             // (ex.: tarefa da semana que vem adiantada pelo colaborador não pode ficar escondida do gestor)

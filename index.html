@@ -7781,7 +7781,7 @@ function NotificationBell({notifications,onRead,onReadAll,onNavigate,currentUser
 
 /* ===========================================
    CHAT PAGE */
-function ChatWidget({data,setData,currentUser,currentUserId,myCollab,unreadCount}){
+function ChatWidget({data,setData,currentUser,currentUserId,myCollab,unreadCount,isAdmin}){
   const [open,setOpen]=useState(false);
   const [minimized,setMinimized]=useState(false);
 
@@ -7847,20 +7847,63 @@ function ChatWidget({data,setData,currentUser,currentUserId,myCollab,unreadCount
     typingTimeoutRef.current=setTimeout(()=>broadcastTyping(false),3000);
   };
 
+  // ── Controle de leitura: quem viu cada mensagem ──
+  const [recId,setRecId]=useState(null);   // mensagem com o detalhe "quem viu" aberto
+  const [visTick,setVisTick]=useState(0);
+  useEffect(()=>{const f=()=>setVisTick(t=>t+1);document.addEventListener("visibilitychange",f);return()=>document.removeEventListener("visibilitychange",f);},[]);
+  const membrosDe=(sectorId)=>(data.collaborators||[]).filter(c=>{const ss=toArr(c.sectors).length>0?toArr(c.sectors):(c.sector?[c.sector]:[]);return ss.includes(sectorId);});
+  // Só conta como "visto" com o chat aberto, expandido, no canal da mensagem e a aba visível
+  useEffect(()=>{
+    if(!open||minimized||!currentUserId||!activeSector)return;
+    if(typeof document!=="undefined"&&document.visibilityState!=="visible")return;
+    const pend=messages.filter(m=>m.rastreio&&m.authorId!==currentUserId&&!(m.readBy&&m.readBy[currentUserId]));
+    if(!pend.length)return;
+    const ids=new Set(pend.map(m=>m.id));const agora=new Date().toISOString();
+    setData(d=>({...d,chatMessages:(d.chatMessages||[]).map(x=>ids.has(x.id)&&!(x.readBy&&x.readBy[currentUserId])?{...x,readBy:{...(x.readBy||{}),[currentUserId]:agora}}:x)}));
+  },[open,minimized,activeSector,messages.length,currentUserId,visTick]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Editar / excluir mensagens: SOMENTE administrador
+  const [editId,setEditId]=useState(null);
+  const [editTxt,setEditTxt]=useState("");
+  const [hoverId,setHoverId]=useState(null);
+  const iniciarEdicao=(m)=>{if(!isAdmin)return;setEditId(m.id);setEditTxt(m.text||"");};
+  const cancelarEdicao=()=>{setEditId(null);setEditTxt("");};
+  const salvarEdicao=()=>{
+    if(!isAdmin)return;
+    const novo=editTxt.trim();
+    if(!novo){return;}
+    const id=editId;
+    setData(d=>({...d,chatMessages:(d.chatMessages||[]).map(x=>x.id===id&&x.text!==novo?{...x,text:novo,editedAt:new Date().toISOString(),editedBy:currentUser}:x)}));
+    cancelarEdicao();
+  };
+  const excluirMsg=(m)=>{
+    if(!isAdmin)return;
+    if(!window.confirm("Excluir esta mensagem do chat? Essa ação não pode ser desfeita."))return;
+    setData(d=>({...d,chatMessages:(d.chatMessages||[]).filter(x=>x.id!==m.id)}));
+    if(editId===m.id)cancelarEdicao();
+  };
+
   const sendMsg=()=>{
     if(!msg.trim()) return;
     broadcastTyping(false);
     const text=msg.trim();
-    const mentionNames=[];
-    const re=/@([\w\s]+?)(?=\s|$|@)/g;
-    let m;
-    while((m=re.exec(text))!==null) mentionNames.push(m[1].trim());
+    // quem foi marcado com @nome (ignora acento/maiúscula; aceita nome composto)
+    const nrmC=(x)=>String(x||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+    let textoN=nrmC(text);
+    const mencionados=[];
+    // nomes mais longos primeiro: "@Ana Paula" marca só a Ana Paula, não a "Ana"
+    [...(data.collaborators||[])].filter(u=>u&&u.name&&u.id!==currentUserId).sort((a,b)=>b.name.length-a.name.length).forEach(u=>{
+      const nm=nrmC(u.name).trim().replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+      const re=new RegExp("@"+nm+"(?![a-z0-9])");
+      if(re.test(textoN)){mencionados.push(u.id);textoN=textoN.replace(re,m=>" ".repeat(m.length));}
+    });
 
-    const newMsg={id:uid(),sectorId:activeSector,author:currentUser,authorId:currentUserId||null,text,createdAt:new Date().toISOString()};
+    // mentions = marcados · readBy = quem já viu (id → data/hora) · rastreio = controle de leitura ligado
+    const newMsg={id:uid(),sectorId:activeSector,author:currentUser,authorId:currentUserId||null,text,createdAt:new Date().toISOString(),mentions:mencionados,readBy:{},rastreio:true};
 
     const newNotifs=[];
-    mentionNames.forEach(name=>{
-      const u=data.collaborators.find(x=>x.name.toLowerCase()===name.toLowerCase());
+    mencionados.forEach(uid2=>{
+      const u=data.collaborators.find(x=>x.id===uid2);
       if(u&&u.id!==currentUserId){
         newNotifs.push({id:uid(),toId:u.id,icon:"💬",text:`${currentUser} mencionou você no chat: "${text.slice(0,60)}${text.length>60?"...":""}"`,page:"chat",createdAt:new Date().toISOString(),read:false});
       }
@@ -7944,6 +7987,17 @@ function ChatWidget({data,setData,currentUser,currentUserId,myCollab,unreadCount
                 // Bordas da bolha: arredondamento contínuo quando mesmo autor
                 const brMe=`${sameAuthor?4:13}px ${sameAuthorNext?4:13}px ${sameAuthorNext?4:13}px ${sameAuthor?4:13}px`;
                 const brOther=`${sameAuthor?4:13}px ${sameAuthor?4:13}px ${sameAuthorNext?4:13}px ${sameAuthorNext?4:13}px`;
+                // Controle de leitura (só autor da mensagem e administrador enxergam)
+                const menc=toArr(m.mentions);
+                const membrosCanal=membrosDe(m.sectorId).map(c=>c.id).filter(id=>id!==m.authorId);
+                const alvo=menc.length?menc:membrosCanal;
+                const lerRec=m.readBy||{};
+                const leram=alvo.filter(id=>lerRec[id]);
+                const todos=alvo.length>0&&leram.length===alvo.length;
+                const verRec=!!m.rastreio&&(isAdmin||isMe)&&alvo.length>0;
+                const nomeDe=(id)=>((data.collaborators||[]).find(c=>c.id===id)||{}).name||"?";
+                const fmtHora=(iso)=>{const d=new Date(iso);const h=d.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});return d.toDateString()===new Date().toDateString()?h:d.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})+" "+h;};
+                const outrosCanal=membrosCanal.filter(id=>!menc.includes(id));
                 return(
                   <React.Fragment key={m.id}>
                     {showDateSep&&(
@@ -7953,7 +8007,7 @@ function ChatWidget({data,setData,currentUser,currentUserId,myCollab,unreadCount
                         <div style={{flex:1,height:1,background:"var(--border)"}}/>
                       </div>
                     )}
-                    <div style={{display:"flex",gap:8,alignItems:"flex-end",flexDirection:isMe?"row-reverse":"row",marginTop:sameAuthor?2:10}}>
+                    <div onMouseEnter={()=>isAdmin&&setHoverId(m.id)} onMouseLeave={()=>isAdmin&&setHoverId(h=>h===m.id?null:h)} style={{display:"flex",gap:8,alignItems:"flex-end",flexDirection:isMe?"row-reverse":"row",marginTop:sameAuthor?2:10}}>
                       {/* Avatar — sempre ocupa espaço, só mostra no último da sequência */}
                       <div style={{width:30,flexShrink:0,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
                         {!isMe&&!sameAuthorNext&&(
@@ -7981,7 +8035,21 @@ function ChatWidget({data,setData,currentUser,currentUserId,myCollab,unreadCount
                           border:isMe?"none":"1px solid var(--border)",
                           wordBreak:"break-word",
                         }}>
-                          <RichText text={m.text} collaborators={data.collaborators} isMe={isMe}/>
+                          {isAdmin&&editId===m.id?(
+                            <div style={{minWidth:210}}>
+                              <textarea autoFocus value={editTxt} onChange={e=>setEditTxt(e.target.value)}
+                                onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();salvarEdicao();}else if(e.key==="Escape"){e.preventDefault();cancelarEdicao();}}}
+                                rows={Math.min(6,Math.max(2,editTxt.split("\n").length))}
+                                style={{width:"100%",boxSizing:"border-box",resize:"none",borderRadius:8,border:"1.5px solid #c7d2fe",padding:"6px 8px",fontSize:13,fontFamily:"inherit",background:"#fff",color:"#1e293b",outline:"none"}}/>
+                              <div style={{display:"flex",gap:6,justifyContent:"flex-end",marginTop:5}}>
+                                <button onClick={cancelarEdicao} style={{border:"none",background:"rgba(0,0,0,.15)",color:isMe?"#fff":"var(--text)",borderRadius:6,padding:"2px 9px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Cancelar</button>
+                                <button onClick={salvarEdicao} disabled={!editTxt.trim()} style={{border:"none",background:"#fff",color:"#6366f1",borderRadius:6,padding:"2px 9px",fontSize:11,fontWeight:800,cursor:editTxt.trim()?"pointer":"not-allowed",fontFamily:"inherit",opacity:editTxt.trim()?1:.5}}>Salvar</button>
+                              </div>
+                            </div>
+                          ):<>
+                            <RichText text={m.text} collaborators={data.collaborators} isMe={isMe}/>
+                            {m.editedAt&&<span title={"Editada por "+(m.editedBy||"administrador")+" em "+new Date(m.editedAt).toLocaleString("pt-BR")} style={{fontSize:9,opacity:.7,marginLeft:6,fontStyle:"italic"}}>(editada)</span>}
+                          </>}
                         </div>
                         {/* Hora — só na última da sequência */}
                         {!sameAuthorNext&&(
@@ -7989,9 +8057,46 @@ function ChatWidget({data,setData,currentUser,currentUserId,myCollab,unreadCount
                             {new Date(m.createdAt).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}
                           </div>
                         )}
+                        {verRec&&(
+                          <div style={{marginTop:3,paddingLeft:isMe?0:4,paddingRight:isMe?4:0,alignSelf:isMe?"flex-end":"flex-start",maxWidth:"100%"}}>
+                            <button onClick={()=>setRecId(r=>r===m.id?null:m.id)} title="Clique para ver quem viu esta mensagem"
+                              style={{border:"none",background:"none",cursor:"pointer",padding:0,fontFamily:"inherit",fontSize:10,fontWeight:800,color:todos?"#16a34a":leram.length>0?"#d97706":"#94a3b8"}}>
+                              {leram.length>0?"✓✓":"✓"} {menc.length>0?"🏷":"👁"} {leram.length}/{alvo.length} {alvo.length===1?"viu":"viram"}
+                            </button>
+                            {recId===m.id&&(
+                              <div style={{marginTop:4,padding:"8px 10px",borderRadius:10,background:"var(--bg2)",border:"1px solid var(--border2)",boxShadow:"0 4px 14px rgba(0,0,0,.12)",minWidth:200,fontSize:11,color:"var(--text)",textAlign:"left"}}>
+                                {menc.length>0&&<>
+                                  <div style={{fontWeight:800,color:"#6366f1",marginBottom:3}}>🏷 Marcados</div>
+                                  {menc.map(id=>(
+                                    <div key={id} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"1px 0"}}>
+                                      <span style={{fontWeight:700}}>{nomeDe(id)}{!membrosCanal.includes(id)&&<span style={{fontWeight:500,color:"#94a3b8"}}> · fora deste canal</span>}</span>
+                                      <span style={{color:lerRec[id]?"#16a34a":"#ef4444",fontWeight:700,whiteSpace:"nowrap"}}>{lerRec[id]?"✅ viu "+fmtHora(lerRec[id]):"⏳ não viu"}</span>
+                                    </div>
+                                  ))}
+                                </>}
+                                {outrosCanal.length>0&&<>
+                                  <div style={{fontWeight:800,color:"#64748b",margin:(menc.length?"7px":"0")+" 0 3px"}}>👁 {menc.length?"Demais do canal":"Equipe do canal"}</div>
+                                  {outrosCanal.map(id=>(
+                                    <div key={id} style={{display:"flex",justifyContent:"space-between",gap:10,padding:"1px 0"}}>
+                                      <span>{nomeDe(id)}</span>
+                                      <span style={{color:lerRec[id]?"#16a34a":"#94a3b8",whiteSpace:"nowrap"}}>{lerRec[id]?"viu "+fmtHora(lerRec[id]):"não viu"}</span>
+                                    </div>
+                                  ))}
+                                </>}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
+                      {/* Ações do administrador (editar/excluir) */}
+                      {isAdmin&&editId!==m.id&&(
+                        <div style={{width:24,flexShrink:0,display:"flex",flexDirection:"column",gap:2,opacity:hoverId===m.id?1:0,transition:"opacity .12s"}}>
+                          <button onClick={()=>iniciarEdicao(m)} title="Editar mensagem (somente administrador)" style={{border:"1px solid var(--border)",background:"var(--bg2)",borderRadius:6,width:22,height:22,fontSize:11,cursor:"pointer",padding:0,lineHeight:1}}>✏️</button>
+                          <button onClick={()=>excluirMsg(m)} title="Excluir mensagem (somente administrador)" style={{border:"1px solid var(--border)",background:"var(--bg2)",borderRadius:6,width:22,height:22,fontSize:11,cursor:"pointer",padding:0,lineHeight:1}}>🗑</button>
+                        </div>
+                      )}
                       {/* Espaço do lado direito para mensagens do outro */}
-                      {!isMe&&<div style={{width:30,flexShrink:0}}/>}
+                      {!isMe&&!isAdmin&&<div style={{width:30,flexShrink:0}}/>}
                     </div>
                   </React.Fragment>
                 );
@@ -9527,7 +9632,7 @@ async function igEnviarMidia(file){
       if(!up.error){
         const pub=sb.storage.from("instagram").getPublicUrl(path);
         const url=pub?.data?.publicUrl;
-        if(url)return{id,tipo:"video",thumb,nome:file.name||"video.mp4",url,storage:path,...meta};
+        if(url)return{id,tipo:"video",thumb,nome:file.name||"video.mp4",url,storage:path,tam:file.size,...meta};
       }
     }
   }catch(e){}
@@ -9537,7 +9642,7 @@ async function igEnviarMidia(file){
   const{error}=await sb.from("app_data").upsert({id,payload:{tipo:"ig-midia",mime:file.type||"video/mp4",nome:file.name||"video.mp4",data:dataUrl,em:Date.now()}});
   if(error)throw error;
   igMidiaCache.set(id,dataUrl);
-  return{id,tipo:"video",thumb,nome:file.name||"video.mp4",...meta};
+  return{id,tipo:"video",thumb,nome:file.name||"video.mp4",tam:file.size,...meta};
 }
 // Devolve uma URL utilizável (dataURL ou pública) para a mídia
 async function igCarregarMidia(m){
@@ -9859,6 +9964,31 @@ function IgFormatoAjuste({f,setF,conta,publicado,toast}){
     </div>}
   </div>);
 }
+// Traduz o erro da Meta em causa provável + o que fazer
+function IgDicaErro({erro}){
+  const e=String(erro||"");let titulo="",passos=[];
+  if(/2207077|2207076|2207082|Media upload has failed/i.test(e)&&!/2207026/.test(e)){
+    titulo="O Instagram recebeu o vídeo, mas não conseguiu processá-lo (esse código não tem explicação oficial da Meta).";
+    passos=["Clique em “Tentar de novo” — às vezes é só instabilidade momentânea do Instagram.","Se falhar de novo, reexporte o vídeo em MP4 (H.264 + áudio AAC), em SDR (sem HDR), até 1080×1920, 30 fps e abaixo de 25 Mbps. Vídeo gravado/exportado em HDR é uma causa comum.","Troque o arquivo em “Mídias” pelo vídeo reexportado e agende de novo."];
+  }else if(/2207026|video format|formato do v/i.test(e)){
+    titulo="O formato do vídeo não é aceito pelo Instagram.";
+    passos=["Converta para MP4 (H.264 + áudio AAC) ou MOV.","Troque o arquivo em “Mídias” e agende de novo."];
+  }else if(/2207003|2207052|too long to download|demor/i.test(e)){
+    titulo="O Instagram demorou demais para baixar o arquivo.";
+    passos=["Clique em “Tentar de novo”.","Se repetir, use um vídeo mais leve (menor tamanho em MB)."];
+  }else if(/2207042|maximum number of posts|limite di/i.test(e)){
+    titulo="Esta conta atingiu o limite diário de publicações pela API do Instagram.";
+    passos=["Tente de novo amanhã ou publique este post manualmente."];
+  }else if(/\b190\b|access token|OAuth|token/i.test(e)){
+    titulo="A conexão com o Instagram expirou ou perdeu permissão.";
+    passos=["Reconecte a conta em Marketing → Contas e tente de novo."];
+  }
+  if(!titulo)return null;
+  return(<div style={{marginTop:6,padding:"7px 10px",borderRadius:9,background:"#fff",border:"1px dashed #fca5a5",color:"#7f1d1d",fontSize:12}}>
+    <div style={{fontWeight:800,marginBottom:3}}>💡 {titulo}</div>
+    <ol style={{margin:0,paddingLeft:18,lineHeight:1.5}}>{passos.map((t,i)=><li key={i}>{t}</li>)}</ol>
+  </div>);
+}
 // Checagem do formato (aparece no editor; erros impedem agendar)
 function igChecarFormato(f){
   const ms=f.midias||[];const imgs=ms.filter(m=>m.tipo!=="video"),vids=ms.filter(m=>m.tipo==="video");
@@ -9874,6 +10004,9 @@ function igChecarFormato(f){
     if(v.dur!=null){if(v.dur<3)err(`Vídeo com ${v.dur.toFixed(1)} s — o mínimo é 3 s.`);
       if(f.tipo==="story"&&v.dur>60)err(`Story em vídeo aceita até 60 s (este tem ${Math.round(v.dur)} s).`);
       if(f.tipo!=="story"&&v.dur>900)err(`Vídeo com ${Math.round(v.dur/60)} min — o máximo é 15 min.`);}
+    if(v.tam&&v.dur>0){const mbps=(v.tam*8/v.dur)/1e6;if(mbps>25)av(`Vídeo com ~${mbps.toFixed(0)} Mbps — acima de 25 Mbps o Instagram costuma recusar o envio. Reexporte com bitrate menor.`);}
+    if(v.nome&&!/\.(mp4|mov)$/i.test(v.nome))av("O Instagram aceita vídeo em MP4 ou MOV — outros formatos costumam dar erro na publicação.");
+    if(v.w&&v.w>1920)av(`Vídeo com ${v.w}px de largura — o máximo aceito é 1920 px. Reexporte em 1080×1920.`);
     const r=igRazao(v);if(r!=null&&(f.tipo==="reels"||f.tipo==="story")&&Math.abs(r-9/16)>0.06)av("O vídeo não está em pé (9:16) — no Reels/Story ele aparece com faixas ou cortado.");
   });
   if(f.tipo!=="story"){if(txt.length>2200)err(`Legenda com ${txt.length} caracteres — o máximo é 2.200.`);if(nTags>30)err(`${nTags} hashtags — o máximo é 30.`);if(nMen>20)err(`${nMen} @menções — o máximo é 20.`);}
@@ -10305,7 +10438,7 @@ function IgPostEditor({open,post,novo,contas,collaborators,companies,posts,userN
         {publicado&&<div style={{padding:"8px 12px",borderRadius:10,background:"#f0fdf4",border:"1px solid #86efac",fontSize:12.5,color:"#166534"}}>✅ Publicado {f.publicadoEm?"em "+new Date(f.publicadoEm).toLocaleString("pt-BR"):""}{f.publicadoPor?" por "+f.publicadoPor:""}. {f.link&&<a href={f.link} target="_blank" rel="noopener noreferrer" style={{color:"#be185d",fontWeight:800}}>ver post ↗</a>} — post publicado não pode ser alterado.</div>}
         <IgHistoricoRepub f={f} posts={posts} contas={contas}/>
         {!publicado&&igRobo(f).estado==="erro"&&<div style={{padding:"10px 12px",borderRadius:11,background:"#fef2f2",border:"1px solid #fca5a5",fontSize:12.5,color:"#991b1b",display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
-          <span style={{flex:"1 1 260px"}}><b>⚠️ O robô não conseguiu publicar.</b><br/>{igRobo(f).erro}{f.robo?.em?<span style={{color:"#b91c1c",fontSize:11}}> · {new Date(f.robo.em).toLocaleString("pt-BR")}</span>:null}</span>
+          <span style={{flex:"1 1 260px"}}><b>⚠️ O robô não conseguiu publicar.</b><br/>{igRobo(f).erro}{f.robo?.em?<span style={{color:"#b91c1c",fontSize:11}}> · {new Date(f.robo.em).toLocaleString("pt-BR")}</span>:null}<IgDicaErro erro={igRobo(f).erro}/></span>
           {onTentar&&conectada&&etapa==="agendado"&&<Btn onClick={()=>onTentar(finalizar())} sz="sm" col="#dc2626">🔁 Tentar de novo</Btn>}
         </div>}
         {!publicado&&(igRobo(f).estado==="processando"||igRobo(f).estado==="publicando")&&<div style={{padding:"9px 12px",borderRadius:11,background:"#fffbeb",border:"1px solid #fcd34d",fontSize:12.5,color:"#92400e"}}>⏳ <b>Publicando…</b> O Instagram está processando a mídia. O robô termina sozinho em alguns minutos.</div>}
@@ -13756,7 +13889,7 @@ function App(){
       })()}
       <Toasts list={toasts}/>
       <PomodoroWidget request={pomodoroTask} onRecord={recordPomodoro} tasks={(dataForUser.tasks||[]).filter(t=>t.status!=="done"&&t.status!=="archived"&&!t.archivedAt).sort((a,b)=>(toArr(b.assignees).includes(myCollabId)?1:0)-(toArr(a.assignees).includes(myCollabId)?1:0))}/>
-      <ChatWidget data={data} setData={setData} currentUser={userName} currentUserId={myCollabId} myCollab={myCollab}/>
+      <ChatWidget data={data} setData={setData} currentUser={userName} currentUserId={myCollabId} myCollab={myCollab} isAdmin={!!isAdmin}/>
       <MentionAlertBanner
         notifications={data.notifications||[]}
         currentUserId={myCollabId}

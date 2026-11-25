@@ -4649,9 +4649,13 @@ function KbMiniCal({value,onPick,contagem,hojeIso}){
 }
 
 function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusChange,myCollabId,myCollab,isAdmin,onArchive,onPomodoro,onPin,onMoveTop,onUrgent,onArquivarConcluidas,onBaixaAntigas}){
-  const [kanbanFilter,setKanbanFilter]=useState("week");
-  const [ownerFilter,setOwnerFilter]=useState("all");
-  const [collabFilter,setCollabFilter]=useState(""); // NEW: filter by specific collaborator
+  // Filtros combináveis: dentro de cada grupo vale "OU" (Hoje + Vencidas), entre grupos vale "E"
+  const [periodos,setPeriodos]=useState(["week"]);   // "week" | "today" | "overdue"  (vazio = Todas)
+  const [donos,setDonos]=useState([]);               // "mine" | "sector" | "unassigned"  (vazio = Todas)
+  const [colabs,setColabs]=useState([]);             // ids de colaboradores  (vazio = Todos)
+  const alternar=(set,v)=>set(a=>a.includes(v)?a.filter(x=>x!==v):[...a,v]);
+  const filtrosPadrao=periodos.length===1&&periodos[0]==="week"&&donos.length===0&&colabs.length===0;
+  const limparFiltros=()=>{setPeriodos(["week"]);setDonos([]);setColabs([]);};
   const [kbBusca,setKbBusca]=useState(""); // busca por nome/data (parcial, sem acento)
   const [kbDia,setKbDia]=useState(""); // dia escolhido no mini calendário (AAAA-MM-DD)
   const kbBuscaAtiva=kbNorm(kbBusca)!==""||!!kbDia;
@@ -4756,15 +4760,17 @@ function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusC
           <QuickCreateBar data={data} onAdd={onAdd} compacto/>
           <span style={{width:1,height:18,background:"var(--border2)",margin:"0 4px"}}/>
           <span style={{fontSize:11.5,fontWeight:700,color:"#64748b"}}>📅</span>
-          {[["week","Esta semana"],["today","🟡 Hoje"],["overdue","🔴 Vencidas"],["all","☰ Todas"]].map(([v,l])=>(
-            <button key={v} style={btnStyle(kanbanFilter===v)} onClick={()=>setKanbanFilter(v)}>{l}</button>
+          {[["week","Esta semana"],["today","🟡 Hoje"],["overdue","🔴 Vencidas"]].map(([v,l])=>(
+            <button key={v} title="Clique para marcar ou desmarcar — dá para combinar vários" style={btnStyle(periodos.includes(v))} onClick={()=>alternar(setPeriodos,v)}>{l}</button>
           ))}
+          <button title="Mostrar todas, sem filtro de período" style={btnStyle(periodos.length===0)} onClick={()=>setPeriodos([])}>☰ Todas</button>
           <span style={{width:1,height:18,background:"var(--border2)",margin:"0 4px"}}/>
           <span style={{fontSize:11.5,fontWeight:700,color:"#64748b"}}>👤</span>
-          <button style={btnStyle(ownerFilter==="all","#64748b")} onClick={()=>{setOwnerFilter("all");setCollabFilter("");}}>Todas</button>
-          {myCollabId&&<button style={btnStyle(ownerFilter==="mine","#8b5cf6")} onClick={()=>{setOwnerFilter("mine");setCollabFilter("");}}>⭐ Minhas</button>}
-          {mySectors.length>0&&<button style={btnStyle(ownerFilter==="sector","#14b8a6")} onClick={()=>{setOwnerFilter("sector");setCollabFilter("");}}>🏢 Meu setor</button>}
-          <button style={btnStyle(ownerFilter==="unassigned","#94a3b8")} onClick={()=>{setOwnerFilter("unassigned");setCollabFilter("");}}>Sem responsável</button>
+          <button title="Sem filtro de responsável" style={btnStyle(donos.length===0,"#64748b")} onClick={()=>setDonos([])}>Todas</button>
+          {myCollabId&&<button title="Clique para marcar ou desmarcar — dá para combinar vários" style={btnStyle(donos.includes("mine"),"#8b5cf6")} onClick={()=>alternar(setDonos,"mine")}>⭐ Minhas</button>}
+          {mySectors.length>0&&<button title="Clique para marcar ou desmarcar — dá para combinar vários" style={btnStyle(donos.includes("sector"),"#14b8a6")} onClick={()=>alternar(setDonos,"sector")}>🏢 Meu setor</button>}
+          <button title="Clique para marcar ou desmarcar — dá para combinar vários" style={btnStyle(donos.includes("unassigned"),"#94a3b8")} onClick={()=>alternar(setDonos,"unassigned")}>Sem responsável</button>
+          {!filtrosPadrao&&<button onClick={limparFiltros} title="Voltar ao filtro padrão (Esta semana, sem responsável marcado)" style={{background:"none",border:"1.5px dashed #fca5a5",borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:800,color:"#dc2626",cursor:"pointer",fontFamily:"inherit"}}>✕ Limpar filtros</button>}
           <span style={{width:1,height:18,background:"var(--border2)",margin:"0 4px"}}/>
           <div style={{position:"relative",display:"flex",alignItems:"center"}} title={"Busque por nome da tarefa, empresa, responsável, etiqueta ou data (ex.: 23/11, 23/11/2026, segunda, novembro, hoje). Não diferencia acentos. Ao buscar, o filtro de período é ignorado."}>
             <input id="kb-busca" value={kbBusca} onChange={e=>setKbBusca(e.target.value)} onKeyDown={e=>{if(e.key==="Escape")setKbBusca("");}} placeholder="🔍 Buscar nome ou data…" autoComplete="off"
@@ -4786,10 +4792,10 @@ function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusC
         {isAdmin&&(
         <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap",marginTop:6}}>
           <span style={{fontSize:11.5,fontWeight:700,color:"#64748b",marginRight:2}}>🔍</span>
-          <button style={btnStyle(collabFilter==="","#6366f1")} onClick={()=>setCollabFilter("")}>Todos</button>
+          <button title="Sem filtro de colaborador" style={btnStyle(colabs.length===0,"#6366f1")} onClick={()=>setColabs([])}>Todos</button>
           {data.collaborators.map(u=>(
-            <button key={u.id} style={{...btnStyle(collabFilter===u.id,u.color),display:"flex",alignItems:"center",gap:4}}
-              onClick={()=>{setCollabFilter(collabFilter===u.id?"":u.id);setOwnerFilter("all");}}>
+            <button key={u.id} title="Clique para marcar ou desmarcar — dá para combinar vários" style={{...btnStyle(colabs.includes(u.id),u.color),display:"flex",alignItems:"center",gap:4}}
+              onClick={()=>alternar(setColabs,u.id)}>
               <span style={{width:16,height:16,borderRadius:"50%",background:u.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,color:"#fff",fontWeight:900,flexShrink:0}}>{u.initials||u.name.slice(0,1)}</span>
               {u.name}
             </button>
@@ -4805,26 +4811,30 @@ function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusC
           const wkEnd=new Date(wkStart);wkEnd.setDate(wkStart.getDate()+6);wkEnd.setHours(23,59,59,999);
           const tasks=data.tasks.filter(t=>{
             if(t.status!==st.id||t.status==="archived") return false;
-            if(collabFilter){if(!toArr(t.assignees).includes(collabFilter)) return false;}
-            else if(ownerFilter==="mine"){if(!myCollabId||!toArr(t.assignees).includes(myCollabId)) return false;}
-            else if(ownerFilter==="unassigned"){if(toArr(t.assignees).length>0) return false;}
-            else if(ownerFilter==="sector"){
-              const inSector=mySectors.length>0&&mySectors.includes(t.sector);
-              const isMine=myCollabId&&toArr(t.assignees).includes(myCollabId);
-              if(!inSector&&!isMine) return false;
-            }
+            // responsável: basta bater em UM dos marcados (Minhas OU Meu setor OU Sem responsável)
+            if(donos.length>0&&!donos.some(d=>{
+              if(d==="mine") return !!myCollabId&&toArr(t.assignees).includes(myCollabId);
+              if(d==="unassigned") return toArr(t.assignees).length===0;
+              if(d==="sector"){
+                const inSector=mySectors.length>0&&mySectors.includes(t.sector);
+                const isMine=myCollabId&&toArr(t.assignees).includes(myCollabId);
+                return !!(inSector||isMine);
+              }
+              return false;
+            })) return false;
+            // colaboradores: basta ter UM dos marcados entre os responsáveis
+            if(colabs.length>0&&!colabs.some(id=>toArr(t.assignees).includes(id))) return false;
             if(kbBuscaAtiva) return (!kbDia||t.dueDate===kbDia)&&kbMatch(t,data,kbBusca,today); // busca varre todos os períodos
-            if(kanbanFilter==="all") return true;
+            if(periodos.length===0) return true;
             // Em Andamento e Em Revisão mostram TUDO o que está lá, qualquer que seja o prazo
             // (ex.: tarefa da semana que vem adiantada pelo colaborador não pode ficar escondida do gestor)
             if(st.id==="doing"||st.id==="review") return true;
-            if(!t.dueDate) return kanbanFilter==="week";
+            if(!t.dueDate) return periodos.includes("week");
             const due=new Date(t.dueDate+"T12:00:00");
             const isOverdue=isLate(t)||(due<now&&t.dueDate!==today);
             const isDueToday=t.dueDate===today;
-            if(kanbanFilter==="overdue") return isOverdue;
-            if(kanbanFilter==="today") return isDueToday;
-            return isOverdue||isDueToday||(due>=wkStart&&due<=wkEnd);
+            // período: basta bater em UM dos marcados (Hoje OU Vencidas OU Esta semana)
+            return periodos.some(p=>p==="overdue"?isOverdue:p==="today"?isDueToday:(isOverdue||isDueToday||(due>=wkStart&&due<=wkEnd)));
           });
           // fixadas no topo; depois por vencimento (mais antigo primeiro; sem prazo no fim), horário e prioridade
           const ordPri={critica:0,alta:1,media:2,baixa:3};
@@ -4909,7 +4919,7 @@ function KanbanView({data,onEdit,onDelete,onAdd,onDuplicate,onComplete,onStatusC
                     border:`2px dashed ${isDropTarget?st.c:"var(--border)"}`,
                     borderRadius:10,transition:"all .2s",
                   }}>
-                    {isDropTarget?"Soltar aqui →":kbBuscaAtiva?"Nada encontrado":ownerFilter==="mine"?"Nenhuma tarefa sua":ownerFilter==="unassigned"?"Nenhuma sem responsável":ownerFilter==="sector"?"Nenhuma do setor":"Sem tarefas"}
+                    {isDropTarget?"Soltar aqui →":kbBuscaAtiva?"Nada encontrado":donos.length+colabs.length>1?"Nenhuma com esses filtros":donos[0]==="mine"?"Nenhuma tarefa sua":donos[0]==="unassigned"?"Nenhuma sem responsável":donos[0]==="sector"?"Nenhuma do setor":"Sem tarefas"}
                   </div>
                 )}
                 {isDropTarget&&tasks.length>0&&(

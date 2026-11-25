@@ -9634,6 +9634,7 @@ async function igEnviarMidia(file){
   const thumb=await igThumbDeVideo(file);
   const meta=await igMetaVideo(file);
   // 1º: tenta o Storage (bucket público "instagram")
+  let stErro=sb.storage?"":"armazenamento de arquivos indisponível";
   try{
     if(sb.storage){
       const ext=(file.name||"video.mp4").split(".").pop().toLowerCase()||"mp4";
@@ -9643,16 +9644,17 @@ async function igEnviarMidia(file){
         const pub=sb.storage.from("instagram").getPublicUrl(path);
         const url=pub?.data?.publicUrl;
         if(url)return{id,tipo:"video",thumb,nome:file.name||"video.mp4",url,storage:path,tam:file.size,...meta};
-      }
+        stErro="o Storage não devolveu o link público";
+      }else stErro=up.error.message||String(up.error);
     }
-  }catch(e){}
+  }catch(e){stErro=(e&&e.message)||String(e);}
   // 2º: guarda no banco (limite 12 MB)
-  if(file.size>12*1024*1024)throw new Error("Vídeo com "+(file.size/1048576).toFixed(1)+" MB. Sem o armazenamento de arquivos ativado, o limite é 12 MB — comprima o vídeo ou peça para ativar o bucket \"instagram\" no Supabase.");
+  if(file.size>12*1024*1024)throw new Error("Vídeo com "+(file.size/1048576).toFixed(1)+" MB. O armazenamento de arquivos (bucket \"instagram\" do Supabase) não está funcionando"+(stErro?" — motivo: "+stErro:"")+". Sem ele o limite é 12 MB.");
   const dataUrl=await igLerDataUrl(file);
   const{error}=await sb.from("app_data").upsert({id,payload:{tipo:"ig-midia",mime:file.type||"video/mp4",nome:file.name||"video.mp4",data:dataUrl,em:Date.now()}});
   if(error)throw error;
   igMidiaCache.set(id,dataUrl);
-  return{id,tipo:"video",thumb,nome:file.name||"video.mp4",tam:file.size,...meta};
+  return{id,tipo:"video",thumb,nome:file.name||"video.mp4",tam:file.size,stErro:stErro||"sem link público",...meta};
 }
 // Devolve uma URL utilizável (dataURL ou pública) para a mídia
 async function igCarregarMidia(m){
@@ -9975,9 +9977,13 @@ function IgFormatoAjuste({f,setF,conta,publicado,toast}){
   </div>);
 }
 // Traduz o erro da Meta em causa provável + o que fazer
-function IgDicaErro({erro}){
+function IgDicaErro({erro,f}){
   const e=String(erro||"");let titulo="",passos=[];
-  if(/2207077|2207076|2207082|Media upload has failed/i.test(e)&&!/2207026/.test(e)){
+  const semLink=(f?.midias||[]).some(m=>m&&m.tipo==="video"&&!m.url);
+  if(/2207077|2207076|2207082|Media upload has failed/i.test(e)&&!/2207026/.test(e)&&semLink){
+    titulo="O vídeo deste post está salvo só no banco de dados, sem link público — o Instagram não consegue baixá-lo.";
+    passos=["No Supabase, deixe o bucket “instagram” (Storage) como público e com permissão de envio.","Em “Mídias”, remova o vídeo, envie de novo e confira que o aviso de “sem link público” sumiu.","Clique em “Tentar de novo”."];
+  }else if(/2207077|2207076|2207082|Media upload has failed/i.test(e)&&!/2207026/.test(e)){
     titulo="O Instagram recebeu o vídeo, mas não conseguiu processá-lo (esse código não tem explicação oficial da Meta).";
     passos=["Clique em “Tentar de novo” — às vezes é só instabilidade momentânea do Instagram.","Se falhar de novo, reexporte o vídeo em MP4 (H.264 + áudio AAC), em SDR (sem HDR), até 1080×1920, 30 fps e abaixo de 25 Mbps. Vídeo gravado/exportado em HDR é uma causa comum.","Troque o arquivo em “Mídias” pelo vídeo reexportado e agende de novo."];
   }else if(/2207026|video format|formato do v/i.test(e)){
@@ -10011,6 +10017,7 @@ function igChecarFormato(f){
   if(f.tipo==="reels"){if(!vids.length)err("Reels precisa de um vídeo.");if(ms.length>1)av("Reels usa só o primeiro vídeo.");}
   if(f.tipo==="story"&&ms.length>1)av("Story publica 1 mídia por vez — as outras ficam de fora (crie um Story para cada).");
   vids.forEach(v=>{
+    if(!v.url)av("Este vídeo foi salvo só no banco de dados, sem link público"+(v.stErro?" (motivo: "+v.stErro+")":"")+". O Instagram precisa baixar o arquivo por um link — sem ele a publicação automática falha com “Media upload has failed”. Corrija o bucket público “instagram” no Supabase e envie o vídeo de novo.");
     if(v.dur!=null){if(v.dur<3)err(`Vídeo com ${v.dur.toFixed(1)} s — o mínimo é 3 s.`);
       if(f.tipo==="story"&&v.dur>60)err(`Story em vídeo aceita até 60 s (este tem ${Math.round(v.dur)} s).`);
       if(f.tipo!=="story"&&v.dur>900)err(`Vídeo com ${Math.round(v.dur/60)} min — o máximo é 15 min.`);}
@@ -10448,7 +10455,7 @@ function IgPostEditor({open,post,novo,contas,collaborators,companies,posts,userN
         {publicado&&<div style={{padding:"8px 12px",borderRadius:10,background:"#f0fdf4",border:"1px solid #86efac",fontSize:12.5,color:"#166534"}}>✅ Publicado {f.publicadoEm?"em "+new Date(f.publicadoEm).toLocaleString("pt-BR"):""}{f.publicadoPor?" por "+f.publicadoPor:""}. {f.link&&<a href={f.link} target="_blank" rel="noopener noreferrer" style={{color:"#be185d",fontWeight:800}}>ver post ↗</a>} — post publicado não pode ser alterado.</div>}
         <IgHistoricoRepub f={f} posts={posts} contas={contas}/>
         {!publicado&&igRobo(f).estado==="erro"&&<div style={{padding:"10px 12px",borderRadius:11,background:"#fef2f2",border:"1px solid #fca5a5",fontSize:12.5,color:"#991b1b",display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
-          <span style={{flex:"1 1 260px"}}><b>⚠️ O robô não conseguiu publicar.</b><br/>{igRobo(f).erro}{f.robo?.em?<span style={{color:"#b91c1c",fontSize:11}}> · {new Date(f.robo.em).toLocaleString("pt-BR")}</span>:null}<IgDicaErro erro={igRobo(f).erro}/></span>
+          <span style={{flex:"1 1 260px"}}><b>⚠️ O robô não conseguiu publicar.</b><br/>{igRobo(f).erro}{f.robo?.em?<span style={{color:"#b91c1c",fontSize:11}}> · {new Date(f.robo.em).toLocaleString("pt-BR")}</span>:null}<IgDicaErro erro={igRobo(f).erro} f={f}/></span>
           {onTentar&&conectada&&etapa==="agendado"&&<Btn onClick={()=>onTentar(finalizar())} sz="sm" col="#dc2626">🔁 Tentar de novo</Btn>}
         </div>}
         {!publicado&&(igRobo(f).estado==="processando"||igRobo(f).estado==="publicando")&&<div style={{padding:"9px 12px",borderRadius:11,background:"#fffbeb",border:"1px solid #fcd34d",fontSize:12.5,color:"#92400e"}}>⏳ <b>Publicando…</b> O Instagram está processando a mídia. O robô termina sozinho em alguns minutos.</div>}
@@ -12212,11 +12219,19 @@ function InstagramAvisos({addNotification,myCollabId,toast,onNavigate}){
   const ref=React.useRef(false);
   React.useEffect(()=>{
     let parado=false;
+    let cacheTs="",cachePosts=[],cacheContas=[]; // evita baixar a linha inteira do Instagram a cada minuto
     const checar=async()=>{
       if(ref.current||parado)return;ref.current=true;
       try{
-        const{data:row}=await sb.from("app_data").select("payload").eq("id",IG_ROW_ID).maybeSingle();
-        const posts=(row?.payload?.posts)||[];const contas=(row?.payload?.contas)||[];
+        const{data:tsr}=await sb.from("app_data").select("ts:payload->>_savedAt").eq("id",IG_ROW_ID).maybeSingle();
+        const tsAtual=String(tsr?.ts||"");
+        let posts,contas;
+        if(tsAtual&&tsAtual===cacheTs){posts=cachePosts;contas=cacheContas;}
+        else{
+          const{data:row}=await sb.from("app_data").select("payload").eq("id",IG_ROW_ID).maybeSingle();
+          posts=(row?.payload?.posts)||[];contas=(row?.payload?.contas)||[];
+          cacheTs=tsAtual;cachePosts=posts;cacheContas=contas;
+        }
         const agora=new Date();
         const conectada=(p)=>!!(contas.find(x=>x.id===p.contaId)||{}).conexao;
         // falhas do robô → avisa o responsável (uma vez)
@@ -14189,7 +14204,13 @@ function ContabilPage({toast,data,isAdmin,myCollab,featureFlags}){
     const ch=sb.channel("cp_rt").on("postgres_changes",{event:"*",schema:"public",table:"app_data",filter:`id=eq.${CONTABIL_ROW_ID}`},pl=>{if(pl.new?.payload)_applyCP(pl.new.payload);}).subscribe();
     const h=(e)=>{if(e.data?.rowId===CONTABIL_ROW_ID&&e.data?.tabId!==_tabId)sb.from("app_data").select("payload").eq("id",CONTABIL_ROW_ID).maybeSingle().then(({data:r})=>{if(r?.payload)_applyCP(r.payload);});};
     if(_bc)_bc.addEventListener("message",h);
-    const poll=setInterval(async()=>{try{const{data:r}=await sb.from("app_data").select("payload").eq("id",CONTABIL_ROW_ID).maybeSingle();if(r?.payload)_applyCP(r.payload);}catch(e){}},60000);
+    let ultCarimboC="";
+    const poll=setInterval(async()=>{try{
+      const{data:t}=await sb.from("app_data").select("ts:payload->>_savedAt").eq("id",CONTABIL_ROW_ID).maybeSingle();
+      const c=String(t?.ts||"");if(c&&c===ultCarimboC)return; // nada novo: não baixa a linha inteira
+      const{data:r}=await sb.from("app_data").select("payload").eq("id",CONTABIL_ROW_ID).maybeSingle();
+      if(r?.payload){ultCarimboC=String(r.payload._savedAt||c||"");_applyCP(r.payload);}
+    }catch(e){}},60000);
     return()=>{sb.removeChannel(ch);if(_bc)_bc.removeEventListener("message",h);clearInterval(poll);};
   },[]);
 
@@ -19134,6 +19155,7 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
     updateMeta(prev=>({...prev,auditLog:[{id:"a"+Date.now()+Math.random().toString(36).slice(2,6),ts:Date.now(),user:userName||"Usuário",desc,...(extra||{})},...(prev.auditLog||[])].slice(0,400)}),true);
   },[updateMeta,userName]);
 
+  const tsModRef=React.useRef({}); // último carimbo conhecido de cada módulo (evita baixar de novo sem mudança)
   React.useEffect(()=>{
     let ok=true;
     (async()=>{
@@ -19141,6 +19163,7 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
       const result={};
       await Promise.all(MODULOS.map(async mod=>{
         try{const{data:row}=await sb.from("app_data").select("payload").eq("id",mod.rowId).maybeSingle();
+          if(row?.payload)tsModRef.current[mod.rowId]=String(row.payload._savedAt||row.payload._t||"");
           if(ok&&row?.payload)result[mod.id]=row.payload;}catch(e){}
       }));
       if(ok){setPayloads(result);setLoading(false);}
@@ -19160,8 +19183,14 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
   //     o relatório reflete na hora (realtime) — com fallback por broadcast (outra aba) e por polling ──
   const [ultimaAtualizacao,setUltimaAtualizacao]=React.useState(Date.now());
   const buscarPayload=React.useCallback(async(mod)=>{
-    try{const{data:row}=await sb.from("app_data").select("payload").eq("id",mod.rowId).maybeSingle();
+    try{
+      // 1º só o carimbo (poucos bytes); o conteúdo inteiro só é baixado se mudou
+      const{data:tr}=await sb.from("app_data").select("a:payload->>_savedAt,b:payload->>_t").eq("id",mod.rowId).maybeSingle();
+      const carimbo=String((tr&&(tr.a||tr.b))||"");
+      if(carimbo&&carimbo===tsModRef.current[mod.rowId])return;
+      const{data:row}=await sb.from("app_data").select("payload").eq("id",mod.rowId).maybeSingle();
       if(row?.payload){
+        tsModRef.current[mod.rowId]=String(row.payload._savedAt||row.payload._t||carimbo);
         setPayloads(prev=>{
           const antigo=prev[mod.id];const tsA=antigo&&(antigo._savedAt||antigo._t);const tsN=row.payload._savedAt||row.payload._t;
           if(tsA&&tsN&&tsA===tsN)return prev; // nada novo — evita recalcular a árvore inteira a cada 30s
@@ -19174,7 +19203,7 @@ function RelatorioContabilPage({toast,isAdmin,myPerms,userName,sysNotifications,
   React.useEffect(()=>{
     const channels=MODULOS.map(mod=>
       sb.channel("relgrp_"+mod.rowId).on("postgres_changes",{event:"*",schema:"public",table:"app_data",filter:`id=eq.${mod.rowId}`},
-        pl=>{if(pl.new?.payload){setPayloads(prev=>({...prev,[mod.id]:pl.new.payload}));setUltimaAtualizacao(Date.now());}}).subscribe()
+        pl=>{if(pl.new?.payload){tsModRef.current[mod.rowId]=String(pl.new.payload._savedAt||pl.new.payload._t||"");setPayloads(prev=>({...prev,[mod.id]:pl.new.payload}));setUltimaAtualizacao(Date.now());}}).subscribe()
     );
     const rowIds=new Set(MODULOS.map(m=>m.rowId));
     const onBc=(e)=>{if(e.data?.rowId&&rowIds.has(e.data.rowId)){const mod=MODULOS.find(m=>m.rowId===e.data.rowId);if(mod)buscarPayload(mod);}};
